@@ -21,9 +21,10 @@ import (
 // BackMsg asks the root to return to the list.
 type BackMsg struct{}
 
-// railWidth is fixed: the rail holds labels and short values, and a rail that
-// grows with the frame just moves the conversation around.
-const railWidth = 24
+// railWidth is fixed: a rail that grows with the frame just moves the
+// conversation around. It is wide enough for a branch name, which is the
+// longest thing it carries.
+const railWidth = 34
 
 // railMinFrame is the width below which the rail hides itself. Under it the
 // conversation drops past the point where a diff inside a review comment reads.
@@ -103,18 +104,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.tab = (m.tab - 1 + len(tabs)) % len(tabs)
 		m.syncContent()
 
-	case key.Matches(keyMsg, k.NextPane), key.Matches(keyMsg, k.PrevPane):
-		// Two panes, so next and previous are the same flip.
-		if m.railVisible() {
-			if m.focus == paneMain {
-				m.focus = paneRail
-			} else {
-				m.focus = paneMain
-			}
-		}
-	case key.Matches(keyMsg, k.FocusMain):
+	case key.Matches(keyMsg, k.PaneLeft), key.Matches(keyMsg, k.FocusMain):
 		m.focus = paneMain
-	case key.Matches(keyMsg, k.FocusRail):
+	case key.Matches(keyMsg, k.PaneRight), key.Matches(keyMsg, k.FocusRail):
 		if m.railVisible() {
 			m.focus = paneRail
 		}

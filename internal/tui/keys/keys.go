@@ -41,8 +41,8 @@ type DetailMap struct {
 	HalfPageDown key.Binding
 	NextTab      key.Binding
 	PrevTab      key.Binding
-	NextPane     key.Binding
-	PrevPane     key.Binding
+	PaneLeft     key.Binding
+	PaneRight    key.Binding
 	FocusMain    key.Binding
 	FocusRail    key.Binding
 	ToggleRail   key.Binding
@@ -66,8 +66,8 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextSection:  key.NewBinding(key.WithKeys("tab", "l", "right"), key.WithHelp("tab", "next section")),
-		PrevSection:  key.NewBinding(key.WithKeys("shift+tab", "h", "left"), key.WithHelp("shift+tab", "prev section")),
+		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next section")),
+		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev section")),
 		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 	}
@@ -81,10 +81,10 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextTab:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next tab")),
-		PrevTab:      key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev tab")),
-		NextPane:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
-		PrevPane:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev pane")),
+		NextTab:      key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
+		PrevTab:      key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
+		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
 		FocusMain:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "conversation")),
 		FocusRail:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "details")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
@@ -110,7 +110,7 @@ func (k ListMap) FullHelp() [][]key.Binding {
 
 // ShortHelp is the one line the status bar carries.
 func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.NextTab, k.NextPane, k.ToggleRail, k.Back, Global.Help}
+	return []key.Binding{k.Down, k.NextTab, k.PaneRight, k.ToggleRail, k.Back, Global.Help}
 }
 
 // FullHelp is the overlay.
@@ -118,7 +118,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
-		{k.NextTab, k.PrevTab, k.NextPane, k.PrevPane},
+		{k.NextTab, k.PrevTab, k.PaneLeft, k.PaneRight},
 		{k.FocusMain, k.FocusRail, k.ToggleRail, k.Back},
 		{Global.Help, Global.Quit},
 	}

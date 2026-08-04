@@ -32,14 +32,7 @@ func screen(width, height int) prview.Model {
 
 func press(m prview.Model, keys ...string) prview.Model {
 	for _, k := range keys {
-		var code rune
-		switch k {
-		case "tab":
-			code = tea.KeyTab
-		default:
-			code = rune(k[0])
-		}
-		m, _ = m.Update(tea.KeyPressMsg{Code: code, Text: k})
+		m, _ = m.Update(tea.KeyPressMsg{Code: rune(k[0]), Text: k})
 	}
 	return m
 }
@@ -82,10 +75,10 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 		t.Error("Conversation is not the current tab on open")
 	}
 
-	next := press(m, "l")
+	next := press(m, "]")
 	top := firstLine(next.View())
 	if !strings.Contains(top, active+"mCommits") {
-		t.Error("l did not move to the Commits tab")
+		t.Error("] did not move to the Commits tab")
 	}
 	if strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation still reads as current after switching")
@@ -94,9 +87,9 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 		t.Error("the body did not follow the tab")
 	}
 
-	// Four tabs, so h from the first wraps round to the last.
-	if !strings.Contains(firstLine(press(m, "h").View()), active+"mFiles") {
-		t.Error("h from the first tab did not wrap to the last")
+	// Four tabs, so [ from the first wraps round to the last.
+	if !strings.Contains(firstLine(press(m, "[").View()), active+"mFiles") {
+		t.Error("[ from the first tab did not wrap to the last")
 	}
 }
 
@@ -142,13 +135,13 @@ func TestFocusMovesBetweenThePanes(t *testing.T) {
 		t.Fatalf("conversation border = %s on open, want the focused accent", got)
 	}
 
-	rail := press(m, "tab")
+	rail := press(m, "l")
 	if got := conversationBorder(t, rail.View()); got != idle {
-		t.Errorf("conversation border = %s after tab, want it to recede", got)
+		t.Errorf("conversation border = %s after l, want it to recede", got)
 	}
 
-	if got := conversationBorder(t, press(rail, "tab").View()); got != focused {
-		t.Errorf("conversation border = %s after a second tab, want focus back", got)
+	if got := conversationBorder(t, press(rail, "h").View()); got != focused {
+		t.Errorf("conversation border = %s after h, want focus back on the left pane", got)
 	}
 	if got := conversationBorder(t, press(rail, "1").View()); got != focused {
 		t.Errorf("conversation border = %s after 1, want focus jumped straight back", got)
@@ -156,7 +149,7 @@ func TestFocusMovesBetweenThePanes(t *testing.T) {
 }
 
 func TestFocusLeavesTheRailWhenTheRailDoes(t *testing.T) {
-	hidden := press(screen(200, 30), "tab", "d") // focus the rail, then hide it
+	hidden := press(screen(200, 30), "l", "d") // focus the rail, then hide it
 
 	if got := conversationBorder(t, hidden.View()); got != fgSeq(theme.RosePineMoon.Secondary) {
 		t.Errorf("conversation border = %s, want focus back on it once the rail went away", got)
