@@ -45,12 +45,7 @@ fmt-fix: ## Fix code formatting with gofmt
 
 mod-tidy: ## Check if go.mod and go.sum are tidy
 	@echo "Checking go.mod and go.sum..."
-	@go mod tidy
-	@if [ -n "$$(git diff --exit-code go.mod go.sum 2>/dev/null)" ]; then \
-		echo "go.mod or go.sum are not tidy. Run 'go mod tidy' and commit the changes."; \
-		git diff go.mod go.sum; \
-		exit 1; \
-	fi
+	@go mod tidy -diff
 	@echo "go.mod and go.sum are tidy."
 
 lint: fmt mod-tidy ## Run all linting checks (gofmt, mod-tidy, golangci-lint)
