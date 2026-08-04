@@ -24,30 +24,49 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "zen-octo",
-		Short:         "A terminal client for GitHub pull requests and issues",
-		Version:       version.Version,
-		SilenceUsage:  true,
-		RunE:          func(cmd *cobra.Command, _ []string) error { return run() },
+		Use:          "zen-octo",
+		Short:        "A terminal client for GitHub pull requests and issues",
+		Version:      version.Version,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			mockup, err := cmd.Flags().GetBool("mockup")
+			if err != nil {
+				return err
+			}
+			return run(mockup)
+		},
 		SilenceErrors: false,
 	}
+	cmd.Flags().Bool("mockup", false, "Render the UI over fixture data, with no network and no account")
 	cmd.AddCommand(newConfigPathCmd())
 	return cmd
 }
 
-func run() error {
+func run(mockup bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	client, err := gh.New()
+	client, err := newClient(mockup)
 	if err != nil {
 		return err
 	}
 
 	_, err = tea.NewProgram(app.New(cfg, client)).Run()
 	return err
+}
+
+func newClient(mockup bool) (app.PRSearcher, error) {
+	if mockup {
+		return app.Mock{}, nil
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // newConfigPathCmd prints where config is read from, so "why isn't my config

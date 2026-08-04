@@ -1,20 +1,27 @@
-// Package app holds the root Bubble Tea model. It owns view routing, sizing,
-// and the global keymap. All model mutation happens in Update; commands do the
+// Package app holds the root Bubble Tea model. It owns the screens, divides the
+// frame between them and the status bar, and handles the keys that answer
+// whatever has focus. All model mutation happens in Update; commands do the
 // asynchronous work and deliver typed messages back.
 package app
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/list"
+	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -22,10 +29,19 @@ import (
 // here rather than in the gh package is what lets tests drive the UI without a
 // network.
 type PRSearcher interface {
-	SearchPullRequests(ctx context.Context, query string, limit int) ([]gh.PullRequest, error)
+	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 }
 
-type prsFetchedMsg struct{ prs []gh.PullRequest }
+type prsFetchedMsg struct {
+	prs   []gh.PullRequest
+	rate  gh.RateLimit
+	query string
+
+	// announce marks a fetch the user asked for. A refresh that returns the
+	// same rows moves nothing on screen, so the toast is the only way to tell
+	// it happened. A first load and a section switch are both self-evident.
+	announce bool
+}
 
 type prsFailedMsg struct{ err error }
 
@@ -33,43 +49,56 @@ type prsFailedMsg struct{ err error }
 // the UI spinning with no error and no way out but quitting.
 const fetchTimeout = 30 * time.Second
 
+// statusBarHeight is the one line the status bar occupies. It is subtracted
+// once, here, and every region below is told what it got.
+const statusBarHeight = 1
+
+type screen int
+
+const (
+	screenList screen = iota
+	screenDetail
+)
+
 // Model is the root of the UI.
 type Model struct {
-	client  PRSearcher
-	theme   theme.Theme
-	section config.Section
-	limit   int
+	client PRSearcher
+	theme  theme.Theme
+	limit  int
 
-	// notice reports a recoverable config problem, like a theme name that
-	// isn't registered. Silently falling back reads as "my config is ignored".
-	notice string
+	screen screen
+	list   list.Model
+	detail prview.Model
+	status comp.StatusBar
+	toasts comp.Toasts
+	help   help.Model
 
-	prs     []gh.PullRequest
-	err     error
-	loading bool
-	cursor  int
-	offset  int
-	spinner spinner.Model
+	// notice reports a recoverable config problem, like a theme name that isn't
+	// registered. Silently falling back reads as "my config is ignored".
+	notice   string
+	showHelp bool
+	rate     gh.RateLimit
+	query    string
 
 	width  int
 	height int
 }
 
-// New builds the root model. M0 renders the first configured PR section; the
-// rest arrive with the section tabs in M1.
+// New builds the root model over the configured PR sections.
 func New(cfg *config.Config, client PRSearcher) Model {
 	th, ok := theme.Get(cfg.Theme)
 
-	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
+	h := help.New()
+	h.Styles = helpStyles(th)
 
 	m := Model{
-		client:  client,
-		theme:   th,
-		section: cfg.PRSections[0],
-		limit:   cfg.Defaults.PRsLimit,
-		loading: true,
-		spinner: sp,
+		client: client,
+		theme:  th,
+		limit:  cfg.Defaults.PRsLimit,
+		list:   list.New(th, cfg.PRSections),
+		status: comp.NewStatusBar(th),
+		help:   h,
+		query:  cfg.PRSections[0].Filters,
 	}
 	if !ok {
 		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
@@ -78,22 +107,22 @@ func New(cfg *config.Config, client PRSearcher) Model {
 	return m
 }
 
-// Init starts the spinner and the first fetch.
+// Init starts the list and the first fetch.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.fetchPRs())
+	return tea.Batch(m.list.Init(), m.fetchPRs(m.query, false))
 }
 
-func (m Model) fetchPRs() tea.Cmd {
-	client, query, limit := m.client, m.section.Filters, m.limit
+func (m Model) fetchPRs(query string, announce bool) tea.Cmd {
+	client, limit := m.client, m.limit
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 
-		prs, err := client.SearchPullRequests(ctx, query, limit)
+		res, err := client.SearchPullRequests(ctx, query, limit)
 		if err != nil {
 			return prsFailedMsg{err: err}
 		}
-		return prsFetchedMsg{prs: prs}
+		return prsFetchedMsg{prs: res.PullRequests, rate: res.RateLimit, query: query, announce: announce}
 	}
 }
 
@@ -102,116 +131,113 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.clampScroll()
+		m.resize()
 		return m, nil
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	case prsFetchedMsg:
-		m.loading = false
-		m.err = nil
-		m.restoreCursor(msg.prs)
-		m.prs = msg.prs
-		m.clampScroll()
-		return m, nil
-
-	case prsFailedMsg:
-		m.loading = false
-		m.err = msg.err
-		return m, nil
-
-	case spinner.TickMsg:
-		if !m.loading {
+		// A section switch can land after a fetch it did not ask for. Dropping
+		// the stale one keeps the wrong rows off the new tab.
+		if msg.query != m.query {
 			return m, nil
 		}
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		m.rate = msg.rate
+		m.list.SetPullRequests(msg.prs)
+		if !msg.announce {
+			return m, nil
+		}
+		return m, m.toasts.Show(comp.ToastSuccess, loadedSummary(len(msg.prs)))
+
+	case prsFailedMsg:
+		m.list.SetError(msg.err)
+		return m, nil
+
+	case comp.ToastExpiredMsg:
+		m.toasts.Expire(msg)
+		return m, nil
+
+	case list.OpenMsg:
+		m.detail = prview.New(m.theme, msg.PR)
+		m.screen = screenDetail
+		m.resize()
+		return m, nil
+
+	case list.SectionChangedMsg:
+		m.query = msg.Section.Filters
+		return m, m.fetchPRs(m.query, false)
+
+	case list.RefreshMsg:
+		return m, m.fetchPRs(m.query, true)
+
+	case prview.BackMsg:
+		m.screen = screenList
+		m.resize()
+		return m, nil
 	}
 
-	return m, nil
+	return m.delegate(msg)
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
+	switch {
+	case key.Matches(msg, keys.Global.Quit):
 		return m, tea.Quit
 
-	case "j", "down":
-		if m.cursor < len(m.prs)-1 {
-			m.cursor++
-		}
-		m.clampScroll()
+	case key.Matches(msg, keys.Global.Help):
+		m.showHelp = !m.showHelp
 		return m, nil
-
-	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-		m.clampScroll()
-		return m, nil
-
-	case "g", "home":
-		m.cursor = 0
-		m.clampScroll()
-		return m, nil
-
-	case "G", "end":
-		if len(m.prs) > 0 {
-			m.cursor = len(m.prs) - 1
-		}
-		m.clampScroll()
-		return m, nil
-
-	case "r":
-		if m.loading {
-			return m, nil
-		}
-		m.loading = true
-		// Clearing the error matters: render checks it before loading, so a
-		// retry would otherwise redraw the old failure with no spinner.
-		m.err = nil
-		return m, tea.Batch(m.spinner.Tick, m.fetchPRs())
 	}
 
-	return m, nil
+	// While help is up it owns the keyboard, so a movement key scrolls the
+	// screen underneath instead of dismissing what is covering it.
+	if m.showHelp {
+		if msg.String() == "esc" {
+			m.showHelp = false
+		}
+		return m, nil
+	}
+
+	return m.delegate(msg)
 }
 
-// restoreCursor keeps the selection on the same pull request across a refresh,
-// falling back to the nearest valid row when it has gone.
-func (m *Model) restoreCursor(next []gh.PullRequest) {
-	if len(next) == 0 {
-		m.cursor = 0
-		return
+// delegate hands a message to the screen that has focus.
+func (m Model) delegate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch m.screen {
+	case screenList:
+		m.list, cmd = m.list.Update(msg)
+	case screenDetail:
+		m.detail, cmd = m.detail.Update(msg)
 	}
-	if m.cursor < len(m.prs) {
-		want := m.prs[m.cursor].ID
-		for i, pr := range next {
-			if pr.ID == want {
-				m.cursor = i
-				return
-			}
-		}
-	}
-	m.cursor = min(m.cursor, len(next)-1)
+	return m, cmd
 }
 
-// clampScroll keeps the cursor inside the visible window. It is the minimal
-// stand-in for a real viewport; ZNO-10 replaces it.
-func (m *Model) clampScroll() {
-	rows := m.visibleRows()
-	if rows <= 0 || len(m.prs) == 0 {
-		m.offset = 0
+// resize divides the frame. The status bar is fixed, the notice takes a line
+// when there is one, and the active screen gets the rest.
+func (m *Model) resize() {
+	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	if m.cursor < m.offset {
-		m.offset = m.cursor
+
+	body := max(0, m.height-statusBarHeight-m.noticeHeight())
+	m.status = m.status.Size(m.width)
+	m.help.SetWidth(m.width)
+
+	switch m.screen {
+	case screenList:
+		m.list.SetSize(m.width, body)
+	case screenDetail:
+		m.detail.SetSize(m.width, body)
 	}
-	if m.cursor >= m.offset+rows {
-		m.offset = m.cursor - rows + 1
+}
+
+func (m Model) noticeHeight() int {
+	if m.notice == "" {
+		return 0
 	}
-	m.offset = max(0, min(m.offset, max(0, len(m.prs)-rows)))
+	return 1
 }
 
 // View renders the model. It reads state and returns a frame; it never fetches
@@ -221,4 +247,95 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	return v
+}
+
+func (m Model) render() string {
+	if m.width <= 0 || m.height <= 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, 3)
+	if m.notice != "" {
+		parts = append(parts, m.status.Render(m.noticeLine(), ""))
+	}
+
+	switch m.screen {
+	case screenList:
+		parts = append(parts, m.list.View())
+	case screenDetail:
+		parts = append(parts, m.detail.View())
+	}
+	parts = append(parts, m.status.Render(m.statusLeft(), m.statusRight()))
+
+	frame := strings.Join(parts, "\n")
+	if !m.showHelp {
+		return frame
+	}
+	return comp.Over(frame, comp.Modal(m.theme, "Keys", m.helpBody()), m.width, m.height)
+}
+
+func (m Model) noticeLine() string {
+	return comp.NewStatusBar(m.theme).Context(m.notice)
+}
+
+// statusLeft carries a toast while one is showing and the keymap hints the rest
+// of the time.
+func (m Model) statusLeft() string {
+	if !m.toasts.Empty() {
+		return m.toasts.Render(m.theme)
+	}
+	switch m.screen {
+	case screenDetail:
+		return m.help.ShortHelpView(m.detail.Keys().ShortHelp())
+	default:
+		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
+	}
+}
+
+func (m Model) statusRight() string {
+	right := make([]string, 0, 2)
+	if budget := m.status.Budget(m.rate.Remaining); budget != "" {
+		right = append(right, budget)
+	}
+	right = append(right, m.status.Context(m.contextLabel()))
+	return strings.Join(right, m.status.Context(" · "))
+}
+
+func (m Model) contextLabel() string {
+	if m.screen == screenDetail {
+		return "#" + strconv.Itoa(m.detail.PullRequest().Number)
+	}
+	return m.list.Section().Title
+}
+
+func (m Model) helpBody() string {
+	if m.screen == screenDetail {
+		return m.help.FullHelpView(m.detail.Keys().FullHelp())
+	}
+	return m.help.FullHelpView(m.list.Keys().FullHelp())
+}
+
+// helpStyles dresses the help bubble in the active theme. Its own defaults are
+// fixed greys that ignore whatever palette is loaded.
+func helpStyles(th theme.Theme) help.Styles {
+	key := lipgloss.NewStyle().Foreground(th.Secondary)
+	desc := lipgloss.NewStyle().Foreground(th.Faint)
+	sep := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
+
+	return help.Styles{
+		Ellipsis:       sep,
+		ShortKey:       key,
+		ShortDesc:      desc,
+		ShortSeparator: sep,
+		FullKey:        key,
+		FullDesc:       desc,
+		FullSeparator:  sep,
+	}
+}
+
+func loadedSummary(n int) string {
+	if n == 1 {
+		return "Loaded 1 pull request"
+	}
+	return "Loaded " + strconv.Itoa(n) + " pull requests"
 }
