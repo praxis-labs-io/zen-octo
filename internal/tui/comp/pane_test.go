@@ -42,6 +42,10 @@ func TestPaneNeverExceedsItsSize(t *testing.T) {
 		{name: "content taller than the pane", width: 40, height: 5, content: strings.Repeat("row\n", 40)},
 		{name: "content wider than the pane", width: 20, height: 4, content: strings.Repeat("wide ", 40)},
 		{name: "no content at all", width: 30, height: 6, content: ""},
+		// Two lines is borders and nothing else. Writing the body regardless
+		// costs a third line and pushes the status bar off the terminal.
+		{name: "no room for a body", width: 30, height: 2, content: "one\ntwo"},
+		{name: "one line of body", width: 30, height: 3, content: "one\ntwo"},
 	}
 
 	for _, tt := range tests {

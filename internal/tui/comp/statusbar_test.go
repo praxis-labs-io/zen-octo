@@ -78,7 +78,9 @@ func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	if got := s.Budget(120); !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {
 		t.Error("a low budget is not rendered as a warning")
 	}
-	if got := s.Budget(0); got != "" {
-		t.Errorf("Budget(0) = %q, want empty rather than a zero we never fetched", got)
+	// An exhausted pool is the one reading the user most needs. Hiding it here
+	// made the warning branch unreachable.
+	if got := s.Budget(0); !strings.Contains(got, "0") || !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {
+		t.Errorf("Budget(0) = %q, want a warning-colored zero", got)
 	}
 }

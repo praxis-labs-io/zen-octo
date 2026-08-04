@@ -84,7 +84,9 @@ func TestTheColumnsAfterTheTitleHoldTheirPlaceOnAWideTerminal(t *testing.T) {
 // mid-cell with no ellipsis and the selection background stops short of the
 // edge. So the row has to fit at every width, not just roomy ones.
 func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
-	for _, width := range []int{200, 140, 100, 90, 70, 50, 40, 30} {
+	// The fixed columns need 13 cells between them, so the last few widths are
+	// past the point where anything can be dropped and the row has to clip.
+	for _, width := range []int{200, 140, 100, 90, 70, 50, 40, 30, 20, 16, 10} {
 		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
 			out := screen(t, width, 10, []gh.PullRequest{
 				pr("Fix the auth retry backoff loop"),
@@ -97,6 +99,18 @@ func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Under the width the fixed columns need there is nothing left to drop, so the
+// row has to clip itself. Letting it run over means the pane cuts it blind: the
+// trailing column ends mid-cell with nothing saying it was cut, and the width
+// test above passes anyway because the pane still fills its line.
+func TestARowTooNarrowForItsColumnsClipsItself(t *testing.T) {
+	row := stripANSI(rowContaining(t, screen(t, 16, 6, []gh.PullRequest{pr("Fix the auth retry backoff loop")}), "#412"))
+
+	if !strings.Contains(row, "…") {
+		t.Errorf("the row was cut with nothing saying so\n%q", row)
 	}
 }
 

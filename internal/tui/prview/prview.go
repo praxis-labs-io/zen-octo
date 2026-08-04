@@ -21,6 +21,14 @@ import (
 // BackMsg asks the root to return to the list.
 type BackMsg struct{}
 
+// RailPreference is what the user last asked of the details rail. The root
+// carries it from one pull request to the next, so hiding the rail stays hidden
+// instead of having to be redone on every open.
+type RailPreference struct {
+	On  bool
+	Set bool
+}
+
 // railWidth is fixed: a rail that grows with the frame just moves the
 // conversation around. It is wide enough for a branch name, which is the
 // longest thing it carries.
@@ -55,7 +63,12 @@ type Model struct {
 	theme theme.Theme
 	main  comp.Pane
 	rail  comp.Pane
-	view  viewport.Model
+
+	// Each pane scrolls on its own. The rail overflows a short frame as readily
+	// as the conversation does, and its branch names are the only place some of
+	// them appear.
+	view     viewport.Model
+	railView viewport.Model
 
 	pr    gh.PullRequest
 	tab   int
@@ -70,19 +83,26 @@ type Model struct {
 	height int
 }
 
-// New builds the screen over one pull request.
-func New(th theme.Theme, pr gh.PullRequest) Model {
+// New builds the screen over one pull request, carrying forward whatever the
+// user last asked of the rail.
+func New(th theme.Theme, pr gh.PullRequest, rail RailPreference) Model {
+	return Model{
+		theme:       th,
+		main:        comp.NewPane(th),
+		rail:        comp.NewPane(th),
+		view:        newViewport(),
+		railView:    newViewport(),
+		pr:          pr,
+		railOn:      rail.On,
+		railUserSet: rail.Set,
+	}
+}
+
+func newViewport() viewport.Model {
 	vp := viewport.New()
 	vp.SoftWrap = true
 	vp.FillHeight = true
-
-	return Model{
-		theme: th,
-		main:  comp.NewPane(th),
-		rail:  comp.NewPane(th),
-		view:  vp,
-		pr:    pr,
-	}
+	return vp
 }
 
 // Update handles the keys that belong to this screen.
@@ -120,24 +140,38 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.layout()
 
 	case key.Matches(keyMsg, k.Down):
-		m.view.ScrollDown(1)
+		m.scroll().ScrollDown(1)
 	case key.Matches(keyMsg, k.Up):
-		m.view.ScrollUp(1)
+		m.scroll().ScrollUp(1)
 	case key.Matches(keyMsg, k.Top):
-		m.view.GotoTop()
+		m.scroll().GotoTop()
 	case key.Matches(keyMsg, k.Bottom):
-		m.view.GotoBottom()
+		m.scroll().GotoBottom()
 	case key.Matches(keyMsg, k.PageDown):
-		m.view.PageDown()
+		m.scroll().PageDown()
 	case key.Matches(keyMsg, k.PageUp):
-		m.view.PageUp()
+		m.scroll().PageUp()
 	case key.Matches(keyMsg, k.HalfPageDown):
-		m.view.HalfPageDown()
+		m.scroll().HalfPageDown()
 	case key.Matches(keyMsg, k.HalfPageUp):
-		m.view.HalfPageUp()
+		m.scroll().HalfPageUp()
 	}
 
 	return m, nil
+}
+
+// scroll is the viewport the movement keys drive. Focus decides, which is what
+// the help text promises and what the pane borders show.
+func (m *Model) scroll() *viewport.Model {
+	if m.focus == paneRail {
+		return &m.railView
+	}
+	return &m.view
+}
+
+// Rail is the preference to hand the next screen.
+func (m Model) Rail() RailPreference {
+	return RailPreference{On: m.railOn, Set: m.railUserSet}
 }
 
 // SetSize takes the frame and divides it between the panes.
@@ -152,6 +186,8 @@ func (m *Model) layout() {
 	if m.railVisible() {
 		mainWidth = m.width - railWidth
 		m.rail = m.rail.Size(railWidth, m.height)
+		m.railView.SetWidth(m.rail.InnerWidth())
+		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
 	m.main = m.main.Size(mainWidth, m.height)
@@ -176,10 +212,12 @@ func (m Model) PullRequest() gh.PullRequest { return m.pr }
 func (m Model) Keys() keys.DetailMap { return keys.Detail }
 
 func (m *Model) syncContent() {
-	if m.main.InnerWidth() <= 0 {
-		return
+	if m.main.InnerWidth() > 0 {
+		m.view.SetContent(m.tabBody())
 	}
-	m.view.SetContent(m.tabBody())
+	if m.rail.InnerWidth() > 0 {
+		m.railView.SetContent(railBody(m.theme, m.pr))
+	}
 }
 
 // View renders the screen. The panes carry a bracketed index only when there
@@ -193,7 +231,7 @@ func (m Model) View() string {
 	main := m.main.
 		Index(mainIndex).
 		Tabs(tabs, m.tab).
-		Footer(m.scrollFooter()).
+		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
 		Render(m.view.View())
 
@@ -204,20 +242,21 @@ func (m Model) View() string {
 	rail := m.rail.
 		Index(railIndex).
 		Title("Details").
+		Footer(scrollFooter(m.railView)).
 		Focus(m.focus == paneRail).
-		Render(railBody(m.theme, m.pr))
+		Render(m.railView.View())
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, main, rail)
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A
 // counter on content that already fits is noise.
-func (m Model) scrollFooter() string {
-	total := m.view.TotalLineCount()
-	if total <= m.view.Height() {
+func scrollFooter(v viewport.Model) string {
+	total := v.TotalLineCount()
+	if total <= v.Height() {
 		return ""
 	}
-	return strconv.Itoa(min(m.view.YOffset()+m.view.Height(), total)) + "/" + strconv.Itoa(total)
+	return strconv.Itoa(min(v.YOffset()+v.Height(), total)) + "/" + strconv.Itoa(total)
 }
 
 // tabBody renders whichever tab is current.
@@ -239,9 +278,17 @@ func (m Model) conversation() string {
 	stateIcon, _ := comp.PRStateIcon(m.theme, m.pr)
 	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
 
-	meta := lipgloss.NewStyle().Foreground(stateColor).Render(stateIcon+" "+stateLabel) +
-		faint.Render(" · "+m.pr.Author.Login+" · "+m.pr.BaseRefName+" ← "+m.pr.HeadRefName) +
-		faint.Render(" · +"+strconv.Itoa(m.pr.Additions)+" −"+strconv.Itoa(m.pr.Deletions))
+	// A deleted account has no login, and joining round it beats printing two
+	// separators with nothing between them.
+	parts := []string{lipgloss.NewStyle().Foreground(stateColor).Render(stateIcon + " " + stateLabel)}
+	if m.pr.Author.Login != "" {
+		parts = append(parts, faint.Render(m.pr.Author.Login))
+	}
+	parts = append(parts,
+		faint.Render(m.pr.BaseRefName+" ← "+m.pr.HeadRefName),
+		faint.Render("+"+strconv.Itoa(m.pr.Additions)+" −"+strconv.Itoa(m.pr.Deletions)),
+	)
+	meta := strings.Join(parts, faint.Render(" · "))
 
 	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
 		Render(strings.Repeat("─", max(0, m.main.InnerWidth())))

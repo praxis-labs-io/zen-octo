@@ -158,7 +158,27 @@ func (m *Model) setCursor(i int) {
 	// Selection is painted into the rows themselves, so a move means a redraw
 	// before the viewport can scroll to it.
 	m.syncContent()
-	m.view.EnsureVisible(m.cursor, 0, 0)
+	m.scrollToCursor()
+}
+
+// scrollToCursor brings the selected row into view, moving the window by the
+// least it can.
+//
+// viewport.EnsureVisible is the obvious call and it is wrong here: it acts only
+// once the line is already outside the window and then puts it on the top row,
+// so one press down scrolls a whole page and the next nine move nothing.
+func (m *Model) scrollToCursor() {
+	height := m.view.Height()
+	if height <= 0 {
+		return
+	}
+
+	switch offset := m.view.YOffset(); {
+	case m.cursor < offset:
+		m.view.SetYOffset(m.cursor)
+	case m.cursor >= offset+height:
+		m.view.SetYOffset(m.cursor - height + 1)
+	}
 }
 
 // SetSize tells the pane its outer size and the viewport what is left inside.
@@ -168,6 +188,9 @@ func (m *Model) SetSize(width, height int) {
 	m.view.SetWidth(m.pane.InnerWidth())
 	m.view.SetHeight(m.pane.InnerHeight())
 	m.syncContent()
+	// A shrink can leave the selection below the fold, where the next enter
+	// opens a pull request the user cannot see.
+	m.scrollToCursor()
 }
 
 // Focus colors the pane border and is set by the root.
@@ -181,7 +204,7 @@ func (m *Model) SetPullRequests(prs []gh.PullRequest) {
 	m.loading = false
 	m.err = nil
 	m.syncContent()
-	m.view.EnsureVisible(m.cursor, 0, 0)
+	m.scrollToCursor()
 }
 
 // SetError puts the screen into its failed state.

@@ -28,8 +28,8 @@ func (s StatusBar) Size(width int) StatusBar {
 }
 
 // Render puts left at the start of the line and right at its end. When the two
-// cannot both fit, right goes first: it carries the rate limit and the section
-// name, and losing those beats losing the keys that get you out.
+// cannot both fit, the right side is dropped: it carries the rate limit and the
+// section name, and losing those beats losing the keys that get you out.
 func (s StatusBar) Render(left, right string) string {
 	if s.width <= 2 {
 		return ""
@@ -52,11 +52,10 @@ func (s StatusBar) Render(left, right string) string {
 // Budget renders the remaining GraphQL points. It reads faint until the pool
 // runs low, because a number nobody notices is the point right up until it
 // isn't.
+//
+// Zero is a reading, not a missing one, so it renders like any other. Whether
+// there is a budget to show at all is the caller's call.
 func (s StatusBar) Budget(remaining int) string {
-	if remaining <= 0 {
-		return ""
-	}
-
 	c := s.theme.Faint
 	if remaining < 500 {
 		c = s.theme.Warning

@@ -116,7 +116,13 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) stri
 		cells = append(cells, cell(updatedWidth, relativeTime(pr.UpdatedAt), base.Foreground(th.Faint)))
 	}
 
-	return strings.Join(cells, base.Render(strings.Repeat(" ", gutter)))
+	row := strings.Join(cells, base.Render(strings.Repeat(" ", gutter)))
+	if lipgloss.Width(row) <= width {
+		return row
+	}
+	// Narrower than the fixed columns need, with nothing left to drop. Clipping
+	// beats letting the row run past the pane, which the pane then cuts blind.
+	return lipgloss.NewStyle().MaxWidth(width).Render(row)
 }
 
 // cell pads to width and truncates anything longer, so columns stay aligned
@@ -125,11 +131,23 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) stri
 // Truncation is explicit because Style.Width wraps first and only then clips,
 // which turns one long title into two rows instead of one clipped one.
 func cell(width int, content string, style lipgloss.Style) string {
-	if width > 1 && lipgloss.Width(content) > width {
-		content = lipgloss.NewStyle().MaxWidth(width-1).Render(content) + "…"
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(content) > width {
+		content = clip(content, width)
 	}
 	pad := max(0, width-lipgloss.Width(content))
 	return style.Render(content + strings.Repeat(" ", pad))
+}
+
+// clip truncates to width, marking the cut. A single column has room for the
+// mark and nothing else, and MaxWidth(0) means no limit rather than no room.
+func clip(content string, width int) string {
+	if width == 1 {
+		return "…"
+	}
+	return lipgloss.NewStyle().MaxWidth(width-1).Render(content) + "…"
 }
 
 // relativeTime renders a compact age: 34m, 5h, 12d, 3y. Anything in the future

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -39,6 +41,20 @@ func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, lim
 		return gh.SearchResult{}, f.err
 	}
 	return gh.SearchResult{PullRequests: f.prs, RateLimit: f.rate}, nil
+}
+
+// querySearcher answers per query, so a test can hold one section's fetch back
+// and let another land first.
+type querySearcher struct {
+	results map[string]gh.SearchResult
+	errs    map[string]error
+}
+
+func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {
+	if err, ok := f.errs[query]; ok {
+		return gh.SearchResult{}, err
+	}
+	return f.results[query], nil
 }
 
 func testConfig() *config.Config {
@@ -328,6 +344,10 @@ func TestTheFrameNeverExceedsTheTerminal(t *testing.T) {
 		{width: 90, height: 24},
 		{width: 60, height: 8},
 		{width: 40, height: 5},
+		// Below this a pane is borders and nothing else, and one line has to be
+		// the status bar rather than a config notice.
+		{width: 60, height: 3},
+		{width: 40, height: 2},
 	}
 
 	for _, size := range sizes {
@@ -546,6 +566,175 @@ func TestKnownThemeShowsNoNotice(t *testing.T) {
 	if strings.Contains(render(t, loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)), "Unknown theme") {
 		t.Error("a valid theme produced a notice")
 	}
+}
+
+// Scrolling has to follow the cursor by a row. viewport.EnsureVisible acts only
+// once the cursor is already outside the window and then puts it on the top
+// line, which turned one press into a page jump and the next ten into nothing.
+func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
+
+	// Eleven lines of content, so rows 0 through 10 are on screen and the
+	// eleventh press is the first that has to move the window.
+	for range 10 {
+		m = press(m, "j")
+	}
+	if !strings.Contains(render(t, m), "#0 ") {
+		t.Fatal("the window moved before the cursor reached the fold")
+	}
+
+	out := render(t, press(m, "j"))
+	if strings.Contains(out, "#0 ") {
+		t.Error("the window did not move once the cursor passed the fold")
+	}
+	if !strings.Contains(out, "#1 ") {
+		t.Error("the window moved by more than one row")
+	}
+}
+
+// The old root model clamped the scroll on every resize. Losing that put the
+// selection below the fold, where the next enter opens a row nobody can see.
+func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 40)
+	for range 30 {
+		m = press(m, "j")
+	}
+
+	m = settle(m, tea.WindowSizeMsg{Width: 120, Height: 14})
+
+	if got := selectedLine(t, m); !strings.Contains(got, "#30") {
+		t.Errorf("selection = %q, want row 30 still on screen after the shrink", got)
+	}
+}
+
+// These are declared and advertised in the help, so they need driving through
+// the path a user takes rather than trusted because the binding exists.
+func TestPageKeysMoveTheCursor(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []tea.KeyPressMsg
+		want string
+	}{
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#11"},
+		{name: "page down then back up", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0"},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#5"},
+		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
+			for _, k := range tt.keys {
+				m = settle(m, k)
+			}
+
+			if got := selectedLine(t, m); !strings.Contains(got, tt.want+" ") {
+				t.Errorf("selection = %q, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// The success path drops a fetch the user has moved on from. The failure path
+// has to do the same, or a timeout from an abandoned section replaces rows that
+// loaded fine, with no fetch in flight and no spinner to explain it.
+func TestAStaleFailureDoesNotReplaceTheSectionOnScreen(t *testing.T) {
+	client := &querySearcher{
+		errs:    map[string]error{"is:open is:pr author:@me": errors.New("context deadline exceeded")},
+		results: map[string]gh.SearchResult{"is:open is:pr review-requested:@me": {PullRequests: samplePRs()}},
+	}
+
+	var m tea.Model = app.New(testConfig(), client)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// The first section's fetch, held rather than delivered.
+	stale := m.Init()
+
+	m = settle(m, keyMsg("tab"))
+	if !strings.Contains(render(t, m), "Fix auth retry") {
+		t.Fatal("setup: the second section did not load")
+	}
+
+	m = settle(m, immediate(stale)...)
+
+	if strings.Contains(render(t, m), "Failed to load") {
+		t.Error("a failure from the section the user left took over the one on screen")
+	}
+	if !strings.Contains(render(t, m), "Fix auth retry") {
+		t.Error("the loaded rows are gone")
+	}
+}
+
+// The tick chain re-arms from the list's own Update. Delegating by focus killed
+// it the moment the detail opened over a fetch in flight, and coming back
+// showed a spinner frozen on one frame.
+func TestTheSpinnerKeepsTickingBehindTheDetailScreen(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+
+	// Holding the refresh command back leaves the list loading, which is the
+	// state the chain has to survive.
+	m, _ = m.Update(keyMsg("r"))
+
+	var open tea.Cmd
+	m, open = m.Update(keyMsg("enter"))
+	m = settle(m, immediate(open)...)
+
+	if _, cmd := m.Update(spinner.TickMsg{}); cmd == nil {
+		t.Error("the tick produced no follow-up, so the spinner freezes mid-fetch")
+	}
+}
+
+func TestHidingTheRailSticksAcrossPullRequests(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40)
+
+	hidden := press(m, "enter", "d")
+	if strings.Contains(render(t, hidden), "Branch") {
+		t.Fatal("setup: d did not hide the rail")
+	}
+
+	if strings.Contains(render(t, press(hidden, "esc", "enter")), "Branch") {
+		t.Error("reopening the pull request brought the rail back")
+	}
+}
+
+// In the chrome grey the notice reads as decoration, which is the outcome it
+// exists to prevent.
+func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
+	cfg := testConfig()
+	cfg.Theme = "rose-pine-dawn"
+
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}), tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	for _, line := range strings.Split(render(t, m), "\n") {
+		if !strings.Contains(line, "Unknown theme") {
+			continue
+		}
+		if !strings.Contains(line, fgSeq(theme.RosePineMoon.Warning)) {
+			t.Error("the notice renders in the same grey as the key hints")
+		}
+		return
+	}
+	t.Fatal("the notice is not on screen")
+}
+
+func TestTheBudgetShowsAtZeroAndNotBeforeItIsKnown(t *testing.T) {
+	spent := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 0}}
+	if out := render(t, loaded(t, spent, 120, 40)); !strings.Contains(out, "◆ 0") {
+		t.Errorf("view = %q, want the budget still readable once it is gone", out)
+	}
+
+	failed := &fakeSearcher{err: errors.New("boom")}
+	if strings.Contains(render(t, loaded(t, failed, 120, 40)), "◆") {
+		t.Error("the status bar shows a budget it has never been told")
+	}
+}
+
+func ctrl(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
+
+// fgSeq is the SGR sequence that sets a foreground to the given color.
+func fgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
 func manyPRs(n int) []gh.PullRequest {

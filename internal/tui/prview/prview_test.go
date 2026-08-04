@@ -24,8 +24,10 @@ func samplePR() gh.PullRequest {
 	}
 }
 
-func screen(width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, samplePR())
+func screen(width, height int) prview.Model { return sized(samplePR(), width, height) }
+
+func sized(pr gh.PullRequest, width, height int) prview.Model {
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
 	m.SetSize(width, height)
 	return m
 }
@@ -182,7 +184,59 @@ func TestFocusLeavesTheRailWhenTheRailDoes(t *testing.T) {
 	}
 }
 
+// The rail overflows a short frame as readily as the conversation does, and its
+// branch names are the only place some of them appear. Movement keys have to
+// reach it, and only when it has focus.
+func TestTheRailScrollsOnceItHasFocus(t *testing.T) {
+	m := screen(200, 14)
+
+	if strings.Contains(m.View(), "3 files") {
+		t.Fatal("setup: the rail already fits, so there is nothing to scroll")
+	}
+	if strings.Contains(press(m, "G").View(), "3 files") {
+		t.Error("G moved the rail while the conversation had focus")
+	}
+
+	rail := press(m, "l", "G")
+	if !strings.Contains(rail.View(), "3 files") {
+		t.Error("the rail did not scroll once it had focus")
+	}
+	if !strings.Contains(rail.View(), "19/19") {
+		t.Error("the rail carries no position counter, so there is nothing saying it scrolls")
+	}
+}
+
+// Author is nil on GitHub once an account is deleted, so the login can be empty
+// on a real pull request.
+func TestADeletedAuthorLeavesNoGapInTheMetaLine(t *testing.T) {
+	pr := samplePR()
+	pr.Author = gh.Actor{}
+
+	out := stripANSI(sized(pr, 200, 30).View())
+	if strings.Contains(out, "·  ·") {
+		t.Error("the meta line renders two separators around the missing login")
+	}
+	if !strings.Contains(out, "main ← fix-auth-retry") {
+		t.Error("the rest of the meta line went with the author")
+	}
+}
+
 func firstLine(s string) string { return strings.Split(s, "\n")[0] }
+
+// stripANSI drops SGR sequences so a test can reason about the text alone.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
 
 // conversationBorder reads the SGR foreground the frame opens with, which is
 // the conversation pane's top-left corner.

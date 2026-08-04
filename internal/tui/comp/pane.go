@@ -98,13 +98,14 @@ func (p Pane) Render(content string) string {
 		return ""
 	}
 
-	var b strings.Builder
-	b.WriteString(p.topBorder())
-	b.WriteString("\n")
-	b.WriteString(p.body(content))
-	b.WriteString("\n")
-	b.WriteString(p.bottomBorder())
-	return b.String()
+	lines := make([]string, 0, p.height)
+	lines = append(lines, p.topBorder())
+	// At a height of two the borders are the whole pane. Writing the body
+	// unconditionally costs a third line and overflows the frame.
+	if body := p.body(content); body != "" {
+		lines = append(lines, body)
+	}
+	return strings.Join(append(lines, p.bottomBorder()), "\n")
 }
 
 func (p Pane) borderStyle() lipgloss.Style {

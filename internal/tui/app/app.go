@@ -13,6 +13,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -43,7 +44,10 @@ type prsFetchedMsg struct {
 	announce bool
 }
 
-type prsFailedMsg struct{ err error }
+type prsFailedMsg struct {
+	err   error
+	query string
+}
 
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
 // the UI spinning with no error and no way out but quitting.
@@ -120,7 +124,7 @@ func (m Model) fetchPRs(query string, announce bool) tea.Cmd {
 
 		res, err := client.SearchPullRequests(ctx, query, limit)
 		if err != nil {
-			return prsFailedMsg{err: err}
+			return prsFailedMsg{err: err, query: query}
 		}
 		return prsFetchedMsg{prs: res.PullRequests, rate: res.RateLimit, query: query, announce: announce}
 	}
@@ -151,15 +155,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.toasts.Show(comp.ToastSuccess, loadedSummary(len(msg.prs)))
 
 	case prsFailedMsg:
+		// Same guard as the success path. A timeout from a section the user
+		// already left would otherwise replace rows that loaded fine.
+		if msg.query != m.query {
+			return m, nil
+		}
 		m.list.SetError(msg.err)
 		return m, nil
+
+	case spinner.TickMsg:
+		// The list owns the only spinner, and the chain re-arms from its own
+		// Update. Delegating by focus kills it the moment the detail screen
+		// opens over a fetch in flight.
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
 
 	case comp.ToastExpiredMsg:
 		m.toasts.Expire(msg)
 		return m, nil
 
 	case list.OpenMsg:
-		m.detail = prview.New(m.theme, msg.PR)
+		m.detail = prview.New(m.theme, msg.PR, m.detail.Rail())
 		m.screen = screenDetail
 		m.resize()
 		return m, nil
@@ -233,11 +250,20 @@ func (m *Model) resize() {
 	}
 }
 
+// noticeHeight is the line the notice takes. On a frame with room for one line
+// the status bar wins it: the keys that quit matter more than a config warning.
 func (m Model) noticeHeight() int {
-	if m.notice == "" {
+	if m.notice == "" || m.height < 2 {
 		return 0
 	}
 	return 1
+}
+
+func (m Model) screenView() string {
+	if m.screen == screenDetail {
+		return m.detail.View()
+	}
+	return m.list.View()
 }
 
 // View renders the model. It reads state and returns a frame; it never fetches
@@ -255,15 +281,13 @@ func (m Model) render() string {
 	}
 
 	parts := make([]string, 0, 3)
-	if m.notice != "" {
+	if m.noticeHeight() > 0 {
 		parts = append(parts, m.status.Render(m.noticeLine(), ""))
 	}
-
-	switch m.screen {
-	case screenList:
-		parts = append(parts, m.list.View())
-	case screenDetail:
-		parts = append(parts, m.detail.View())
+	// A pane with no room for content renders nothing at all, and appending
+	// that empty string would still cost the line it was denied.
+	if body := m.screenView(); body != "" {
+		parts = append(parts, body)
 	}
 	parts = append(parts, m.status.Render(m.statusLeft(), m.statusRight()))
 
@@ -274,8 +298,10 @@ func (m Model) render() string {
 	return comp.Over(frame, comp.Modal(m.theme, "Keys", m.helpBody()), m.width, m.height)
 }
 
+// noticeLine renders the config warning in the warning color. In the chrome
+// grey it reads as decoration, and a notice nobody acts on is one that failed.
 func (m Model) noticeLine() string {
-	return comp.NewStatusBar(m.theme).Context(m.notice)
+	return lipgloss.NewStyle().Foreground(m.theme.Warning).Render(m.notice)
 }
 
 // statusLeft carries a toast while one is showing and the keymap hints the rest
@@ -294,8 +320,10 @@ func (m Model) statusLeft() string {
 
 func (m Model) statusRight() string {
 	right := make([]string, 0, 2)
-	if budget := m.status.Budget(m.rate.Remaining); budget != "" {
-		right = append(right, budget)
+	// Limit is zero until a response lands. Gating on it rather than on
+	// Remaining is what lets an exhausted budget still read as zero.
+	if m.rate.Limit > 0 {
+		right = append(right, m.status.Budget(m.rate.Remaining))
 	}
 	right = append(right, m.status.Context(m.contextLabel()))
 	return strings.Join(right, m.status.Context(" · "))
