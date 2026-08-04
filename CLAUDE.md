@@ -8,7 +8,14 @@ Drew's Go terminal client for GitHub, at `zen-octo/zen-octo` (`origin`). It hand
 
 gh-dash is the reference for GitHub search-query shapes and section config, not for code. It runs on Bubble Tea v1, so its view code does not lift verbatim.
 
-**`main` is the product branch.** Feature work flows ticket → branch → PR on `origin` (see Project Management); genuinely trivial tweaks still commit straight to `main`. A tracked pre-push hook rejects pushes to `main`, so agent work always goes through a branch.
+**`main` is the product branch.** Feature work flows ticket → branch → PR on `origin` (see Project Management).
+
+Two things skip the PR and commit straight to `main`:
+
+- Genuinely trivial tweaks. A typo, a one-liner.
+- **Doc-only changes with no code.** Markdown, comments, `CLAUDE.md`, rules files. A PR for prose is ceremony.
+
+A tracked pre-push hook rejects pushes to `main`, so an agent commits these and Drew pushes them. Don't reach for `--no-verify`.
 
 The installed binary is built from here to `~/.local/bin/zen-octo`; **rebuild after changes or Drew keeps running the old code**:
 
