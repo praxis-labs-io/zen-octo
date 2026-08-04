@@ -38,8 +38,8 @@ type Model struct {
 	sections []config.Section
 	active   int
 
-	prs     []gh.PullRequest
-	cursor  int
+	rows    rows
+	cursor  int // indexes the selectable rows, so a header is never addressable
 	loading bool
 	err     error
 	focused bool
@@ -97,15 +97,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.Top):
 		m.setCursor(0)
 	case key.Matches(msg, k.Bottom):
-		m.setCursor(len(m.prs) - 1)
+		m.setCursor(m.rows.len() - 1)
 	case key.Matches(msg, k.PageDown):
-		m.moveCursor(m.view.Height())
+		m.moveCursor(m.page())
 	case key.Matches(msg, k.PageUp):
-		m.moveCursor(-m.view.Height())
+		m.moveCursor(-m.page())
 	case key.Matches(msg, k.HalfPageDown):
-		m.moveCursor(m.view.Height() / 2)
+		m.moveCursor(m.page() / 2)
 	case key.Matches(msg, k.HalfPageUp):
-		m.moveCursor(-m.view.Height() / 2)
+		m.moveCursor(-m.page() / 2)
 
 	case key.Matches(msg, k.NextSection):
 		return m.changeSection(1)
@@ -139,7 +139,7 @@ func (m Model) changeSection(delta int) (Model, tea.Cmd) {
 	}
 
 	m.active = (m.active + delta + len(m.sections)) % len(m.sections)
-	m.cursor, m.prs, m.err, m.loading = 0, nil, nil, true
+	m.cursor, m.rows, m.err, m.loading = 0, rows{}, nil, true
 	m.syncContent()
 
 	section := m.sections[m.active]
@@ -149,20 +149,25 @@ func (m Model) changeSection(delta int) (Model, tea.Cmd) {
 func (m *Model) moveCursor(delta int) { m.setCursor(m.cursor + delta) }
 
 func (m *Model) setCursor(i int) {
-	if len(m.prs) == 0 {
+	if m.rows.len() == 0 {
 		m.cursor = 0
 		return
 	}
 
-	m.cursor = max(0, min(i, len(m.prs)-1))
+	m.cursor = max(0, min(i, m.rows.len()-1))
 	// Selection is painted into the rows themselves, so a move means a redraw
 	// before the viewport can scroll to it.
 	m.syncContent()
 	m.scrollToCursor()
 }
 
+// page is a screenful measured in rows. Headers make a screenful vary by a row
+// either way, which a page key does not have to be exact about.
+func (m Model) page() int { return max(1, m.view.Height()/rowLines) }
+
 // scrollToCursor brings the selected row into view, moving the window by the
-// least it can.
+// least it can. It works in lines: a row is two of them and a header is one, so
+// the cursor is not an offset into the viewport.
 //
 // viewport.EnsureVisible is the obvious call and it is wrong here: it acts only
 // once the line is already outside the window and then puts it on the top row,
@@ -173,11 +178,14 @@ func (m *Model) scrollToCursor() {
 		return
 	}
 
+	first, last := m.rows.span(m.cursor)
 	switch offset := m.view.YOffset(); {
-	case m.cursor < offset:
-		m.view.SetYOffset(m.cursor)
-	case m.cursor >= offset+height:
-		m.view.SetYOffset(m.cursor - height + 1)
+	case first < offset:
+		m.view.SetYOffset(first)
+	case last >= offset+height:
+		// A window shorter than a row can only hold one of its lines, and the
+		// first is the one carrying the title.
+		m.view.SetYOffset(min(m.rows.align(last-height+1), first))
 	}
 }
 
@@ -199,8 +207,9 @@ func (m *Model) Focus(v bool) { m.focused = v }
 // SetPullRequests replaces the rows, holding the selection on the same pull
 // request where it survived the refresh.
 func (m *Model) SetPullRequests(prs []gh.PullRequest) {
-	m.restoreCursor(prs)
-	m.prs = prs
+	next := newRows(prs)
+	m.restoreCursor(next)
+	m.rows = next
 	m.loading = false
 	m.err = nil
 	m.syncContent()
@@ -214,12 +223,7 @@ func (m *Model) SetError(err error) {
 }
 
 // Selected reports the pull request under the cursor.
-func (m Model) Selected() (gh.PullRequest, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.prs) {
-		return gh.PullRequest{}, false
-	}
-	return m.prs[m.cursor], true
-}
+func (m Model) Selected() (gh.PullRequest, bool) { return m.rows.pr(m.cursor) }
 
 // Section is the section currently on screen.
 func (m Model) Section() config.Section {
@@ -230,25 +234,26 @@ func (m Model) Section() config.Section {
 }
 
 // restoreCursor keeps the selection on the same pull request across a refresh,
-// falling back to the nearest valid row when it has gone.
-func (m *Model) restoreCursor(next []gh.PullRequest) {
-	if len(next) == 0 {
+// falling back to the nearest valid row when it has gone. Grouping means a
+// refresh can reorder rows without adding or removing any, so matching on the
+// id is the only thing that holds.
+func (m *Model) restoreCursor(next rows) {
+	if next.len() == 0 {
 		m.cursor = 0
 		return
 	}
-	if m.cursor < len(m.prs) {
-		want := m.prs[m.cursor].ID
-		for i, pr := range next {
-			if pr.ID == want {
-				m.cursor = i
+	if want, ok := m.rows.pr(m.cursor); ok {
+		for n := range next.len() {
+			if pr, _ := next.pr(n); pr.ID == want.ID {
+				m.cursor = n
 				return
 			}
 		}
 	}
-	m.cursor = min(m.cursor, len(next)-1)
+	m.cursor = min(m.cursor, next.len()-1)
 }
 
-// syncContent re-renders the rows into the viewport. Row appearance depends on
+// syncContent re-renders the list into the viewport. Row appearance depends on
 // the cursor, so this runs after any move as well as after new data.
 func (m *Model) syncContent() {
 	width := m.pane.InnerWidth()
@@ -256,11 +261,16 @@ func (m *Model) syncContent() {
 		return
 	}
 
-	rows := make([]string, len(m.prs))
-	for i, pr := range m.prs {
-		rows[i] = renderRow(m.theme, pr, width, i == m.cursor)
+	selected := m.rows.item(m.cursor)
+	lines := make([]string, 0, m.rows.total)
+	for i, it := range m.rows.items {
+		if !it.isPR() {
+			lines = append(lines, renderHeader(m.theme, it, width))
+			continue
+		}
+		lines = append(lines, renderRow(m.theme, it.pr, width, i == selected)...)
 	}
-	m.view.SetContent(strings.Join(rows, "\n"))
+	m.view.SetContent(strings.Join(lines, "\n"))
 }
 
 // View renders the screen.
@@ -272,7 +282,7 @@ func (m Model) View() string {
 	// Only the section on screen has been fetched, so it is the only one whose
 	// count is known. A blank badge says that; a zero would lie.
 	if m.active < len(tabs) && !m.loading && m.err == nil {
-		tabs[m.active].Badge = strconv.Itoa(len(m.prs))
+		tabs[m.active].Badge = strconv.Itoa(m.rows.len())
 	}
 
 	return m.pane.
@@ -292,7 +302,7 @@ func (m Model) body() string {
 		return label + "\n" + faint.Render(m.err.Error())
 	case m.loading:
 		return m.spinner.View() + " " + faint.Render("Loading pull requests")
-	case len(m.prs) == 0:
+	case m.rows.len() == 0:
 		return faint.Render("Nothing matches this section.")
 	default:
 		return m.view.View()
@@ -300,10 +310,10 @@ func (m Model) body() string {
 }
 
 func (m Model) footer() string {
-	if m.loading || m.err != nil || len(m.prs) == 0 {
+	if m.loading || m.err != nil || m.rows.len() == 0 {
 		return ""
 	}
-	return strconv.Itoa(m.cursor+1) + " of " + strconv.Itoa(len(m.prs))
+	return strconv.Itoa(m.cursor+1) + " of " + strconv.Itoa(m.rows.len())
 }
 
 // Keys is the keymap live while this screen has focus.

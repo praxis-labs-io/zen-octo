@@ -574,9 +574,9 @@ func TestKnownThemeShowsNoNotice(t *testing.T) {
 func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
 
-	// Eleven lines of content, so rows 0 through 10 are on screen and the
-	// eleventh press is the first that has to move the window.
-	for range 10 {
+	// Eleven lines of content: a group header and then two lines a row, so rows
+	// 0 through 4 fit and the fifth press is the first that has to move.
+	for range 4 {
 		m = press(m, "j")
 	}
 	if !strings.Contains(render(t, m), "#0 ") {
@@ -615,10 +615,10 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 		keys []tea.KeyPressMsg
 		want string
 	}{
-		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#11"},
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#5"},
 		{name: "page down then back up", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0"},
-		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#5"},
-		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#5"},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#2"},
+		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#2"},
 	}
 
 	for _, tt := range tests {
@@ -737,12 +737,16 @@ func fgSeq(c color.Color) string {
 	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
+// manyPRs builds a run in a known order: one repo and one clock reading, so the
+// sort's newest-first tiebreak cannot reorder rows by how long the loop took.
 func manyPRs(n int) []gh.PullRequest {
+	at := time.Now()
+
 	prs := make([]gh.PullRequest, n)
 	for i := range prs {
 		prs[i] = gh.PullRequest{
 			ID: fmt.Sprintf("PR_%d", i), Number: i, Title: fmt.Sprintf("Change %d", i),
-			Repository: "zen-octo/zen-octo", State: gh.PRStateOpen, UpdatedAt: time.Now(),
+			Repository: "zen-octo/zen-octo", State: gh.PRStateOpen, UpdatedAt: at,
 		}
 	}
 	return prs
@@ -754,15 +758,18 @@ func selectionSeq() string {
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// selectedLine returns the rendered row painted with the selection background.
-// Matching the exact color keeps this from picking up other styled chrome.
+// selectedLine returns every rendered line painted with the selection
+// background, joined. Matching the exact color keeps this from picking up other
+// styled chrome. A row is two lines, and its number is on the second, so
+// returning only the first would answer half the question.
 func selectedLine(t *testing.T, m tea.Model) string {
 	t.Helper()
 
+	var out []string
 	for _, line := range strings.Split(render(t, m), "\n") {
 		if strings.Contains(line, selectionSeq()) {
-			return line
+			out = append(out, line)
 		}
 	}
-	return ""
+	return strings.Join(out, "\n")
 }

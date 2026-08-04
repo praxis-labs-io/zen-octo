@@ -89,6 +89,22 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	return "", th.Faint
 }
 
+// ReviewIcon is where review stands, for the list, where there is no room for
+// the words. A blank glyph means no review is required.
+func ReviewIcon(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
+	switch d {
+	case gh.ReviewDecisionApproved:
+		return "✔", th.Success
+	case gh.ReviewDecisionChangesRequested:
+		return "✎", th.Error
+	case gh.ReviewDecisionReviewRequired:
+		return "◇", th.Warning
+	case gh.ReviewDecisionNone:
+		return " ", th.Faint
+	}
+	return " ", th.Faint
+}
+
 // ReviewLabel names where review stands. It returns empty when no review is
 // required.
 func ReviewLabel(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
