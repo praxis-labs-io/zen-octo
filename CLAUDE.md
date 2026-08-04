@@ -113,4 +113,18 @@ Package boundaries that matter:
 
 Writes are optimistic: apply locally, toast, reconcile on response, revert on error. Every write path needs the revert branch, not just the happy one.
 
-Only `cmd/zen-octo` and `internal/version` exist so far. The rest lands milestone by milestone; see the **v1** project in Linear.
+The shell divides the frame top-down: `app` owns the terminal size, subtracts the status bar, and calls `SetSize` on the screen that has focus, which sizes its own panes. **No component reads terminal dimensions or counts chrome lines.** A test asserts the rendered frame never exceeds the size it was given.
+
+Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never sits on the root model.
+
+Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
+
+Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. `internal/store` and the rest land milestone by milestone; see the **v1** project in Linear.
+
+## Rendering traps
+
+Both of these look like working code and produce a broken frame.
+
+- **Every styled cell ends in a full SGR reset**, which clears the background along with the foreground. A row background has to be set per cell; wrapping a joined row paints only the first one.
+- **`lipgloss.Canvas.Compose` ignores a layer's position** and draws every layer at the origin. Compositing an overlay needs `lipgloss.NewCompositor`.
+- **`Style.Width` wraps before it clips.** Truncating to a column width means clipping explicitly first, or one long title becomes two rows.
