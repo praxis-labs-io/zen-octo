@@ -20,7 +20,9 @@ Anything published under Drew's name (PR bodies, issues, README) must be shown t
 
 ## Conventions
 
-Code quality and voice rules are global, at `~/Dev/drucial-dots/claude/rules/`. Don't copy them in here; that only creates drift.
+@.claude/rules/code-quality.md
+
+That file holds only the Go and Bubble Tea specifics. The principles and voice rules are global and load automatically; don't copy them in here, that only creates drift.
 
 ## Commands
 
