@@ -41,6 +41,22 @@ type Actor struct {
 	Login string
 }
 
+// RateLimit is the GraphQL point budget as of the last response. GitHub bills
+// by query complexity rather than request count, so this is the ceiling worth
+// watching.
+type RateLimit struct {
+	Limit     int
+	Cost      int
+	Remaining int
+	ResetAt   time.Time
+}
+
+// SearchResult is one search response: what it matched and what it cost.
+type SearchResult struct {
+	PullRequests []PullRequest
+	RateLimit    RateLimit
+}
+
 // PullRequest is the shape the rest of the app sees. It is deliberately not
 // the GraphQL response: everything above this package depends on this type.
 type PullRequest struct {

@@ -28,15 +28,25 @@ func TestLiveSearchPullRequests(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	prs, err := client.SearchPullRequests(ctx, "is:pr author:@me", 3)
+	res, err := client.SearchPullRequests(ctx, "is:pr author:@me", 3)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v", err)
 	}
-	if len(prs) == 0 {
+
+	// The budget comes back on every response, so it is checkable even when the
+	// account has nothing matching.
+	if res.RateLimit.Remaining == 0 {
+		t.Error("RateLimit.Remaining is 0, want the live budget")
+	}
+	if res.RateLimit.Cost == 0 {
+		t.Error("RateLimit.Cost is 0, want what this query charged")
+	}
+
+	if len(res.PullRequests) == 0 {
 		t.Skip("the authenticated account has no pull requests to check against")
 	}
 
-	for _, pr := range prs {
+	for _, pr := range res.PullRequests {
 		if pr.ID == "" {
 			t.Error("ID is empty, want the node id")
 		}

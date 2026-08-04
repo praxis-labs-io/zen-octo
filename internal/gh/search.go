@@ -8,6 +8,7 @@ import (
 
 const searchPullRequestsQuery = `
 query SearchPullRequests($q: String!, $limit: Int!) {
+  rateLimit { limit cost remaining resetAt }
   search(query: $q, type: ISSUE, first: $limit) {
     nodes {
       ... on PullRequest {
@@ -38,6 +39,13 @@ query SearchPullRequests($q: String!, $limit: Int!) {
 // searchPullRequestsResponse mirrors the query above. It stays unexported:
 // callers get []PullRequest.
 type searchPullRequestsResponse struct {
+	RateLimit struct {
+		Limit     int
+		Cost      int
+		Remaining int
+		ResetAt   time.Time
+	}
+
 	Search struct {
 		Nodes []struct {
 			ID           string
@@ -70,14 +78,14 @@ type searchPullRequestsResponse struct {
 }
 
 // SearchPullRequests runs a raw GitHub search query and returns the pull
-// requests it matched. The query is whatever the user put in their config;
-// this package does not interpret it.
-func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) ([]PullRequest, error) {
+// requests it matched along with what the call cost. The query is whatever the
+// user put in their config; this package does not interpret it.
+func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (SearchResult, error) {
 	var resp searchPullRequestsResponse
 	vars := map[string]any{"q": query, "limit": limit}
 
 	if err := c.gql.DoWithContext(ctx, searchPullRequestsQuery, vars, &resp); err != nil {
-		return nil, fmt.Errorf("searching pull requests (%s): %w", query, classify(err))
+		return SearchResult{}, fmt.Errorf("searching pull requests (%s): %w", query, classify(err))
 	}
 
 	prs := make([]PullRequest, 0, len(resp.Search.Nodes))
@@ -115,5 +123,14 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 		}
 		prs = append(prs, pr)
 	}
-	return prs, nil
+
+	return SearchResult{
+		PullRequests: prs,
+		RateLimit: RateLimit{
+			Limit:     resp.RateLimit.Limit,
+			Cost:      resp.RateLimit.Cost,
+			Remaining: resp.RateLimit.Remaining,
+			ResetAt:   resp.RateLimit.ResetAt,
+		},
+	}, nil
 }

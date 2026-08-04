@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 )
@@ -30,6 +31,7 @@ func (f *fakeDoer) DoWithContext(_ context.Context, query string, vars map[strin
 }
 
 const twoPRsBody = `{
+  "rateLimit": {"limit": 5000, "cost": 1, "remaining": 4821, "resetAt": "2026-08-04T18:00:00Z"},
   "search": {
     "nodes": [
       {
@@ -63,10 +65,11 @@ const twoPRsBody = `{
 func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 	doer := &fakeDoer{body: twoPRsBody}
 
-	got, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open author:@me", 20)
+	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open author:@me", 20)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
+	got := res.PullRequests
 	if len(got) != 2 {
 		t.Fatalf("got %d pull requests, want 2", len(got))
 	}
@@ -107,15 +110,35 @@ func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 	}
 }
 
+func TestSearchPullRequestsReportsWhatTheCallCost(t *testing.T) {
+	doer := &fakeDoer{body: twoPRsBody}
+
+	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	if err != nil {
+		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
+	}
+
+	want := RateLimit{
+		Limit:     5000,
+		Cost:      1,
+		Remaining: 4821,
+		ResetAt:   time.Date(2026, 8, 4, 18, 0, 0, 0, time.UTC),
+	}
+	if res.RateLimit != want {
+		t.Errorf("RateLimit = %+v, want %+v", res.RateLimit, want)
+	}
+}
+
 func TestSearchPullRequestsSkipsNonPullRequestNodes(t *testing.T) {
 	// Search returns issues in the same connection; the inline fragment leaves
 	// them as empty nodes.
 	doer := &fakeDoer{body: `{"search": {"nodes": [{}, {"id": "PR_1", "number": 7}, {}]}}`}
 
-	got, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
+	got := res.PullRequests
 	if len(got) != 1 {
 		t.Fatalf("got %d pull requests, want 1", len(got))
 	}
