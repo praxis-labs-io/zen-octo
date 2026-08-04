@@ -437,6 +437,34 @@ func TestHelpOverlaysTheScreenAndDismisses(t *testing.T) {
 	}
 }
 
+// The help bubble sizes columns from their contents and never wraps, so a set
+// one column too wide used to get sheared by the overlay: the modal lost its
+// right border and its rows ran to the frame edge.
+func TestHelpReflowsRatherThanLosingItsBorder(t *testing.T) {
+	for _, width := range []int{160, 100, 80, 60} {
+		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
+			out := render(t, press(loaded(t, &fakeSearcher{prs: samplePRs()}, width, 24), "?"))
+
+			var top string
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "Keys") {
+					top = line
+					break
+				}
+			}
+			if top == "" {
+				t.Fatal("the help overlay is not on screen")
+			}
+			if !strings.Contains(top, "╮") {
+				t.Errorf("the modal lost its top-right corner, so it was sheared rather than reflowed\n%s", top)
+			}
+			if lipgloss.Width(top) != width {
+				t.Errorf("the composited line is %d cells, want %d", lipgloss.Width(top), width)
+			}
+		})
+	}
+}
+
 // Help owns the keyboard while it is up. Otherwise a stray j scrolls the screen
 // under the thing covering it.
 func TestHelpSwallowsScreenKeys(t *testing.T) {

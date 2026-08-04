@@ -121,6 +121,32 @@ func TestTheRailCarriesWhatIsKnownAndOmitsTheRest(t *testing.T) {
 	}
 }
 
+// Collapsing the rail must not lose information. Everything else it carries is
+// already on the meta line; checks and review are not.
+func TestCollapsingTheRailKeepsChecksAndReview(t *testing.T) {
+	wide := screen(200, 30).View()
+	if !strings.Contains(wide, "Branch") {
+		t.Fatal("setup: the rail is not up at 200 columns")
+	}
+
+	narrow := screen(100, 30).View()
+	if strings.Contains(narrow, "Branch") {
+		t.Fatal("setup: the rail is still up at 100 columns")
+	}
+
+	for _, want := range []string{"failing", "changes requested"} {
+		if !strings.Contains(narrow, want) {
+			t.Errorf("collapsing the rail lost %q", want)
+		}
+	}
+
+	// The branch and the diff stat survive because the meta line already had
+	// them, so the collapsed line must not repeat them.
+	if strings.Count(narrow, "fix-auth-retry") != 1 {
+		t.Error("the collapsed layout repeats the branch")
+	}
+}
+
 // Focus is only visible in the border color, so that is what these assert on.
 // The conversation pane's own corner opens the frame, which makes it the one
 // unambiguous place to read it.

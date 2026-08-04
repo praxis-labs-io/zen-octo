@@ -11,20 +11,30 @@ import (
 // because the list bakes a selection background into every cell and can only do
 // that if it owns the final style.
 
+// State glyphs come from the Nerd Fonts octicon and codicon ranges, the same
+// vocabulary gh-dash uses. Shape carries the meaning here: four circles told
+// apart by color alone is what the first pass got wrong.
+const (
+	glyphPROpen   = "" // nf-oct-git_pull_request
+	glyphPRDraft  = "" // nf-cod-git_pull_request_draft
+	glyphPRMerged = "" // nf-oct-git_merge
+	glyphPRClosed = "" // nf-cod-git_pull_request_closed
+)
+
 // PRStateIcon is the lifecycle marker: open, draft, merged, or closed.
 func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	if pr.IsDraft {
-		return "◌", th.Faint
+		return glyphPRDraft, th.Faint
 	}
 	switch pr.State {
 	case gh.PRStateMerged:
-		return "⬤", th.Secondary
+		return glyphPRMerged, th.Secondary
 	case gh.PRStateClosed:
-		return "✕", th.Error
+		return glyphPRClosed, th.Error
 	case gh.PRStateOpen:
-		return "●", th.Success
+		return glyphPROpen, th.Success
 	}
-	return "●", th.Faint
+	return glyphPROpen, th.Faint
 }
 
 // PRStateLabel names the same thing in words, for places with room for them.

@@ -246,5 +246,32 @@ func (m Model) conversation() string {
 	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
 		Render(strings.Repeat("─", max(0, m.main.InnerWidth())))
 
-	return strings.Join([]string{title, meta, rule, faint.Render("The description and timeline arrive with the full pull request query.")}, "\n")
+	lines := []string{title, meta}
+	if status := m.collapsedStatus(); status != "" {
+		lines = append(lines, status)
+	}
+	lines = append(lines, rule, faint.Render("The description and timeline arrive with the full pull request query."))
+	return strings.Join(lines, "\n")
+}
+
+// collapsedStatus carries the two things the rail holds that the meta line does
+// not, so hiding the rail loses nothing. Everything else in the rail is already
+// on the line above it.
+func (m Model) collapsedStatus() string {
+	if m.railVisible() {
+		return ""
+	}
+
+	var parts []string
+	if label, c := comp.CheckStateLabel(m.theme, m.pr.Checks); label != "" {
+		glyph, _ := comp.CheckStateIcon(m.theme, m.pr.Checks)
+		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(glyph+" "+label))
+	}
+	if label, c := comp.ReviewLabel(m.theme, m.pr.ReviewDecision); label != "" {
+		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(label))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Faint).Render(" · "))
 }

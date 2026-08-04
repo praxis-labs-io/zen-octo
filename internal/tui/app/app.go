@@ -309,10 +309,50 @@ func (m Model) contextLabel() string {
 }
 
 func (m Model) helpBody() string {
+	groups := m.list.Keys().FullHelp()
 	if m.screen == screenDetail {
-		return m.help.FullHelpView(m.detail.Keys().FullHelp())
+		groups = m.detail.Keys().FullHelp()
 	}
-	return m.help.FullHelpView(m.list.Keys().FullHelp())
+	return m.help.FullHelpView(refitHelp(groups, m.width-modalChrome))
+}
+
+// modalChrome is what the overlay spends on itself: two border runes and a
+// space of padding either side.
+const modalChrome = 4
+
+// refitHelp re-columns the bindings to whatever the frame can carry. The help
+// bubble sizes its columns from their contents and never wraps, so a set that
+// is one column too wide gets sheared by the overlay rather than reflowed, and
+// the modal loses its right border.
+func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
+	var flat []key.Binding
+	widest := 0
+	for _, group := range groups {
+		for _, b := range group {
+			flat = append(flat, b)
+			if w := len(b.Help().Key) + len(b.Help().Desc) + 1; w > widest {
+				widest = w
+			}
+		}
+	}
+	if len(flat) == 0 {
+		return groups
+	}
+
+	// The help bubble puts a gap between columns; budget for it so the last
+	// column is not the one that overflows.
+	const columnGap = 4
+	columns := max(1, width/(widest+columnGap))
+	if columns >= len(groups) {
+		return groups
+	}
+
+	rows := (len(flat) + columns - 1) / columns
+	out := make([][]key.Binding, 0, columns)
+	for i := 0; i < len(flat); i += rows {
+		out = append(out, flat[i:min(i+rows, len(flat))])
+	}
+	return out
 }
 
 // helpStyles dresses the help bubble in the active theme. Its own defaults are

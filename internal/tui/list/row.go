@@ -23,18 +23,65 @@ const (
 	authorWidth   = 14
 	updatedWidth  = 5
 	gutter        = 1
-	gutters       = 6
-	minTitleWidth = 20
+	minTitleWidth = 16
 	maxTitleWidth = 80
 )
 
-// columns splits an available width into a title and the slack after it.
-func columns(width int) (title, slack int) {
-	fixed := stateWidth + checksWidth + numberWidth + repoWidth + authorWidth + updatedWidth + gutters*gutter
-	avail := max(minTitleWidth, width-fixed)
+// layout is which columns a width can carry, and how much of it the title gets.
+type layout struct {
+	title  int
+	slack  int
+	repo   bool
+	author bool
+	age    bool
+}
 
-	title = min(avail, maxTitleWidth)
-	return title, avail - title
+// fit drops columns until the row fits the width it was given.
+//
+// Letting the row overflow instead means the pane clips it blind: the trailing
+// columns vanish mid-cell with no ellipsis, and the selection background stops
+// short of the edge because the row is no longer as wide as its pane.
+//
+// Author goes first, then repo, then age. Author is the widest thing that is
+// usually identical on every row of a section, and age is the cheapest to keep.
+func fit(width int) layout {
+	l := layout{repo: true, author: true, age: true}
+	base := stateWidth + checksWidth + numberWidth + 3*gutter
+
+	optional := func() int {
+		n := 0
+		if l.repo {
+			n += repoWidth + gutter
+		}
+		if l.author {
+			n += authorWidth + gutter
+		}
+		if l.age {
+			n += updatedWidth + gutter
+		}
+		return n
+	}
+
+	for base+optional()+minTitleWidth > width {
+		switch {
+		case l.author:
+			l.author = false
+		case l.repo:
+			l.repo = false
+		case l.age:
+			l.age = false
+		default:
+			// Nothing left to drop. The title takes whatever remains, which at
+			// this point may be nothing at all.
+			l.title = max(0, width-base)
+			return l
+		}
+	}
+
+	avail := width - base - optional()
+	l.title = min(avail, maxTitleWidth)
+	l.slack = avail - l.title
+	return l
 }
 
 // renderRow draws one pull request.
@@ -43,7 +90,7 @@ func columns(width int) (title, slack int) {
 // instead paints only the first cell: each cell ends in a full SGR reset, which
 // clears the background along with the foreground.
 func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) string {
-	title, slack := columns(width)
+	l := fit(width)
 
 	base := lipgloss.NewStyle()
 	if selected {
@@ -57,10 +104,16 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) stri
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
 		cell(checksWidth, checkIcon, base.Foreground(checkColor)),
 		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Faint)),
-		cell(repoWidth, pr.Repository, base.Foreground(th.Secondary)),
-		cell(title, pr.Title, base.Foreground(th.Primary)) + base.Render(strings.Repeat(" ", slack)),
-		cell(authorWidth, pr.Author.Login, base.Foreground(th.Actor)),
-		cell(updatedWidth, relativeTime(pr.UpdatedAt), base.Foreground(th.Faint)),
+	}
+	if l.repo {
+		cells = append(cells, cell(repoWidth, pr.Repository, base.Foreground(th.Secondary)))
+	}
+	cells = append(cells, cell(l.title, pr.Title, base.Foreground(th.Primary))+base.Render(strings.Repeat(" ", l.slack)))
+	if l.author {
+		cells = append(cells, cell(authorWidth, pr.Author.Login, base.Foreground(th.Actor)))
+	}
+	if l.age {
+		cells = append(cells, cell(updatedWidth, relativeTime(pr.UpdatedAt), base.Foreground(th.Faint)))
 	}
 
 	return strings.Join(cells, base.Render(strings.Repeat(" ", gutter)))

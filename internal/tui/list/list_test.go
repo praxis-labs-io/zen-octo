@@ -80,14 +80,56 @@ func TestTheColumnsAfterTheTitleHoldTheirPlaceOnAWideTerminal(t *testing.T) {
 	}
 }
 
-func TestEveryLineFillsThePaneWidth(t *testing.T) {
-	const width = 140
-	out := screen(t, width, 10, []gh.PullRequest{pr("Fix auth retry"), pr("Bump deps")})
+// A row wider than its pane gets clipped blind: trailing columns vanish
+// mid-cell with no ellipsis and the selection background stops short of the
+// edge. So the row has to fit at every width, not just roomy ones.
+func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
+	for _, width := range []int{200, 140, 100, 90, 70, 50, 40, 30} {
+		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
+			out := screen(t, width, 10, []gh.PullRequest{
+				pr("Fix the auth retry backoff loop"),
+				pr("Bump charm deps to v2.0.8"),
+			})
 
-	for i, line := range strings.Split(out, "\n") {
-		if w := lipgloss.Width(line); w != width {
-			t.Errorf("line %d is %d cells wide, want %d", i, w, width)
-		}
+			for i, line := range strings.Split(out, "\n") {
+				if w := lipgloss.Width(line); w != width {
+					t.Errorf("line %d is %d cells wide, want %d\n%s", i, w, width, stripANSI(line))
+				}
+			}
+		})
+	}
+}
+
+// Columns drop in a fixed order rather than overflowing. Author is the widest
+// thing usually identical across a section, and age is the cheapest to keep.
+func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
+	tests := []struct {
+		width             int
+		repo, author, age bool
+	}{
+		{width: 140, repo: true, author: true, age: true},
+		{width: 74, repo: true, author: false, age: true},
+		{width: 55, repo: false, author: false, age: true},
+		{width: 34, repo: false, author: false, age: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d", tt.width), func(t *testing.T) {
+			row := stripANSI(rowContaining(t, screen(t, tt.width, 8, []gh.PullRequest{pr("Fix auth retry")}), "#412"))
+
+			if got := strings.Contains(row, "zen-octo/zen-octo"); got != tt.repo {
+				t.Errorf("repo column present = %v, want %v\n%s", got, tt.repo, row)
+			}
+			if got := strings.Contains(row, "drucial"); got != tt.author {
+				t.Errorf("author column present = %v, want %v\n%s", got, tt.author, row)
+			}
+			if got := strings.Contains(row, "2h"); got != tt.age {
+				t.Errorf("age column present = %v, want %v\n%s", got, tt.age, row)
+			}
+			if !strings.Contains(row, "#412") {
+				t.Errorf("the number column was dropped, want it always kept\n%s", row)
+			}
+		})
 	}
 }
 
