@@ -61,8 +61,8 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # Keep this matching the local brew version. zen-linear drifted four
-          # versions behind and local runs stopped agreeing with CI.
+          # Keep this matching the local brew version, or local runs and CI
+          # stop agreeing about what passes.
           version: v2.12.2
 
   test:
