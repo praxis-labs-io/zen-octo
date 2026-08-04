@@ -129,6 +129,24 @@ func TestLoadRejectsInvalidConfigs(t *testing.T) {
 	}
 }
 
+func TestDefaultSectionsQualifyTheSearchType(t *testing.T) {
+	// GitHub searches issues and pull requests from one index. A section
+	// without is:pr or is:issue spends its limit on the wrong kind, and the
+	// caller silently drops what it didn't want.
+	cfg := config.Default()
+
+	for _, s := range cfg.PRSections {
+		if !strings.Contains(s.Filters, "is:pr") {
+			t.Errorf("PR section %q has filters %q, want is:pr", s.Title, s.Filters)
+		}
+	}
+	for _, s := range cfg.IssueSections {
+		if !strings.Contains(s.Filters, "is:issue") {
+			t.Errorf("issue section %q has filters %q, want is:issue", s.Title, s.Filters)
+		}
+	}
+}
+
 func TestPathSitsInsideDir(t *testing.T) {
 	dir := writeConfig(t, "")
 

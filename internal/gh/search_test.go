@@ -167,6 +167,26 @@ func TestSearchPullRequestsNamesTheMissingScope(t *testing.T) {
 	}
 }
 
+func TestScopeErrorPluralizes(t *testing.T) {
+	tests := []struct {
+		name    string
+		missing []string
+		want    string
+	}{
+		{name: "one", missing: []string{"workflow"}, want: "missing the workflow scope"},
+		{name: "several", missing: []string{"workflow", "read:project"}, want: "missing the workflow, read:project scopes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &ScopeError{Missing: tt.missing, err: errors.New("HTTP 403")}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Error() = %q, want it to contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestSearchPullRequestsLeavesOtherErrorsAlone(t *testing.T) {
 	doer := &fakeDoer{err: &api.HTTPError{StatusCode: 500, Message: "server blew up"}}
 

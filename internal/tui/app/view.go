@@ -26,6 +26,11 @@ const (
 	fallbackWidth = 100
 )
 
+// chromeLines counts every line render emits that isn't a pull request row:
+// the header, the blank line under it, the blank line above the footer, and the
+// footer itself.
+const chromeLines = 4
+
 func (m Model) render() string {
 	width := m.width
 	if width <= 0 {
@@ -50,6 +55,20 @@ func (m Model) render() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.renderFooter())
 	return b.String()
+}
+
+// visibleRows is how many pull requests fit between the chrome. Zero height
+// means the terminal hasn't reported a size yet, so render everything rather
+// than nothing.
+func (m Model) visibleRows() int {
+	if m.height <= 0 {
+		return len(m.prs)
+	}
+	noticeLines := 0
+	if m.notice != "" {
+		noticeLines = 1
+	}
+	return max(0, m.height-chromeLines-noticeLines)
 }
 
 func (m Model) renderHeader(width int) string {
@@ -83,9 +102,10 @@ func (m Model) renderRows(width int) string {
 		titleWidth = minTitleWidth
 	}
 
-	rows := make([]string, 0, len(m.prs))
-	for i, pr := range m.prs {
-		rows = append(rows, m.renderRow(pr, titleWidth, i == m.cursor))
+	end := min(m.offset+m.visibleRows(), len(m.prs))
+	rows := make([]string, 0, max(0, end-m.offset))
+	for i := m.offset; i < end; i++ {
+		rows = append(rows, m.renderRow(m.prs[i], titleWidth, i == m.cursor))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -94,21 +114,25 @@ func (m Model) renderRow(pr gh.PullRequest, titleWidth int, selected bool) strin
 	stateIcon, stateColor := prStateIcon(pr)
 	checkIcon, checkColor := checkStateIcon(pr.Checks)
 
-	cells := []string{
-		cell(stateWidth, stateIcon, lipgloss.NewStyle().Foreground(m.color(stateColor))),
-		cell(checksWidth, checkIcon, lipgloss.NewStyle().Foreground(m.color(checkColor))),
-		cell(numberWidth, "#"+strconv.Itoa(pr.Number), m.faint()),
-		cell(repoWidth, pr.Repository, lipgloss.NewStyle().Foreground(m.theme.Secondary)),
-		cell(titleWidth, pr.Title, lipgloss.NewStyle().Foreground(m.theme.Primary)),
-		cell(authorWidth, pr.Author.Login, lipgloss.NewStyle().Foreground(m.theme.Actor)),
-		cell(updatedWidth, relativeTime(pr.UpdatedAt), m.faint()),
+	// Selection has to be baked into every cell's own style. Wrapping the
+	// joined row instead only paints the first cell: each cell ends in a full
+	// SGR reset, which clears the background along with the foreground.
+	base := lipgloss.NewStyle()
+	if selected {
+		base = base.Background(m.theme.SelectedBackground)
 	}
 
-	row := strings.Join(cells, strings.Repeat(" ", gutter))
-	if selected {
-		return lipgloss.NewStyle().Background(m.theme.SelectedBackground).Render(row)
+	cells := []string{
+		cell(stateWidth, stateIcon, base.Foreground(m.color(stateColor))),
+		cell(checksWidth, checkIcon, base.Foreground(m.color(checkColor))),
+		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(m.theme.Faint)),
+		cell(repoWidth, pr.Repository, base.Foreground(m.theme.Secondary)),
+		cell(titleWidth, pr.Title, base.Foreground(m.theme.Primary)),
+		cell(authorWidth, pr.Author.Login, base.Foreground(m.theme.Actor)),
+		cell(updatedWidth, relativeTime(pr.UpdatedAt), base.Foreground(m.theme.Faint)),
 	}
-	return row
+
+	return strings.Join(cells, base.Render(strings.Repeat(" ", gutter)))
 }
 
 // cell pads to width and truncates anything longer, so columns stay aligned
@@ -119,7 +143,15 @@ func cell(width int, content string, style lipgloss.Style) string {
 
 func (m Model) renderFooter() string {
 	keys := []string{"j/k move", "r refresh", "q quit"}
-	return m.faint().Render(strings.Join(keys, "  ·  "))
+	footer := m.faint().Render(strings.Join(keys, "  ·  "))
+
+	if hidden := len(m.prs) - (m.offset + m.visibleRows()); hidden > 0 {
+		footer += m.faint().Render(fmt.Sprintf("  ·  %d more below", hidden))
+	}
+	if m.notice != "" {
+		footer = lipgloss.NewStyle().Foreground(m.theme.Warning).Render(m.notice) + "\n" + footer
+	}
+	return footer
 }
 
 func (m Model) faint() lipgloss.Style {

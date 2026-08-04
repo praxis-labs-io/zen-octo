@@ -48,10 +48,15 @@ func (e *ScopeError) Error() string {
 	if len(e.Missing) == 0 {
 		return fmt.Sprintf("%v\nYour gh token is missing a scope this call needs.", e.err)
 	}
+	noun := "scope"
+	if len(e.Missing) > 1 {
+		noun = "scopes"
+	}
 	return fmt.Sprintf(
-		"%v\nYour gh token is missing the %s scope. Run:\n  gh auth refresh -s %s",
+		"%v\nYour gh token is missing the %s %s. Run:\n  gh auth refresh -s %s",
 		e.err,
 		strings.Join(e.Missing, ", "),
+		noun,
 		strings.Join(e.Missing, ","),
 	)
 }

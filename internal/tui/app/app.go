@@ -5,6 +5,9 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -26,6 +29,10 @@ type prsFetchedMsg struct{ prs []gh.PullRequest }
 
 type prsFailedMsg struct{ err error }
 
+// fetchTimeout bounds a single request. Without it a half-open socket leaves
+// the UI spinning with no error and no way out but quitting.
+const fetchTimeout = 30 * time.Second
+
 // Model is the root of the UI.
 type Model struct {
 	client  PRSearcher
@@ -33,10 +40,15 @@ type Model struct {
 	section config.Section
 	limit   int
 
+	// notice reports a recoverable config problem, like a theme name that
+	// isn't registered. Silently falling back reads as "my config is ignored".
+	notice string
+
 	prs     []gh.PullRequest
 	err     error
 	loading bool
 	cursor  int
+	offset  int
 	spinner spinner.Model
 
 	width  int
@@ -46,12 +58,12 @@ type Model struct {
 // New builds the root model. M0 renders the first configured PR section; the
 // rest arrive with the section tabs in M1.
 func New(cfg *config.Config, client PRSearcher) Model {
-	th, _ := theme.Get(cfg.Theme)
+	th, ok := theme.Get(cfg.Theme)
 
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
 
-	return Model{
+	m := Model{
 		client:  client,
 		theme:   th,
 		section: cfg.PRSections[0],
@@ -59,6 +71,11 @@ func New(cfg *config.Config, client PRSearcher) Model {
 		loading: true,
 		spinner: sp,
 	}
+	if !ok {
+		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
+			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
+	}
+	return m
 }
 
 // Init starts the spinner and the first fetch.
@@ -69,7 +86,10 @@ func (m Model) Init() tea.Cmd {
 func (m Model) fetchPRs() tea.Cmd {
 	client, query, limit := m.client, m.section.Filters, m.limit
 	return func() tea.Msg {
-		prs, err := client.SearchPullRequests(context.Background(), query, limit)
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		prs, err := client.SearchPullRequests(ctx, query, limit)
 		if err != nil {
 			return prsFailedMsg{err: err}
 		}
@@ -82,6 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.clampScroll()
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -90,8 +111,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prsFetchedMsg:
 		m.loading = false
 		m.err = nil
+		m.restoreCursor(msg.prs)
 		m.prs = msg.prs
-		m.cursor = 0
+		m.clampScroll()
 		return m, nil
 
 	case prsFailedMsg:
@@ -120,22 +142,26 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.prs)-1 {
 			m.cursor++
 		}
+		m.clampScroll()
 		return m, nil
 
 	case "k", "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
+		m.clampScroll()
 		return m, nil
 
 	case "g", "home":
 		m.cursor = 0
+		m.clampScroll()
 		return m, nil
 
 	case "G", "end":
 		if len(m.prs) > 0 {
 			m.cursor = len(m.prs) - 1
 		}
+		m.clampScroll()
 		return m, nil
 
 	case "r":
@@ -143,10 +169,49 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
+		// Clearing the error matters: render checks it before loading, so a
+		// retry would otherwise redraw the old failure with no spinner.
+		m.err = nil
 		return m, tea.Batch(m.spinner.Tick, m.fetchPRs())
 	}
 
 	return m, nil
+}
+
+// restoreCursor keeps the selection on the same pull request across a refresh,
+// falling back to the nearest valid row when it has gone.
+func (m *Model) restoreCursor(next []gh.PullRequest) {
+	if len(next) == 0 {
+		m.cursor = 0
+		return
+	}
+	if m.cursor < len(m.prs) {
+		want := m.prs[m.cursor].ID
+		for i, pr := range next {
+			if pr.ID == want {
+				m.cursor = i
+				return
+			}
+		}
+	}
+	m.cursor = min(m.cursor, len(next)-1)
+}
+
+// clampScroll keeps the cursor inside the visible window. It is the minimal
+// stand-in for a real viewport; ZNO-10 replaces it.
+func (m *Model) clampScroll() {
+	rows := m.visibleRows()
+	if rows <= 0 || len(m.prs) == 0 {
+		m.offset = 0
+		return
+	}
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+rows {
+		m.offset = m.cursor - rows + 1
+	}
+	m.offset = max(0, min(m.offset, max(0, len(m.prs)-rows)))
 }
 
 // View renders the model. It reads state and returns a frame; it never fetches

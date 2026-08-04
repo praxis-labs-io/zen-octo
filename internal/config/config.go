@@ -44,14 +44,17 @@ type Config struct {
 // Default is what a user gets before they've written a config file.
 func Default() *Config {
 	return &Config{
+		// GitHub's search API has one index for issues and pull requests, so
+		// every filter needs is:pr or is:issue. Without it the limit gets spent
+		// on the wrong kind and the section quietly undercounts.
 		PRSections: []Section{
-			{Title: "My PRs", Filters: "is:open author:@me"},
-			{Title: "Needs My Review", Filters: "is:open review-requested:@me"},
-			{Title: "Involved", Filters: "is:open involves:@me -author:@me"},
+			{Title: "My PRs", Filters: "is:open is:pr author:@me"},
+			{Title: "Needs My Review", Filters: "is:open is:pr review-requested:@me"},
+			{Title: "Involved", Filters: "is:open is:pr involves:@me -author:@me"},
 		},
 		IssueSections: []Section{
-			{Title: "My Issues", Filters: "is:open author:@me"},
-			{Title: "Assigned", Filters: "is:open assignee:@me"},
+			{Title: "My Issues", Filters: "is:open is:issue author:@me"},
+			{Title: "Assigned", Filters: "is:open is:issue assignee:@me"},
 		},
 		Defaults: Defaults{PRsLimit: 20, IssuesLimit: 20},
 		Theme:    "rose-pine-moon",

@@ -45,16 +45,7 @@ fmt-fix: ## Fix code formatting with gofmt
 
 mod-tidy: ## Check if go.mod and go.sum are tidy
 	@echo "Checking go.mod and go.sum..."
-	@tmp=$$(mktemp -d); \
-	cp go.mod go.sum $$tmp/; \
-	go mod tidy; \
-	if ! cmp -s go.mod $$tmp/go.mod || ! cmp -s go.sum $$tmp/go.sum; then \
-		echo "go.mod or go.sum were not tidy. 'go mod tidy' has fixed them; commit the result."; \
-		diff -u $$tmp/go.mod go.mod || true; \
-		rm -rf $$tmp; \
-		exit 1; \
-	fi; \
-	rm -rf $$tmp
+	@go mod tidy -diff
 	@echo "go.mod and go.sum are tidy."
 
 lint: fmt mod-tidy ## Run all linting checks (gofmt, mod-tidy, golangci-lint)
