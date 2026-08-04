@@ -20,60 +20,96 @@ func (Mock) SearchPullRequests(context.Context, string, int) (gh.SearchResult, e
 	}, nil
 }
 
-// mockPullRequests covers the states the row renderer has to tell apart: open,
-// draft, merged, closed, every check rollup, a title long enough to truncate,
-// and a deleted author.
+// mockPullRequests covers what the list has to tell apart: all four states,
+// every check rollup, every review decision, three repositories, ages from
+// seconds to years, a deleted author, and a title long enough to truncate.
+//
+// Every row is distinct. Repeating a handful to fill the screen made the groups
+// unreadable as a design reference, which is the only thing this data is for.
 func mockPullRequests() []gh.PullRequest {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
-	rows := []gh.PullRequest{
-		{Title: "Fix the auth retry backoff loop", Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
-			State: gh.PRStateOpen, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
-			BaseRefName: "main", HeadRefName: "fix-auth-retry", Additions: 42, Deletions: 7, ChangedFiles: 3, UpdatedAt: ago(2 * time.Hour)},
+	const (
+		octo   = "zen-octo/zen-octo"
+		term   = "praxis-labs/zen-term"
+		linear = "praxis-labs/zen-linear"
+	)
 
-		{Title: "Bump charm deps to v2.0.8", Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
-			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStatePending,
-			BaseRefName: "main", HeadRefName: "bump-charm", Additions: 12, Deletions: 12, ChangedFiles: 2, UpdatedAt: ago(20 * time.Hour)},
+	rows := []gh.PullRequest{
+		{Title: "Fix the auth retry backoff loop", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
+			HeadRefName: "fix-auth-retry", Additions: 42, Deletions: 7, ChangedFiles: 3, UpdatedAt: ago(2 * time.Hour)},
+
+		{Title: "Row grouping: ready, draft, merged, closed", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, Checks: gh.CheckStatePending, ReviewDecision: gh.ReviewDecisionReviewRequired,
+			HeadRefName: "row-grouping", Additions: 288, Deletions: 61, ChangedFiles: 7, UpdatedAt: ago(6 * time.Hour)},
+
+		{Title: "Cache the rate limit between section switches", Repository: octo, Author: gh.Actor{Login: "octobot"},
+			State: gh.PRStateOpen, Checks: gh.CheckStateError, ReviewDecision: gh.ReviewDecisionChangesRequested,
+			HeadRefName: "cache-rate-limit", Additions: 19, Deletions: 3, ChangedFiles: 2, UpdatedAt: ago(31 * time.Hour)},
 
 		{Title: "Diff viewer: adopt scroll mode's selection model so the two stop disagreeing about anchors",
-			Repository: "praxis-labs/zen-term", Author: gh.Actor{Login: "drucial"},
+			Repository: term, Author: gh.Actor{Login: "drucial"},
 			State: gh.PRStateOpen, Checks: gh.CheckStateFailure, ReviewDecision: gh.ReviewDecisionChangesRequested,
-			BaseRefName: "main", HeadRefName: "diff-scroll-selection", Additions: 318, Deletions: 96, ChangedFiles: 14, UpdatedAt: ago(3 * 24 * time.Hour)},
+			HeadRefName: "diff-scroll-selection", Additions: 318, Deletions: 96, ChangedFiles: 14, UpdatedAt: ago(3 * 24 * time.Hour)},
 
-		{Title: "Theme registry and Rosé Pine Moon", Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
-			State: gh.PRStateMerged, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
-			BaseRefName: "main", HeadRefName: "theme-registry", Additions: 210, Deletions: 4, ChangedFiles: 6, UpdatedAt: ago(4 * 24 * time.Hour)},
-
-		{Title: "Own the keyboard surface: probe libghostty's binds", Repository: "praxis-labs/zen-term", Author: gh.Actor{},
-			State: gh.PRStateClosed, Checks: gh.CheckStateError,
-			BaseRefName: "main", HeadRefName: "keyboard-surface", Additions: 88, Deletions: 140, ChangedFiles: 9, UpdatedAt: ago(9 * 24 * time.Hour)},
-
-		{Title: "Persist comments on send", Repository: "praxis-labs/zen-linear", Author: gh.Actor{Login: "drucial"},
-			State: gh.PRStateOpen, Checks: gh.CheckStateNone, ReviewDecision: gh.ReviewDecisionReviewRequired,
-			BaseRefName: "main", HeadRefName: "persist-comments", Additions: 64, Deletions: 18, ChangedFiles: 4, UpdatedAt: ago(30 * time.Minute)},
-
-		{Title: "Comment anchoring engine", Repository: "praxis-labs/zen-linear", Author: gh.Actor{Login: "drucial"},
-			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStateExpected,
-			BaseRefName: "main", HeadRefName: "comment-anchors", Additions: 402, Deletions: 31, ChangedFiles: 11, UpdatedAt: ago(400 * 24 * time.Hour)},
-
-		{Title: "Homebrew cask", Repository: "praxis-labs/zen-term", Author: gh.Actor{Login: "drucial"},
+		{Title: "Homebrew cask", Repository: term, Author: gh.Actor{Login: "drucial"},
 			State: gh.PRStateOpen, Checks: gh.CheckStateSuccess,
-			BaseRefName: "main", HeadRefName: "homebrew-cask", Additions: 30, Deletions: 0, ChangedFiles: 1, UpdatedAt: ago(45 * time.Second)},
+			HeadRefName: "homebrew-cask", Additions: 30, ChangedFiles: 1, UpdatedAt: ago(45 * time.Second)},
+
+		{Title: "Ligature-aware cursor advance", Repository: term, Author: gh.Actor{Login: "nkr"},
+			State: gh.PRStateOpen, Checks: gh.CheckStateExpected, ReviewDecision: gh.ReviewDecisionApproved,
+			HeadRefName: "ligature-cursor", Additions: 71, Deletions: 24, ChangedFiles: 5, UpdatedAt: ago(11 * 24 * time.Hour)},
+
+		{Title: "Persist comments on send", Repository: linear, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, Checks: gh.CheckStateNone, ReviewDecision: gh.ReviewDecisionReviewRequired,
+			HeadRefName: "persist-comments", Additions: 64, Deletions: 18, ChangedFiles: 4, UpdatedAt: ago(30 * time.Minute)},
+
+		{Title: "Webhook replay on reconnect", Repository: linear, Author: gh.Actor{Login: "octobot"},
+			State: gh.PRStateOpen, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
+			HeadRefName: "webhook-replay", Additions: 1204, Deletions: 867, ChangedFiles: 39, UpdatedAt: ago(9 * time.Minute)},
+
+		{Title: "Bump charm deps to v2.0.8", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStatePending,
+			HeadRefName: "bump-charm", Additions: 12, Deletions: 12, ChangedFiles: 2, UpdatedAt: ago(20 * time.Hour)},
+
+		{Title: "Notifications section type", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStateNone,
+			HeadRefName: "notifications-section", Additions: 5, ChangedFiles: 1, UpdatedAt: ago(4 * time.Hour)},
+
+		{Title: "Comment anchoring engine", Repository: linear, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStateExpected,
+			HeadRefName: "comment-anchors", Additions: 402, Deletions: 31, ChangedFiles: 11, UpdatedAt: ago(400 * 24 * time.Hour)},
+
+		{Title: "Sixel passthrough behind a flag", Repository: term, Author: gh.Actor{Login: "nkr"},
+			State: gh.PRStateOpen, IsDraft: true, Checks: gh.CheckStateFailure,
+			HeadRefName: "sixel-passthrough", Additions: 156, Deletions: 8, ChangedFiles: 6, UpdatedAt: ago(2 * 24 * time.Hour)},
+
+		{Title: "Theme registry and Rosé Pine Moon", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateMerged, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
+			HeadRefName: "theme-registry", Additions: 210, Deletions: 4, ChangedFiles: 6, UpdatedAt: ago(4 * 24 * time.Hour)},
+
+		{Title: "Walking skeleton with one live PR section", Repository: octo, Author: gh.Actor{Login: "drucial"},
+			State: gh.PRStateMerged, Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
+			HeadRefName: "walking-skeleton", Additions: 1876, Deletions: 12, ChangedFiles: 24, UpdatedAt: ago(6 * 24 * time.Hour)},
+
+		{Title: "Drop the vendored ANSI parser", Repository: term, Author: gh.Actor{Login: "nkr"},
+			State: gh.PRStateMerged, Checks: gh.CheckStateSuccess,
+			HeadRefName: "drop-vendored-ansi", Additions: 8, Deletions: 2140, ChangedFiles: 17, UpdatedAt: ago(27 * 24 * time.Hour)},
+
+		{Title: "Own the keyboard surface: probe libghostty's binds", Repository: term, Author: gh.Actor{},
+			State: gh.PRStateClosed, Checks: gh.CheckStateError,
+			HeadRefName: "keyboard-surface", Additions: 88, Deletions: 140, ChangedFiles: 9, UpdatedAt: ago(9 * 24 * time.Hour)},
+
+		{Title: "Poll the API every second", Repository: linear, Author: gh.Actor{Login: "octobot"},
+			State: gh.PRStateClosed, Checks: gh.CheckStateFailure, ReviewDecision: gh.ReviewDecisionChangesRequested,
+			HeadRefName: "poll-every-second", Additions: 34, Deletions: 1, ChangedFiles: 1, UpdatedAt: ago(500 * 24 * time.Hour)},
 	}
 
-	// Enough rows to overflow any terminal, so scrolling is visible in a mockup
-	// run rather than only under test.
 	for i := range rows {
 		rows[i].ID = "PR_" + rows[i].HeadRefName
 		rows[i].Number = 412 - i*7
+		rows[i].BaseRefName = "main"
 	}
-	repeated := make([]gh.PullRequest, 0, len(rows)*4)
-	for round := range 4 {
-		for _, pr := range rows {
-			pr.ID += "_" + string(rune('a'+round))
-			pr.Number -= round * 61
-			repeated = append(repeated, pr)
-		}
-	}
-	return repeated
+	return rows
 }
