@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "linear-zen-octo": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
+    }
+  }
+}
