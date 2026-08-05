@@ -1,7 +1,6 @@
 package list
 
 import (
-	"image/color"
 	"strconv"
 	"strings"
 	"time"
@@ -166,7 +165,7 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) []st
 
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
-		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Faint)),
+		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Secondary)),
 		cell(l.title, pr.Title, base.Foreground(th.Primary)) + base.Render(strings.Repeat(" ", l.slack)),
 		cell(checksWidth, checkIcon, base.Foreground(checkColor)),
 	}
@@ -211,56 +210,18 @@ func alignRight(s string, width int) string {
 	return strings.Repeat(" ", max(0, width-lipgloss.Width(s))) + s
 }
 
-// span is a run of text with its own color, for a column whose parts butt up
-// against each other instead of sitting in fixed slots.
-type span struct {
-	text  string
-	color color.Color
-}
-
-func spansWidth(spans []span) int {
-	n := 0
-	for _, s := range spans {
-		n += lipgloss.Width(s.text)
-	}
-	return n
-}
-
 // identity is where the pull request lives and who opened it, read as a phrase
 // rather than two columns with a gap between them. The number is on the line
 // above, next to the state glyph.
+//
+// The author goes before the repository is left to clip, and a deleted account
+// has no login at all, where a dangling "by @" would be worse than nothing.
 func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
-	repo := span{text: pr.Repository, color: th.Secondary}
-
-	forms := [][]span{{repo}}
-	// A deleted account has no login, and a dangling "by @" is worse than no
-	// attribution at all.
-	if pr.Author.Login != "" {
-		forms = append(forms, []span{repo,
-			{text: " by ", color: th.Faint},
-			{text: "@" + pr.Author.Login, color: th.Actor},
-		})
+	text := pr.Repository
+	if by := " by @" + pr.Author.Login; pr.Author.Login != "" && lipgloss.Width(text+by) <= width {
+		text += by
 	}
-
-	spans := forms[0]
-	for _, form := range forms {
-		if spansWidth(form) <= width {
-			spans = form
-		}
-	}
-
-	var out strings.Builder
-	for _, s := range spans {
-		out.WriteString(base.Foreground(s.color).Render(s.text))
-	}
-
-	switch w := spansWidth(spans); {
-	case w < width:
-		return out.String() + base.Render(strings.Repeat(" ", width-w))
-	case w > width:
-		return clip(out.String(), width)
-	}
-	return out.String()
+	return cell(width, text, base.Foreground(th.Faint))
 }
 
 // renderHeader draws a group's rule. It carries how many rows are under it,
