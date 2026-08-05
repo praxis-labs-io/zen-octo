@@ -43,25 +43,23 @@ func groupOf(pr gh.PullRequest) group {
 
 // item is one entry in the rendered order: a group header or a pull request.
 type item struct {
-	header  string // group label, empty on a pull request
-	count   int    // pull requests in the group, on a header
-	spaced  bool   // a blank line above, on every header but the first
-	divided bool   // a rule below, on every row but a group's last
-	pr      gh.PullRequest
+	header     string // group label, empty on a pull request
+	count      int    // pull requests in the group, on a header
+	blankAbove bool   // on every header but the first
+	blankBelow bool   // on every row but a group's last
+	pr         gh.PullRequest
 }
 
-// lines is how tall the item renders.
+// lines is how tall the item renders, blank line and all.
 func (i item) lines() int {
-	switch {
-	case i.isPR() && i.divided:
-		return rowLines + 1
-	case i.isPR():
-		return rowLines
-	case i.spaced:
-		return headerLines + 1
-	default:
-		return headerLines
+	n := headerLines
+	if i.isPR() {
+		n = rowLines
 	}
+	if i.blankAbove || i.blankBelow {
+		n++
+	}
+	return n
 }
 
 func (i item) isPR() bool { return i.header == "" }
@@ -106,13 +104,12 @@ func arrange(prs []gh.PullRequest) []item {
 			continue
 		}
 		slices.SortStableFunc(bucket, byRepoThenRecency)
-		// Every group but the first opens with a blank line. Above the first it
-		// would only push the list down a row.
-		items = append(items, item{header: groupLabels[g], count: len(bucket), spaced: len(items) > 0})
+		// A group after the first opens with a blank line, and every row but its
+		// last closes with one. That leaves exactly one blank line everywhere,
+		// between rows and between groups alike.
+		items = append(items, item{header: groupLabels[g], count: len(bucket), blankAbove: len(items) > 0})
 		for i, pr := range bucket {
-			// The last row of a group needs no rule under it: the blank line and
-			// the next header already close it off.
-			items = append(items, item{pr: pr, divided: i < len(bucket)-1})
+			items = append(items, item{pr: pr, blankBelow: i < len(bucket)-1})
 		}
 	}
 	return items

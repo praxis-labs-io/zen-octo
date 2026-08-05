@@ -163,9 +163,10 @@ func TestEveryGroupButTheFirstOpensWithABlankLine(t *testing.T) {
 	t.Fatal("no draft header in the frame")
 }
 
-// Rows inside a group are separated by a rule. A group's last row skips it:
-// the blank line and the next header already close the group off.
-func TestRowsAreSeparatedByARuleTheLastOfAGroupSkips(t *testing.T) {
+// One blank line everywhere: between rows and between groups alike. A group's
+// last row skips its own, or the gap before the next header would be two lines
+// where every other gap is one.
+func TestOneBlankLineSeparatesRowsAndGroupsAlike(t *testing.T) {
 	last := pr("Bump deps")
 	last.ID = "PR_bump"
 	draft := pr("Comment anchoring")
@@ -173,22 +174,26 @@ func TestRowsAreSeparatedByARuleTheLastOfAGroupSkips(t *testing.T) {
 
 	lines := strings.Split(stripANSI(screen(t, 140, 24, []gh.PullRequest{pr("Fix auth retry"), last, draft})), "\n")
 
-	// Two content lines a row, so the rule would be the third.
-	under := func(title string) string {
+	// Two content lines a row, so a blank between rows is the third.
+	at := func(title string, offset int) string {
 		for i, l := range lines {
 			if strings.Contains(l, title) {
-				return strings.Trim(lines[i+2], "│ ")
+				return strings.Trim(lines[i+offset], "│ ")
 			}
 		}
 		t.Fatalf("no row titled %q", title)
 		return ""
 	}
 
-	if rule := under("Fix auth retry"); !strings.HasPrefix(rule, "─") {
-		t.Errorf("no rule under the first row: %q", rule)
+	if gap := at("Fix auth retry", 2); gap != "" {
+		t.Errorf("no blank line under the first row: %q", gap)
 	}
-	if rule := under("Bump deps"); strings.HasPrefix(rule, "─") {
-		t.Errorf("a group's last row carries a rule the blank line below already draws: %q", rule)
+	// The last row of the ready group: one blank, then the draft header.
+	if gap := at("Bump deps", 2); gap != "" {
+		t.Errorf("the gap before the next group is not blank: %q", gap)
+	}
+	if header := at("Bump deps", 3); !strings.HasPrefix(header, "─ Draft") {
+		t.Errorf("the gap before the next group is two lines, want one: %q", header)
 	}
 }
 

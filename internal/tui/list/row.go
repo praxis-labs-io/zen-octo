@@ -139,8 +139,8 @@ func fit(width int) layout {
 }
 
 // renderRow draws one pull request as its two lines: the title and its status
-// on the first, everything that identifies it on the second, with the rule that
-// separates it from the next row under those.
+// on the first, everything that identifies it on the second, with the blank
+// line that separates it from the next row under those.
 //
 // Selection is baked into every cell's own style, on both lines. Wrapping a
 // joined line instead paints only its first cell: each cell ends in a full SGR
@@ -187,22 +187,10 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		line(leftMargin, head, width, base),
 		line(indentWidth, tail, width, base),
 	}
-	if it.divided {
-		lines = append(lines, renderDivider(th, width))
+	if it.blankBelow {
+		lines = append(lines, strings.Repeat(" ", width))
 	}
 	return lines
-}
-
-// renderDivider is the rule between two rows of a group. It starts where the
-// second line does, which reads as nested under the group's own rule rather
-// than competing with it.
-func renderDivider(th theme.Theme, width int) string {
-	indent := min(indentWidth, width)
-	fill := max(0, width-indent-rightMargin)
-
-	return strings.Repeat(" ", indent) +
-		lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary()).Render(strings.Repeat("─", fill)) +
-		strings.Repeat(" ", width-indent-fill)
 }
 
 // counted is a glyph and its number. The glyph holds its column while the digits
@@ -258,7 +246,7 @@ func renderHeader(th theme.Theme, it item, width int) []string {
 	fill := max(0, width-lipgloss.Width(left))
 	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))
 
-	if it.spaced {
+	if it.blankAbove {
 		return []string{strings.Repeat(" ", width), rendered}
 	}
 	return []string{rendered}
