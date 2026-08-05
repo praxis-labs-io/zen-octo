@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
@@ -42,6 +44,15 @@ const railMinFrame = 120
 // conversation narrower than this is not worth the trade.
 const railMinForced = railWidth + 40
 
+// railGutter is the space between the rail's borders and what it holds, on both
+// sides. Text against a border reads as a rendering fault rather than as a
+// column.
+const railGutter = 1
+
+// contentMeasure caps the conversation and centres it. Text set the full width
+// of a wide terminal is a paragraph the eye loses its place in on every line.
+const contentMeasure = 90
+
 type pane int
 
 const (
@@ -49,8 +60,8 @@ const (
 	paneRail
 )
 
-// tabs on the detail screen. Only the conversation has content until the full
-// pull request query lands.
+// tabs on the detail screen. Only the conversation has content; the rest land
+// with their own tickets.
 var tabs = []comp.Tab{
 	{Label: "Conversation"},
 	{Label: "Commits"},
@@ -70,9 +81,24 @@ type Model struct {
 	view     viewport.Model
 	railView viewport.Model
 
-	pr    gh.PullRequest
-	tab   int
-	focus pane
+	md      comp.Markdown
+	spinner comp.Spinner
+
+	pr     gh.PullRequest
+	detail store.Detail
+	tab    int
+	focus  pane
+
+	// expanded unfolds every <details> block on the screen at once. It is one
+	// bool because the conversation has no cursor to hang a per-block state on;
+	// that lands with the ticket that gives it one.
+	expanded bool
+
+	// offsets parks the scroll position of each tab. One viewport serves all
+	// four, and without this switching to a short tab clamps the offset to zero
+	// and switching back lands at the top of a conversation you were halfway
+	// down.
+	offsets []int
 
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
@@ -83,8 +109,9 @@ type Model struct {
 	height int
 }
 
-// New builds the screen over one pull request, carrying forward whatever the
-// user last asked of the rail.
+// New builds the screen over one pull request row, carrying forward whatever
+// the user last asked of the rail. The row is what the list already had, so the
+// header and the rail paint before the detail query answers.
 func New(th theme.Theme, pr gh.PullRequest, rail RailPreference) Model {
 	return Model{
 		theme:       th,
@@ -92,10 +119,24 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference) Model {
 		rail:        comp.NewPane(th),
 		view:        newViewport(),
 		railView:    newViewport(),
+		md:          comp.NewMarkdown(th),
+		spinner:     comp.NewSpinner(th),
 		pr:          pr,
+		offsets:     make([]int, len(tabs)),
 		railOn:      rail.On,
 		railUserSet: rail.Set,
 	}
+}
+
+// SetDetail takes what the store holds for this pull request. A detail that has
+// loaded replaces the row, so the header and the rail stop showing the thinner
+// version search returned.
+func (m *Model) SetDetail(d store.Detail) {
+	m.detail = d
+	if d.Loaded {
+		m.pr = d.Detail.PullRequest
+	}
+	m.syncContent()
 }
 
 func newViewport() viewport.Model {
@@ -105,12 +146,32 @@ func newViewport() viewport.Model {
 	return vp
 }
 
-// Update handles the keys that belong to this screen.
+// Init starts the spinner, which runs until the conversation lands.
+func (m Model) Init() tea.Cmd { return m.spinner.Tick() }
+
+// Update handles the keys that belong to this screen, and the spinner.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return m, nil
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		return m.handleKey(msg)
+
+	case spinner.TickMsg:
+		cmd := m.spinner.Advance(msg, m.waiting())
+		// The body is built into the viewport rather than in View, so a new
+		// frame of the glyph only reaches the screen through a resync.
+		m.syncContent()
+		return m, cmd
 	}
+	return m, nil
+}
+
+// waiting is the one state the spinner belongs in: nothing to read yet. A
+// refetch behind a conversation already on screen spins over nothing.
+func (m Model) waiting() bool {
+	return !m.detail.Loaded && m.detail.Status == store.StatusLoading
+}
+
+func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
 	switch {
@@ -118,11 +179,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return BackMsg{} }
 
 	case key.Matches(keyMsg, k.NextTab):
-		m.tab = (m.tab + 1) % len(tabs)
-		m.syncContent()
+		m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
-		m.tab = (m.tab - 1 + len(tabs)) % len(tabs)
-		m.syncContent()
+		m.changeTab(-1)
 
 	case key.Matches(keyMsg, k.PaneLeft), key.Matches(keyMsg, k.FocusMain):
 		m.focus = paneMain
@@ -130,6 +189,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.railVisible() {
 			m.focus = paneRail
 		}
+
+	case key.Matches(keyMsg, k.Expand):
+		m.expanded = !m.expanded
+		m.syncContent()
 
 	case key.Matches(keyMsg, k.ToggleRail):
 		m.railOn, m.railUserSet = !m.railVisible(), true
@@ -158,6 +221,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// changeTab moves the strip and takes the scroll position with it. The offset
+// is restored after the content, because SetYOffset clamps to what is there.
+func (m *Model) changeTab(delta int) {
+	m.offsets[m.tab] = m.view.YOffset()
+	m.tab = (m.tab + delta + len(tabs)) % len(tabs)
+	m.syncContent()
+	m.view.SetYOffset(m.offsets[m.tab])
 }
 
 // scroll is the viewport the movement keys drive. Focus decides, which is what
@@ -213,11 +285,33 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 
 func (m *Model) syncContent() {
 	if m.main.InnerWidth() > 0 {
-		m.view.SetContent(m.tabBody())
+		// The blank line above the first block is the same one the list opens
+		// with. Content flush against the top border reads as clipped.
+		m.view.SetContent("\n" + indent(m.tabBody(), m.bodyGutter()))
 	}
-	if m.rail.InnerWidth() > 0 {
-		m.railView.SetContent(railBody(m.theme, m.pr))
+	if inner := m.rail.InnerWidth(); inner > railGutter*2 {
+		// The rail opens with a blank line and sits in from both borders, the
+		// same as the conversation beside it.
+		body := indent(railBody(m.theme, m.railDetail(), inner-railGutter*2), railGutter)
+		m.railView.SetContent("\n" + body)
 	}
+}
+
+// bodyWidth is the measure the conversation is set to. Prose stops being
+// readable somewhere past this, and a wide terminal would otherwise run a
+// comment the whole way across the screen.
+func (m Model) bodyWidth() int { return min(m.main.InnerWidth(), contentMeasure) }
+
+// bodyGutter centres the measure in the pane.
+func (m Model) bodyGutter() int { return max(0, (m.main.InnerWidth()-m.bodyWidth())/2) }
+
+// railDetail is what the rail has to work with. Before the query answers that
+// is the list row alone, and the rail drops every section behind it.
+func (m Model) railDetail() gh.PullRequestDetail {
+	if m.detail.Loaded {
+		return m.detail.Detail
+	}
+	return gh.PullRequestDetail{PullRequest: m.pr}
 }
 
 // View renders the screen. The panes carry a bracketed index only when there
@@ -260,45 +354,99 @@ func scrollFooter(v viewport.Model) string {
 }
 
 // tabBody renders whichever tab is current.
-func (m Model) tabBody() string {
+func (m *Model) tabBody() string {
 	if m.tab != 0 {
-		return lipgloss.NewStyle().Foreground(m.theme.Faint).
-			Render(tabs[m.tab].Label + " arrive with the full pull request query.")
+		return m.faint().Render(tabs[m.tab].Label + " land with their own ticket.")
 	}
-	return m.conversation()
+	return m.conversation() + "\n" + m.conversationBody()
 }
 
-// conversation is the header block every GitHub PR page leads with, followed by
-// the body. The description and timeline land with the full query.
+// conversation is the header block every GitHub PR page leads with. It comes
+// off the list row, so it is on screen before the detail query answers.
 func (m Model) conversation() string {
-	title := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).
-		Render(m.pr.Title + " #" + strconv.Itoa(m.pr.Number))
+	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
+		Render(strings.Repeat("─", max(0, m.bodyWidth())))
 
-	stateLabel, stateColor := comp.PRStateLabel(m.theme, m.pr)
-	stateIcon, _ := comp.PRStateIcon(m.theme, m.pr)
+	// The blank sets the status apart from the two lines naming the pull
+	// request. Three stacked lines read as one block and the eye skips the last.
+	lines := []string{m.titleLine(), m.branchLine(), "", m.statusLine()}
+	if status := m.collapsedStatus(); status != "" {
+		lines = append(lines, wrap(status, m.bodyWidth()))
+	}
+	return strings.Join(append(lines, rule), "\n")
+}
+
+// titleLine is the number, the title, and the churn pushed to the far edge.
+// The churn is a fixed few cells and the title is not, so the title is the one
+// that gives way: it clips rather than pushing the numbers off the line.
+func (m Model) titleLine() string {
+	// The number leads, in the accent the list numbers rows with, so the same
+	// pull request reads the same on both screens.
+	lead := lipgloss.NewStyle().Foreground(m.theme.Secondary).Bold(true).
+		Render("#"+strconv.Itoa(m.pr.Number)) + " " +
+		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(m.pr.Title)
+
+	churn := m.churn()
+	room := max(0, m.bodyWidth()-lipgloss.Width(churn)-1)
+	if lipgloss.Width(lead) > room {
+		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Faint))
+	}
+
+	gap := max(1, m.bodyWidth()-lipgloss.Width(lead)-lipgloss.Width(churn))
+	return lead + strings.Repeat(" ", gap) + churn
+}
+
+// opened is when the pull request was raised and who raised it, as one clause.
+// Either half can be missing: a deleted account has no login, and the row the
+// list opens with carries no timestamp until the detail query answers.
+func (m Model) opened() string {
+	age, login := comp.LongAgo(m.pr.CreatedAt), m.pr.Author.Login
+
+	switch {
+	case age != "" && login != "":
+		return "Opened " + age + " by " + comp.Handle(login)
+	case age != "":
+		return "Opened " + age
+	case login != "":
+		return "Opened by " + comp.Handle(login)
+	}
+	return ""
+}
+
+// branchLine is where the work is going and where it came from. It stays on one
+// line: the head branch is the long one and the one carrying a ticket key at
+// the front, so it is what gives way rather than the line wrapping.
+func (m Model) branchLine() string {
+	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	target := faint.Render(m.pr.BaseRefName + " ← ")
+
+	room := max(0, m.bodyWidth()-lipgloss.Width(target))
+	if lipgloss.Width(m.pr.HeadRefName) > room {
+		return target + comp.Clip(faint.Render(m.pr.HeadRefName), room, faint)
+	}
+	return target + faint.Render(m.pr.HeadRefName)
+}
+
+// statusLine is where the pull request stands, then who raised it and when. The
+// state always has something to say, so this line is never empty even when the
+// clause after it is.
+func (m Model) statusLine() string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
 
-	// A deleted account has no login, and joining round it beats printing two
-	// separators with nothing between them.
-	parts := []string{lipgloss.NewStyle().Foreground(stateColor).Render(stateIcon + " " + stateLabel)}
-	if m.pr.Author.Login != "" {
-		parts = append(parts, faint.Render(m.pr.Author.Login))
-	}
-	parts = append(parts,
-		faint.Render(m.pr.BaseRefName+" ← "+m.pr.HeadRefName),
-		faint.Render("+"+strconv.Itoa(m.pr.Additions)+" −"+strconv.Itoa(m.pr.Deletions)),
-	)
-	meta := strings.Join(parts, faint.Render(" · "))
+	label, c := comp.PRStateLabel(m.theme, m.pr)
+	icon, _ := comp.PRStateIcon(m.theme, m.pr)
 
-	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
-		Render(strings.Repeat("─", max(0, m.main.InnerWidth())))
-
-	lines := []string{title, meta}
-	if status := m.collapsedStatus(); status != "" {
-		lines = append(lines, status)
+	line := lipgloss.NewStyle().Foreground(c).Render(icon + " " + label)
+	if opened := m.opened(); opened != "" {
+		line += faint.Render(" · " + opened)
 	}
-	lines = append(lines, rule, faint.Render("The description and timeline arrive with the full pull request query."))
-	return strings.Join(lines, "\n")
+	return wrap(line, m.bodyWidth())
+}
+
+// churn is the diff stat in the colors the list gives its own columns.
+func (m Model) churn() string {
+	return lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(m.pr.Additions)) +
+		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(m.pr.Deletions))
 }
 
 // collapsedStatus carries the two things the rail holds that the meta line does
