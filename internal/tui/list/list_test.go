@@ -84,7 +84,7 @@ func rowContaining(t *testing.T, frame, want string) string {
 const (
 	fileGlyph    = "\uea7b" // nf-cod-file
 	commentGlyph = "\uf41f" // nf-oct-comment
-	reviewGlyph  = "\uf06e" // nf-fa-eye
+	reviewGlyph  = "\uedc6" // nf-fa-user_check
 	checksGlyph  = "\uf0ae" // nf-fa-tasks
 )
 

@@ -49,7 +49,7 @@ const (
 const (
 	glyphFiles    = "\uea7b" // nf-cod-file
 	glyphComments = "\uf41f" // nf-oct-comment
-	glyphReview   = "\uf06e" // nf-fa-eye
+	glyphReview   = "\uedc6" // nf-fa-user_check
 	glyphChecks   = "\uf0ae" // nf-fa-tasks
 )
 
