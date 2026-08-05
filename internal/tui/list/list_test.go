@@ -3,6 +3,7 @@ package list_test
 import (
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -386,13 +387,20 @@ func TestTheSelectedRowIsPaintedCellByCellOnBothLines(t *testing.T) {
 // A raw space between two styled runs is a hole in the selection: the run
 // before it ends in a full reset, so the background stops there and the gap
 // shows the pane through it.
+// A width narrow enough to cut the line is its own case: the mark closing the
+// cut is the last cell of the row, and a raw rune there sits outside the
+// background every other cell carries.
 func TestTheSelectionHasNoGaps(t *testing.T) {
-	out := screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")})
+	for _, width := range []int{140, 12} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			out := screen(t, width, 12, []gh.PullRequest{pr("Fix auth retry")})
 
-	for i, line := range strings.Split(selectedRow(t, out), "\n") {
-		if gap := strings.Trim(unpainted(line), "│"); gap != "" {
-			t.Errorf("line %d of the selection has %d unpainted cells (%q)\n%q", i, len(gap), gap, line)
-		}
+			for i, line := range strings.Split(selectedRow(t, out), "\n") {
+				if gap := strings.Trim(unpainted(line), "│"); gap != "" {
+					t.Errorf("line %d of the selection has %d unpainted cells (%q)\n%q", i, len(gap), gap, line)
+				}
+			}
+		})
 	}
 }
 
@@ -671,20 +679,46 @@ func TestWalkingTheListKeepsEverySelectionOnScreen(t *testing.T) {
 // The window never opens on a row's second line with its title scrolled off
 // above it, which is what plain offset arithmetic does as soon as a row is
 // taller than one line.
+//
+// The bottom is its own case: the viewport clamps any offset to its content
+// height less its own, so an aligned offset past that clamp lands back on a
+// line rather than an item.
 func TestTheWindowNeverOpensMidRow(t *testing.T) {
-	// An odd number of content lines, or the offsets land on row boundaries by
-	// arithmetic and the alignment never has to do anything.
-	m := newList(120, 13, numbered(20))
-	for range 12 {
-		m = press(m, key('j'))
+	tests := []struct {
+		name string
+		keys []tea.KeyPressMsg
+	}{
+		{name: "walked into the middle", keys: repeat(key('j'), 12)},
+		{name: "walked to the bottom", keys: repeat(key('j'), 19)},
+		{name: "jumped to the bottom", keys: []tea.KeyPressMsg{key('G')}},
+		{name: "bottom then back up one", keys: []tea.KeyPressMsg{key('G'), key('k')}},
 	}
 
-	// The repository only appears on a row's second line, so finding it on the
-	// first line inside the pane means a row was cut in half by the window.
-	body := strings.Split(stripANSI(m.View()), "\n")[1]
-	if strings.Contains(body, "zen-octo/zen-octo") {
-		t.Errorf("the window opens on a row's second line: %q", body)
+	// Both parities: at some heights the offsets land on row boundaries by
+	// arithmetic and the alignment never has to do anything.
+	for _, height := range []int{12, 13, 14, 15} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s at %d", tt.name, height), func(t *testing.T) {
+				m := press(newList(120, height, numbered(20)), tt.keys...)
+
+				// The repository only appears on a row's second line, so finding it
+				// on the first line inside the pane means a row was cut in half by
+				// the window.
+				body := strings.Split(stripANSI(m.View()), "\n")[1]
+				if strings.Contains(body, "zen-octo/zen-octo") {
+					t.Errorf("the window opens on a row's second line: %q", body)
+				}
+			})
+		}
 	}
+}
+
+func repeat(k tea.KeyPressMsg, n int) []tea.KeyPressMsg {
+	ks := make([]tea.KeyPressMsg, n)
+	for i := range ks {
+		ks[i] = k
+	}
+	return ks
 }
 
 func TestPageKeysLandOnAPullRequestAndStopAtTheEnds(t *testing.T) {
@@ -734,6 +768,65 @@ func TestAnEmptySectionSaysSoRatherThanShowingNothing(t *testing.T) {
 	}
 	if strings.Contains(stripANSI(out), " of ") {
 		t.Error("an empty section still shows a row counter")
+	}
+}
+
+// A pane too short for the blank lines above a group still shows the group's
+// name over its first row. Counting those blanks against the header dropped
+// the header with them.
+func TestAShortPaneKeepsTheHeaderOverTheFirstRow(t *testing.T) {
+	prs := numbered(8)
+	for i := range prs[4:] {
+		prs[4+i].IsDraft = true
+	}
+
+	// Four lines inside the border: the header rule and one two-line row, with
+	// nothing left over for the gap above the rule. Approached from below,
+	// which is the direction that has to scroll the header back into view.
+	m := press(newList(120, 6, prs), append(repeat(key('j'), 7), repeat(key('k'), 3)...)...)
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "─ Draft") {
+		t.Errorf("the draft header is not over its first row\n%s", out)
+	}
+}
+
+// The half-page keys move at least a row. A pane short enough to make half a
+// page nothing leaves the key looking broken.
+func TestTheHalfPageKeysMoveOnAShortPane(t *testing.T) {
+	m := press(newList(120, 6, numbered(8)), ctrl('d'))
+
+	if got := stripANSI(selectedRow(t, m.View())); strings.Contains(got, "#0 ") {
+		t.Errorf("ctrl+d left the cursor where it was: %q", got)
+	}
+}
+
+// A churn count too wide for its column abbreviates. Clipping renders a
+// different number, with nothing on the row saying it was cut.
+func TestALargeChurnAbbreviatesRatherThanClipping(t *testing.T) {
+	big := pr("Vendor the dependency tree")
+	big.Additions, big.Deletions = 12045, 340000
+
+	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{big}), "zen-octo/zen-octo"))
+
+	for _, want := range []string{"+12k", "−340k"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("row = %q, want %s in it", row, want)
+		}
+	}
+}
+
+// A check state the client does not know is not a pass. The rollup comes off
+// the wire unvalidated, so green is the one reading of it that could be wrong.
+func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
+	unknown := pr("Fix auth retry")
+	unknown.Checks = gh.CheckState("SOMETHING_GITHUB_ADDED")
+
+	// The review dot comes first, so cutting at its icon leaves the checks dot
+	// as the next one along.
+	_, after, _ := strings.Cut(selectedRow(t, screen(t, 140, 12, []gh.PullRequest{unknown})), reviewGlyph)
+
+	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
+		t.Errorf("an unknown check state renders as a pass: %q", got)
 	}
 }
 

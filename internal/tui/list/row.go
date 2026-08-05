@@ -150,8 +150,8 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		// Two cells rather than one string: additions and deletions carry their
 		// own color, and a cell is one style all the way through.
 		tail = append(tail,
-			cell(additionsWidth, alignRight("+"+strconv.Itoa(pr.Additions), additionsWidth), base.Foreground(th.Success)),
-			cell(deletionsWidth, alignRight("−"+strconv.Itoa(pr.Deletions), deletionsWidth), base.Foreground(th.Error)),
+			cell(additionsWidth, alignRight(churn("+", pr.Additions), additionsWidth), base.Foreground(th.Success)),
+			cell(deletionsWidth, alignRight(churn("−", pr.Deletions), deletionsWidth), base.Foreground(th.Error)),
 		)
 	}
 	if l.files {
@@ -195,6 +195,20 @@ func counted(glyph string, n, width int) string {
 	return alignRight(strconv.Itoa(n)+" "+glyph, width)
 }
 
+// churn is a diff count narrowed to fit its column. Past four digits it
+// abbreviates rather than letting the cell clip it: a clipped number is a
+// different number, and the ellipsis lands where the eye reads magnitude.
+func churn(sign string, n int) string {
+	switch {
+	case n < 10_000:
+		return sign + strconv.Itoa(n)
+	case n < 1_000_000:
+		return sign + strconv.Itoa(n/1_000) + "k"
+	default:
+		return sign + strconv.Itoa(n/1_000_000) + "M"
+	}
+}
+
 // alignRight pads on the left, so a column of numbers lines up on its last
 // digit rather than its first.
 func alignRight(s string, width int) string {
@@ -221,7 +235,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 
 	text := pr.Title
 	if lipgloss.Width(text) > room {
-		text = clip(text, room)
+		text = clip(text, room, lipgloss.NewStyle())
 	}
 	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
 
@@ -287,7 +301,7 @@ func line(indent int, cells []string, width int, base lipgloss.Style) string {
 	case w < width:
 		return s + base.Render(strings.Repeat(" ", width-w))
 	case w > width:
-		return clip(s, width)
+		return clip(s, width, base)
 	}
 	return s
 }
@@ -302,7 +316,7 @@ func cell(width int, content string, style lipgloss.Style) string {
 		return ""
 	}
 	if lipgloss.Width(content) > width {
-		content = clip(content, width)
+		content = clip(content, width, lipgloss.NewStyle())
 	}
 	pad := max(0, width-lipgloss.Width(content))
 	return style.Render(content + strings.Repeat(" ", pad))
@@ -310,14 +324,19 @@ func cell(width int, content string, style lipgloss.Style) string {
 
 // clip truncates to width, marking the cut. A single column has room for the
 // mark and nothing else, and MaxWidth(0) means no limit rather than no room.
-func clip(content string, width int) string {
+//
+// The mark carries its own style, because the content is already rendered by
+// the time it is cut: a caller that restyles the result afterwards passes a
+// plain one, and a caller clipping a finished line passes the row's, or the
+// selection stops one cell short of the edge.
+func clip(content string, width int, mark lipgloss.Style) string {
 	switch {
 	case width <= 0:
 		return ""
 	case width == 1:
-		return "…"
+		return mark.Render("…")
 	}
-	return lipgloss.NewStyle().MaxWidth(width-1).Render(content) + "…"
+	return lipgloss.NewStyle().MaxWidth(width-1).Render(content) + mark.Render("…")
 }
 
 // relativeTime renders a compact age: 34m, 5h, 12d, 3y. Anything in the future

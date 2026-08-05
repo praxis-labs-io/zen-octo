@@ -165,19 +165,42 @@ func (r rows) align(line int) int {
 	return line
 }
 
-// top is the line to put at the top of the window to show the nth row along
-// with whatever header introduces it. A row above its own group's name says
-// less than it should, and the first row would otherwise pin the list one
+// top is the line to put at the top of the window to show the nth row with as
+// much of the header introducing it as fits. A row above its own group's name
+// says less than it should, and the first row would otherwise pin the list one
 // header below its own top line.
-func (r rows) top(n int) int {
-	i := r.item(n)
-	if i < 0 {
+//
+// A pane too short for all of it gives up the gap first and the header second,
+// rather than counting the blank lines against the header and dropping both.
+func (r rows) top(n, height int) int {
+	row := r.item(n)
+	if row < 0 {
 		return 0
 	}
-	for i > 0 && !r.items[i-1].isPR() {
-		i--
+	last := r.lineOf[row] + rowLines - 1
+
+	head := row
+	for head > 0 && !r.items[head-1].isPR() {
+		head--
 	}
-	return r.lineOf[i]
+
+	for _, at := range [...]int{r.lineOf[head], r.lineOf[head] + r.items[head].gapAbove, r.lineOf[row]} {
+		if last-at+1 <= height {
+			return at
+		}
+	}
+	return r.lineOf[row]
+}
+
+// pad is the blank lines to hang under the last row. A viewport clamps an
+// offset to its content height less its own, which is a line and not an item,
+// so without them a full scroll opens the window on a row's second line
+// whatever the alignment asked for.
+func (r rows) pad(height int) int {
+	if height <= 0 || r.total <= height {
+		return 0
+	}
+	return r.align(r.total-height) - (r.total - height)
 }
 
 // span is the first and last viewport line of the nth selectable row.

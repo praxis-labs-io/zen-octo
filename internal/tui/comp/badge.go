@@ -65,7 +65,10 @@ func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	case gh.CheckStateSuccess, gh.CheckStateNone:
 		return "✓", th.Success
 	}
-	return "✓", th.Success
+	// The rollup state comes off the wire unvalidated, so a state GitHub adds
+	// later arrives here. That is not news either way, and a pass is the one
+	// reading of it that could be wrong.
+	return "●", th.Faint
 }
 
 // CheckStateLabel names the rollup. It returns empty when nothing reported, so

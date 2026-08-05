@@ -101,9 +101,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.PageUp):
 		m.moveCursor(-m.page())
 	case key.Matches(msg, k.HalfPageDown):
-		m.moveCursor(m.page() / 2)
+		m.moveCursor(m.halfPage())
 	case key.Matches(msg, k.HalfPageUp):
-		m.moveCursor(-m.page() / 2)
+		m.moveCursor(-m.halfPage())
 
 	case key.Matches(msg, k.NextSection):
 		return m.changeSection(1)
@@ -164,6 +164,10 @@ func (m *Model) setCursor(i int) {
 // key that skips rows loses work off the top of the screen.
 func (m Model) page() int { return max(1, m.view.Height()/(rowLines+1)) }
 
+// halfPage floors at a row for the same reason page does. A pane short enough
+// to make half a page nothing leaves the key looking broken.
+func (m Model) halfPage() int { return max(1, m.page()/2) }
+
 // scrollToCursor brings the selected row into view, moving the window by the
 // least it can. It works in lines: a row is two of them and a header is one, so
 // the cursor is not an offset into the viewport.
@@ -179,13 +183,10 @@ func (m *Model) scrollToCursor() {
 
 	first, last := m.rows.span(m.cursor)
 
-	// Scrolling up brings the row's header with it, so long as the two still
-	// fit. Anchoring on the row alone left the header stranded above the window
-	// with nothing able to scroll back to it.
-	top := m.rows.top(m.cursor)
-	if last-top+1 > height {
-		top = first
-	}
+	// Scrolling up brings the row's header with it. Anchoring on the row alone
+	// left the header stranded above the window with nothing able to scroll back
+	// to it.
+	top := m.rows.top(m.cursor, height)
 
 	switch offset := m.view.YOffset(); {
 	case top < offset:
@@ -274,6 +275,11 @@ func (m *Model) syncContent() {
 			continue
 		}
 		lines = append(lines, renderRow(m.theme, it, width, i == selected)...)
+	}
+	// The blank lines under the last row are what keep the viewport's own clamp
+	// on an item boundary. See rows.pad.
+	for range m.rows.pad(m.view.Height()) {
+		lines = append(lines, strings.Repeat(" ", width))
 	}
 	m.view.SetContent(strings.Join(lines, "\n"))
 }
