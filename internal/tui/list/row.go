@@ -30,7 +30,6 @@ const (
 
 	checksWidth = 2
 	reviewWidth = 2
-	ageWidth    = 4
 
 	additionsWidth = 5
 	deletionsWidth = 5
@@ -59,7 +58,6 @@ type layout struct {
 	title  int
 	slack  int
 	review bool
-	age    bool
 
 	ident    int // width for the identity group, which flows rather than columns
 	diff     bool
@@ -73,20 +71,17 @@ type layout struct {
 // columns vanish mid-cell with no ellipsis, and the selection background stops
 // short of the edge because the line is no longer as wide as its pane.
 //
-// The first line gives up review before age, since age is the narrower of the
-// two to keep. The second line drops the comment count, then the file count,
-// then the churn, and gives what is left to the identity group, which sheds its
-// own parts by content.
+// The first line has only review to give before the title starts clipping. The
+// second drops the comment count, then the file count, then the churn, and
+// gives what is left to the identity group, which sheds its own parts by
+// content.
 func fit(width int) layout {
-	l := layout{review: true, age: true, diff: true, files: true, comments: true}
+	l := layout{review: true, diff: true, files: true, comments: true}
 
 	tail := func() int {
 		n := rightMargin + gutter + checksWidth
 		if l.review {
 			n += gutter + reviewWidth
-		}
-		if l.age {
-			n += gutter + ageWidth
 		}
 		return n
 	}
@@ -95,8 +90,6 @@ func fit(width int) layout {
 		switch {
 		case l.review:
 			l.review = false
-		case l.age:
-			l.age = false
 		default:
 			// Nothing left to drop. The title takes what remains, which at this
 			// point may be nothing at all.
@@ -172,9 +165,6 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) []st
 	if l.review {
 		head = append(head, cell(reviewWidth, reviewIcon, base.Foreground(reviewColor)))
 	}
-	if l.age {
-		head = append(head, cell(ageWidth, alignRight(relativeTime(pr.UpdatedAt), ageWidth), base.Foreground(th.Faint)))
-	}
 
 	meta := []string{identity(th, pr, l.ident, base)}
 	if l.diff {
@@ -210,16 +200,30 @@ func alignRight(s string, width int) string {
 	return strings.Repeat(" ", max(0, width-lipgloss.Width(s))) + s
 }
 
-// identity is where the pull request lives and who opened it, read as a phrase
-// rather than two columns with a gap between them. The number is on the line
-// above, next to the state glyph.
+// identity is where the pull request lives, who opened it, and when it last
+// moved, read as a phrase rather than three columns with gaps between them. The
+// number is on the line above, next to the state glyph.
 //
-// The author goes before the repository is left to clip, and a deleted account
-// has no login at all, where a dangling "by @" would be worse than nothing.
+// It takes the widest form that fits. The author is the first thing to go: it
+// is the widest, and on your own sections it is the same name every row. A
+// deleted account has no login, where a dangling "by @" would be worse than no
+// attribution at all.
 func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
-	text := pr.Repository
-	if by := " by @" + pr.Author.Login; pr.Author.Login != "" && lipgloss.Width(text+by) <= width {
-		text += by
+	age := ""
+	if at := relativeTime(pr.UpdatedAt); at != "" {
+		age = " · " + at
+	}
+
+	forms := []string{pr.Repository, pr.Repository + age}
+	if pr.Author.Login != "" {
+		forms = append(forms, pr.Repository+" by @"+pr.Author.Login+age)
+	}
+
+	text := forms[0]
+	for _, form := range forms {
+		if lipgloss.Width(form) <= width {
+			text = form
+		}
 	}
 	return cell(width, text, base.Foreground(th.Faint))
 }

@@ -324,21 +324,22 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	}
 }
 
-// Columns drop in a fixed order rather than overflowing. The first line gives
-// up review before age; the second drops the comment count, then the files,
-// then the churn, and the identity sheds the author before the repository is
-// left to clip. The number is on the first line and never goes.
+// Columns drop in a fixed order rather than overflowing. The first line has
+// only review to give. The second drops the comment count, then the files, then
+// the churn, and the identity sheds the author, then the age, before the
+// repository is left to clip. The number is on the first line and never goes.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
-		width                         int
-		author, diff, files, comments bool
-		review, age                   bool
+		width                              int
+		author, age, diff, files, comments bool
+		review                             bool
 	}{
-		{width: 140, author: true, diff: true, files: true, comments: true, review: true, age: true},
-		{width: 58, author: false, diff: true, files: true, comments: true, review: true, age: true},
-		{width: 36, author: false, diff: true, files: true, comments: false, review: false, age: true},
-		{width: 30, author: false, diff: true, files: false, comments: false, review: false, age: false},
-		{width: 16, author: false, diff: false, files: false, comments: false, review: false, age: false},
+		{width: 140, author: true, age: true, diff: true, files: true, comments: true, review: true},
+		{width: 60, author: false, age: true, diff: true, files: true, comments: true, review: true},
+		{width: 48, author: false, age: false, diff: true, files: true, comments: true, review: true},
+		{width: 36, author: false, age: false, diff: true, files: true, comments: false, review: true},
+		{width: 30, author: false, age: false, diff: true, files: false, comments: false, review: false},
+		{width: 16, author: false, age: false, diff: false, files: false, comments: false, review: false},
 	}
 
 	for _, tt := range tests {
@@ -376,7 +377,7 @@ func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
 	if !strings.Contains(lines[0], "#412") {
 		t.Errorf("the number is not on the title line\n%q", lines[0])
 	}
-	if !strings.Contains(lines[1], "zen-octo/zen-octo by @drucial") {
+	if !strings.Contains(lines[1], "zen-octo/zen-octo by @drucial · 2h") {
 		t.Errorf("the identity is spread across columns\n%q", lines[1])
 	}
 }
@@ -392,7 +393,7 @@ func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 	if strings.Contains(row, "by ") || strings.Contains(row, "@") {
 		t.Errorf("a deleted author still leaves an attribution\n%q", row)
 	}
-	if !strings.Contains(row, "zen-octo/zen-octo") {
+	if !strings.Contains(row, "zen-octo/zen-octo · 2h") {
 		t.Errorf("the rest of the identity went with the author\n%q", row)
 	}
 }
@@ -473,11 +474,11 @@ func TestTheStatusGlyphsHoldTheirPlaceOnAWideTerminal(t *testing.T) {
 
 	for _, width := range []int{120, 160, 200} {
 		row := stripANSI(rowContaining(t, screen(t, width, 10, []gh.PullRequest{pr("Fix auth retry")}), "Fix auth retry"))
-		offsets[width] = len([]rune(row)) - len([]rune(row[:strings.Index(row, "2h")]))
+		offsets[width] = len([]rune(row)) - len([]rune(row[:strings.Index(row, "✔")]))
 	}
 
 	if offsets[120] != offsets[160] || offsets[160] != offsets[200] {
-		t.Errorf("the age column sits %v cells from the right edge, want the same at every width", offsets)
+		t.Errorf("the review glyph sits %v cells from the right edge, want the same at every width", offsets)
 	}
 }
 
