@@ -12,6 +12,10 @@ import (
 const (
 	headerLines = 1
 	rowLines    = 2
+
+	// groupGap is the blank space above a group. Rows inside one already have a
+	// line between them, so a group needs more than that to read as a break.
+	groupGap = 2
 )
 
 // group is which block a pull request sorts into. The order of the constants is
@@ -45,8 +49,8 @@ func groupOf(pr gh.PullRequest) group {
 type item struct {
 	header     string // group label, empty on a pull request
 	count      int    // pull requests in the group, on a header
-	blankAbove bool   // on every header but the first
-	blankBelow bool   // on every row but a group's last
+	blankAbove bool   // a group gap above, on every header but the first
+	blankBelow bool   // one line below, on every row but a group's last
 	pr         gh.PullRequest
 }
 
@@ -56,7 +60,10 @@ func (i item) lines() int {
 	if i.isPR() {
 		n = rowLines
 	}
-	if i.blankAbove || i.blankBelow {
+	switch {
+	case i.blankAbove:
+		n += groupGap
+	case i.blankBelow:
 		n++
 	}
 	return n
@@ -104,9 +111,9 @@ func arrange(prs []gh.PullRequest) []item {
 			continue
 		}
 		slices.SortStableFunc(bucket, byRepoThenRecency)
-		// A group after the first opens with a blank line, and every row but its
-		// last closes with one. That leaves exactly one blank line everywhere,
-		// between rows and between groups alike.
+		// A group after the first opens with its gap, and every row but the last
+		// closes with a single line. The last skips its own so the gap before
+		// the next header is the group gap and not a line more.
 		items = append(items, item{header: groupLabels[g], count: len(bucket), blankAbove: len(items) > 0})
 		for i, pr := range bucket {
 			items = append(items, item{pr: pr, blankBelow: i < len(bucket)-1})

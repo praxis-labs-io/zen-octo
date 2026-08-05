@@ -163,10 +163,10 @@ func TestEveryGroupButTheFirstOpensWithABlankLine(t *testing.T) {
 	t.Fatal("no draft header in the frame")
 }
 
-// One blank line everywhere: between rows and between groups alike. A group's
-// last row skips its own, or the gap before the next header would be two lines
-// where every other gap is one.
-func TestOneBlankLineSeparatesRowsAndGroupsAlike(t *testing.T) {
+// A single line between rows, and a wider gap between groups. A group's last
+// row skips its own line, or the gap before the next header would be a line
+// more than every other group's.
+func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	last := pr("Bump deps")
 	last.ID = "PR_bump"
 	draft := pr("Comment anchoring")
@@ -188,12 +188,18 @@ func TestOneBlankLineSeparatesRowsAndGroupsAlike(t *testing.T) {
 	if gap := at("Fix auth retry", 2); gap != "" {
 		t.Errorf("no blank line under the first row: %q", gap)
 	}
-	// The last row of the ready group: one blank, then the draft header.
-	if gap := at("Bump deps", 2); gap != "" {
-		t.Errorf("the gap before the next group is not blank: %q", gap)
+	if row := at("Fix auth retry", 3); !strings.Contains(row, "Bump deps") {
+		t.Errorf("rows are more than a line apart: %q", row)
 	}
-	if header := at("Bump deps", 3); !strings.HasPrefix(header, "─ Draft") {
-		t.Errorf("the gap before the next group is two lines, want one: %q", header)
+
+	// The last row of the ready group, then the gap, then the draft header.
+	for _, offset := range []int{2, 3} {
+		if gap := at("Bump deps", offset); gap != "" {
+			t.Errorf("line %d of the group gap is not blank: %q", offset-1, gap)
+		}
+	}
+	if header := at("Bump deps", 4); !strings.HasPrefix(header, "─ Draft") {
+		t.Errorf("the group gap is not two lines: %q", header)
 	}
 }
 
