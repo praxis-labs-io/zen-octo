@@ -241,13 +241,14 @@ func TestARowWithNoReviewStillReachesTheEdge(t *testing.T) {
 	}
 }
 
-// The file icon sits against its digits at the right of the row, rather than at
-// the left of a column they float in.
-func TestTheFileCountRunsAgainstItsIcon(t *testing.T) {
+// The file count closes the row: the number, then the glyph naming it, at the
+// edge. The glyph leading a column the digits floated in read as a marker
+// opening it rather than a reading finishing it.
+func TestTheFileCountClosesTheRowWithItsIcon(t *testing.T) {
 	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "zen-octo/zen-octo"))
 
-	if !strings.Contains(row, fileGlyph+"3") {
-		t.Errorf("the file count is not against its icon: %q", row)
+	if !strings.Contains(row, "3 "+fileGlyph) {
+		t.Errorf("the file count does not close the row with its icon: %q", row)
 	}
 }
 

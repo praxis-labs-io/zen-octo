@@ -186,8 +186,9 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	return lines
 }
 
-// counted is a glyph and its number with nothing between them, pushed to the
-// right of its column so a screenful lines up on the last digit.
+// counted is a number and the glyph naming it, pushed to the right of its
+// column. The glyph goes last, at the edge of the row, where it reads as a unit
+// closing the line rather than a marker opening a column.
 //
 // Nothing to count renders as nothing at all: an icon next to a zero reads as a
 // reading worth noticing. The column stays either way, so the rows still line up.
@@ -195,7 +196,7 @@ func counted(glyph string, n, width int) string {
 	if n == 0 {
 		return ""
 	}
-	return alignRight(glyph+strconv.Itoa(n), width)
+	return alignRight(strconv.Itoa(n)+" "+glyph, width)
 }
 
 // alignRight pads on the left, so a column of numbers lines up on its last
