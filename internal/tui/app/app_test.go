@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -221,13 +222,13 @@ func TestCursorMovesAndStopsAtTheEnds(t *testing.T) {
 
 	// Two rows, so one "j" lands on the second and a second "j" holds there.
 	moved := press(base, "j", "j")
-	if !strings.Contains(selectedLine(t, moved), "#408") {
-		t.Errorf("selection = %q, want it clamped to the last row", selectedLine(t, moved))
+	if !strings.Contains(selectedText(t, moved), "#408") {
+		t.Errorf("selection = %q, want it clamped to the last row", selectedText(t, moved))
 	}
 
 	back := press(moved, "k", "k", "k")
-	if !strings.Contains(selectedLine(t, back), "#412") {
-		t.Errorf("selection = %q, want it clamped to the first row", selectedLine(t, back))
+	if !strings.Contains(selectedText(t, back), "#412") {
+		t.Errorf("selection = %q, want it clamped to the first row", selectedText(t, back))
 	}
 }
 
@@ -316,7 +317,7 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 	}}, samplePRs()...)
 	m = settle(m, keyMsg("r"))
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#408") {
+	if got := selectedText(t, m); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want it still on #408 after the refresh", got)
 	}
 }
@@ -328,7 +329,7 @@ func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	client.prs = samplePRs()[:1] // #408 merged and dropped out of the section
 	m = settle(m, keyMsg("r"))
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#412") {
+	if got := selectedText(t, m); !strings.Contains(got, "#412") {
 		t.Errorf("selection = %q, want it clamped onto the remaining row", got)
 	}
 }
@@ -385,10 +386,10 @@ func TestCursorStaysVisibleWhenScrollingPastTheFold(t *testing.T) {
 		m = press(m, "j")
 	}
 
-	if selectedLine(t, m) == "" {
+	if selectedText(t, m) == "" {
 		t.Fatal("the selected row is not in the rendered frame after scrolling")
 	}
-	if got := selectedLine(t, m); !strings.Contains(got, "#30") {
+	if got := selectedText(t, m); !strings.Contains(got, "#30") {
 		t.Errorf("selection = %q, want the 31st row (#30)", got)
 	}
 }
@@ -409,7 +410,7 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	if !strings.Contains(render(t, back), "Fix auth retry") {
 		t.Error("escape did not return to the list")
 	}
-	if got := selectedLine(t, back); !strings.Contains(got, "#408") {
+	if got := selectedText(t, back); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want the same row still selected", got)
 	}
 }
@@ -574,22 +575,39 @@ func TestKnownThemeShowsNoNotice(t *testing.T) {
 func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
 
-	// Eleven lines of content, so rows 0 through 10 are on screen and the
-	// eleventh press is the first that has to move the window.
-	for range 10 {
+	prev := topRow(t, m)
+	for i := range 30 {
 		m = press(m, "j")
-	}
-	if !strings.Contains(render(t, m), "#0 ") {
-		t.Fatal("the window moved before the cursor reached the fold")
+
+		top := topRow(t, m)
+		if top < prev || top > prev+1 {
+			t.Fatalf("press %d moved the window from row %d to row %d, want at most one row", i, prev, top)
+		}
+		prev = top
 	}
 
-	out := render(t, press(m, "j"))
-	if strings.Contains(out, "#0 ") {
-		t.Error("the window did not move once the cursor passed the fold")
+	if prev == 0 {
+		t.Error("the window never moved, so nothing here was tested")
 	}
-	if !strings.Contains(out, "#1 ") {
-		t.Error("the window moved by more than one row")
+}
+
+// topRow is the number of the first pull request with a title line on screen.
+func topRow(t *testing.T, m tea.Model) int {
+	t.Helper()
+
+	for _, l := range strings.Split(stripANSI(render(t, m)), "\n") {
+		i := strings.Index(l, "Change ")
+		if i < 0 {
+			continue
+		}
+		n, err := strconv.Atoi(strings.Fields(l[i+len("Change "):])[0])
+		if err != nil {
+			t.Fatalf("cannot read a row number out of %q: %v", l, err)
+		}
+		return n
 	}
+	t.Fatal("no pull request on screen")
+	return 0
 }
 
 // The old root model clamped the scroll on every resize. Losing that put the
@@ -602,7 +620,7 @@ func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
 
 	m = settle(m, tea.WindowSizeMsg{Width: 120, Height: 14})
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#30") {
+	if got := selectedText(t, m); !strings.Contains(got, "#30") {
 		t.Errorf("selection = %q, want row 30 still on screen after the shrink", got)
 	}
 }
@@ -615,10 +633,10 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 		keys []tea.KeyPressMsg
 		want string
 	}{
-		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#11"},
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#3"},
 		{name: "page down then back up", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0"},
-		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#5"},
-		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#5"},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#1"},
+		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#1"},
 	}
 
 	for _, tt := range tests {
@@ -628,7 +646,7 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 				m = settle(m, k)
 			}
 
-			if got := selectedLine(t, m); !strings.Contains(got, tt.want+" ") {
+			if got := selectedText(t, m); !strings.Contains(got, tt.want+" ") {
 				t.Errorf("selection = %q, want %s", got, tt.want)
 			}
 		})
@@ -737,12 +755,16 @@ func fgSeq(c color.Color) string {
 	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
+// manyPRs builds a run in a known order: one repo and one clock reading, so the
+// sort's newest-first tiebreak cannot reorder rows by how long the loop took.
 func manyPRs(n int) []gh.PullRequest {
+	at := time.Now()
+
 	prs := make([]gh.PullRequest, n)
 	for i := range prs {
 		prs[i] = gh.PullRequest{
 			ID: fmt.Sprintf("PR_%d", i), Number: i, Title: fmt.Sprintf("Change %d", i),
-			Repository: "zen-octo/zen-octo", State: gh.PRStateOpen, UpdatedAt: time.Now(),
+			Repository: "zen-octo/zen-octo", State: gh.PRStateOpen, UpdatedAt: at,
 		}
 	}
 	return prs
@@ -754,15 +776,42 @@ func selectionSeq() string {
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// selectedLine returns the rendered row painted with the selection background.
-// Matching the exact color keeps this from picking up other styled chrome.
+// selectedLine returns every rendered line painted with the selection
+// background, joined. Matching the exact color keeps this from picking up other
+// styled chrome. A row is two lines, and its number is on the second, so
+// returning only the first would answer half the question.
 func selectedLine(t *testing.T, m tea.Model) string {
 	t.Helper()
 
+	var out []string
 	for _, line := range strings.Split(render(t, m), "\n") {
 		if strings.Contains(line, selectionSeq()) {
-			return line
+			out = append(out, line)
 		}
 	}
-	return ""
+	return strings.Join(out, "\n")
+}
+
+// selectedText is the selected row with its styling dropped, for assertions
+// about what it says rather than how it is painted.
+func selectedText(t *testing.T, m tea.Model) string {
+	t.Helper()
+	return stripANSI(selectedLine(t, m))
+}
+
+// stripANSI drops SGR sequences so an assertion can reason about the text. A
+// cell ends in a reset, so "#5 " is not a substring of the styled frame even
+// when the number is followed by its padding.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }

@@ -53,20 +53,22 @@ func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	return string(pr.State), th.Faint
 }
 
-// CheckStateIcon is the rollup of every check on the head commit. A blank glyph
-// means nothing reported, which is not the same as everything passing.
+// CheckStateIcon is the rollup of every check on the head commit. Nothing
+// reported reads as a pass: there is no failure either way, and a blank where
+// an icon goes reads as a rendering fault rather than as the absence of news.
 func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	switch s {
-	case gh.CheckStateSuccess:
-		return "✓", th.Success
 	case gh.CheckStateFailure, gh.CheckStateError:
 		return "✗", th.Error
 	case gh.CheckStatePending, gh.CheckStateExpected:
 		return "●", th.Warning
-	case gh.CheckStateNone:
-		return " ", th.Faint
+	case gh.CheckStateSuccess, gh.CheckStateNone:
+		return "✓", th.Success
 	}
-	return " ", th.Faint
+	// The rollup state comes off the wire unvalidated, so a state GitHub adds
+	// later arrives here. That is not news either way, and a pass is the one
+	// reading of it that could be wrong.
+	return "●", th.Faint
 }
 
 // CheckStateLabel names the rollup. It returns empty when nothing reported, so
@@ -87,6 +89,21 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 		return "", th.Faint
 	}
 	return "", th.Faint
+}
+
+// ReviewColor is where review stands, as a color for a caller drawing its own
+// mark. Nothing blocking reads the same as an approval, because it is the same
+// news.
+func ReviewColor(th theme.Theme, d gh.ReviewDecision) color.Color {
+	switch d {
+	case gh.ReviewDecisionChangesRequested:
+		return th.Error
+	case gh.ReviewDecisionReviewRequired:
+		return th.Warning
+	case gh.ReviewDecisionApproved, gh.ReviewDecisionNone:
+		return th.Success
+	}
+	return th.Success
 }
 
 // ReviewLabel names where review stands. It returns empty when no review is

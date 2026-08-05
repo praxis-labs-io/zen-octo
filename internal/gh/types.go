@@ -75,6 +75,10 @@ type PullRequest struct {
 	Deletions    int
 	ChangedFiles int
 
+	// Comments is the conversation plus its review threads, which is what the
+	// list means by "how much discussion is on this".
+	Comments int
+
 	Checks         CheckState
 	ReviewDecision ReviewDecision
 
