@@ -36,10 +36,12 @@ type Model struct {
 
 	sections []store.Section
 	active   int
-	// cursors is where the selection sat in each section. Every section is
-	// fetched now, so a tab switch is a move rather than a reload, and coming
-	// back to row zero would be throwing the user's place away.
-	cursors []int
+	// cursors is the pull request the selection sat on in each section, by id.
+	// Every section is fetched now, so a tab switch is a move rather than a
+	// reload, and coming back to row zero would throw the user's place away. A
+	// row index would not survive: a refresh reorders a section nobody is
+	// looking at, and the index then names a different pull request.
+	cursors []string
 
 	rows   rows
 	cursor int // indexes the selectable rows, so a header is never addressable
@@ -77,7 +79,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Re-arm while any section is in flight, not just the one on screen.
 		// Gating on the active section kills the chain the moment it lands, and
 		// a switch onto a slower tab then finds a frozen spinner.
-		if !m.anyLoading() {
+		if !store.Loading(m.sections) {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -89,6 +91,24 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.List
+
+	switch {
+	case key.Matches(msg, k.NextSection):
+		m.changeSection(1)
+		return m, nil
+	case key.Matches(msg, k.PrevSection):
+		m.changeSection(-1)
+		return m, nil
+	case key.Matches(msg, k.Refresh):
+		return m, func() tea.Msg { return RefreshMsg{} }
+	}
+
+	// Everything below acts on rows, and a section that is loading or failed is
+	// not showing any. Its rows are still held, so without this enter opens a
+	// pull request that was never on the screen it was pressed on.
+	if m.activeSection().Status != store.StatusReady {
+		return m, nil
+	}
 
 	switch {
 	case key.Matches(msg, k.Down):
@@ -108,20 +128,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.HalfPageUp):
 		m.moveCursor(-m.halfPage())
 
-	case key.Matches(msg, k.NextSection):
-		m.changeSection(1)
-	case key.Matches(msg, k.PrevSection):
-		m.changeSection(-1)
-
 	case key.Matches(msg, k.Open):
 		pr, ok := m.Selected()
 		if !ok {
 			return m, nil
 		}
 		return m, func() tea.Msg { return OpenMsg{PR: pr} }
-
-	case key.Matches(msg, k.Refresh):
-		return m, func() tea.Msg { return RefreshMsg{} }
 	}
 
 	return m, nil
@@ -134,7 +146,7 @@ func (m *Model) changeSection(delta int) {
 		return
 	}
 
-	m.cursors[m.active] = m.cursor
+	m.cursors[m.active] = m.selectedID()
 	m.active = (m.active + delta + len(m.sections)) % len(m.sections)
 	m.rows = newRows(m.activeSection().PRs)
 
@@ -142,7 +154,27 @@ func (m *Model) changeSection(delta int) {
 	// top and scrolling to the cursor lands somewhere valid whatever the two
 	// sections' lengths are.
 	m.view.SetYOffset(0)
-	m.setCursor(m.cursors[m.active])
+	m.setCursor(m.rowOf(m.cursors[m.active]))
+}
+
+func (m Model) selectedID() string {
+	pr, ok := m.rows.pr(m.cursor)
+	if !ok {
+		return ""
+	}
+	return pr.ID
+}
+
+// rowOf is the row holding a pull request, falling back to the first when it
+// has gone: a section can lose the row the cursor was parked on while the user
+// is looking at another tab.
+func (m Model) rowOf(id string) int {
+	for n := range m.rows.len() {
+		if pr, _ := m.rows.pr(n); pr.ID == id {
+			return n
+		}
+	}
+	return 0
 }
 
 func (m *Model) moveCursor(delta int) { m.setCursor(m.cursor + delta) }
@@ -219,7 +251,7 @@ func (m *Model) SetSize(width, height int) {
 // nothing under the selection.
 func (m *Model) SetSections(sections []store.Section) {
 	if len(m.cursors) != len(sections) {
-		m.cursors = make([]int, len(sections))
+		m.cursors = make([]string, len(sections))
 	}
 	m.sections = sections
 
@@ -241,15 +273,6 @@ func (m Model) activeSection() store.Section {
 		return store.Section{}
 	}
 	return m.sections[m.active]
-}
-
-func (m Model) anyLoading() bool {
-	for _, s := range m.sections {
-		if s.Status == store.StatusLoading {
-			return true
-		}
-	}
-	return false
 }
 
 // restoreCursor keeps the selection on the same pull request across a refresh,
@@ -312,16 +335,16 @@ func (m Model) View() string {
 		Render(m.body())
 }
 
-// badge is the count a tab carries. A section still on its way gets nothing,
-// because a zero would claim it is empty. One that failed gets a mark instead:
-// a blank badge on a tab you are not looking at reads the same as one still
-// loading, and those are not the same news.
+// badge is the count a tab carries. A section that has never answered gets
+// nothing, because a zero would claim it is empty; one that has keeps its count
+// through a reload, rather than blanking the whole strip for the fetch. A
+// failure takes the badge, because that is the news on that tab.
 func badge(s store.Section) string {
-	switch s.Status {
-	case store.StatusReady:
-		return strconv.Itoa(len(s.PRs))
-	case store.StatusFailed:
+	switch {
+	case s.Status == store.StatusFailed:
 		return "!"
+	case s.Loaded:
+		return strconv.Itoa(len(s.PRs))
 	}
 	return ""
 }

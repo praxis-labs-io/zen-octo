@@ -31,6 +31,11 @@ type Section struct {
 	PRs    []gh.PullRequest
 	Status Status
 	Err    error
+
+	// Loaded marks a section that has answered at least once. A reload puts it
+	// back into StatusLoading, and without this the tab could not tell "no
+	// count yet" from "a count, being checked".
+	Loaded bool
 }
 
 // Store holds every configured section and the point budget across them.
@@ -48,9 +53,6 @@ func New(sections []config.Section) Store {
 	return Store{sections: held}
 }
 
-// Len is the number of sections.
-func (s Store) Len() int { return len(s.sections) }
-
 // Sections is a snapshot for the view.
 func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 
@@ -58,8 +60,11 @@ func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 func (s Store) Rate() gh.RateLimit { return s.rate }
 
 // Loading reports whether any section has a fetch in flight.
-func (s Store) Loading() bool {
-	return slices.ContainsFunc(s.sections, func(sec Section) bool {
+func (s Store) Loading() bool { return Loading(s.sections) }
+
+// Loading is the same question asked of a snapshot, for a view holding one.
+func Loading(sections []Section) bool {
+	return slices.ContainsFunc(sections, func(sec Section) bool {
 		return sec.Status == StatusLoading
 	})
 }
@@ -91,6 +96,7 @@ func (s *Store) Applied(i int, res gh.SearchResult) {
 	s.sections[i].PRs = res.PullRequests
 	s.sections[i].Status = StatusReady
 	s.sections[i].Err = nil
+	s.sections[i].Loaded = true
 	s.adopt(res.RateLimit)
 }
 
@@ -109,11 +115,19 @@ func (s *Store) Failed(i int, err error) {
 // order they finish, so the newest arrival is not the truest one: the lowest
 // remaining inside a window is. A later reset means a new window, and there the
 // number legitimately goes back up.
+//
+// The lower-remaining clause is scoped to the held window on purpose. A
+// straggler issued before a reset carries the old window's exhausted number,
+// and taking it would read as an empty budget seconds after it refilled.
 func (s *Store) adopt(r gh.RateLimit) {
 	if r.Limit == 0 {
 		return
 	}
-	if s.rate.Limit == 0 || r.ResetAt.After(s.rate.ResetAt) || r.Remaining < s.rate.Remaining {
+
+	switch {
+	case s.rate.Limit == 0, r.ResetAt.After(s.rate.ResetAt):
+		s.rate = r
+	case r.ResetAt.Equal(s.rate.ResetAt) && r.Remaining < s.rate.Remaining:
 		s.rate = r
 	}
 }

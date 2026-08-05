@@ -79,10 +79,11 @@ type Model struct {
 	notice   string
 	showHelp bool
 
-	// announcing marks a refresh the user asked for. It returns the same rows
-	// more often than not, so the toast is the only sign it happened, and it
-	// waits for the last section so one press yields one message.
-	announcing bool
+	// refreshing is the sections the last r press actually started. A refresh
+	// returns the same rows more often than not, so the toast is the only sign
+	// it happened, and it has to report the sections it fetched rather than
+	// every section configured: store.Begin refuses one already in flight.
+	refreshing []int
 
 	width  int
 	height int
@@ -145,41 +146,50 @@ func (m Model) fetchSection(index int, query string) tea.Cmd {
 // counts are on screen too, so a refresh that left them as they were would be
 // making only part of the frame true.
 func (m Model) refresh() (tea.Model, tea.Cmd) {
-	// Read before Begin, which puts everything in flight by definition.
-	ticking := m.store.Loading()
+	sections := m.store.Sections()
 
 	var cmds []tea.Cmd
-	for i, section := range m.store.Sections() {
-		if m.store.Begin(i) {
-			cmds = append(cmds, m.fetchSection(i, section.Filters))
+	started := make([]int, 0, len(sections))
+	for i, section := range sections {
+		if !m.store.Begin(i) {
+			continue
 		}
+		started = append(started, i)
+		cmds = append(cmds, m.fetchSection(i, section.Filters))
 	}
 	// Every section is already on its way; the refresh is the one running.
 	if len(cmds) == 0 {
 		return m, nil
 	}
 
-	if !ticking {
-		// A live chain re-arms itself from the list's own Update. Starting a
-		// second one runs the spinner at double speed.
-		cmds = append(cmds, m.list.Init())
-	}
-	m.announcing = true
+	m.refreshing = started
 	m.list.SetSections(m.store.Sections())
-	return m, tea.Batch(cmds...)
+	return m, tea.Batch(append(cmds, m.list.Init())...)
 }
 
-// sectionSettled pushes the new snapshot down and, once nothing is left in
-// flight, reports a refresh the user asked for.
+// sectionSettled pushes the new snapshot down and, once the sections a refresh
+// started have all landed, reports it. Waiting on the whole store instead would
+// hold the toast behind a section the refresh never touched.
 func (m Model) sectionSettled() (tea.Model, tea.Cmd) {
-	m.list.SetSections(m.store.Sections())
-	if !m.announcing || m.store.Loading() {
+	sections := m.store.Sections()
+	m.list.SetSections(sections)
+
+	if len(m.refreshing) == 0 || stillLoading(sections, m.refreshing) {
 		return m, nil
 	}
 
-	m.announcing = false
-	kind, text := refreshSummary(m.store.Sections())
+	kind, text := refreshSummary(sections, m.refreshing)
+	m.refreshing = nil
 	return m, m.toasts.Show(kind, text)
+}
+
+func stillLoading(sections []store.Section, indices []int) bool {
+	for _, i := range indices {
+		if sections[i].Status == store.StatusLoading {
+			return true
+		}
+	}
+	return false
 }
 
 // Update applies every message. Nothing else mutates the model.
@@ -437,24 +447,24 @@ func helpStyles(th theme.Theme) help.Styles {
 	}
 }
 
-// refreshSummary names what came back. A refresh covers every section, so it
-// counts sections rather than rows: the number that moved is the one the tab
-// strip is now showing.
-func refreshSummary(sections []store.Section) (comp.ToastKind, string) {
+// refreshSummary names what came back. It counts sections rather than rows,
+// because sections are what a refresh covers, and only the ones it started: a
+// section left in flight is not a section this refresh can claim.
+func refreshSummary(sections []store.Section, started []int) (comp.ToastKind, string) {
 	failed := 0
-	for _, s := range sections {
-		if s.Status == store.StatusFailed {
+	for _, i := range started {
+		if sections[i].Status == store.StatusFailed {
 			failed++
 		}
 	}
 
 	switch {
 	case failed == 0:
-		return comp.ToastSuccess, "Refreshed " + plural(len(sections), "section")
-	case failed == len(sections):
+		return comp.ToastSuccess, "Refreshed " + plural(len(started), "section")
+	case failed == len(started):
 		return comp.ToastError, "Refresh failed"
 	default:
-		return comp.ToastError, "Refreshed " + plural(len(sections)-failed, "section") +
+		return comp.ToastError, "Refreshed " + plural(len(started)-failed, "section") +
 			", " + strconv.Itoa(failed) + " failed"
 	}
 }

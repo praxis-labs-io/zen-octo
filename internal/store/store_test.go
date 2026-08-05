@@ -74,6 +74,16 @@ func TestTheBudgetFallsThroughABurst(t *testing.T) {
 			want: 4999,
 		},
 		{
+			// The straggler was issued before the reset, so its exhausted
+			// number describes a window that no longer exists.
+			name: "a straggler from the previous window does not pull it back down",
+			in: []gh.RateLimit{
+				{Limit: 5000, Remaining: 4999, ResetAt: later},
+				{Limit: 5000, Remaining: 8, ResetAt: window},
+			},
+			want: 4999,
+		},
+		{
 			name: "a response carrying no budget leaves the held one alone",
 			in: []gh.RateLimit{
 				{Limit: 5000, Remaining: 4998, ResetAt: window},
@@ -162,11 +172,12 @@ func TestTheSnapshotIsACopy(t *testing.T) {
 // Out of range is a caller bug, not a panic in the middle of Update.
 func TestAnIndexOffTheEndIsIgnored(t *testing.T) {
 	s := store.New(configured())
+	off := len(s.Sections())
 
-	if s.Begin(-1) || s.Begin(s.Len()) {
+	if s.Begin(-1) || s.Begin(off) {
 		t.Error("Begin started a section that does not exist")
 	}
-	s.Applied(s.Len(), result("nope"))
+	s.Applied(off, result("nope"))
 	s.Failed(-1, errors.New("nope"))
 
 	for i, section := range s.Sections() {

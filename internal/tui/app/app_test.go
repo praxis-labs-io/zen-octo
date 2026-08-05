@@ -168,6 +168,19 @@ func immediate(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
+// responses runs a command and keeps the fetch results, dropping the spinner
+// tick that rides in the same batch. It is what lets a test hold one section's
+// answer back and let another land first.
+func responses(cmd tea.Cmd) []tea.Msg {
+	var out []tea.Msg
+	for _, msg := range immediate(cmd) {
+		if _, ok := msg.(spinner.TickMsg); !ok {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
 func render(t *testing.T, m tea.Model) string {
 	t.Helper()
 	return m.View().Content
@@ -595,18 +608,45 @@ func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
 
 	// One section's response delivered, the rest held.
 	next, cmd := m.Update(list.RefreshMsg{})
-	responses := immediate(cmd)
-	if len(responses) < 2 {
-		t.Fatalf("setup: the refresh produced %d responses, want one per section", len(responses))
+	landed := responses(cmd)
+	if len(landed) < 2 {
+		t.Fatalf("setup: the refresh produced %d responses, want one per section", len(landed))
 	}
 
-	next = settle(next, responses[0])
+	next = settle(next, landed[0])
 	if strings.Contains(render(t, next), "Refreshed") {
 		t.Error("the toast fired while a section was still in flight")
 	}
 
-	if out := render(t, settle(next, responses[1:]...)); !strings.Contains(out, "Refreshed 2 sections") {
+	if out := render(t, settle(next, landed[1:]...)); !strings.Contains(out, "Refreshed 2 sections") {
 		t.Errorf("view = %q, want the toast once the last section landed", out)
+	}
+}
+
+// store.Begin refuses a section already in flight, so a refresh does not always
+// reach every tab. The toast counts what it fetched, not what it asked for, or
+// it claims work it never did and failures it never caused.
+func TestTheRefreshToastCountsOnlyTheSectionsItStarted(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	var m tea.Model = app.New(testConfig(), client)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// Both startup fetches, held rather than delivered.
+	initial := responses(m.Init())
+	if len(initial) != 2 {
+		t.Fatalf("setup: startup produced %d responses, want one per section", len(initial))
+	}
+
+	// One section home, the other still out, and then r: only the settled one
+	// can be refetched.
+	m, _ = m.Update(initial[0])
+	m, cmd := m.Update(list.RefreshMsg{})
+
+	m = settle(m, initial[1])
+	m = settle(m, responses(cmd)...)
+
+	if out := render(t, m); !strings.Contains(out, "Refreshed 1 section") {
+		t.Errorf("view = %q, want the toast to count the one section the refresh started", out)
 	}
 }
 
