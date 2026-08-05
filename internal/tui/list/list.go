@@ -263,7 +263,7 @@ func (m *Model) syncContent() {
 			lines = append(lines, renderHeader(m.theme, it, width)...)
 			continue
 		}
-		lines = append(lines, renderRow(m.theme, it.pr, width, i == selected)...)
+		lines = append(lines, renderRow(m.theme, it, width, i == selected)...)
 	}
 	m.view.SetContent(strings.Join(lines, "\n"))
 }

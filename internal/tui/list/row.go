@@ -139,17 +139,29 @@ func fit(width int) layout {
 }
 
 // renderRow draws one pull request as its two lines: the title and its status
-// on the first, everything that identifies it on the second.
+// on the first, everything that identifies it on the second, with the rule that
+// separates it from the next row underneath.
 //
 // Selection is baked into every cell's own style, on both lines. Wrapping a
 // joined line instead paints only its first cell: each cell ends in a full SGR
 // reset, which clears the background along with the foreground.
-func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) []string {
-	l := fit(width)
+func renderRow(th theme.Theme, it item, width int, selected bool) []string {
+	pr, l := it.pr, fit(width)
 
 	base := lipgloss.NewStyle()
 	if selected {
 		base = base.Background(th.SelectedBackground)
+	}
+
+	// The rule between rows is an underline on the second line rather than a
+	// line of its own, which would cost a third of the rows on screen. Its color
+	// is set outright so it does not follow each cell's foreground.
+	meta := base
+	if it.divided {
+		meta = meta.
+			UnderlineStyle(lipgloss.UnderlineSingle).
+			UnderlineColor(th.BorderFaintOrSecondary()).
+			UnderlineSpaces(true)
 	}
 
 	stateIcon, stateColor := comp.PRStateIcon(th, pr)
@@ -166,25 +178,25 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) []st
 		head = append(head, cell(reviewWidth, reviewIcon, base.Foreground(reviewColor)))
 	}
 
-	meta := []string{identity(th, pr, l.ident, base)}
+	tail := []string{identity(th, pr, l.ident, meta)}
 	if l.diff {
 		// Two cells rather than one string: additions and deletions carry their
 		// own color, and a cell is one style all the way through.
-		meta = append(meta,
-			cell(additionsWidth, alignRight("+"+strconv.Itoa(pr.Additions), additionsWidth), base.Foreground(th.Success)),
-			cell(deletionsWidth, alignRight("−"+strconv.Itoa(pr.Deletions), deletionsWidth), base.Foreground(th.Error)),
+		tail = append(tail,
+			cell(additionsWidth, alignRight("+"+strconv.Itoa(pr.Additions), additionsWidth), meta.Foreground(th.Success)),
+			cell(deletionsWidth, alignRight("−"+strconv.Itoa(pr.Deletions), deletionsWidth), meta.Foreground(th.Error)),
 		)
 	}
 	if l.files {
-		meta = append(meta, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Faint)))
+		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), meta.Foreground(th.Faint)))
 	}
 	if l.comments {
-		meta = append(meta, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), base.Foreground(th.Faint)))
+		tail = append(tail, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), meta.Foreground(th.Faint)))
 	}
 
 	return []string{
 		line(leftMargin, head, width, base),
-		line(indentWidth, meta, width, base),
+		line(indentWidth, tail, width, meta),
 	}
 }
 
