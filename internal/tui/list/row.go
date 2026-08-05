@@ -34,7 +34,6 @@ const (
 	additionsWidth = 5
 	deletionsWidth = 5
 	filesWidth     = 5
-	commentsWidth  = 5
 
 	// Below this the repository is more ellipsis than name, so the counts give
 	// up their columns first.
@@ -44,8 +43,8 @@ const (
 	maxTitleWidth = 90
 )
 
-// The counts on the second line are marked by glyph rather than by a word, from
-// the same Nerd Fonts ranges as the state badges.
+// The counts are marked by glyph rather than by a word, from the same Nerd
+// Fonts ranges as the state badges.
 const (
 	glyphFiles    = "\uea7b" // nf-cod-file
 	glyphComments = "\uf41f" // nf-oct-comment
@@ -187,17 +186,16 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	return lines
 }
 
-// counted is a glyph and its number, or nothing at all when there is nothing to
-// count: an icon next to a zero reads as a reading worth noticing. The column
-// stays either way, so the rows still line up.
+// counted is a glyph and its number with nothing between them, pushed to the
+// right of its column so a screenful lines up on the last digit.
 //
-// The glyph holds its place while the digits grow leftward from the right edge,
-// so neither runs ragged down a screenful.
+// Nothing to count renders as nothing at all: an icon next to a zero reads as a
+// reading worth noticing. The column stays either way, so the rows still line up.
 func counted(glyph string, n, width int) string {
 	if n == 0 {
 		return ""
 	}
-	return glyph + " " + alignRight(strconv.Itoa(n), width-2)
+	return alignRight(glyph+strconv.Itoa(n), width)
 }
 
 // alignRight pads on the left, so a column of numbers lines up on its last

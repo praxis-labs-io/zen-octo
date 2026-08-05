@@ -241,6 +241,16 @@ func TestARowWithNoReviewStillReachesTheEdge(t *testing.T) {
 	}
 }
 
+// The file icon sits against its digits at the right of the row, rather than at
+// the left of a column they float in.
+func TestTheFileCountRunsAgainstItsIcon(t *testing.T) {
+	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "zen-octo/zen-octo"))
+
+	if !strings.Contains(row, fileGlyph+"3") {
+		t.Errorf("the file count is not against its icon: %q", row)
+	}
+}
+
 // The comment count trails the title, so it sits where the title ends rather
 // than in a column of its own.
 func TestTheCommentCountTrailsTheTitle(t *testing.T) {
