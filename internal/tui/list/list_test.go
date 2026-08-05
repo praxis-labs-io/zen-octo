@@ -383,6 +383,44 @@ func TestTheSelectedRowIsPaintedCellByCellOnBothLines(t *testing.T) {
 	}
 }
 
+// A raw space between two styled runs is a hole in the selection: the run
+// before it ends in a full reset, so the background stops there and the gap
+// shows the pane through it.
+func TestTheSelectionHasNoGaps(t *testing.T) {
+	out := screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")})
+
+	for i, line := range strings.Split(selectedRow(t, out), "\n") {
+		if gap := strings.Trim(unpainted(line), "│"); gap != "" {
+			t.Errorf("line %d of the selection has %d unpainted cells (%q)\n%q", i, len(gap), gap, line)
+		}
+	}
+}
+
+// unpainted is the text of a rendered line that has no selection background
+// behind it, border runes included.
+func unpainted(line string) string {
+	var out strings.Builder
+	painted := false
+
+	for i := 0; i < len(line); {
+		if line[i] != 0x1b {
+			if !painted {
+				out.WriteByte(line[i])
+			}
+			i++
+			continue
+		}
+
+		j := i
+		for j < len(line) && line[j] != 'm' {
+			j++
+		}
+		painted = strings.Contains(line[i:j], selectionSeq())
+		i = j + 1
+	}
+	return out.String()
+}
+
 // A line wider than its pane gets clipped blind: trailing columns vanish
 // mid-cell with no ellipsis and the selection background stops short of the
 // edge. So both lines have to fit at every width, not just roomy ones.

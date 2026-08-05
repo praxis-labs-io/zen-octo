@@ -160,8 +160,8 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	if l.status {
 		// The join puts one space here; the leading one makes two, which is what
 		// keeps the pair from reading as another count.
-		tail = append(tail, " "+
-			statusMark(th, base, glyphReview, reviewColor)+" "+
+		tail = append(tail, base.Render(" ")+
+			statusMark(th, base, glyphReview, reviewColor)+base.Render(" ")+
 			statusMark(th, base, glyphChecks, checkColor))
 	}
 
