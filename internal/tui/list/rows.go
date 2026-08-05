@@ -15,7 +15,9 @@ const (
 
 	// groupGap is the blank space above a group. Rows inside one already have a
 	// line between them, so a group needs more than that to read as a break.
+	// The first group takes less: there is nothing above it to break from.
 	groupGap = 2
+	topGap   = 1
 )
 
 // group is which block a pull request sorts into. The order of the constants is
@@ -49,7 +51,7 @@ func groupOf(pr gh.PullRequest) group {
 type item struct {
 	header     string // group label, empty on a pull request
 	count      int    // pull requests in the group, on a header
-	blankAbove bool   // a group gap above, on every header but the first
+	gapAbove   int    // blank lines above, on a header
 	blankBelow bool   // one line below, on every row but a group's last
 	pr         gh.PullRequest
 }
@@ -60,10 +62,8 @@ func (i item) lines() int {
 	if i.isPR() {
 		n = rowLines
 	}
-	switch {
-	case i.blankAbove:
-		n += groupGap
-	case i.blankBelow:
+	n += i.gapAbove
+	if i.blankBelow {
 		n++
 	}
 	return n
@@ -114,7 +114,11 @@ func arrange(prs []gh.PullRequest) []item {
 		// A group after the first opens with its gap, and every row but the last
 		// closes with a single line. The last skips its own so the gap before
 		// the next header is the group gap and not a line more.
-		items = append(items, item{header: groupLabels[g], count: len(bucket), blankAbove: len(items) > 0})
+		gap := groupGap
+		if len(items) == 0 {
+			gap = topGap
+		}
+		items = append(items, item{header: groupLabels[g], count: len(bucket), gapAbove: gap})
 		for i, pr := range bucket {
 			items = append(items, item{pr: pr, blankBelow: i < len(bucket)-1})
 		}

@@ -139,24 +139,30 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 	}
 }
 
-// Groups need air between them. Above the first one it would only push the
-// list down a row, so that one opens the pane.
-func TestEveryGroupButTheFirstOpensWithABlankLine(t *testing.T) {
+// The first group takes a thinner gap than the rest: there is nothing above it
+// to break away from, only the pane's own border.
+func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	draft := pr("Bump charm deps")
 	draft.ID, draft.IsDraft = "PR_draft", true
 
-	// The pane's top border is line zero, so the first header lands on line one.
+	// Line zero is the pane's top border, so the gap starts at line one.
 	lines := strings.Split(stripANSI(screen(t, 120, 24, []gh.PullRequest{pr("Fix auth retry"), draft})), "\n")
-	if !strings.Contains(lines[1], "─ Ready 1") {
-		t.Fatalf("the first group does not open the pane: %q", lines[1])
+
+	if gap := strings.Trim(lines[1], "│ "); gap != "" {
+		t.Errorf("no line above the first group: %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "─ Ready 1") {
+		t.Errorf("the gap above the first group is more than a line: %q", lines[2])
 	}
 
 	for i, l := range lines {
 		if !strings.Contains(l, "─ Draft 1") {
 			continue
 		}
-		if above := strings.Trim(lines[i-1], "│ "); above != "" {
-			t.Errorf("the draft group has no blank line above it: %q", lines[i-1])
+		for n := 1; n <= 2; n++ {
+			if above := strings.Trim(lines[i-n], "│ "); above != "" {
+				t.Errorf("line %d above the draft group is not blank: %q", n, lines[i-n])
+			}
 		}
 		return
 	}

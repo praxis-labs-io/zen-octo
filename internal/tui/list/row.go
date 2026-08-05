@@ -246,14 +246,11 @@ func renderHeader(th theme.Theme, it item, width int) []string {
 	fill := max(0, width-lipgloss.Width(left))
 	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))
 
-	if it.blankAbove {
-		gap := make([]string, groupGap, groupGap+1)
-		for i := range gap {
-			gap[i] = strings.Repeat(" ", width)
-		}
-		return append(gap, rendered)
+	lines := make([]string, it.gapAbove, it.gapAbove+1)
+	for i := range lines {
+		lines[i] = strings.Repeat(" ", width)
 	}
-	return []string{rendered}
+	return append(lines, rendered)
 }
 
 // line indents, joins with a gutter, then pads or clips to exactly width. Short
