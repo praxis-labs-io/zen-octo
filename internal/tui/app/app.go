@@ -27,11 +27,11 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// PRSearcher is the slice of the GitHub client this model needs. Declaring it
-// here rather than in the gh package is what lets tests drive the UI without a
-// network.
-type PRSearcher interface {
+// GitHub is the slice of the client this model needs. Declaring it here rather
+// than in the gh package is what lets tests drive the UI without a network.
+type GitHub interface {
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
+	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
 }
 
 type sectionFetchedMsg struct {
@@ -42,6 +42,19 @@ type sectionFetchedMsg struct {
 type sectionFailedMsg struct {
 	index int
 	err   error
+}
+
+// The detail messages name a pull request rather than a screen. Open one,
+// escape, open another, and the first response still arrives; the id is what
+// keeps it off the screen that replaced it.
+type detailFetchedMsg struct {
+	id  string
+	res gh.DetailResult
+}
+
+type detailFailedMsg struct {
+	id  string
+	err error
 }
 
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
@@ -61,7 +74,7 @@ const (
 
 // Model is the root of the UI.
 type Model struct {
-	client PRSearcher
+	client GitHub
 	theme  theme.Theme
 	limit  int
 
@@ -90,7 +103,7 @@ type Model struct {
 }
 
 // New builds the root model over the configured PR sections.
-func New(cfg *config.Config, client PRSearcher) Model {
+func New(cfg *config.Config, client GitHub) Model {
 	th, ok := theme.Get(cfg.Theme)
 
 	h := help.New()
@@ -192,6 +205,60 @@ func stillLoading(sections []store.Section, indices []int) bool {
 	return false
 }
 
+// open puts the detail screen up over whatever the store already holds for this
+// pull request, then fetches anyway. A pull request opened before paints on the
+// first frame; the refetch swaps in behind it, and SetContent keeps the scroll
+// position, so nothing moves under the reader.
+func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
+	m.detail = prview.New(m.theme, pr, m.detail.Rail())
+	m.screen = screenDetail
+
+	var cmd tea.Cmd
+	if m.store.BeginDetail(pr.ID) {
+		// Init arms the screen's own spinner chain. It ends itself once there is
+		// something to read, so a reopen off the cache costs one tick.
+		cmd = tea.Batch(m.fetchDetail(pr.ID, pr.HeadRefName), m.detail.Init())
+	}
+
+	m.detail.SetDetail(m.store.Detail(pr.ID))
+	m.resize()
+	return m, cmd
+}
+
+// fetchDetail carries the head branch as well as the id: the query asks how far
+// behind the base the branch has fallen, and it needs the name to do it.
+func (m Model) fetchDetail(id, headRef string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.PullRequest(ctx, id, headRef)
+		if err != nil {
+			return detailFailedMsg{id: id, err: err}
+		}
+		return detailFetchedMsg{id: id, res: res}
+	}
+}
+
+// detailSettled pushes a response into the screen, but only when the screen is
+// still showing the pull request it was fetched for.
+//
+// A failure over a detail already on screen only gets a toast: the screen keeps
+// what it had, so without one nothing would say the refetch happened at all.
+func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
+	held := m.store.Detail(id)
+	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
+		return m, nil
+	}
+
+	m.detail.SetDetail(held)
+	if err != nil && held.Loaded {
+		return m, m.toasts.Show(comp.ToastError, "Could not refresh #"+strconv.Itoa(m.detail.PullRequest().Number))
+	}
+	return m, nil
+}
+
 // Update applies every message. Nothing else mutates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -214,22 +281,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.sectionSettled()
 
 	case spinner.TickMsg:
-		// The list owns the only spinner, and the chain re-arms from its own
-		// Update. Delegating by focus kills it the moment the detail screen
-		// opens over a fetch in flight.
-		var cmd tea.Cmd
-		m.list, cmd = m.list.Update(msg)
-		return m, cmd
+		// Both screens get every tick, and each drops the ones that are not its
+		// own: comp.Spinner tags them. Delegating by focus instead would kill
+		// the list's chain the moment the detail screen opened over a fetch.
+		var listCmd, detailCmd tea.Cmd
+		m.list, listCmd = m.list.Update(msg)
+		m.detail, detailCmd = m.detail.Update(msg)
+		return m, tea.Batch(listCmd, detailCmd)
 
 	case comp.ToastExpiredMsg:
 		m.toasts.Expire(msg)
 		return m, nil
 
+	case detailFetchedMsg:
+		m.store.DetailApplied(msg.id, msg.res)
+		return m.detailSettled(msg.id, nil)
+
+	case detailFailedMsg:
+		m.store.DetailFailed(msg.id, msg.err)
+		return m.detailSettled(msg.id, msg.err)
+
 	case list.OpenMsg:
-		m.detail = prview.New(m.theme, msg.PR, m.detail.Rail())
-		m.screen = screenDetail
-		m.resize()
-		return m, nil
+		return m.open(msg.PR)
 
 	case list.RefreshMsg:
 		return m.refresh()
@@ -460,18 +533,11 @@ func refreshSummary(sections []store.Section, started []int) (comp.ToastKind, st
 
 	switch {
 	case failed == 0:
-		return comp.ToastSuccess, "Refreshed " + plural(len(started), "section")
+		return comp.ToastSuccess, "Refreshed " + comp.Plural(len(started), "section")
 	case failed == len(started):
 		return comp.ToastError, "Refresh failed"
 	default:
-		return comp.ToastError, "Refreshed " + plural(len(started)-failed, "section") +
+		return comp.ToastError, "Refreshed " + comp.Plural(len(started)-failed, "section") +
 			", " + strconv.Itoa(failed) + " failed"
 	}
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return strconv.Itoa(n) + " " + noun + "s"
 }

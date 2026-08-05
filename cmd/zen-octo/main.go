@@ -57,7 +57,7 @@ func run(mockup bool) error {
 	return err
 }
 
-func newClient(mockup bool) (app.PRSearcher, error) {
+func newClient(mockup bool) (app.GitHub, error) {
 	if mockup {
 		return app.Mock{}, nil
 	}
