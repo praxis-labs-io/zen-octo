@@ -1,0 +1,575 @@
+package gh
+
+import (
+	"cmp"
+	"context"
+	"fmt"
+	"sort"
+	"time"
+)
+
+// pullRequestQuery asks by node id rather than owner, name and number. The id
+// came from GitHub with the search result, so there is nothing to split and no
+// ambiguity about which repository is meant.
+//
+// The item types are deliberately short. Labeled, assigned, renamed, subscribed
+// and the rest are noise in a terminal, and every one is another fragment.
+const pullRequestQuery = `
+query PullRequestDetail($id: ID!, $head: String!) {
+  rateLimit { limit cost remaining resetAt }
+  node(id: $id) {
+    ... on PullRequest {
+      id
+      number
+      title
+      url
+      isDraft
+      state
+      createdAt
+      updatedAt
+      additions
+      deletions
+      changedFiles
+      headRefName
+      baseRefName
+      reviewDecision
+      mergeable
+      mergeStateStatus
+      body
+      author { login }
+      repository { nameWithOwner }
+
+      baseRef { compare(headRef: $head) { behindBy } }
+
+      labels(first: 20) { nodes { name color } }
+      assignees(first: 10) { nodes { login } }
+      reviewRequests(first: 10) {
+        nodes {
+          requestedReviewer {
+            ... on User { login }
+            ... on Bot { login }
+            ... on Team { name }
+          }
+        }
+      }
+
+      comments(first: 100) {
+        totalCount
+        nodes { author { login } createdAt body }
+      }
+
+      reviews(first: 100) {
+        totalCount
+        nodes { id state body submittedAt author { login } }
+      }
+
+      reviewThreads(first: 100) {
+        totalCount
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          originalLine
+          comments(first: 50) {
+            totalCount
+            nodes {
+              author { login }
+              createdAt
+              body
+              pullRequestReview { id }
+            }
+          }
+        }
+      }
+
+      timelineItems(last: 100, itemTypes: [
+        MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT,
+        READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, HEAD_REF_FORCE_PUSHED_EVENT
+      ]) {
+        nodes {
+          __typename
+          ... on MergedEvent { createdAt actor { login } }
+          ... on ClosedEvent { createdAt actor { login } }
+          ... on ReopenedEvent { createdAt actor { login } }
+          ... on ReadyForReviewEvent { createdAt actor { login } }
+          ... on ConvertToDraftEvent { createdAt actor { login } }
+          ... on HeadRefForcePushedEvent { createdAt actor { login } }
+        }
+      }
+
+      statusCheckRollup: commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+              contexts(first: 100) {
+                nodes {
+                  __typename
+                  ... on CheckRun {
+                    name
+                    status
+                    conclusion
+                    startedAt
+                    checkSuite { workflowRun { workflow { name } } }
+                  }
+                  ... on StatusContext { context state }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+// actorNode is GitHub's nullable actor. It is a pointer everywhere it appears,
+// because a deleted account comes back as null rather than a blank login.
+type actorNode *struct{ Login string }
+
+type pullRequestResponse struct {
+	RateLimit struct {
+		Limit     int
+		Cost      int
+		Remaining int
+		ResetAt   time.Time
+	}
+
+	Node struct {
+		ID           string
+		Number       int
+		Title        string
+		URL          string
+		IsDraft      bool
+		State        string
+		CreatedAt    time.Time
+		UpdatedAt    time.Time
+		Additions    int
+		Deletions    int
+		ChangedFiles int
+		HeadRefName  string
+		BaseRefName  string
+
+		ReviewDecision   string
+		Mergeable        string
+		MergeStateStatus string
+		Body             string
+		Author           actorNode
+		Repository       struct{ NameWithOwner string }
+
+		BaseRef *struct {
+			Compare *struct{ BehindBy int }
+		}
+
+		Labels struct {
+			Nodes []struct{ Name, Color string }
+		}
+		Assignees struct{ Nodes []struct{ Login string } }
+
+		ReviewRequests struct {
+			Nodes []struct {
+				RequestedReviewer *struct {
+					Login string
+					Name  string
+				}
+			}
+		}
+
+		Comments struct {
+			TotalCount int
+			Nodes      []struct {
+				Author    actorNode
+				CreatedAt time.Time
+				Body      string
+			}
+		}
+
+		Reviews struct {
+			TotalCount int
+			Nodes      []struct {
+				ID          string
+				State       string
+				Body        string
+				SubmittedAt time.Time
+				Author      actorNode
+			}
+		}
+
+		ReviewThreads struct {
+			TotalCount int
+			Nodes      []struct {
+				IsResolved   bool
+				IsOutdated   bool
+				Path         string
+				Line         int
+				OriginalLine int
+				Comments     struct {
+					TotalCount int
+					Nodes      []struct {
+						Author            actorNode
+						CreatedAt         time.Time
+						Body              string
+						PullRequestReview *struct{ ID string }
+					}
+				}
+			}
+		}
+
+		TimelineItems struct {
+			Nodes []struct {
+				Typename  string `json:"__typename"`
+				CreatedAt time.Time
+				Actor     actorNode
+			}
+		}
+
+		StatusCheckRollup struct {
+			Nodes []struct {
+				Commit struct {
+					StatusCheckRollup *struct {
+						State    string
+						Contexts struct {
+							Nodes []struct {
+								Typename   string `json:"__typename"`
+								Name       string
+								Context    string
+								Status     string
+								Conclusion string
+								State      string
+								StartedAt  time.Time
+
+								CheckSuite struct {
+									WorkflowRun *struct {
+										Workflow struct{ Name string }
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// PullRequest fetches everything the detail screen shows. It is the most
+// expensive call in the app, which is why the store caches what it returns.
+// headRef is the branch the pull request is merging from. The query needs it up
+// front to ask how far behind the base it has fallen, and GraphQL cannot read
+// it off a sibling field, so the caller passes the one it already has.
+func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailResult, error) {
+	var resp pullRequestResponse
+	vars := map[string]any{"id": id, "head": headRef}
+
+	if err := c.gql.DoWithContext(ctx, pullRequestQuery, vars, &resp); err != nil {
+		return DetailResult{}, fmt.Errorf("fetching pull request (%s): %w", id, classify(err))
+	}
+
+	n := resp.Node
+	if n.ID == "" {
+		return DetailResult{}, fmt.Errorf("fetching pull request (%s): no pull request behind that id", id)
+	}
+
+	detail := PullRequestDetail{
+		PullRequest: PullRequest{
+			ID:             n.ID,
+			Number:         n.Number,
+			Title:          n.Title,
+			URL:            n.URL,
+			Repository:     n.Repository.NameWithOwner,
+			Author:         login(n.Author),
+			State:          PRState(n.State),
+			IsDraft:        n.IsDraft,
+			HeadRefName:    n.HeadRefName,
+			BaseRefName:    n.BaseRefName,
+			Additions:      n.Additions,
+			Deletions:      n.Deletions,
+			ChangedFiles:   n.ChangedFiles,
+			Comments:       n.Comments.TotalCount + n.ReviewThreads.TotalCount,
+			ReviewDecision: ReviewDecision(n.ReviewDecision),
+			CreatedAt:      n.CreatedAt,
+			UpdatedAt:      n.UpdatedAt,
+		},
+		Body:         n.Body,
+		Merge:        mergeState(n.Mergeable, n.MergeStateStatus),
+		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
+		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
+	}
+
+	for _, l := range n.Labels.Nodes {
+		detail.Labels = append(detail.Labels, Label{Name: l.Name, Color: l.Color})
+	}
+	for _, a := range n.Assignees.Nodes {
+		detail.Assignees = append(detail.Assignees, Actor{Login: a.Login})
+	}
+	detail.Reviewers = reviewers(resp)
+
+	for _, t := range n.ReviewThreads.Nodes {
+		thread := ReviewThread{
+			Path:       t.Path,
+			Line:       cmp.Or(t.Line, t.OriginalLine),
+			IsResolved: t.IsResolved,
+			IsOutdated: t.IsOutdated,
+		}
+		for _, c := range t.Comments.Nodes {
+			if thread.ReviewID == "" && c.PullRequestReview != nil {
+				thread.ReviewID = c.PullRequestReview.ID
+			}
+			thread.Comments = append(thread.Comments, Comment{
+				Author:    login(c.Author),
+				CreatedAt: c.CreatedAt,
+				Body:      c.Body,
+			})
+		}
+		detail.Threads = append(detail.Threads, thread)
+	}
+
+	if ref := n.BaseRef; ref != nil && ref.Compare != nil {
+		detail.BehindBy = ref.Compare.BehindBy
+	}
+
+	detail.Timeline = timeline(resp)
+	detail.Rollup = rollup(resp)
+	// The embedded row's Checks is the same rollup the search result carries, so
+	// a screen reading either one sees the same answer.
+	detail.Checks = detail.Rollup.State
+
+	return DetailResult{
+		Detail: detail,
+		RateLimit: RateLimit{
+			Limit:     resp.RateLimit.Limit,
+			Cost:      resp.RateLimit.Cost,
+			Remaining: resp.RateLimit.Remaining,
+			ResetAt:   resp.RateLimit.ResetAt,
+		},
+	}, nil
+}
+
+// reviewers is everyone GitHub lists on the reviewers panel. A submitted review
+// takes its author off reviewRequests, so building the list from requests alone
+// loses whoever has already looked at it, which is most of the point.
+func reviewers(n pullRequestResponse) []Reviewer {
+	var out []Reviewer
+	at := make(map[string]int)
+	byReview := make(map[string]string) // review id -> login
+
+	for _, r := range n.Node.Reviews.Nodes {
+		// A pending review is the viewer's own unsubmitted draft, and its state
+		// is not a verdict anyone else can see.
+		if ReviewState(r.State) == ReviewStatePending {
+			continue
+		}
+		login := login(r.Author).Login
+		if login == "" {
+			continue
+		}
+
+		byReview[r.ID] = login
+
+		// Someone can review more than once, and the last word is the one that
+		// counts.
+		if i, seen := at[login]; seen {
+			out[i].State = ReviewState(r.State)
+			continue
+		}
+		at[login] = len(out)
+		out = append(out, Reviewer{Actor: Actor{Login: login}, State: ReviewState(r.State)})
+	}
+
+	// A reviewer who only commented is still waiting on something if any of
+	// their threads are open, which is the difference between "had a look" and
+	// "asked for a change".
+	for _, t := range n.Node.ReviewThreads.Nodes {
+		if t.IsResolved || len(t.Comments.Nodes) == 0 {
+			continue
+		}
+		review := t.Comments.Nodes[0].PullRequestReview
+		if review == nil {
+			continue
+		}
+		if i, seen := at[byReview[review.ID]]; seen {
+			out[i].Unresolved++
+		}
+	}
+
+	for _, r := range n.Node.ReviewRequests.Nodes {
+		// A requested reviewer is a user, a bot or a team, and only one of the
+		// two fields is set. Teams have no login; Copilot is a bot, and leaving
+		// its fragment out drops it from the list entirely.
+		if r.RequestedReviewer == nil {
+			continue
+		}
+		name := cmp.Or(r.RequestedReviewer.Login, r.RequestedReviewer.Name)
+		if _, seen := at[name]; name == "" || seen {
+			continue
+		}
+		at[name] = len(out)
+		out = append(out, Reviewer{Actor: Actor{Login: name}})
+	}
+	return out
+}
+
+// timeline folds comments, reviews and events into one list in the order they
+// happened. GitHub returns them in three connections; the conversation reads
+// top to bottom.
+func timeline(n pullRequestResponse) []TimelineItem {
+	items := make([]TimelineItem, 0,
+		len(n.Node.Comments.Nodes)+len(n.Node.Reviews.Nodes)+len(n.Node.TimelineItems.Nodes))
+
+	for _, c := range n.Node.Comments.Nodes {
+		items = append(items, TimelineItem{
+			Kind:      TimelineComment,
+			Actor:     login(c.Author),
+			CreatedAt: c.CreatedAt,
+			Body:      c.Body,
+		})
+	}
+
+	for _, r := range n.Node.Reviews.Nodes {
+		// A pending review is the viewer's own unsubmitted draft. It has no
+		// timestamp and nobody else can see it.
+		if ReviewState(r.State) == ReviewStatePending {
+			continue
+		}
+		items = append(items, TimelineItem{
+			Kind:      TimelineReview,
+			ID:        r.ID,
+			Actor:     login(r.Author),
+			CreatedAt: r.SubmittedAt,
+			Body:      r.Body,
+			Review:    ReviewState(r.State),
+		})
+	}
+
+	for _, e := range n.Node.TimelineItems.Nodes {
+		kind, ok := eventKinds[e.Typename]
+		if !ok {
+			continue
+		}
+		items = append(items, TimelineItem{
+			Kind:      kind,
+			Actor:     login(e.Actor),
+			CreatedAt: e.CreatedAt,
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	return items
+}
+
+var eventKinds = map[string]TimelineKind{
+	"MergedEvent":             TimelineMerged,
+	"ClosedEvent":             TimelineClosed,
+	"ReopenedEvent":           TimelineReopened,
+	"ReadyForReviewEvent":     TimelineReadyForReview,
+	"ConvertToDraftEvent":     TimelineDraft,
+	"HeadRefForcePushedEvent": TimelineForcePushed,
+}
+
+// rollup counts the head commit's checks. GitHub gives the summary state; the
+// breakdown behind it is what makes the rail worth reading.
+func rollup(n pullRequestResponse) CheckRollup {
+	commits := n.Node.StatusCheckRollup.Nodes
+	if len(commits) == 0 || commits[0].Commit.StatusCheckRollup == nil {
+		return CheckRollup{}
+	}
+
+	src := commits[0].Commit.StatusCheckRollup
+	out := CheckRollup{State: CheckState(src.State)}
+
+	// A re-run leaves the previous attempt in the connection, so the same job
+	// arrives twice with two different answers. Only the latest one is true.
+	at := make(map[string]int, len(src.Contexts.Nodes))
+	started := make([]time.Time, 0, len(src.Contexts.Nodes))
+
+	for _, c := range src.Contexts.Nodes {
+		check := Check{
+			Name:  cmp.Or(c.Name, c.Context),
+			State: checkState(c.Typename, c.Status, c.Conclusion, c.State),
+		}
+		// A job is named for what it does, so half a repository's checks are
+		// called "test". The workflow it ran under is what tells them apart.
+		if run := c.CheckSuite.WorkflowRun; run != nil {
+			check.Workflow = run.Workflow.Name
+		}
+
+		key := check.Workflow + "\x00" + check.Name
+		i, seen := at[key]
+		switch {
+		case !seen:
+			at[key] = len(out.Checks)
+			out.Checks = append(out.Checks, check)
+			started = append(started, c.StartedAt)
+		case c.StartedAt.After(started[i]):
+			out.Checks[i], started[i] = check, c.StartedAt
+		}
+	}
+
+	for _, check := range out.Checks {
+		switch check.State {
+		case CheckStateSuccess:
+			out.Passed++
+		case CheckStatePending, CheckStateExpected:
+			out.Pending++
+		case CheckStateSkipped:
+			out.Skipped++
+		default:
+			out.Failed++
+		}
+	}
+	return out
+}
+
+// mergeState folds the two fields GitHub answers with. mergeable is the one
+// that knows about conflicts; mergeStateStatus knows everything else, and
+// reports only the topmost reason a merge is held up.
+func mergeState(mergeable, status string) MergeState {
+	if mergeable == "CONFLICTING" {
+		return MergeConflicting
+	}
+	switch MergeState(status) {
+	case MergeClean, MergeBlocked, MergeBehind, MergeUnstable, MergeDraft, MergeConflicting:
+		return MergeState(status)
+	case MergeHasHooks:
+		return MergeClean
+	}
+	return MergeUnknown
+}
+
+// checkState folds a check run and a status context into the one vocabulary.
+// They are different types on the wire carrying the same news: a check run has
+// a status and a conclusion, a status context only a state.
+func checkState(typename, status, conclusion, state string) CheckState {
+	if typename != "CheckRun" {
+		switch state {
+		case "SUCCESS":
+			return CheckStateSuccess
+		case "PENDING":
+			return CheckStatePending
+		case "EXPECTED":
+			return CheckStateExpected
+		}
+		return CheckStateFailure
+	}
+
+	if status != "COMPLETED" {
+		return CheckStatePending
+	}
+	switch conclusion {
+	case "SUCCESS", "NEUTRAL":
+		return CheckStateSuccess
+	case "SKIPPED":
+		return CheckStateSkipped
+	}
+	return CheckStateFailure
+}
+
+func login(a actorNode) Actor {
+	if a == nil {
+		return Actor{}
+	}
+	return Actor{Login: a.Login}
+}

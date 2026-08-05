@@ -22,6 +22,10 @@ const (
 	CheckStateFailure  CheckState = "FAILURE"
 	CheckStatePending  CheckState = "PENDING"
 	CheckStateSuccess  CheckState = "SUCCESS"
+
+	// CheckStateSkipped is a conclusion rather than a rollup state. GitHub
+	// never returns it for the whole commit, only for one check inside it.
+	CheckStateSkipped CheckState = "SKIPPED"
 )
 
 // ReviewDecision is GitHub's summary of where review stands. An empty value
@@ -35,10 +39,166 @@ const (
 	ReviewDecisionReviewRequired   ReviewDecision = "REVIEW_REQUIRED"
 )
 
+// ReviewState is one review's verdict. It is not ReviewDecision: a decision
+// summarises the pull request, a state is what one reviewer said.
+type ReviewState string
+
+const (
+	ReviewStateNone             ReviewState = ""
+	ReviewStateCommented        ReviewState = "COMMENTED"
+	ReviewStateApproved         ReviewState = "APPROVED"
+	ReviewStateChangesRequested ReviewState = "CHANGES_REQUESTED"
+	ReviewStateDismissed        ReviewState = "DISMISSED"
+	ReviewStatePending          ReviewState = "PENDING"
+)
+
+// TimelineKind is what happened. The conversation renders comments and reviews
+// in full and everything else as a single line.
+type TimelineKind string
+
+const (
+	TimelineComment        TimelineKind = "COMMENT"
+	TimelineReview         TimelineKind = "REVIEW"
+	TimelineMerged         TimelineKind = "MERGED"
+	TimelineClosed         TimelineKind = "CLOSED"
+	TimelineReopened       TimelineKind = "REOPENED"
+	TimelineReadyForReview TimelineKind = "READY_FOR_REVIEW"
+	TimelineDraft          TimelineKind = "CONVERT_TO_DRAFT"
+	TimelineForcePushed    TimelineKind = "FORCE_PUSHED"
+)
+
 // Actor is a user, organization, or bot. Author fields are nil on GitHub when
 // the account is deleted, so Login can legitimately be empty.
 type Actor struct {
 	Login string
+}
+
+// Label is one label. Color is GitHub's own six hex digits without a leading
+// hash, because a label's color is its identity across every client.
+type Label struct {
+	Name  string
+	Color string
+}
+
+// Comment is one piece of writing in the conversation, whether it stands alone
+// or sits inside a review thread.
+type Comment struct {
+	Author    Actor
+	CreatedAt time.Time
+	Body      string
+}
+
+// ReviewThread is a line-anchored discussion. ReviewID names the review its
+// first comment was submitted with, which is how the conversation puts a thread
+// under the review that opened it.
+type ReviewThread struct {
+	ReviewID   string
+	Path       string
+	Line       int
+	IsResolved bool
+	IsOutdated bool
+	Comments   []Comment
+}
+
+// TimelineItem is one entry in the conversation. Body is empty on an event, and
+// Review is set only when Kind is TimelineReview.
+type TimelineItem struct {
+	Kind      TimelineKind
+	ID        string
+	Actor     Actor
+	CreatedAt time.Time
+	Body      string
+	Review    ReviewState
+}
+
+// MergeState is whether the pull request can be merged, and what is in the way
+// if it cannot. It folds GitHub's mergeable and mergeStateStatus, which answer
+// the same question from two directions.
+type MergeState string
+
+const (
+	MergeUnknown     MergeState = "UNKNOWN"
+	MergeClean       MergeState = "CLEAN"
+	MergeBlocked     MergeState = "BLOCKED"
+	MergeBehind      MergeState = "BEHIND"
+	MergeConflicting MergeState = "DIRTY"
+	MergeUnstable    MergeState = "UNSTABLE"
+	MergeDraft       MergeState = "DRAFT"
+
+	// MergeHasHooks is clean with a pre-receive hook waiting. It never reaches
+	// a caller; mergeState folds it into MergeClean.
+	MergeHasHooks MergeState = "HAS_HOOKS"
+)
+
+// Reviewer is someone GitHub lists on the pull request's reviewers panel:
+// either they have reviewed, or a review has been requested of them.
+//
+// State is empty when the request is still outstanding. It is not a review's
+// own state until they submit one.
+//
+// Unresolved is how many of their review threads are still open. A reviewer who
+// only commented is still waiting on something if any of them are.
+type Reviewer struct {
+	Actor      Actor
+	State      ReviewState
+	Unresolved int
+}
+
+// Check is one entry behind the rollup, whether GitHub calls it a check run or
+// a status context.
+//
+// Name is the job, and Workflow the run it belongs to, empty on a status
+// context. Neither is unique on its own: a repository with five suites has five
+// jobs called "test".
+type Check struct {
+	Name     string
+	Workflow string
+	State    CheckState
+}
+
+// CheckRollup is the head commit's checks as a whole. State is GitHub's own
+// summary; the list and the counts are this package's, from the contexts
+// behind it.
+type CheckRollup struct {
+	State  CheckState
+	Checks []Check
+
+	Passed  int
+	Failed  int
+	Pending int
+	Skipped int
+}
+
+// PullRequestDetail embeds the row, so a detail response refreshes the header
+// and the rail rather than leaving them on what search returned.
+type PullRequestDetail struct {
+	PullRequest
+
+	Body      string
+	Labels    []Label
+	Assignees []Actor
+	Reviewers []Reviewer
+
+	Timeline []TimelineItem
+	Threads  []ReviewThread
+	Rollup   CheckRollup
+
+	Merge MergeState
+
+	// BehindBy is how many commits the base has that the head does not. Zero is
+	// up to date.
+	BehindBy int
+
+	// MoreComments and MoreThreads are what the first page did not reach. A
+	// dropped comment that reads as no comment is the failure worth a field.
+	MoreComments int
+	MoreThreads  int
+}
+
+// DetailResult is one detail response: what it returned and what it cost.
+type DetailResult struct {
+	Detail    PullRequestDetail
+	RateLimit RateLimit
 }
 
 // RateLimit is the GraphQL point budget as of the last response. GitHub bills
