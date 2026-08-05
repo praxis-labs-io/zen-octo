@@ -53,20 +53,19 @@ func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	return string(pr.State), th.Faint
 }
 
-// CheckStateIcon is the rollup of every check on the head commit. A blank glyph
-// means nothing reported, which is not the same as everything passing.
+// CheckStateIcon is the rollup of every check on the head commit. Nothing
+// reported reads as a pass: there is no failure either way, and a blank where
+// an icon goes reads as a rendering fault rather than as the absence of news.
 func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	switch s {
-	case gh.CheckStateSuccess:
-		return "✓", th.Success
 	case gh.CheckStateFailure, gh.CheckStateError:
 		return "✗", th.Error
 	case gh.CheckStatePending, gh.CheckStateExpected:
 		return "●", th.Warning
-	case gh.CheckStateNone:
-		return " ", th.Faint
+	case gh.CheckStateSuccess, gh.CheckStateNone:
+		return "✓", th.Success
 	}
-	return " ", th.Faint
+	return "✓", th.Success
 }
 
 // CheckStateLabel names the rollup. It returns empty when nothing reported, so

@@ -487,6 +487,34 @@ func styleOf(t *testing.T, row, want string) string {
 	return ""
 }
 
+// Never a blank where an icon goes. An empty slot reads as a rendering fault
+// rather than as the absence of news.
+func TestTheStatusPairIsNeverBlank(t *testing.T) {
+	checks := []gh.CheckState{
+		gh.CheckStateNone, gh.CheckStateExpected, gh.CheckStatePending,
+		gh.CheckStateSuccess, gh.CheckStateFailure, gh.CheckStateError,
+	}
+	reviews := []gh.ReviewDecision{
+		gh.ReviewDecisionNone, gh.ReviewDecisionApproved,
+		gh.ReviewDecisionChangesRequested, gh.ReviewDecisionReviewRequired,
+	}
+
+	for _, c := range checks {
+		for _, d := range reviews {
+			p := pr("Fix auth retry")
+			p.Checks, p.ReviewDecision = c, d
+
+			row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "zen-octo/zen-octo"))
+			pair := []rune(strings.TrimRight(strings.Trim(row, "│"), " "))
+
+			n := len(pair)
+			if n < 3 || pair[n-1] == ' ' || pair[n-2] != ' ' || pair[n-3] == ' ' {
+				t.Errorf("checks %q with review %q leaves a blank in the pair: %q", c, d, string(pair[max(0, n-6):]))
+			}
+		}
+	}
+}
+
 // Review sits next to the check rollup, so the two have to be told apart by
 // shape. Colour alone stops working the moment they disagree. Nothing blocking
 // on review reads the same as an approval, because it is the same news.
