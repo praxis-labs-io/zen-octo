@@ -139,6 +139,44 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 	}
 }
 
+// Groups need air between them. Above the first one it would only push the
+// list down a row, so that one opens the pane.
+func TestEveryGroupButTheFirstOpensWithABlankLine(t *testing.T) {
+	draft := pr("Bump charm deps")
+	draft.ID, draft.IsDraft = "PR_draft", true
+
+	// The pane's top border is line zero, so the first header lands on line one.
+	lines := strings.Split(stripANSI(screen(t, 120, 24, []gh.PullRequest{pr("Fix auth retry"), draft})), "\n")
+	if !strings.Contains(lines[1], "─ Ready 1") {
+		t.Fatalf("the first group does not open the pane: %q", lines[1])
+	}
+
+	for i, l := range lines {
+		if !strings.Contains(l, "─ Draft 1") {
+			continue
+		}
+		if above := strings.Trim(lines[i-1], "│ "); above != "" {
+			t.Errorf("the draft group has no blank line above it: %q", lines[i-1])
+		}
+		return
+	}
+	t.Fatal("no draft header in the frame")
+}
+
+// One pane means there is no focus to report, so the border never takes the
+// accent that says "your keys reach this one".
+func TestTheBorderNeverReadsAsFocused(t *testing.T) {
+	top := strings.Split(screen(t, 120, 10, []gh.PullRequest{pr("Fix auth retry")}), "\n")[0]
+
+	end := strings.Index(top, "m")
+	if !strings.HasPrefix(top, "\x1b[") || end < 0 {
+		t.Fatalf("the frame does not open with a styled border: %q", top)
+	}
+	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSecondary); got != want {
+		t.Errorf("the border opens as %s, want the idle colour %s", got, want)
+	}
+}
+
 // A draft that was closed is closed. Grouping it as a draft puts abandoned work
 // above merged work, which is the wrong way round.
 func TestAClosedDraftGroupsAsClosed(t *testing.T) {

@@ -224,9 +224,10 @@ func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style)
 	return cell(width, text, base.Foreground(th.Faint))
 }
 
-// renderHeader draws a group's rule. It carries how many rows are under it,
-// which is the count the section tab cannot show once the list is grouped.
-func renderHeader(th theme.Theme, it item, width int) string {
+// renderHeader draws a group's rule, with the blank line above it that keeps
+// the groups apart. It carries how many rows are under it, which is the count
+// the section tab cannot show once the list is grouped.
+func renderHeader(th theme.Theme, it item, width int) []string {
 	rule := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
 
 	left := rule.Render("─ ") +
@@ -234,7 +235,12 @@ func renderHeader(th theme.Theme, it item, width int) string {
 		lipgloss.NewStyle().Foreground(th.Faint).Render(strconv.Itoa(it.count)) + " "
 
 	fill := max(0, width-lipgloss.Width(left))
-	return lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))
+	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))
+
+	if it.spaced {
+		return []string{strings.Repeat(" ", width), rendered}
+	}
+	return []string{rendered}
 }
 
 // line indents, joins with a gutter, then pads or clips to exactly width. Short

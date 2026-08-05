@@ -45,7 +45,20 @@ func groupOf(pr gh.PullRequest) group {
 type item struct {
 	header string // group label, empty on a pull request
 	count  int    // pull requests in the group, on a header
+	spaced bool   // a blank line above, on every header but the first
 	pr     gh.PullRequest
+}
+
+// lines is how tall the item renders.
+func (i item) lines() int {
+	switch {
+	case i.isPR():
+		return rowLines
+	case i.spaced:
+		return headerLines + 1
+	default:
+		return headerLines
+	}
 }
 
 func (i item) isPR() bool { return i.header == "" }
@@ -69,10 +82,8 @@ func newRows(prs []gh.PullRequest) rows {
 		r.lineOf[i] = r.total
 		if it.isPR() {
 			r.selectable = append(r.selectable, i)
-			r.total += rowLines
-			continue
 		}
-		r.total += headerLines
+		r.total += it.lines()
 	}
 	return r
 }
@@ -92,7 +103,9 @@ func arrange(prs []gh.PullRequest) []item {
 			continue
 		}
 		slices.SortStableFunc(bucket, byRepoThenRecency)
-		items = append(items, item{header: groupLabels[g], count: len(bucket)})
+		// Every group but the first opens with a blank line. Above the first it
+		// would only push the list down a row.
+		items = append(items, item{header: groupLabels[g], count: len(bucket), spaced: len(items) > 0})
 		for _, pr := range bucket {
 			items = append(items, item{pr: pr})
 		}

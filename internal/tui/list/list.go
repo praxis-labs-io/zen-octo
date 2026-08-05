@@ -42,7 +42,6 @@ type Model struct {
 	cursor  int // indexes the selectable rows, so a header is never addressable
 	loading bool
 	err     error
-	focused bool
 }
 
 // New builds the list over the configured sections.
@@ -61,7 +60,6 @@ func New(th theme.Theme, sections []config.Section) Model {
 		spinner:  sp,
 		sections: sections,
 		loading:  true,
-		focused:  true,
 	}
 }
 
@@ -201,9 +199,6 @@ func (m *Model) SetSize(width, height int) {
 	m.scrollToCursor()
 }
 
-// Focus colors the pane border and is set by the root.
-func (m *Model) Focus(v bool) { m.focused = v }
-
 // SetPullRequests replaces the rows, holding the selection on the same pull
 // request where it survived the refresh.
 func (m *Model) SetPullRequests(prs []gh.PullRequest) {
@@ -265,7 +260,7 @@ func (m *Model) syncContent() {
 	lines := make([]string, 0, m.rows.total)
 	for i, it := range m.rows.items {
 		if !it.isPR() {
-			lines = append(lines, renderHeader(m.theme, it, width))
+			lines = append(lines, renderHeader(m.theme, it, width)...)
 			continue
 		}
 		lines = append(lines, renderRow(m.theme, it.pr, width, i == selected)...)
@@ -285,10 +280,11 @@ func (m Model) View() string {
 		tabs[m.active].Badge = strconv.Itoa(m.rows.len())
 	}
 
+	// No Focus call: this screen is one pane, so a focused border would be
+	// telling the user something they cannot act on.
 	return m.pane.
 		Tabs(tabs, m.active).
 		Footer(m.footer()).
-		Focus(m.focused).
 		Render(m.body())
 }
 
