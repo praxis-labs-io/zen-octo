@@ -59,10 +59,9 @@ type layout struct {
 	slack  int
 	review bool
 
-	ident    int // width for the identity group, which flows rather than columns
-	diff     bool
-	files    bool
-	comments bool
+	ident int // width for the identity group, which flows rather than columns
+	diff  bool
+	files bool
 }
 
 // fit drops columns until both lines fit the width they were given.
@@ -71,35 +70,29 @@ type layout struct {
 // columns vanish mid-cell with no ellipsis, and the selection background stops
 // short of the edge because the line is no longer as wide as its pane.
 //
-// The first line gives up the comment count before review, and review before
-// the title starts clipping. The second drops the file count, then the churn,
-// and gives what is left to the identity group, which sheds its own parts by
-// content.
+// The first line has only review to give before the title starts clipping. The
+// second drops the file count, then the churn, and gives what is left to the
+// identity group, which sheds its own parts by content.
 func fit(width int) layout {
-	l := layout{review: true, diff: true, files: true, comments: true}
+	l := layout{review: true, diff: true, files: true}
 
 	tail := func() int {
 		n := rightMargin + gutter + checksWidth
 		if l.review {
 			n += gutter + reviewWidth
 		}
-		if l.comments {
-			n += gutter + commentsWidth
-		}
 		return n
 	}
 
 	for headWidth+minTitleWidth+tail() > width {
 		switch {
-		case l.comments:
-			l.comments = false
 		case l.review:
 			l.review = false
 		default:
 			// Nothing left to drop. The title takes what remains, which at this
 			// point may be nothing at all.
 			l.title = max(0, width-headWidth-tail())
-			l.diff, l.files, l.comments = false, false, false
+			l.diff, l.files = false, false
 			l.ident = max(0, width-indentWidth)
 			return l
 		}
@@ -160,10 +153,7 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
 		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Secondary)),
-		cell(l.title, pr.Title, base.Foreground(th.Primary)) + base.Render(strings.Repeat(" ", l.slack)),
-	}
-	if l.comments {
-		head = append(head, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), base.Foreground(th.Faint)))
+		titled(th, pr, l.title, base) + base.Render(strings.Repeat(" ", l.slack)),
 	}
 	// Review sits inside checks, and both glyphs sit at the right of their cell.
 	// Checks is the one nearly every pull request fills, so putting it outermost
@@ -214,6 +204,32 @@ func counted(glyph string, n, width int) string {
 // digit rather than its first.
 func alignRight(s string, width int) string {
 	return strings.Repeat(" ", max(0, width-lipgloss.Width(s))) + s
+}
+
+// titled is the title with its comment count trailing it, the way the identity
+// line carries the age after the author. The count sits where the title ends
+// rather than in a column of its own.
+//
+// It keeps its room out of the title's: a clipped title still says how much
+// discussion is on it. Only a column with nothing left for the title itself
+// gives the count up.
+func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
+	title := base.Foreground(th.Primary)
+	count := glyphComments + " " + strconv.Itoa(pr.Comments)
+
+	room := width - lipgloss.Width(count) - 2
+	if pr.Comments == 0 || room < 1 {
+		return cell(width, pr.Title, title)
+	}
+
+	text := pr.Title
+	if lipgloss.Width(text) > room {
+		text = clip(text, room)
+	}
+	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
+
+	return title.Render(text) + base.Render("  ") +
+		base.Foreground(th.Faint).Render(count) + base.Render(strings.Repeat(" ", pad))
 }
 
 // identity is where the pull request lives, who opened it, and when it last

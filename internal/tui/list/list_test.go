@@ -241,9 +241,29 @@ func TestARowWithNoReviewStillReachesTheEdge(t *testing.T) {
 	}
 }
 
+// The comment count trails the title, so it sits where the title ends rather
+// than in a column of its own.
+func TestTheCommentCountTrailsTheTitle(t *testing.T) {
+	short := pr("Short")
+	short.ID = "PR_short"
+
+	out := stripANSI(screen(t, 140, 14, []gh.PullRequest{pr("A considerably longer title than the other one"), short}))
+	at := func(title string) int {
+		return strings.Index(rowContaining(t, out, title), commentGlyph)
+	}
+
+	long, brief := at("A considerably longer"), at("Short")
+	if long < 0 || brief < 0 {
+		t.Fatalf("a row is missing its comment count: %d and %d", long, brief)
+	}
+	if long <= brief {
+		t.Errorf("the count sits at column %d after a long title and %d after a short one, want it to follow the title", long, brief)
+	}
+}
+
 // An icon next to a zero reads as a reading worth noticing, so nothing to count
-// renders as nothing. The column stays, or the rows stop lining up.
-func TestACountOfZeroRendersNothingButKeepsItsColumn(t *testing.T) {
+// renders as nothing at all.
+func TestACountOfZeroRendersNothing(t *testing.T) {
 	quiet := pr("Bump deps")
 	quiet.ID, quiet.Comments = "PR_bump", 0
 
@@ -260,6 +280,8 @@ func TestACountOfZeroRendersNothingButKeepsItsColumn(t *testing.T) {
 		t.Errorf("a pull request with no comments still shows the glyph: %q", row)
 	}
 
+	// The count sits inside the title's column, so losing it must not shift the
+	// status glyphs the rows line up on.
 	end := func(s string) int { return len([]rune(strings.TrimRight(strings.Trim(s, "│"), " "))) }
 	if with, without := end(title(t, "Fix auth retry")), end(title(t, "Bump deps")); with != without {
 		t.Errorf("the row with comments ends at column %d and the one without at %d", with, without)
@@ -427,10 +449,11 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	}
 }
 
-// Columns drop in a fixed order rather than overflowing. The first line gives
-// up the comment count, then review. The second drops the file count, then the
-// churn, and the identity sheds the author, then the age, before the repository
-// is left to clip. The number and the check rollup never go.
+// Columns drop in a fixed order rather than overflowing. The first line has
+// only review to give, since the comment count takes its room from the title.
+// The second drops the file count, then the churn, and the identity sheds the
+// author, then the age, before the repository is left to clip. The number and
+// the check rollup never go.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
 		width                              int
@@ -440,8 +463,7 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 		{width: 140, author: true, age: true, diff: true, files: true, comments: true, review: true},
 		{width: 56, author: false, age: true, diff: true, files: true, comments: true, review: true},
 		{width: 44, author: false, age: false, diff: true, files: true, comments: true, review: true},
-		{width: 36, author: false, age: false, diff: true, files: true, comments: false, review: true},
-		{width: 30, author: false, age: false, diff: true, files: false, comments: false, review: false},
+		{width: 30, author: false, age: false, diff: true, files: false, comments: true, review: false},
 		{width: 16, author: false, age: false, diff: false, files: false, comments: false, review: false},
 	}
 
