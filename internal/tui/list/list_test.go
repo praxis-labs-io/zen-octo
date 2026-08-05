@@ -217,36 +217,6 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	}
 }
 
-// A header and the glyphs under it name the same state, so they take the same
-// colour, from the same call.
-func TestEachGroupHeaderTakesItsStateColour(t *testing.T) {
-	draft := pr("Bump charm deps")
-	draft.ID, draft.IsDraft = "PR_draft", true
-	merged := pr("Theme registry")
-	merged.ID, merged.State = "PR_merged", gh.PRStateMerged
-	closed := pr("Probe libghostty binds")
-	closed.ID, closed.State = "PR_closed", gh.PRStateClosed
-
-	out := screen(t, 140, 30, []gh.PullRequest{pr("Fix auth retry"), draft, merged, closed})
-
-	tests := []struct {
-		label string
-		want  color.Color
-	}{
-		{label: "Ready", want: theme.RosePineMoon.Success},
-		{label: "Draft", want: theme.RosePineMoon.Faint},
-		{label: "Merged", want: theme.RosePineMoon.Secondary},
-		{label: "Closed", want: theme.RosePineMoon.Error},
-	}
-
-	for _, tt := range tests {
-		got := styleOf(t, rowContaining(t, out, tt.label), tt.label)
-		if !strings.Contains(got, fgSeq(tt.want)) {
-			t.Errorf("the %s header renders as %s, want %s", tt.label, got, fgSeq(tt.want))
-		}
-	}
-}
-
 // A draft that was closed is closed. Grouping it as a draft puts abandoned work
 // above merged work, which is the wrong way round.
 func TestAClosedDraftGroupsAsClosed(t *testing.T) {

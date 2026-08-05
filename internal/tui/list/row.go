@@ -238,10 +238,9 @@ func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style)
 // the section tab cannot show once the list is grouped.
 func renderHeader(th theme.Theme, it item, width int) []string {
 	rule := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
-	_, label := comp.PRStateIcon(th, it.group.state())
 
 	left := rule.Render("─ ") +
-		lipgloss.NewStyle().Foreground(label).Bold(true).Render(it.header) + " " +
+		lipgloss.NewStyle().Foreground(th.Secondary).Bold(true).Render(it.header) + " " +
 		lipgloss.NewStyle().Foreground(th.Faint).Render(strconv.Itoa(it.count)) + " "
 
 	fill := max(0, width-lipgloss.Width(left))
