@@ -229,7 +229,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
 
 	return title.Render(text) + base.Render("  ") +
-		base.Foreground(th.Faint).Render(count) + base.Render(strings.Repeat(" ", pad))
+		base.Foreground(th.Secondary).Render(count) + base.Render(strings.Repeat(" ", pad))
 }
 
 // identity is where the pull request lives, who opened it, and when it last
