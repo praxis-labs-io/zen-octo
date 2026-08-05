@@ -17,14 +17,17 @@ import (
 // cap: past that it stops growing and the slack goes to a spacer, so the status
 // glyphs stay the same distance from the right edge on a wide terminal.
 //
-// indentWidth is what puts the second line under the title rather than under
-// the state glyph, so it is the first line's prefix and not a number of its own.
+// indentWidth puts the second line under the number, which is where the eye
+// already is. headWidth is everything on the first line before the title.
 const (
 	leftMargin  = 1
 	rightMargin = 1
 	stateWidth  = 2
 	gutter      = 1
 	indentWidth = leftMargin + stateWidth + gutter
+
+	numberWidth = 6
+	headWidth   = leftMargin + stateWidth + gutter + numberWidth + gutter
 
 	checksWidth = 2
 	reviewWidth = 2
@@ -35,9 +38,9 @@ const (
 	filesWidth     = 5
 	commentsWidth  = 5
 
-	// The identity group is the number at its narrowest. Everything else on that
-	// line is something it can do without.
-	minIdentWidth = 6
+	// Below this the repository is more ellipsis than name, so the counts give
+	// up their columns first.
+	minIdentWidth = 8
 
 	minTitleWidth = 12
 	maxTitleWidth = 90
@@ -89,7 +92,7 @@ func fit(width int) layout {
 		return n
 	}
 
-	for indentWidth+minTitleWidth+tail() > width {
+	for headWidth+minTitleWidth+tail() > width {
 		switch {
 		case l.review:
 			l.review = false
@@ -98,14 +101,14 @@ func fit(width int) layout {
 		default:
 			// Nothing left to drop. The title takes what remains, which at this
 			// point may be nothing at all.
-			l.title = max(0, width-indentWidth-tail())
+			l.title = max(0, width-headWidth-tail())
 			l.diff, l.files, l.comments = false, false, false
 			l.ident = max(0, width-indentWidth)
 			return l
 		}
 	}
 
-	avail := width - indentWidth - tail()
+	avail := width - headWidth - tail()
 	l.title = min(avail, maxTitleWidth)
 	l.slack = avail - l.title
 
@@ -163,6 +166,7 @@ func renderRow(th theme.Theme, pr gh.PullRequest, width int, selected bool) []st
 
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
+		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Faint)),
 		cell(l.title, pr.Title, base.Foreground(th.Primary)) + base.Render(strings.Repeat(" ", l.slack)),
 		cell(checksWidth, checkIcon, base.Foreground(checkColor)),
 	}
@@ -222,20 +226,17 @@ func spansWidth(spans []span) int {
 	return n
 }
 
-// identity names the pull request: repository, number, and who opened it, read
-// as a phrase rather than three columns with gaps between them.
-//
-// It takes the widest form that fits. The number is what survives, because it
-// is how you say which pull request you mean out loud.
+// identity is where the pull request lives and who opened it, read as a phrase
+// rather than two columns with a gap between them. The number is on the line
+// above, next to the state glyph.
 func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
-	number := span{text: "#" + strconv.Itoa(pr.Number), color: th.Faint}
-	repo := span{text: pr.Repository + " ", color: th.Secondary}
+	repo := span{text: pr.Repository, color: th.Secondary}
 
-	forms := [][]span{{number}, {repo, number}}
+	forms := [][]span{{repo}}
 	// A deleted account has no login, and a dangling "by @" is worse than no
 	// attribution at all.
 	if pr.Author.Login != "" {
-		forms = append(forms, []span{repo, number,
+		forms = append(forms, []span{repo,
 			{text: " by ", color: th.Faint},
 			{text: "@" + pr.Author.Login, color: th.Actor},
 		})

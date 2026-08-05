@@ -265,7 +265,7 @@ func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
 // the trailing column ends mid-cell with nothing saying it was cut, and the
 // width test above passes anyway because the pane still fills its line.
 func TestARowTooNarrowForItsColumnsClipsItself(t *testing.T) {
-	row := stripANSI(selectedRow(t, screen(t, 16, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
+	row := stripANSI(selectedRow(t, screen(t, 14, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
 
 	if !strings.Contains(row, "…") {
 		t.Errorf("the row was cut with nothing saying so\n%q", row)
@@ -287,20 +287,20 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 }
 
 // Columns drop in a fixed order rather than overflowing. The first line gives
-// up review before age; the second drops the file count, then the churn, and
-// the identity group sheds its own parts as what is left runs out.
+// up review before age; the second drops the comment count, then the files,
+// then the churn, and the identity sheds the author before the repository is
+// left to clip. The number is on the first line and never goes.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
-		width                               int
-		repo, author, diff, files, comments bool
-		review, age                         bool
+		width                         int
+		author, diff, files, comments bool
+		review, age                   bool
 	}{
-		{width: 140, repo: true, author: true, diff: true, files: true, comments: true, review: true, age: true},
-		{width: 64, repo: true, author: false, diff: true, files: true, comments: true, review: true, age: true},
-		{width: 48, repo: false, author: false, diff: true, files: true, comments: true, review: true, age: true},
-		{width: 36, repo: false, author: false, diff: true, files: true, comments: false, review: true, age: true},
-		{width: 28, repo: false, author: false, diff: true, files: false, comments: false, review: false, age: true},
-		{width: 20, repo: false, author: false, diff: false, files: false, comments: false, review: false, age: false},
+		{width: 140, author: true, diff: true, files: true, comments: true, review: true, age: true},
+		{width: 58, author: false, diff: true, files: true, comments: true, review: true, age: true},
+		{width: 36, author: false, diff: true, files: true, comments: false, review: false, age: true},
+		{width: 30, author: false, diff: true, files: false, comments: false, review: false, age: false},
+		{width: 16, author: false, diff: false, files: false, comments: false, review: false, age: false},
 	}
 
 	for _, tt := range tests {
@@ -311,7 +311,6 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 				name, text string
 				want       bool
 			}{
-				{name: "repo", text: "zen-octo/zen-octo", want: tt.repo},
 				{name: "author", text: "by @drucial", want: tt.author},
 				{name: "additions", text: "+42", want: tt.diff},
 				{name: "deletions", text: "−7", want: tt.diff},
@@ -334,10 +333,13 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 // The repository, number and author read as one phrase. Laying them out as
 // three columns leaves gaps you have to jump, which is what gh-dash gets right.
 func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
-	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{pr("Fix auth retry")}), "#412"))
+	lines := strings.Split(stripANSI(selectedRow(t, screen(t, 140, 10, []gh.PullRequest{pr("Fix auth retry")}))), "\n")
 
-	if !strings.Contains(row, "zen-octo/zen-octo #412 by @drucial") {
-		t.Errorf("the identity is spread across columns\n%q", row)
+	if !strings.Contains(lines[0], "#412") {
+		t.Errorf("the number is not on the title line\n%q", lines[0])
+	}
+	if !strings.Contains(lines[1], "zen-octo/zen-octo by @drucial") {
+		t.Errorf("the identity is spread across columns\n%q", lines[1])
 	}
 }
 
@@ -347,12 +349,12 @@ func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 	p := pr("Fix auth retry")
 	p.Author = gh.Actor{}
 
-	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{p}), "#412"))
+	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{p}), "zen-octo/zen-octo"))
 
 	if strings.Contains(row, "by ") || strings.Contains(row, "@") {
 		t.Errorf("a deleted author still leaves an attribution\n%q", row)
 	}
-	if !strings.Contains(row, "zen-octo/zen-octo #412") {
+	if !strings.Contains(row, "zen-octo/zen-octo") {
 		t.Errorf("the rest of the identity went with the author\n%q", row)
 	}
 }
@@ -362,10 +364,11 @@ func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 func TestTheChurnColoursAdditionsAndDeletionsApart(t *testing.T) {
 	second := pr("Bump deps")
 	second.Number, second.Additions, second.Deletions = 408, 11, 3
+	second.Author = gh.Actor{Login: "octobot"}
 
 	// The row the cursor is not on. An unselected cell carries the foreground
 	// alone, so the sequence names a colour with no background spliced into it.
-	row := rowContaining(t, screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), second}), "#408")
+	row := rowContaining(t, screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), second}), "@octobot")
 
 	if got := styleOf(t, row, "+11"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
 		t.Errorf("additions render as %s, want the success colour", got)
@@ -478,10 +481,10 @@ func TestTheWindowNeverOpensMidRow(t *testing.T) {
 		m = press(m, key('j'))
 	}
 
-	// The meta line is the one with a number on it. Finding one above the first
-	// title line means a row was cut in half by the top of the window.
-	body := strings.Split(stripANSI(m.View()), "\n")[1] // first line inside the pane
-	if strings.Contains(body, "#") {
+	// The repository only appears on a row's second line, so finding it on the
+	// first line inside the pane means a row was cut in half by the window.
+	body := strings.Split(stripANSI(m.View()), "\n")[1]
+	if strings.Contains(body, "zen-octo/zen-octo") {
 		t.Errorf("the window opens on a row's second line: %q", body)
 	}
 }
