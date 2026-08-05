@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -574,22 +575,39 @@ func TestKnownThemeShowsNoNotice(t *testing.T) {
 func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
 
-	// Eleven lines of content: a group header and then two lines a row, so rows
-	// 0 through 4 fit and the fifth press is the first that has to move.
-	for range 4 {
+	prev := topRow(t, m)
+	for i := range 30 {
 		m = press(m, "j")
-	}
-	if !strings.Contains(stripANSI(render(t, m)), "#0 ") {
-		t.Fatal("the window moved before the cursor reached the fold")
+
+		top := topRow(t, m)
+		if top < prev || top > prev+1 {
+			t.Fatalf("press %d moved the window from row %d to row %d, want at most one row", i, prev, top)
+		}
+		prev = top
 	}
 
-	out := stripANSI(render(t, press(m, "j")))
-	if strings.Contains(out, "#0 ") {
-		t.Error("the window did not move once the cursor passed the fold")
+	if prev == 0 {
+		t.Error("the window never moved, so nothing here was tested")
 	}
-	if !strings.Contains(out, "#1 ") {
-		t.Error("the window moved by more than one row")
+}
+
+// topRow is the number of the first pull request with a title line on screen.
+func topRow(t *testing.T, m tea.Model) int {
+	t.Helper()
+
+	for _, l := range strings.Split(stripANSI(render(t, m)), "\n") {
+		i := strings.Index(l, "Change ")
+		if i < 0 {
+			continue
+		}
+		n, err := strconv.Atoi(strings.Fields(l[i+len("Change "):])[0])
+		if err != nil {
+			t.Fatalf("cannot read a row number out of %q: %v", l, err)
+		}
+		return n
 	}
+	t.Fatal("no pull request on screen")
+	return 0
 }
 
 // The old root model clamped the scroll on every resize. Losing that put the
@@ -615,10 +633,10 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 		keys []tea.KeyPressMsg
 		want string
 	}{
-		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#5"},
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#3"},
 		{name: "page down then back up", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0"},
-		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#2"},
-		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#2"},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#1"},
+		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#1"},
 	}
 
 	for _, tt := range tests {

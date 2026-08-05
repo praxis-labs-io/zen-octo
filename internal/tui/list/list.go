@@ -159,9 +159,10 @@ func (m *Model) setCursor(i int) {
 	m.scrollToCursor()
 }
 
-// page is a screenful measured in rows. Headers make a screenful vary by a row
-// either way, which a page key does not have to be exact about.
-func (m Model) page() int { return max(1, m.view.Height()/rowLines) }
+// page is a screenful measured in rows. A row carries its rule with it, so this
+// runs a row short around a group boundary, which beats overshooting: a page
+// key that skips rows loses work off the top of the screen.
+func (m Model) page() int { return max(1, m.view.Height()/(rowLines+1)) }
 
 // scrollToCursor brings the selected row into view, moving the window by the
 // least it can. It works in lines: a row is two of them and a header is one, so

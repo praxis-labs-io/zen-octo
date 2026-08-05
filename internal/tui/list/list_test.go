@@ -163,47 +163,33 @@ func TestEveryGroupButTheFirstOpensWithABlankLine(t *testing.T) {
 	t.Fatal("no draft header in the frame")
 }
 
-// Rows are separated by a rule drawn as an underline on the second line, which
-// costs no height. A line of its own would take a third of the rows on screen.
+// Rows inside a group are separated by a rule. A group's last row skips it:
+// the blank line and the next header already close the group off.
 func TestRowsAreSeparatedByARuleTheLastOfAGroupSkips(t *testing.T) {
 	last := pr("Bump deps")
 	last.ID = "PR_bump"
 	draft := pr("Comment anchoring")
 	draft.ID, draft.IsDraft = "PR_draft", true
 
-	out := screen(t, 140, 24, []gh.PullRequest{pr("Fix auth retry"), last, draft})
-	rule := ulSeq(theme.RosePineMoon.BorderFaintOrSecondary())
+	lines := strings.Split(stripANSI(screen(t, 140, 24, []gh.PullRequest{pr("Fix auth retry"), last, draft})), "\n")
 
-	if title := rowContaining(t, out, "Fix auth retry"); strings.Contains(title, rule) {
-		t.Error("the title line carries the rule, want it under the second line only")
-	}
-	if got := metaLineUnder(t, out, "Fix auth retry"); !strings.Contains(got, rule) {
-		t.Errorf("no rule under the first row\n%q", got)
-	}
-	if got := metaLineUnder(t, out, "Bump deps"); strings.Contains(got, rule) {
-		t.Errorf("a group's last row carries a rule, which the blank line below already draws\n%q", got)
-	}
-}
-
-// ulSeq is the SGR sequence that sets the underline colour, which is what makes
-// the rule one colour rather than following each cell's foreground.
-func ulSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("58;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
-
-// metaLineUnder is the second line of the row with the given title.
-func metaLineUnder(t *testing.T, frame, title string) string {
-	t.Helper()
-
-	lines := strings.Split(frame, "\n")
-	for i, l := range lines {
-		if strings.Contains(stripANSI(l), title) && i+1 < len(lines) {
-			return lines[i+1]
+	// Two content lines a row, so the rule would be the third.
+	under := func(title string) string {
+		for i, l := range lines {
+			if strings.Contains(l, title) {
+				return strings.Trim(lines[i+2], "│ ")
+			}
 		}
+		t.Fatalf("no row titled %q", title)
+		return ""
 	}
-	t.Fatalf("no row titled %q with a line under it", title)
-	return ""
+
+	if rule := under("Fix auth retry"); !strings.HasPrefix(rule, "─") {
+		t.Errorf("no rule under the first row: %q", rule)
+	}
+	if rule := under("Bump deps"); strings.HasPrefix(rule, "─") {
+		t.Errorf("a group's last row carries a rule the blank line below already draws: %q", rule)
+	}
 }
 
 // One pane means there is no focus to report, so the border never takes the
@@ -579,9 +565,9 @@ func TestPageKeysLandOnAPullRequestAndStopAtTheEnds(t *testing.T) {
 		keys []tea.KeyPressMsg
 		want string
 	}{
-		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#6 "},
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#4 "},
 		{name: "page down then up returns", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0 "},
-		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#3 "},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#2 "},
 		{name: "page down past the end clamps", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('f'), ctrl('f'), ctrl('f'), ctrl('f')}, want: "#19 "},
 	}
 

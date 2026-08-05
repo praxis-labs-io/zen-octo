@@ -53,6 +53,8 @@ type item struct {
 // lines is how tall the item renders.
 func (i item) lines() int {
 	switch {
+	case i.isPR() && i.divided:
+		return rowLines + 1
 	case i.isPR():
 		return rowLines
 	case i.spaced:

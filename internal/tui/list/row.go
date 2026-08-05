@@ -140,7 +140,7 @@ func fit(width int) layout {
 
 // renderRow draws one pull request as its two lines: the title and its status
 // on the first, everything that identifies it on the second, with the rule that
-// separates it from the next row underneath.
+// separates it from the next row under those.
 //
 // Selection is baked into every cell's own style, on both lines. Wrapping a
 // joined line instead paints only its first cell: each cell ends in a full SGR
@@ -151,17 +151,6 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	base := lipgloss.NewStyle()
 	if selected {
 		base = base.Background(th.SelectedBackground)
-	}
-
-	// The rule between rows is an underline on the second line rather than a
-	// line of its own, which would cost a third of the rows on screen. Its color
-	// is set outright so it does not follow each cell's foreground.
-	meta := base
-	if it.divided {
-		meta = meta.
-			UnderlineStyle(lipgloss.UnderlineSingle).
-			UnderlineColor(th.BorderFaintOrSecondary()).
-			UnderlineSpaces(true)
 	}
 
 	stateIcon, stateColor := comp.PRStateIcon(th, pr)
@@ -178,26 +167,42 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		head = append(head, cell(reviewWidth, reviewIcon, base.Foreground(reviewColor)))
 	}
 
-	tail := []string{identity(th, pr, l.ident, meta)}
+	tail := []string{identity(th, pr, l.ident, base)}
 	if l.diff {
 		// Two cells rather than one string: additions and deletions carry their
 		// own color, and a cell is one style all the way through.
 		tail = append(tail,
-			cell(additionsWidth, alignRight("+"+strconv.Itoa(pr.Additions), additionsWidth), meta.Foreground(th.Success)),
-			cell(deletionsWidth, alignRight("−"+strconv.Itoa(pr.Deletions), deletionsWidth), meta.Foreground(th.Error)),
+			cell(additionsWidth, alignRight("+"+strconv.Itoa(pr.Additions), additionsWidth), base.Foreground(th.Success)),
+			cell(deletionsWidth, alignRight("−"+strconv.Itoa(pr.Deletions), deletionsWidth), base.Foreground(th.Error)),
 		)
 	}
 	if l.files {
-		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), meta.Foreground(th.Faint)))
+		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Faint)))
 	}
 	if l.comments {
-		tail = append(tail, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), meta.Foreground(th.Faint)))
+		tail = append(tail, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), base.Foreground(th.Faint)))
 	}
 
-	return []string{
+	lines := []string{
 		line(leftMargin, head, width, base),
-		line(indentWidth, tail, width, meta),
+		line(indentWidth, tail, width, base),
 	}
+	if it.divided {
+		lines = append(lines, renderDivider(th, width))
+	}
+	return lines
+}
+
+// renderDivider is the rule between two rows of a group. It starts where the
+// second line does, which reads as nested under the group's own rule rather
+// than competing with it.
+func renderDivider(th theme.Theme, width int) string {
+	indent := min(indentWidth, width)
+	fill := max(0, width-indent-rightMargin)
+
+	return strings.Repeat(" ", indent) +
+		lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary()).Render(strings.Repeat("─", fill)) +
+		strings.Repeat(" ", width-indent-fill)
 }
 
 // counted is a glyph and its number. The glyph holds its column while the digits
