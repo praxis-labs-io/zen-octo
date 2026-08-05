@@ -128,7 +128,7 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 
 	at := map[string]int{}
 	for _, label := range []string{"Ready", "Draft", "Merged", "Closed"} {
-		at[label] = strings.Index(out, "─ "+label+" ")
+		at[label] = strings.Index(out, "─ "+label+" 1")
 		if at[label] < 0 {
 			t.Fatalf("no header for the %s group\n%s", label, out)
 		}
@@ -151,12 +151,12 @@ func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	if gap := strings.Trim(lines[1], "│ "); gap != "" {
 		t.Errorf("no line above the first group: %q", lines[1])
 	}
-	if !strings.Contains(lines[2], "─ Ready ") {
+	if !strings.Contains(lines[2], "─ Ready 1") {
 		t.Errorf("the gap above the first group is more than a line: %q", lines[2])
 	}
 
 	for i, l := range lines {
-		if !strings.Contains(l, "─ Draft ") {
+		if !strings.Contains(l, "─ Draft 1") {
 			continue
 		}
 		for n := 1; n <= 2; n++ {
@@ -223,21 +223,6 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	}
 }
 
-// The count sits at the far end of the header, under the counts the rows below
-// already carry there rather than tucked against the label.
-func TestAGroupHeaderCarriesItsCountAtTheFarEnd(t *testing.T) {
-	second := pr("Bump deps")
-	second.ID = "PR_bump"
-
-	// Stripped first: the rule and the label are styled apart, so "─ Ready" is
-	// not a substring of the frame as rendered.
-	header := rowContaining(t, stripANSI(screen(t, 120, 16, []gh.PullRequest{pr("Fix auth retry"), second})), "─ Ready")
-
-	if inner := strings.Trim(header, "│"); !strings.HasSuffix(inner, "─ 2") {
-		t.Errorf("the header does not end with its count: %q", inner)
-	}
-}
-
 // A draft that was closed is closed. Grouping it as a draft puts abandoned work
 // above merged work, which is the wrong way round.
 func TestAClosedDraftGroupsAsClosed(t *testing.T) {
@@ -246,7 +231,7 @@ func TestAClosedDraftGroupsAsClosed(t *testing.T) {
 
 	out := stripANSI(screen(t, 120, 20, []gh.PullRequest{p}))
 
-	if !strings.Contains(out, "─ Closed ") {
+	if !strings.Contains(out, "─ Closed 1") {
 		t.Errorf("a closed draft did not land in the closed group\n%s", out)
 	}
 	if strings.Contains(out, "─ Draft") {
