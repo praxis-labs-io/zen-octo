@@ -121,7 +121,9 @@ Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never s
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
 
-Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. `internal/store` and the rest land milestone by milestone; see the **v1** project in Linear.
+Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
+
+`internal/store` holds only pull request sections today. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
 
 ## Rendering traps
 

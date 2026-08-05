@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"hash/fnv"
+	"strings"
 	"time"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -12,12 +14,48 @@ import (
 // can be judged at a real terminal width without a network or an account.
 type Mock struct{}
 
-// SearchPullRequests ignores the query and returns the fixtures.
-func (Mock) SearchPullRequests(context.Context, string, int) (gh.SearchResult, error) {
+// SearchPullRequests answers from the fixtures, keyed by the query so the tabs
+// carry counts that differ.
+func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {
 	return gh.SearchResult{
-		PullRequests: mockPullRequests(),
+		PullRequests: mockSubset(query),
 		RateLimit:    gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821},
 	}, nil
+}
+
+// mockSubset is the fixtures a section gets. The one asking for the user's own
+// pull requests gets all of them: it is the default first tab and the one the
+// layout is judged on. The rest take a rotated slice, which still spans states
+// because the list buckets by state before it renders.
+func mockSubset(query string) []gh.PullRequest {
+	const least = 4
+
+	rows := mockPullRequests()
+	// The floor is also what keeps the modulus below from dividing by zero if
+	// the fixtures are ever cut back.
+	if authored(query) || len(rows) <= least {
+		return rows
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(query))
+	sum := h.Sum32()
+
+	start := int(sum % uint32(len(rows)))
+	n := least + int(sum%uint32(len(rows)-least))
+
+	out := make([]gh.PullRequest, 0, n)
+	for i := range n {
+		out = append(out, rows[(start+i)%len(rows)])
+	}
+	return out
+}
+
+// authored reports the section asking for the user's own pull requests. The
+// exclusion is the point: "Involved" filters on -author:@me, and a plain
+// substring check hands it the full set too.
+func authored(query string) bool {
+	return strings.Contains(query, "author:@me") && !strings.Contains(query, "-author:@me")
 }
 
 // mockPullRequests covers what the list has to tell apart: all four states,

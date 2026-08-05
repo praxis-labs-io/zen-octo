@@ -1,6 +1,7 @@
 package list_test
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"strconv"
@@ -13,18 +14,30 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/list"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-func sections() []config.Section {
-	return []config.Section{{Title: "My PRs", Filters: "is:open is:pr author:@me"}}
+// ready is a store snapshot with everything loaded, which is what the list sees
+// once the root has pushed a settled fetch down.
+func ready(titles []string, prs ...[]gh.PullRequest) []store.Section {
+	sections := make([]store.Section, len(titles))
+	for i, title := range titles {
+		sections[i] = store.Section{
+			Section: config.Section{Title: title, Filters: "is:open is:pr author:@me"},
+			PRs:     prs[i],
+			Status:  store.StatusReady,
+			Loaded:  true,
+		}
+	}
+	return sections
 }
 
 func newList(width, height int, prs []gh.PullRequest) list.Model {
-	m := list.New(theme.RosePineMoon, sections())
+	m := list.New(theme.RosePineMoon)
 	m.SetSize(width, height)
-	m.SetPullRequests(prs)
+	m.SetSections(ready([]string{"My PRs"}, prs))
 	return m
 }
 
@@ -827,6 +840,128 @@ func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 
 	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
 		t.Errorf("an unknown check state renders as a pass: %q", got)
+	}
+}
+
+// A tab with no badge is a section that has never answered. A zero would claim
+// it is empty, and leaving a failed one blank reads the same as one still on
+// its way.
+func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(160, 20)
+	m.SetSections([]store.Section{
+		{Section: config.Section{Title: "Mine"}, PRs: numbered(7), Status: store.StatusReady, Loaded: true},
+		{Section: config.Section{Title: "Review"}, PRs: numbered(2), Status: store.StatusReady, Loaded: true},
+		{Section: config.Section{Title: "Involved"}, Status: store.StatusLoading},
+		{Section: config.Section{Title: "Broken"}, Status: store.StatusFailed, Err: errors.New("boom")},
+	})
+
+	top := strings.Split(stripANSI(m.View()), "\n")[0]
+	for _, want := range []string{"Mine 7", "Review 2", "Involved - ", "Broken !"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("tab strip = %q, want %q in it", top, want)
+		}
+	}
+}
+
+// A refresh puts every section back into StatusLoading. Blanking the counts for
+// the length of the fetch shifts every label along and then jumps them back,
+// and the store still holds numbers that were true a moment ago.
+func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(160, 20)
+	m.SetSections(ready([]string{"Mine", "Review"}, numbered(7), numbered(2)))
+
+	reloading := ready([]string{"Mine", "Review"}, numbered(7), numbered(2))
+	for i := range reloading {
+		reloading[i].Status = store.StatusLoading
+	}
+	m.SetSections(reloading)
+
+	top := strings.Split(stripANSI(m.View()), "\n")[0]
+	for _, want := range []string{"Mine 7", "Review 2"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("tab strip = %q, want %q held through the reload", top, want)
+		}
+	}
+}
+
+// A reloading or failed section shows a spinner or an error, not its rows, but
+// the store keeps those rows. Enter would otherwise open a pull request off a
+// screen that was showing neither it nor any other.
+func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
+	tests := []struct {
+		name   string
+		status store.Status
+	}{
+		{name: "loading", status: store.StatusLoading},
+		{name: "failed", status: store.StatusFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newList(140, 20, numbered(10))
+			m = press(m, key('j'), key('j'))
+
+			held := ready([]string{"My PRs"}, numbered(10))
+			held[0].Status = tt.status
+			held[0].Err = errors.New("boom")
+			m.SetSections(held)
+
+			if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
+				t.Error("enter opened a pull request that was not on screen")
+			}
+
+			m = press(m, key('j'))
+			m.SetSections(ready([]string{"My PRs"}, numbered(10)))
+			if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 2") {
+				t.Errorf("selection = %q, want it where it was left before the reload", got)
+			}
+		})
+	}
+}
+
+// A refresh reorders a section nobody is looking at. Parking a row index rather
+// than the pull request means coming back to a different one.
+func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(140, 20)
+	m.SetSections(ready([]string{"Mine", "Review"}, numbered(4), numbered(6)))
+
+	m = press(m, key(']'), key('j'), key('j'), key('j'))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 3") {
+		t.Fatalf("setup: selection = %q, want it on Change 3", got)
+	}
+
+	// Back on the first tab, a refresh drops two rows from the top of the
+	// section being held.
+	m = press(m, key('['))
+	m.SetSections(ready([]string{"Mine", "Review"}, numbered(4), numbered(6)[2:]))
+
+	if got := selectedRow(t, press(m, key(']')).View()); !strings.Contains(got, "Change 3") {
+		t.Errorf("selection = %q, want the pull request it was parked on", got)
+	}
+}
+
+// Every section is loaded, so a tab switch is a move rather than a reload.
+// Landing back on row zero would be throwing the user's place away.
+func TestSwitchingSectionsAndBackKeepsTheCursor(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(140, 20)
+	m.SetSections(ready([]string{"My PRs", "Needs My Review"}, numbered(10), numbered(10)[6:]))
+
+	m = press(m, key('j'), key('j'), key('j'))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 3") {
+		t.Fatalf("setup: selection = %q, want it on Change 3", got)
+	}
+
+	m = press(m, key(']'))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 6") {
+		t.Fatalf("setup: selection = %q, want the second section's first row", got)
+	}
+
+	if got := selectedRow(t, press(m, key('[')).View()); !strings.Contains(got, "Change 3") {
+		t.Errorf("selection = %q, want the cursor back where it was left", got)
 	}
 }
 

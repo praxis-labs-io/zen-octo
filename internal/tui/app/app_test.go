@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,32 +19,52 @@ import (
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/tui/app"
+	"github.com/zen-octo/zen-octo/internal/tui/list"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// fakeSearcher answers the one call the root model makes.
+// fakeSearcher answers every section with the same rows. Sections fetch
+// concurrently, so it locks: the -race detector is the point of the suite.
 type fakeSearcher struct {
-	prs  []gh.PullRequest
 	rate gh.RateLimit
 	err  error
 
-	gotQuery    string
+	mu          sync.Mutex
+	prs         []gh.PullRequest
+	queries     []string
 	gotLimit    int
-	calls       int
 	gotDeadline time.Time
 	hadDeadline bool
 }
 
 func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error) {
-	f.calls++
-	f.gotQuery, f.gotLimit = query, limit
+	f.mu.Lock()
+	f.queries = append(f.queries, query)
+	f.gotLimit = limit
 	f.gotDeadline, f.hadDeadline = ctx.Deadline()
+	prs := f.prs
+	f.mu.Unlock()
 
 	if f.err != nil {
 		return gh.SearchResult{}, f.err
 	}
-	return gh.SearchResult{PullRequests: f.prs, RateLimit: f.rate}, nil
+	return gh.SearchResult{PullRequests: prs, RateLimit: f.rate}, nil
 }
+
+// serve replaces what the next fetch returns.
+func (f *fakeSearcher) serve(prs []gh.PullRequest) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prs = prs
+}
+
+func (f *fakeSearcher) asked() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.queries)
+}
+
+func (f *fakeSearcher) calls() int { return len(f.asked()) }
 
 // querySearcher answers per query, so a test can hold one section's fetch back
 // and let another land first.
@@ -146,6 +168,19 @@ func immediate(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
+// responses runs a command and keeps the fetch results, dropping the spinner
+// tick that rides in the same batch. It is what lets a test hold one section's
+// answer back and let another land first.
+func responses(cmd tea.Cmd) []tea.Msg {
+	var out []tea.Msg
+	for _, msg := range immediate(cmd) {
+		if _, ok := msg.(spinner.TickMsg); !ok {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
 func render(t *testing.T, m tea.Model) string {
 	t.Helper()
 	return m.View().Content
@@ -182,15 +217,37 @@ func TestRendersFetchedPullRequests(t *testing.T) {
 	}
 }
 
-func TestPassesSectionQueryAndLimitToTheClient(t *testing.T) {
+// Every section fetches at startup, not just the one on screen. That is what
+// lets a tab the user has not opened carry a count.
+func TestEverySectionFetchesOnceWithItsOwnFilters(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	drive(t, app.New(testConfig(), client))
 
-	if client.gotQuery != "is:open is:pr author:@me" {
-		t.Errorf("query = %q, want the section filters unmodified", client.gotQuery)
+	want := []string{"is:open is:pr author:@me", "is:open is:pr review-requested:@me"}
+	got := client.asked()
+	slices.Sort(got)
+	slices.Sort(want)
+
+	if !slices.Equal(got, want) {
+		t.Errorf("queries = %q, want each section's filters exactly once and unmodified", got)
 	}
 	if client.gotLimit != 20 {
 		t.Errorf("limit = %d, want 20", client.gotLimit)
+	}
+}
+
+func TestEveryTabCarriesItsOwnCount(t *testing.T) {
+	client := &querySearcher{results: map[string]gh.SearchResult{
+		"is:open is:pr author:@me":           {PullRequests: manyPRs(5)},
+		"is:open is:pr review-requested:@me": {PullRequests: manyPRs(2)},
+	}}
+
+	top := strings.Split(stripANSI(render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 160, Height: 40}))), "\n")[0]
+
+	for _, want := range []string{"My PRs 5", "Needs My Review 2"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("tab strip = %q, want %q in it", top, want)
+		}
 	}
 }
 
@@ -232,17 +289,19 @@ func TestCursorMovesAndStopsAtTheEnds(t *testing.T) {
 	}
 }
 
-func TestRefreshRefetches(t *testing.T) {
+// The tab counts are on screen alongside the rows, so a refresh that left them
+// as they were would be making only part of the frame true.
+func TestRefreshRefetchesEverySection(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
 
-	if client.calls != 1 {
-		t.Fatalf("calls = %d after load, want 1", client.calls)
+	if client.calls() != 2 {
+		t.Fatalf("calls = %d after load, want one per section", client.calls())
 	}
 
 	settle(m, keyMsg("r"))
-	if client.calls != 2 {
-		t.Errorf("calls = %d after refresh, want 2", client.calls)
+	if client.calls() != 4 {
+		t.Errorf("calls = %d after refresh, want another per section", client.calls())
 	}
 }
 
@@ -294,9 +353,10 @@ func TestRefreshClearsTheStaleError(t *testing.T) {
 		t.Fatal("setup: expected the first fetch to render a failure")
 	}
 
-	// The retry is in flight: the old error must be gone and the spinner up,
-	// or the user cannot tell that r did anything.
-	next, _ := m.Update(keyMsg("r"))
+	// The retry is in flight: the fetch commands are held rather than run, so
+	// the old error has to be gone and the spinner up, or the user cannot tell
+	// that r did anything.
+	next, _ := m.Update(list.RefreshMsg{})
 	out := render(t, next)
 	if strings.Contains(out, "boom, the first attempt failed") {
 		t.Errorf("view still shows the previous error during the retry\n%s", out)
@@ -311,10 +371,10 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 	m := press(loaded(t, client, 120, 40), "j") // now on #408
 
 	// A new PR lands at the top, pushing #408 down a row.
-	client.prs = append([]gh.PullRequest{{
+	client.serve(append([]gh.PullRequest{{
 		ID: "PR_NEW", Number: 500, Title: "Brand new", Repository: "zen-octo/zen-octo",
 		State: gh.PRStateOpen, UpdatedAt: time.Now(),
-	}}, samplePRs()...)
+	}}, samplePRs()...))
 	m = settle(m, keyMsg("r"))
 
 	if got := selectedText(t, m); !strings.Contains(got, "#408") {
@@ -326,7 +386,7 @@ func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := press(loaded(t, client, 120, 40), "j") // now on #408
 
-	client.prs = samplePRs()[:1] // #408 merged and dropped out of the section
+	client.serve(samplePRs()[:1]) // #408 merged and dropped out of the section
 	m = settle(m, keyMsg("r"))
 
 	if got := selectedText(t, m); !strings.Contains(got, "#412") {
@@ -499,17 +559,20 @@ func TestHelpSwallowsScreenKeys(t *testing.T) {
 	}
 }
 
-func TestTabSwitchesSectionAndRefetches(t *testing.T) {
+// Every section is already held, so a tab switch is a move through state rather
+// than a round trip. Refetching here is what made switching tabs feel slow.
+func TestTabSwitchesSectionWithoutRefetching(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
+	before := client.calls()
 
 	m = settle(m, keyMsg("tab"))
 
-	if client.gotQuery != "is:open is:pr review-requested:@me" {
-		t.Errorf("query = %q, want the second section's filters", client.gotQuery)
+	if got := client.calls(); got != before {
+		t.Errorf("calls went from %d to %d, want the switch to fetch nothing", before, got)
 	}
-	if !strings.Contains(render(t, m), "Needs My Review") {
-		t.Error("the second section is not on screen")
+	if !strings.Contains(render(t, m), "Fix auth retry") {
+		t.Error("the second section's rows are not on screen")
 	}
 }
 
@@ -522,17 +585,80 @@ func TestTheStatusBarCarriesTheRateLimit(t *testing.T) {
 }
 
 // A refresh that returns identical rows moves nothing on screen. The toast is
-// the only signal that anything happened.
-func TestRefreshAnnouncesItselfButTheFirstLoadDoesNot(t *testing.T) {
+// the only signal that anything happened, and one press earns one of them
+// however many sections it fired at.
+func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
 
-	if strings.Contains(render(t, m), "Loaded 2 pull requests") {
+	if strings.Contains(render(t, m), "Refreshed") {
 		t.Error("the first load raised a toast, want the rows to speak for themselves")
 	}
 
-	if out := render(t, settle(m, keyMsg("r"))); !strings.Contains(out, "Loaded 2 pull requests") {
+	out := render(t, settle(m, keyMsg("r")))
+	if !strings.Contains(out, "Refreshed 2 sections") {
 		t.Errorf("view = %q, want the refresh to report what came back", out)
+	}
+}
+
+// The toast waits for the last section. Firing on the first arrival claims a
+// refresh that two of the tabs on screen have not finished.
+func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+
+	// One section's response delivered, the rest held.
+	next, cmd := m.Update(list.RefreshMsg{})
+	landed := responses(cmd)
+	if len(landed) < 2 {
+		t.Fatalf("setup: the refresh produced %d responses, want one per section", len(landed))
+	}
+
+	next = settle(next, landed[0])
+	if strings.Contains(render(t, next), "Refreshed") {
+		t.Error("the toast fired while a section was still in flight")
+	}
+
+	if out := render(t, settle(next, landed[1:]...)); !strings.Contains(out, "Refreshed 2 sections") {
+		t.Errorf("view = %q, want the toast once the last section landed", out)
+	}
+}
+
+// store.Begin refuses a section already in flight, so a refresh does not always
+// reach every tab. The toast counts what it fetched, not what it asked for, or
+// it claims work it never did and failures it never caused.
+func TestTheRefreshToastCountsOnlyTheSectionsItStarted(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	var m tea.Model = app.New(testConfig(), client)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// Both startup fetches, held rather than delivered.
+	initial := responses(m.Init())
+	if len(initial) != 2 {
+		t.Fatalf("setup: startup produced %d responses, want one per section", len(initial))
+	}
+
+	// One section home, the other still out, and then r: only the settled one
+	// can be refetched.
+	m, _ = m.Update(initial[0])
+	m, cmd := m.Update(list.RefreshMsg{})
+
+	m = settle(m, initial[1])
+	m = settle(m, responses(cmd)...)
+
+	if out := render(t, m); !strings.Contains(out, "Refreshed 1 section") {
+		t.Errorf("view = %q, want the toast to count the one section the refresh started", out)
+	}
+}
+
+func TestARefreshThatFailsSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, 120, 40)
+
+	client.err = errors.New("context deadline exceeded")
+	out := render(t, settle(m, keyMsg("r")))
+
+	if !strings.Contains(out, "Refresh failed") {
+		t.Errorf("view = %q, want the toast to report the failure", out)
 	}
 }
 
@@ -653,33 +779,51 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 	}
 }
 
-// The success path drops a fetch the user has moved on from. The failure path
-// has to do the same, or a timeout from an abandoned section replaces rows that
-// loaded fine, with no fetch in flight and no spinner to explain it.
-func TestAStaleFailureDoesNotReplaceTheSectionOnScreen(t *testing.T) {
+// A failure belongs to the section that had it. One section timing out used to
+// take over whatever was on screen, leaving an error with no fetch in flight
+// and no spinner to explain it.
+func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 	client := &querySearcher{
 		errs:    map[string]error{"is:open is:pr author:@me": errors.New("context deadline exceeded")},
 		results: map[string]gh.SearchResult{"is:open is:pr review-requested:@me": {PullRequests: samplePRs()}},
 	}
 
-	var m tea.Model = app.New(testConfig(), client)
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m := drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// The first section's fetch, held rather than delivered.
-	stale := m.Init()
-
-	m = settle(m, keyMsg("tab"))
-	if !strings.Contains(render(t, m), "Fix auth retry") {
-		t.Fatal("setup: the second section did not load")
+	first := render(t, m)
+	if !strings.Contains(first, "context deadline exceeded") {
+		t.Fatalf("the failed section does not show its own error\n%s", first)
 	}
 
-	m = settle(m, immediate(stale)...)
-
-	if strings.Contains(render(t, m), "Failed to load") {
-		t.Error("a failure from the section the user left took over the one on screen")
+	second := render(t, settle(m, keyMsg("tab")))
+	if strings.Contains(second, "Failed to load") {
+		t.Errorf("the failure followed the user to a section that loaded fine\n%s", second)
 	}
-	if !strings.Contains(render(t, m), "Fix auth retry") {
-		t.Error("the loaded rows are gone")
+	if !strings.Contains(second, "Fix auth retry") {
+		t.Error("the loaded rows are not on screen")
+	}
+}
+
+// Responses arrive in whatever order they finish, so the newest is not the
+// truest. A budget that ticked back up mid-burst would be reading the wrong one.
+func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
+	window := time.Now().Add(time.Hour)
+	client := &querySearcher{results: map[string]gh.SearchResult{
+		// The lower number lands first, so a status bar reading the newest
+		// response rather than the lowest shows 4820 and reads as a budget that
+		// went back up.
+		"is:open is:pr author:@me": {
+			PullRequests: samplePRs(),
+			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 4819, ResetAt: window},
+		},
+		"is:open is:pr review-requested:@me": {
+			RateLimit: gh.RateLimit{Limit: 5000, Remaining: 4820, ResetAt: window},
+		},
+	}}
+
+	out := render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40}))
+	if !strings.Contains(out, "4819") {
+		t.Errorf("view = %q, want the lowest remaining across the responses", out)
 	}
 }
 
@@ -689,9 +833,9 @@ func TestAStaleFailureDoesNotReplaceTheSectionOnScreen(t *testing.T) {
 func TestTheSpinnerKeepsTickingBehindTheDetailScreen(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
-	// Holding the refresh command back leaves the list loading, which is the
+	// Holding the fetch commands back leaves the sections loading, which is the
 	// state the chain has to survive.
-	m, _ = m.Update(keyMsg("r"))
+	m, _ = m.Update(list.RefreshMsg{})
 
 	var open tea.Cmd
 	m, open = m.Update(keyMsg("enter"))

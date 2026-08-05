@@ -19,6 +19,7 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
 	"github.com/zen-octo/zen-octo/internal/tui/list"
@@ -33,20 +34,14 @@ type PRSearcher interface {
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 }
 
-type prsFetchedMsg struct {
-	prs   []gh.PullRequest
-	rate  gh.RateLimit
-	query string
-
-	// announce marks a fetch the user asked for. A refresh that returns the
-	// same rows moves nothing on screen, so the toast is the only way to tell
-	// it happened. A first load and a section switch are both self-evident.
-	announce bool
+type sectionFetchedMsg struct {
+	index int
+	res   gh.SearchResult
 }
 
-type prsFailedMsg struct {
+type sectionFailedMsg struct {
+	index int
 	err   error
-	query string
 }
 
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
@@ -70,6 +65,8 @@ type Model struct {
 	theme  theme.Theme
 	limit  int
 
+	store store.Store
+
 	screen screen
 	list   list.Model
 	detail prview.Model
@@ -81,8 +78,12 @@ type Model struct {
 	// registered. Silently falling back reads as "my config is ignored".
 	notice   string
 	showHelp bool
-	rate     gh.RateLimit
-	query    string
+
+	// refreshing is the sections the last r press actually started. A refresh
+	// returns the same rows more often than not, so the toast is the only sign
+	// it happened, and it has to report the sections it fetched rather than
+	// every section configured: store.Begin refuses one already in flight.
+	refreshing []int
 
 	width  int
 	height int
@@ -99,11 +100,16 @@ func New(cfg *config.Config, client PRSearcher) Model {
 		client: client,
 		theme:  th,
 		limit:  cfg.Defaults.PRsLimit,
-		list:   list.New(th, cfg.PRSections),
+		store:  store.New(cfg.PRSections),
+		list:   list.New(th),
 		status: comp.NewStatusBar(th),
 		help:   h,
-		query:  cfg.PRSections[0].Filters,
 	}
+	// Init fetches every section, and a command runs off the update loop where
+	// it cannot mark anything, so the store is put in that state here.
+	m.store.BeginAll()
+	m.list.SetSections(m.store.Sections())
+
 	if !ok {
 		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
 			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
@@ -111,12 +117,18 @@ func New(cfg *config.Config, client PRSearcher) Model {
 	return m
 }
 
-// Init starts the list and the first fetch.
+// Init starts the list and fetches every section. tea.Batch runs its commands
+// concurrently, which is the whole of the concurrency here: no goroutine of
+// ours touches the model.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.list.Init(), m.fetchPRs(m.query, false))
+	cmds := []tea.Cmd{m.list.Init()}
+	for i, section := range m.store.Sections() {
+		cmds = append(cmds, m.fetchSection(i, section.Filters))
+	}
+	return tea.Batch(cmds...)
 }
 
-func (m Model) fetchPRs(query string, announce bool) tea.Cmd {
+func (m Model) fetchSection(index int, query string) tea.Cmd {
 	client, limit := m.client, m.limit
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
@@ -124,10 +136,60 @@ func (m Model) fetchPRs(query string, announce bool) tea.Cmd {
 
 		res, err := client.SearchPullRequests(ctx, query, limit)
 		if err != nil {
-			return prsFailedMsg{err: err, query: query}
+			return sectionFailedMsg{index: index, err: err}
 		}
-		return prsFetchedMsg{prs: res.PullRequests, rate: res.RateLimit, query: query, announce: announce}
+		return sectionFetchedMsg{index: index, res: res}
 	}
+}
+
+// refresh refetches every section that is not already on its way. The tab
+// counts are on screen too, so a refresh that left them as they were would be
+// making only part of the frame true.
+func (m Model) refresh() (tea.Model, tea.Cmd) {
+	sections := m.store.Sections()
+
+	var cmds []tea.Cmd
+	started := make([]int, 0, len(sections))
+	for i, section := range sections {
+		if !m.store.Begin(i) {
+			continue
+		}
+		started = append(started, i)
+		cmds = append(cmds, m.fetchSection(i, section.Filters))
+	}
+	// Every section is already on its way; the refresh is the one running.
+	if len(cmds) == 0 {
+		return m, nil
+	}
+
+	m.refreshing = started
+	m.list.SetSections(m.store.Sections())
+	return m, tea.Batch(append(cmds, m.list.Init())...)
+}
+
+// sectionSettled pushes the new snapshot down and, once the sections a refresh
+// started have all landed, reports it. Waiting on the whole store instead would
+// hold the toast behind a section the refresh never touched.
+func (m Model) sectionSettled() (tea.Model, tea.Cmd) {
+	sections := m.store.Sections()
+	m.list.SetSections(sections)
+
+	if len(m.refreshing) == 0 || stillLoading(sections, m.refreshing) {
+		return m, nil
+	}
+
+	kind, text := refreshSummary(sections, m.refreshing)
+	m.refreshing = nil
+	return m, m.toasts.Show(kind, text)
+}
+
+func stillLoading(sections []store.Section, indices []int) bool {
+	for _, i := range indices {
+		if sections[i].Status == store.StatusLoading {
+			return true
+		}
+	}
+	return false
 }
 
 // Update applies every message. Nothing else mutates the model.
@@ -141,27 +203,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
-	case prsFetchedMsg:
-		// A section switch can land after a fetch it did not ask for. Dropping
-		// the stale one keeps the wrong rows off the new tab.
-		if msg.query != m.query {
-			return m, nil
-		}
-		m.rate = msg.rate
-		m.list.SetPullRequests(msg.prs)
-		if !msg.announce {
-			return m, nil
-		}
-		return m, m.toasts.Show(comp.ToastSuccess, loadedSummary(len(msg.prs)))
+	case sectionFetchedMsg:
+		// No staleness guard: store.Begin refuses a section that already has a
+		// request out, so a response always belongs in the slot it names.
+		m.store.Applied(msg.index, msg.res)
+		return m.sectionSettled()
 
-	case prsFailedMsg:
-		// Same guard as the success path. A timeout from a section the user
-		// already left would otherwise replace rows that loaded fine.
-		if msg.query != m.query {
-			return m, nil
-		}
-		m.list.SetError(msg.err)
-		return m, nil
+	case sectionFailedMsg:
+		m.store.Failed(msg.index, msg.err)
+		return m.sectionSettled()
 
 	case spinner.TickMsg:
 		// The list owns the only spinner, and the chain re-arms from its own
@@ -181,12 +231,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		return m, nil
 
-	case list.SectionChangedMsg:
-		m.query = msg.Section.Filters
-		return m, m.fetchPRs(m.query, false)
-
 	case list.RefreshMsg:
-		return m, m.fetchPRs(m.query, true)
+		return m.refresh()
 
 	case prview.BackMsg:
 		m.screen = screenList
@@ -322,8 +368,8 @@ func (m Model) statusRight() string {
 	right := make([]string, 0, 2)
 	// Limit is zero until a response lands. Gating on it rather than on
 	// Remaining is what lets an exhausted budget still read as zero.
-	if m.rate.Limit > 0 {
-		right = append(right, m.status.Budget(m.rate.Remaining))
+	if rate := m.store.Rate(); rate.Limit > 0 {
+		right = append(right, m.status.Budget(rate.Remaining))
 	}
 	right = append(right, m.status.Context(m.contextLabel()))
 	return strings.Join(right, m.status.Context(" · "))
@@ -401,9 +447,31 @@ func helpStyles(th theme.Theme) help.Styles {
 	}
 }
 
-func loadedSummary(n int) string {
-	if n == 1 {
-		return "Loaded 1 pull request"
+// refreshSummary names what came back. It counts sections rather than rows,
+// because sections are what a refresh covers, and only the ones it started: a
+// section left in flight is not a section this refresh can claim.
+func refreshSummary(sections []store.Section, started []int) (comp.ToastKind, string) {
+	failed := 0
+	for _, i := range started {
+		if sections[i].Status == store.StatusFailed {
+			failed++
+		}
 	}
-	return "Loaded " + strconv.Itoa(n) + " pull requests"
+
+	switch {
+	case failed == 0:
+		return comp.ToastSuccess, "Refreshed " + plural(len(started), "section")
+	case failed == len(started):
+		return comp.ToastError, "Refresh failed"
+	default:
+		return comp.ToastError, "Refreshed " + plural(len(started)-failed, "section") +
+			", " + strconv.Itoa(failed) + " failed"
+	}
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
