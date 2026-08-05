@@ -31,6 +31,21 @@ const (
 
 var groupLabels = [...]string{"Ready", "Draft", "Merged", "Closed"}
 
+// state is a pull request in the group's state. The header takes its color from
+// the same call the row glyphs take theirs from, so the two cannot drift apart.
+func (g group) state() gh.PullRequest {
+	switch g {
+	case groupDraft:
+		return gh.PullRequest{State: gh.PRStateOpen, IsDraft: true}
+	case groupMerged:
+		return gh.PullRequest{State: gh.PRStateMerged}
+	case groupClosed:
+		return gh.PullRequest{State: gh.PRStateClosed}
+	default:
+		return gh.PullRequest{State: gh.PRStateOpen}
+	}
+}
+
 // groupOf reads state before draft, because a draft that was closed is closed.
 func groupOf(pr gh.PullRequest) group {
 	switch pr.State {
@@ -48,6 +63,7 @@ func groupOf(pr gh.PullRequest) group {
 // item is one entry in the rendered order: a group header or a pull request.
 type item struct {
 	header     string // group label, empty on a pull request
+	group      group  // which group, on a header
 	count      int    // pull requests in the group, on a header
 	blankAbove bool   // a group gap above, on every header but the first
 	blankBelow bool   // one line below, on every row but a group's last
@@ -114,7 +130,9 @@ func arrange(prs []gh.PullRequest) []item {
 		// A group after the first opens with its gap, and every row but the last
 		// closes with a single line. The last skips its own so the gap before
 		// the next header is the group gap and not a line more.
-		items = append(items, item{header: groupLabels[g], count: len(bucket), blankAbove: len(items) > 0})
+		items = append(items, item{
+			header: groupLabels[g], group: group(g), count: len(bucket), blankAbove: len(items) > 0,
+		})
 		for i, pr := range bucket {
 			items = append(items, item{pr: pr, blankBelow: i < len(bucket)-1})
 		}
