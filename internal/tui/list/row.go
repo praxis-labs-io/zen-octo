@@ -234,17 +234,16 @@ func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style)
 }
 
 // renderHeader draws a group's rule, with the gap above it that keeps the
-// groups apart. It carries how many rows are under it, which is the count
-// the section tab cannot show once the list is grouped.
+// groups apart. The count of rows under it sits at the far end, where the row
+// counts on the lines below already are.
 func renderHeader(th theme.Theme, it item, width int) []string {
 	rule := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
 
-	left := rule.Render("─ ") +
-		lipgloss.NewStyle().Foreground(th.Secondary).Bold(true).Render(it.header) + " " +
-		lipgloss.NewStyle().Foreground(th.Faint).Render(strconv.Itoa(it.count)) + " "
+	left := rule.Render("─ ") + lipgloss.NewStyle().Foreground(th.Secondary).Bold(true).Render(it.header) + " "
+	right := " " + lipgloss.NewStyle().Foreground(th.Faint).Render(strconv.Itoa(it.count))
 
-	fill := max(0, width-lipgloss.Width(left))
-	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))
+	fill := max(0, width-lipgloss.Width(left)-lipgloss.Width(right))
+	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)) + right)
 
 	lines := make([]string, it.gapAbove, it.gapAbove+1)
 	for i := range lines {
