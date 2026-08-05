@@ -1,6 +1,7 @@
 package list_test
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"strconv"
@@ -13,18 +14,29 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/list"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-func sections() []config.Section {
-	return []config.Section{{Title: "My PRs", Filters: "is:open is:pr author:@me"}}
+// ready is a store snapshot with everything loaded, which is what the list sees
+// once the root has pushed a settled fetch down.
+func ready(titles []string, prs ...[]gh.PullRequest) []store.Section {
+	sections := make([]store.Section, len(titles))
+	for i, title := range titles {
+		sections[i] = store.Section{
+			Section: config.Section{Title: title, Filters: "is:open is:pr author:@me"},
+			PRs:     prs[i],
+			Status:  store.StatusReady,
+		}
+	}
+	return sections
 }
 
 func newList(width, height int, prs []gh.PullRequest) list.Model {
-	m := list.New(theme.RosePineMoon, sections())
+	m := list.New(theme.RosePineMoon)
 	m.SetSize(width, height)
-	m.SetPullRequests(prs)
+	m.SetSections(ready([]string{"My PRs"}, prs))
 	return m
 }
 
@@ -827,6 +839,48 @@ func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 
 	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
 		t.Errorf("an unknown check state renders as a pass: %q", got)
+	}
+}
+
+// A tab with no badge is a section still on its way. A zero would claim it is
+// empty, and leaving a failed one blank reads the same as one still loading.
+func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(160, 20)
+	m.SetSections([]store.Section{
+		{Section: config.Section{Title: "Mine"}, PRs: numbered(7), Status: store.StatusReady},
+		{Section: config.Section{Title: "Review"}, PRs: numbered(2), Status: store.StatusReady},
+		{Section: config.Section{Title: "Involved"}, Status: store.StatusLoading},
+		{Section: config.Section{Title: "Broken"}, Status: store.StatusFailed, Err: errors.New("boom")},
+	})
+
+	top := strings.Split(stripANSI(m.View()), "\n")[0]
+	for _, want := range []string{"Mine 7", "Review 2", "Involved - ", "Broken !"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("tab strip = %q, want %q in it", top, want)
+		}
+	}
+}
+
+// Every section is loaded, so a tab switch is a move rather than a reload.
+// Landing back on row zero would be throwing the user's place away.
+func TestSwitchingSectionsAndBackKeepsTheCursor(t *testing.T) {
+	m := list.New(theme.RosePineMoon)
+	m.SetSize(140, 20)
+	m.SetSections(ready([]string{"My PRs", "Needs My Review"}, numbered(10), numbered(10)[6:]))
+
+	m = press(m, key('j'), key('j'), key('j'))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 3") {
+		t.Fatalf("setup: selection = %q, want it on Change 3", got)
+	}
+
+	m = press(m, key(']'))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 6") {
+		t.Fatalf("setup: selection = %q, want the second section's first row", got)
+	}
+
+	if got := selectedRow(t, press(m, key('[')).View()); !strings.Contains(got, "Change 3") {
+		t.Errorf("selection = %q, want the cursor back where it was left", got)
 	}
 }
 

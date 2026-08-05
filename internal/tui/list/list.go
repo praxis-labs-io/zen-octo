@@ -12,8 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
@@ -23,29 +23,31 @@ import (
 // screen exists.
 type OpenMsg struct{ PR gh.PullRequest }
 
-// SectionChangedMsg asks the root to load a different section.
-type SectionChangedMsg struct{ Section config.Section }
-
-// RefreshMsg asks the root to refetch the current section.
+// RefreshMsg asks the root to refetch. The store holds every section, so what a
+// refresh covers is the root's call; the list only reports the key.
 type RefreshMsg struct{}
 
 // Model is the list screen.
 type Model struct {
-	theme    theme.Theme
-	pane     comp.Pane
-	view     viewport.Model
-	spinner  spinner.Model
-	sections []config.Section
-	active   int
+	theme   theme.Theme
+	pane    comp.Pane
+	view    viewport.Model
+	spinner spinner.Model
 
-	rows    rows
-	cursor  int // indexes the selectable rows, so a header is never addressable
-	loading bool
-	err     error
+	sections []store.Section
+	active   int
+	// cursors is where the selection sat in each section. Every section is
+	// fetched now, so a tab switch is a move rather than a reload, and coming
+	// back to row zero would be throwing the user's place away.
+	cursors []int
+
+	rows   rows
+	cursor int // indexes the selectable rows, so a header is never addressable
 }
 
-// New builds the list over the configured sections.
-func New(th theme.Theme, sections []config.Section) Model {
+// New builds the list. It starts with no sections: the store is the one source
+// of what they are, and the root pushes a snapshot before the first frame.
+func New(th theme.Theme) Model {
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
 
@@ -54,12 +56,10 @@ func New(th theme.Theme, sections []config.Section) Model {
 	vp.FillHeight = true
 
 	return Model{
-		theme:    th,
-		pane:     comp.NewPane(th),
-		view:     vp,
-		spinner:  sp,
-		sections: sections,
-		loading:  true,
+		theme:   th,
+		pane:    comp.NewPane(th),
+		view:    vp,
+		spinner: sp,
 	}
 }
 
@@ -74,7 +74,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case spinner.TickMsg:
-		if !m.loading {
+		// Re-arm while any section is in flight, not just the one on screen.
+		// Gating on the active section kills the chain the moment it lands, and
+		// a switch onto a slower tab then finds a frozen spinner.
+		if !m.anyLoading() {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -106,9 +109,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.moveCursor(-m.halfPage())
 
 	case key.Matches(msg, k.NextSection):
-		return m.changeSection(1)
+		m.changeSection(1)
 	case key.Matches(msg, k.PrevSection):
-		return m.changeSection(-1)
+		m.changeSection(-1)
 
 	case key.Matches(msg, k.Open):
 		pr, ok := m.Selected()
@@ -118,30 +121,28 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return OpenMsg{PR: pr} }
 
 	case key.Matches(msg, k.Refresh):
-		if m.loading {
-			return m, nil
-		}
-		m.loading = true
-		// Clearing the error matters: the body checks it before loading, so a
-		// retry would otherwise redraw the old failure with no spinner.
-		m.err = nil
-		return m, tea.Batch(m.spinner.Tick, func() tea.Msg { return RefreshMsg{} })
+		return m, func() tea.Msg { return RefreshMsg{} }
 	}
 
 	return m, nil
 }
 
-func (m Model) changeSection(delta int) (Model, tea.Cmd) {
+// changeSection moves to another tab. Nothing is fetched: the store already
+// holds every section, which is what makes the switch instant.
+func (m *Model) changeSection(delta int) {
 	if len(m.sections) < 2 {
-		return m, nil
+		return
 	}
 
+	m.cursors[m.active] = m.cursor
 	m.active = (m.active + delta + len(m.sections)) % len(m.sections)
-	m.cursor, m.rows, m.err, m.loading = 0, rows{}, nil, true
-	m.syncContent()
+	m.rows = newRows(m.activeSection().PRs)
 
-	section := m.sections[m.active]
-	return m, tea.Batch(m.spinner.Tick, func() tea.Msg { return SectionChangedMsg{Section: section} })
+	// The window belongs to the section being left. Opening the new one at the
+	// top and scrolling to the cursor lands somewhere valid whatever the two
+	// sections' lengths are.
+	m.view.SetYOffset(0)
+	m.setCursor(m.cursors[m.active])
 }
 
 func (m *Model) moveCursor(delta int) { m.setCursor(m.cursor + delta) }
@@ -210,33 +211,45 @@ func (m *Model) SetSize(width, height int) {
 	m.scrollToCursor()
 }
 
-// SetPullRequests replaces the rows, holding the selection on the same pull
-// request where it survived the refresh.
-func (m *Model) SetPullRequests(prs []gh.PullRequest) {
-	next := newRows(prs)
+// SetSections takes the store's snapshot. It is the only way data reaches this
+// screen: tabs, counts, rows, the spinner, and the error state all come from it.
+//
+// Rows rebuild on every snapshot, including one another section triggered.
+// restoreCursor matches on the pull request id, so an arrival elsewhere moves
+// nothing under the selection.
+func (m *Model) SetSections(sections []store.Section) {
+	if len(m.cursors) != len(sections) {
+		m.cursors = make([]int, len(sections))
+	}
+	m.sections = sections
+
+	next := newRows(m.activeSection().PRs)
 	m.restoreCursor(next)
 	m.rows = next
-	m.loading = false
-	m.err = nil
 	m.syncContent()
 	m.scrollToCursor()
-}
-
-// SetError puts the screen into its failed state.
-func (m *Model) SetError(err error) {
-	m.err = err
-	m.loading = false
 }
 
 // Selected reports the pull request under the cursor.
 func (m Model) Selected() (gh.PullRequest, bool) { return m.rows.pr(m.cursor) }
 
 // Section is the section currently on screen.
-func (m Model) Section() config.Section {
-	if m.active >= len(m.sections) {
-		return config.Section{}
+func (m Model) Section() store.Section { return m.activeSection() }
+
+func (m Model) activeSection() store.Section {
+	if m.active < 0 || m.active >= len(m.sections) {
+		return store.Section{}
 	}
 	return m.sections[m.active]
+}
+
+func (m Model) anyLoading() bool {
+	for _, s := range m.sections {
+		if s.Status == store.StatusLoading {
+			return true
+		}
+	}
+	return false
 }
 
 // restoreCursor keeps the selection on the same pull request across a refresh,
@@ -288,12 +301,7 @@ func (m *Model) syncContent() {
 func (m Model) View() string {
 	tabs := make([]comp.Tab, len(m.sections))
 	for i, s := range m.sections {
-		tabs[i] = comp.Tab{Label: s.Title}
-	}
-	// Only the section on screen has been fetched, so it is the only one whose
-	// count is known. A blank badge says that; a zero would lie.
-	if m.active < len(tabs) && !m.loading && m.err == nil {
-		tabs[m.active].Badge = strconv.Itoa(m.rows.len())
+		tabs[i] = comp.Tab{Label: s.Title, Badge: badge(s)}
 	}
 
 	// No Focus call: this screen is one pane, so a focused border would be
@@ -304,15 +312,30 @@ func (m Model) View() string {
 		Render(m.body())
 }
 
+// badge is the count a tab carries. A section still on its way gets nothing,
+// because a zero would claim it is empty. One that failed gets a mark instead:
+// a blank badge on a tab you are not looking at reads the same as one still
+// loading, and those are not the same news.
+func badge(s store.Section) string {
+	switch s.Status {
+	case store.StatusReady:
+		return strconv.Itoa(len(s.PRs))
+	case store.StatusFailed:
+		return "!"
+	}
+	return ""
+}
+
 func (m Model) body() string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	section := m.activeSection()
 
 	switch {
-	case m.err != nil:
+	case section.Status == store.StatusFailed:
 		label := lipgloss.NewStyle().Foreground(m.theme.Error).Bold(true).Render("Failed to load")
 		// Scope errors carry a multi-line fix; keep the newlines the error wrote.
-		return label + "\n" + faint.Render(m.err.Error())
-	case m.loading:
+		return label + "\n" + faint.Render(section.Err.Error())
+	case section.Status != store.StatusReady:
 		return m.spinner.View() + " " + faint.Render("Loading pull requests")
 	case m.rows.len() == 0:
 		return faint.Render("Nothing matches this section.")
@@ -322,7 +345,7 @@ func (m Model) body() string {
 }
 
 func (m Model) footer() string {
-	if m.loading || m.err != nil || m.rows.len() == 0 {
+	if m.activeSection().Status != store.StatusReady || m.rows.len() == 0 {
 		return ""
 	}
 	return strconv.Itoa(m.cursor+1) + " of " + strconv.Itoa(m.rows.len())
