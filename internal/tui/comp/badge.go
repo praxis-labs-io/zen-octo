@@ -88,21 +88,19 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	return "", th.Faint
 }
 
-// ReviewIcon is where review stands, for the list, where there is no room for
-// the words. A blank glyph means no review is required.
-func ReviewIcon(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
+// ReviewColor is where review stands, as a color for a caller drawing its own
+// mark. Nothing blocking reads the same as an approval, because it is the same
+// news.
+func ReviewColor(th theme.Theme, d gh.ReviewDecision) color.Color {
 	switch d {
-	case gh.ReviewDecisionApproved:
-		return "✔", th.Success
 	case gh.ReviewDecisionChangesRequested:
-		return "✎", th.Error
+		return th.Error
 	case gh.ReviewDecisionReviewRequired:
-		return "◇", th.Warning
-	case gh.ReviewDecisionNone:
-		// Nothing is blocking on review, which is the same news as an approval.
-		return "✔", th.Success
+		return th.Warning
+	case gh.ReviewDecisionApproved, gh.ReviewDecisionNone:
+		return th.Success
 	}
-	return "✔", th.Success
+	return th.Success
 }
 
 // ReviewLabel names where review stands. It returns empty when no review is

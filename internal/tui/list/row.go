@@ -1,6 +1,7 @@
 package list
 
 import (
+	"image/color"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +29,9 @@ const (
 	headWidth   = leftMargin + stateWidth + gutter + numberWidth + gutter
 
 	// The status pair is two spaces off whatever precedes it, then review, a
-	// space, and the check rollup. The leading gutter is one of those spaces.
-	statusWidth = 4
+	// space, and the check rollup, each a dot and the icon naming it. The
+	// leading gutter is one of those two spaces.
+	statusWidth = 8
 
 	additionsWidth = 5
 	deletionsWidth = 5
@@ -47,6 +49,8 @@ const (
 const (
 	glyphFiles    = "\uea7b" // nf-cod-file
 	glyphComments = "\uf41f" // nf-oct-comment
+	glyphReview   = "\uf06e" // nf-fa-eye
+	glyphChecks   = "\uf0ae" // nf-fa-tasks
 )
 
 // layout is which columns a width can carry, and how much of it the title gets.
@@ -132,8 +136,8 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	}
 
 	stateIcon, stateColor := comp.PRStateIcon(th, pr)
-	checkIcon, checkColor := comp.CheckStateIcon(th, pr.Checks)
-	reviewIcon, reviewColor := comp.ReviewIcon(th, pr.ReviewDecision)
+	_, checkColor := comp.CheckStateIcon(th, pr.Checks)
+	reviewColor := comp.ReviewColor(th, pr.ReviewDecision)
 
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
@@ -157,9 +161,8 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		// The join puts one space here; the leading one makes two, which is what
 		// keeps the pair from reading as another count.
 		tail = append(tail, " "+
-			base.Foreground(reviewColor).Render(reviewIcon)+
-			base.Render(" ")+
-			base.Foreground(checkColor).Render(checkIcon))
+			statusMark(th, base, glyphReview, reviewColor)+" "+
+			statusMark(th, base, glyphChecks, checkColor))
 	}
 
 	lines := []string{
@@ -170,6 +173,13 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		lines = append(lines, strings.Repeat(" ", width))
 	}
 	return lines
+}
+
+// statusMark is a colored dot and the icon naming what it reports. The icon
+// never changes, so a glance reads the color; the shape is only there to say
+// which of the two readings it is.
+func statusMark(th theme.Theme, base lipgloss.Style, glyph string, c color.Color) string {
+	return base.Foreground(c).Render("●") + base.Render(" ") + base.Foreground(th.Faint).Render(glyph)
 }
 
 // counted is a number and the glyph naming it, pushed to the right of its
@@ -202,8 +212,10 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 	title := base.Foreground(th.Primary)
 	count := glyphComments + " " + strconv.Itoa(pr.Comments)
 
+	// The title keeps at least as much room as the count takes, or the count
+	// goes: an ellipsis with a number after it says nothing about either.
 	room := width - lipgloss.Width(count) - 2
-	if pr.Comments == 0 || room < 1 {
+	if pr.Comments == 0 || room < lipgloss.Width(count) {
 		return cell(width, pr.Title, title)
 	}
 

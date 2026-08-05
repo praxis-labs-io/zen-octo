@@ -84,6 +84,8 @@ func rowContaining(t *testing.T, frame, want string) string {
 const (
 	fileGlyph    = "\uea7b" // nf-cod-file
 	commentGlyph = "\uf41f" // nf-oct-comment
+	reviewGlyph  = "\uf06e" // nf-fa-eye
+	checksGlyph  = "\uf0ae" // nf-fa-tasks
 )
 
 // selectionSeq is the SGR sequence that sets the selection background.
@@ -263,7 +265,7 @@ func TestScrollingToAGroupsFirstRowShowsItsHeader(t *testing.T) {
 func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
 	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "zen-octo/zen-octo"))
 
-	if inner := strings.TrimRight(strings.Trim(row, "│"), " "); !strings.HasSuffix(inner, fileGlyph+"  ✔ ✓") {
+	if inner := strings.TrimRight(strings.Trim(row, "│"), " "); !strings.HasSuffix(inner, fileGlyph+"  ● "+reviewGlyph+" ● "+checksGlyph) {
 		t.Errorf("the second line does not close with the file count and the status pair: %q", inner)
 	}
 }
@@ -440,11 +442,11 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 		author, age, diff, files, comments, status bool
 	}{
 		{width: 140, author: true, age: true, diff: true, files: true, comments: true, status: true},
-		{width: 60, author: false, age: true, diff: true, files: true, comments: true, status: true},
-		{width: 48, author: false, age: false, diff: true, files: true, comments: true, status: true},
-		{width: 36, author: false, age: false, diff: true, files: false, comments: true, status: true},
-		{width: 28, author: false, age: false, diff: false, files: false, comments: true, status: true},
-		{width: 18, author: false, age: false, diff: false, files: false, comments: false, status: false},
+		{width: 64, author: false, age: true, diff: true, files: true, comments: true, status: true},
+		{width: 52, author: false, age: false, diff: true, files: true, comments: true, status: true},
+		{width: 40, author: false, age: false, diff: true, files: false, comments: true, status: true},
+		{width: 30, author: false, age: false, diff: false, files: false, comments: true, status: true},
+		{width: 20, author: false, age: false, diff: false, files: false, comments: false, status: false},
 	}
 
 	for _, tt := range tests {
@@ -460,7 +462,7 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 				{name: "deletions", text: "−7", want: tt.diff},
 				{name: "file count", text: fileGlyph, want: tt.files},
 				{name: "comment count", text: commentGlyph, want: tt.comments},
-				{name: "status", text: "✔", want: tt.status},
+				{name: "status", text: reviewGlyph, want: tt.status},
 				{name: "age", text: "2h", want: tt.age},
 			} {
 				if got := strings.Contains(out, col.text); got != col.want {
@@ -536,9 +538,9 @@ func styleOf(t *testing.T, row, want string) string {
 	return ""
 }
 
-// Never a blank where an icon goes. An empty slot reads as a rendering fault
-// rather than as the absence of news.
-func TestTheStatusPairIsNeverBlank(t *testing.T) {
+// Both readings always draw. The icon never changes and the dot never goes
+// out, so no state can leave a hole where a reading belongs.
+func TestBothStatusDotsAlwaysDraw(t *testing.T) {
 	checks := []gh.CheckState{
 		gh.CheckStateNone, gh.CheckStateExpected, gh.CheckStatePending,
 		gh.CheckStateSuccess, gh.CheckStateFailure, gh.CheckStateError,
@@ -554,45 +556,38 @@ func TestTheStatusPairIsNeverBlank(t *testing.T) {
 			p.Checks, p.ReviewDecision = c, d
 
 			row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "zen-octo/zen-octo"))
-			pair := []rune(strings.TrimRight(strings.Trim(row, "│"), " "))
-
-			n := len(pair)
-			if n < 3 || pair[n-1] == ' ' || pair[n-2] != ' ' || pair[n-3] == ' ' {
-				t.Errorf("checks %q with review %q leaves a blank in the pair: %q", c, d, string(pair[max(0, n-6):]))
+			if want := "● " + reviewGlyph + " ● " + checksGlyph; !strings.Contains(row, want) {
+				t.Errorf("checks %q with review %q does not draw both readings: %q", c, d, row)
 			}
 		}
 	}
 }
 
-// Review sits next to the check rollup, so the two have to be told apart by
-// shape. Colour alone stops working the moment they disagree. Nothing blocking
-// on review reads the same as an approval, because it is the same news.
-func TestTheReviewGlyphTellsTheDecisionsApart(t *testing.T) {
+// The decision reads out of the dot's colour, since the icon beside it never
+// changes. Two decisions sharing a colour is two decisions you cannot tell
+// apart.
+func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 	tests := []struct {
 		decision gh.ReviewDecision
-		want     string
+		want     color.Color
 	}{
-		{decision: gh.ReviewDecisionApproved, want: "✔"},
-		{decision: gh.ReviewDecisionChangesRequested, want: "✎"},
-		{decision: gh.ReviewDecisionReviewRequired, want: "◇"},
-		{decision: gh.ReviewDecisionNone, want: "✔"},
+		{decision: gh.ReviewDecisionApproved, want: theme.RosePineMoon.Success},
+		{decision: gh.ReviewDecisionChangesRequested, want: theme.RosePineMoon.Error},
+		{decision: gh.ReviewDecisionReviewRequired, want: theme.RosePineMoon.Warning},
+		// Nothing blocking is the same news as an approval, so it says the same.
+		{decision: gh.ReviewDecisionNone, want: theme.RosePineMoon.Success},
 	}
 
-	seen := map[string]bool{}
 	for _, tt := range tests {
 		p := pr("Fix auth retry")
-		p.ReviewDecision = tt.decision
+		p.ReviewDecision, p.Checks = tt.decision, gh.CheckStateNone
 
-		out := stripANSI(screen(t, 140, 10, []gh.PullRequest{p}))
-		if !strings.Contains(out, tt.want) {
-			t.Errorf("%s renders without %q\n%s", tt.decision, tt.want, out)
+		row := rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "zen-octo/zen-octo")
+		// The review dot is the first of the two, so the first styled run with a
+		// dot in it is the one under test.
+		if got := styleOf(t, row, "●"); !strings.Contains(got, fgSeq(tt.want)) {
+			t.Errorf("%s renders its dot as %s, want %s", tt.decision, got, fgSeq(tt.want))
 		}
-		// Approved and "none required" share the check: both say nothing is
-		// blocking. The two that are blocking need shapes of their own.
-		if seen[tt.want] && tt.decision != gh.ReviewDecisionNone {
-			t.Errorf("%s reuses a glyph another decision already has", tt.decision)
-		}
-		seen[tt.want] = true
 	}
 }
 
