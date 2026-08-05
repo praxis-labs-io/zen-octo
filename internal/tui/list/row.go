@@ -12,9 +12,8 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// Fixed column widths. The title takes what is left of the first line, up to a
-// cap: past that it stops growing and the slack goes to a spacer, so the status
-// glyphs stay the same distance from the right edge on a wide terminal.
+// Fixed column widths. Nothing follows the title on its line, so it takes
+// whatever is left of it.
 //
 // indentWidth puts the second line under the number, which is where the eye
 // already is. headWidth is everything on the first line before the title.
@@ -28,8 +27,9 @@ const (
 	numberWidth = 6
 	headWidth   = leftMargin + stateWidth + gutter + numberWidth + gutter
 
-	checksWidth = 2
-	reviewWidth = 2
+	// The status pair is two spaces off whatever precedes it, then review, a
+	// space, and the check rollup. The leading gutter is one of those spaces.
+	statusWidth = 4
 
 	additionsWidth = 5
 	deletionsWidth = 5
@@ -40,7 +40,6 @@ const (
 	minIdentWidth = 8
 
 	minTitleWidth = 12
-	maxTitleWidth = 90
 )
 
 // The counts are marked by glyph rather than by a word, from the same Nerd
@@ -54,13 +53,12 @@ const (
 // The two lines shed columns independently, because they hold different things
 // and run out of room at different widths.
 type layout struct {
-	title  int
-	slack  int
-	review bool
+	title int
 
-	ident int // width for the identity group, which flows rather than columns
-	diff  bool
-	files bool
+	ident  int // width for the identity group, which flows rather than columns
+	diff   bool
+	files  bool
+	status bool
 }
 
 // fit drops columns until both lines fit the width they were given.
@@ -69,40 +67,23 @@ type layout struct {
 // columns vanish mid-cell with no ellipsis, and the selection background stops
 // short of the edge because the line is no longer as wide as its pane.
 //
-// The first line has only review to give before the title starts clipping. The
-// second drops the file count, then the churn, and gives what is left to the
-// identity group, which sheds its own parts by content.
+// The first line is only the title, so it has nothing to give: it clips. The
+// second drops the file count, then the churn, then the status pair, and gives
+// what is left to the identity group, which sheds its own parts by content.
 func fit(width int) layout {
-	l := layout{review: true, diff: true, files: true}
+	l := layout{diff: true, files: true, status: true}
 
-	tail := func() int {
-		n := rightMargin + gutter + checksWidth
-		if l.review {
-			n += gutter + reviewWidth
-		}
-		return n
+	l.title = width - headWidth - rightMargin
+	if l.title < minTitleWidth {
+		// No room for a title worth reading, so nothing else on the row is worth
+		// the columns either.
+		l.title = max(0, l.title)
+		l.ident = max(0, width-indentWidth)
+		return layout{title: l.title, ident: l.ident}
 	}
 
-	for headWidth+minTitleWidth+tail() > width {
-		switch {
-		case l.review:
-			l.review = false
-		default:
-			// Nothing left to drop. The title takes what remains, which at this
-			// point may be nothing at all.
-			l.title = max(0, width-headWidth-tail())
-			l.diff, l.files = false, false
-			l.ident = max(0, width-indentWidth)
-			return l
-		}
-	}
-
-	avail := width - headWidth - tail()
-	l.title = min(avail, maxTitleWidth)
-	l.slack = avail - l.title
-
-	// The churn and the file count sit at the right edge, so the identity group
-	// takes everything left over rather than capping and leaving a hole.
+	// The counts and the status pair sit at the right edge, so the identity
+	// group takes everything left over rather than capping and leaving a hole.
 	metaTail := func() int {
 		n := rightMargin
 		if l.diff {
@@ -110,6 +91,9 @@ func fit(width int) layout {
 		}
 		if l.files {
 			n += gutter + filesWidth
+		}
+		if l.status {
+			n += gutter + statusWidth
 		}
 		return n
 	}
@@ -120,6 +104,8 @@ func fit(width int) layout {
 			l.files = false
 		case l.diff:
 			l.diff = false
+		case l.status:
+			l.status = false
 		default:
 			l.ident = max(0, width-indentWidth)
 			return l
@@ -152,16 +138,8 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
 		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Secondary)),
-		titled(th, pr, l.title, base) + base.Render(strings.Repeat(" ", l.slack)),
+		titled(th, pr, l.title, base),
 	}
-	// Review sits inside checks, and both glyphs sit at the right of their cell.
-	// Checks is the one nearly every pull request fills, so putting it outermost
-	// is what keeps the edge of the line from being blank on most rows, and the
-	// alignment is what makes it end where the counts below it do.
-	if l.review {
-		head = append(head, cell(reviewWidth, alignRight(reviewIcon, reviewWidth), base.Foreground(reviewColor)))
-	}
-	head = append(head, cell(checksWidth, alignRight(checkIcon, checksWidth), base.Foreground(checkColor)))
 
 	tail := []string{identity(th, pr, l.ident, base)}
 	if l.diff {
@@ -174,6 +152,14 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	}
 	if l.files {
 		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Faint)))
+	}
+	if l.status {
+		// The join puts one space here; the leading one makes two, which is what
+		// keeps the pair from reading as another count.
+		tail = append(tail, " "+
+			base.Foreground(reviewColor).Render(reviewIcon)+
+			base.Render(" ")+
+			base.Foreground(checkColor).Render(checkIcon))
 	}
 
 	lines := []string{

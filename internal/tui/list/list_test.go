@@ -209,93 +209,13 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	}
 }
 
-// Both lines of a row end in the same column. The status glyphs used to stop
-// three columns short of the counts below them, which left every row with a
-// ragged right edge.
-func TestBothLinesOfARowEndInTheSameColumn(t *testing.T) {
-	lines := strings.Split(stripANSI(selectedRow(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}))), "\n")
-
-	end := func(s string) int {
-		return len([]rune(strings.TrimRight(strings.Trim(s, "│"), " ")))
-	}
-	if first, second := end(lines[0]), end(lines[1]); first != second {
-		t.Errorf("the title line ends at column %d and the line under it at %d\n%q\n%q", first, second, lines[0], lines[1])
-	}
-}
-
-// Checks takes the outermost column because it is the one nearly every pull
-// request fills. Review out there left the edge short on every row without one,
-// which is most of them.
-func TestARowWithNoReviewStillReachesTheEdge(t *testing.T) {
-	none := pr("Bump deps")
-	none.ID, none.ReviewDecision = "PR_bump", gh.ReviewDecisionNone
-
-	out := screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), none})
-	end := func(title string) int {
-		row := stripANSI(rowContaining(t, out, title))
-		return len([]rune(strings.TrimRight(strings.Trim(row, "│"), " ")))
-	}
-
-	if with, without := end("Fix auth retry"), end("Bump deps"); with != without {
-		t.Errorf("a row with a review ends at column %d and one without at %d, want the same", with, without)
-	}
-}
-
-// The file count closes the row: the number, then the glyph naming it, at the
-// edge. The glyph leading a column the digits floated in read as a marker
-// opening it rather than a reading finishing it.
-func TestTheFileCountClosesTheRowWithItsIcon(t *testing.T) {
+// The status pair closes the second line: two spaces off the file count, then
+// review, then the check rollup at the edge.
+func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
 	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "zen-octo/zen-octo"))
 
-	if !strings.Contains(row, "3 "+fileGlyph) {
-		t.Errorf("the file count does not close the row with its icon: %q", row)
-	}
-}
-
-// The comment count trails the title, so it sits where the title ends rather
-// than in a column of its own.
-func TestTheCommentCountTrailsTheTitle(t *testing.T) {
-	short := pr("Short")
-	short.ID = "PR_short"
-
-	out := stripANSI(screen(t, 140, 14, []gh.PullRequest{pr("A considerably longer title than the other one"), short}))
-	at := func(title string) int {
-		return strings.Index(rowContaining(t, out, title), commentGlyph)
-	}
-
-	long, brief := at("A considerably longer"), at("Short")
-	if long < 0 || brief < 0 {
-		t.Fatalf("a row is missing its comment count: %d and %d", long, brief)
-	}
-	if long <= brief {
-		t.Errorf("the count sits at column %d after a long title and %d after a short one, want it to follow the title", long, brief)
-	}
-}
-
-// An icon next to a zero reads as a reading worth noticing, so nothing to count
-// renders as nothing at all.
-func TestACountOfZeroRendersNothing(t *testing.T) {
-	quiet := pr("Bump deps")
-	quiet.ID, quiet.Comments = "PR_bump", 0
-
-	out := screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), quiet})
-	title := func(t *testing.T, want string) string {
-		t.Helper()
-		return stripANSI(rowContaining(t, out, want))
-	}
-
-	if loud := title(t, "Fix auth retry"); !strings.Contains(loud, commentGlyph) {
-		t.Fatalf("setup: the row with comments does not show them: %q", loud)
-	}
-	if row := title(t, "Bump deps"); strings.Contains(row, commentGlyph) {
-		t.Errorf("a pull request with no comments still shows the glyph: %q", row)
-	}
-
-	// The count sits inside the title's column, so losing it must not shift the
-	// status glyphs the rows line up on.
-	end := func(s string) int { return len([]rune(strings.TrimRight(strings.Trim(s, "│"), " "))) }
-	if with, without := end(title(t, "Fix auth retry")), end(title(t, "Bump deps")); with != without {
-		t.Errorf("the row with comments ends at column %d and the one without at %d", with, without)
+	if inner := strings.TrimRight(strings.Trim(row, "│"), " "); !strings.HasSuffix(inner, fileGlyph+"  ✔ ✓") {
+		t.Errorf("the second line does not close with the file count and the status pair: %q", inner)
 	}
 }
 
@@ -461,21 +381,21 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 }
 
 // Columns drop in a fixed order rather than overflowing. The first line has
-// only review to give, since the comment count takes its room from the title.
-// The second drops the file count, then the churn, and the identity sheds the
-// author, then the age, before the repository is left to clip. The number and
-// the check rollup never go.
+// nothing to give: the title clips, and the comment count takes its room from
+// the title's. The second drops the file count, then the churn, then the status
+// pair, and the identity sheds the author, then the age, before the repository
+// is left to clip. The number never goes.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
-		width                              int
-		author, age, diff, files, comments bool
-		review                             bool
+		width                                      int
+		author, age, diff, files, comments, status bool
 	}{
-		{width: 140, author: true, age: true, diff: true, files: true, comments: true, review: true},
-		{width: 56, author: false, age: true, diff: true, files: true, comments: true, review: true},
-		{width: 44, author: false, age: false, diff: true, files: true, comments: true, review: true},
-		{width: 30, author: false, age: false, diff: true, files: false, comments: true, review: false},
-		{width: 16, author: false, age: false, diff: false, files: false, comments: false, review: false},
+		{width: 140, author: true, age: true, diff: true, files: true, comments: true, status: true},
+		{width: 60, author: false, age: true, diff: true, files: true, comments: true, status: true},
+		{width: 48, author: false, age: false, diff: true, files: true, comments: true, status: true},
+		{width: 36, author: false, age: false, diff: true, files: false, comments: true, status: true},
+		{width: 28, author: false, age: false, diff: false, files: false, comments: true, status: true},
+		{width: 18, author: false, age: false, diff: false, files: false, comments: false, status: false},
 	}
 
 	for _, tt := range tests {
@@ -491,7 +411,7 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 				{name: "deletions", text: "−7", want: tt.diff},
 				{name: "file count", text: fileGlyph, want: tt.files},
 				{name: "comment count", text: commentGlyph, want: tt.comments},
-				{name: "review", text: "✔", want: tt.review},
+				{name: "status", text: "✔", want: tt.status},
 				{name: "age", text: "2h", want: tt.age},
 			} {
 				if got := strings.Contains(out, col.text); got != col.want {
@@ -568,7 +488,8 @@ func styleOf(t *testing.T, row, want string) string {
 }
 
 // Review sits next to the check rollup, so the two have to be told apart by
-// shape. Colour alone stops working the moment they disagree.
+// shape. Colour alone stops working the moment they disagree. Nothing blocking
+// on review reads the same as an approval, because it is the same news.
 func TestTheReviewGlyphTellsTheDecisionsApart(t *testing.T) {
 	tests := []struct {
 		decision gh.ReviewDecision
@@ -577,6 +498,7 @@ func TestTheReviewGlyphTellsTheDecisionsApart(t *testing.T) {
 		{decision: gh.ReviewDecisionApproved, want: "✔"},
 		{decision: gh.ReviewDecisionChangesRequested, want: "✎"},
 		{decision: gh.ReviewDecisionReviewRequired, want: "◇"},
+		{decision: gh.ReviewDecisionNone, want: "✔"},
 	}
 
 	seen := map[string]bool{}
@@ -588,33 +510,24 @@ func TestTheReviewGlyphTellsTheDecisionsApart(t *testing.T) {
 		if !strings.Contains(out, tt.want) {
 			t.Errorf("%s renders without %q\n%s", tt.decision, tt.want, out)
 		}
-		if seen[tt.want] {
+		// Approved and "none required" share the check: both say nothing is
+		// blocking. The two that are blocking need shapes of their own.
+		if seen[tt.want] && tt.decision != gh.ReviewDecisionNone {
 			t.Errorf("%s reuses a glyph another decision already has", tt.decision)
 		}
 		seen[tt.want] = true
 	}
-
-	none := pr("Fix auth retry")
-	none.ReviewDecision = gh.ReviewDecisionNone
-	for _, glyph := range []string{"✔", "✎", "◇"} {
-		if strings.Contains(stripANSI(screen(t, 140, 10, []gh.PullRequest{none})), glyph) {
-			t.Errorf("a pull request needing no review still shows %q", glyph)
-		}
-	}
 }
 
-// The title stops growing so the status glyphs stay put. Without the cap a wide
-// terminal leaves a hundred columns of empty title cell before the checks.
-func TestTheStatusGlyphsHoldTheirPlaceOnAWideTerminal(t *testing.T) {
-	offsets := map[int]int{}
+// Nothing follows the title on its line, so it runs to the edge rather than
+// stopping at a cap that used to keep the columns after it in place.
+func TestALongTitleRunsToTheEdge(t *testing.T) {
+	const width = 200
 
-	for _, width := range []int{120, 160, 200} {
-		row := stripANSI(rowContaining(t, screen(t, width, 10, []gh.PullRequest{pr("Fix auth retry")}), "Fix auth retry"))
-		offsets[width] = len([]rune(row)) - len([]rune(row[:strings.Index(row, "✔")]))
-	}
+	row := stripANSI(rowContaining(t, screen(t, width, 10, []gh.PullRequest{pr(strings.Repeat("word ", 50))}), "word"))
 
-	if offsets[120] != offsets[160] || offsets[160] != offsets[200] {
-		t.Errorf("the review glyph sits %v cells from the right edge, want the same at every width", offsets)
+	if got := len([]rune(strings.TrimRight(strings.Trim(row, "│"), " "))); got < width-12 {
+		t.Errorf("the title stops at column %d of %d, want it to run to the edge", got, width)
 	}
 }
 

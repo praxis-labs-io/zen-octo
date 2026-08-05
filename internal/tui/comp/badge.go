@@ -100,9 +100,10 @@ func ReviewIcon(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
 	case gh.ReviewDecisionReviewRequired:
 		return "◇", th.Warning
 	case gh.ReviewDecisionNone:
-		return " ", th.Faint
+		// Nothing is blocking on review, which is the same news as an approval.
+		return "✔", th.Success
 	}
-	return " ", th.Faint
+	return "✔", th.Success
 }
 
 // ReviewLabel names where review stands. It returns empty when no review is
