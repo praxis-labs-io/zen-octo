@@ -2,6 +2,7 @@ package list_test
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func pr(title string) gh.PullRequest {
 	return gh.PullRequest{
 		ID: "PR_" + title, Number: 412, Title: title, Repository: "zen-octo/zen-octo",
 		Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen,
-		Additions: 42, Deletions: 7, ChangedFiles: 3,
+		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 6,
 		Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
 		UpdatedAt: fixtureTime,
 	}
@@ -79,10 +80,21 @@ func rowContaining(t *testing.T, frame, want string) string {
 	return ""
 }
 
+// The count glyphs, checked by shape because that is what the row shows.
+const (
+	fileGlyph    = "\uea7b" // nf-cod-file
+	commentGlyph = "\uf41f" // nf-oct-comment
+)
+
 // selectionSeq is the SGR sequence that sets the selection background.
 func selectionSeq() string {
 	r, g, b, _ := theme.RosePineMoon.SelectedBackground.RGBA()
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+func fgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
 // selectedRow returns every line painted with the selection background. A row
@@ -265,7 +277,7 @@ func TestARowTooNarrowForItsColumnsClipsItself(t *testing.T) {
 // with no mark, and the width test above passes either way because the pane
 // fills its line regardless.
 func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
-	row := stripANSI(selectedRow(t, screen(t, 10, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
+	row := stripANSI(selectedRow(t, screen(t, 8, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
 
 	for i, l := range strings.Split(row, "\n") {
 		if !strings.Contains(l, "…") {
@@ -274,20 +286,21 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	}
 }
 
-// Columns drop in a fixed order rather than overflowing. The second line goes
-// widest-first from its end; the first line gives up review before age.
+// Columns drop in a fixed order rather than overflowing. The first line gives
+// up review before age; the second drops the file count, then the churn, and
+// the identity group sheds its own parts as what is left runs out.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
-		width                     int
-		repo, author, diff, files bool
-		review, age               bool
+		width                               int
+		repo, author, diff, files, comments bool
+		review, age                         bool
 	}{
-		{width: 140, repo: true, author: true, diff: true, files: true, review: true, age: true},
-		{width: 64, repo: true, author: true, diff: true, files: false, review: true, age: true},
-		{width: 54, repo: true, author: true, diff: false, files: false, review: true, age: true},
-		{width: 40, repo: true, author: false, diff: false, files: false, review: true, age: true},
-		{width: 27, repo: false, author: false, diff: false, files: false, review: false, age: true},
-		{width: 22, repo: false, author: false, diff: false, files: false, review: false, age: false},
+		{width: 140, repo: true, author: true, diff: true, files: true, comments: true, review: true, age: true},
+		{width: 64, repo: true, author: false, diff: true, files: true, comments: true, review: true, age: true},
+		{width: 48, repo: false, author: false, diff: true, files: true, comments: true, review: true, age: true},
+		{width: 36, repo: false, author: false, diff: true, files: true, comments: false, review: true, age: true},
+		{width: 28, repo: false, author: false, diff: true, files: false, comments: false, review: false, age: true},
+		{width: 20, repo: false, author: false, diff: false, files: false, comments: false, review: false, age: false},
 	}
 
 	for _, tt := range tests {
@@ -299,9 +312,11 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 				want       bool
 			}{
 				{name: "repo", text: "zen-octo/zen-octo", want: tt.repo},
-				{name: "author", text: "drucial", want: tt.author},
-				{name: "diff stat", text: "+42 −7", want: tt.diff},
-				{name: "file count", text: "3 files", want: tt.files},
+				{name: "author", text: "by @drucial", want: tt.author},
+				{name: "additions", text: "+42", want: tt.diff},
+				{name: "deletions", text: "−7", want: tt.diff},
+				{name: "file count", text: fileGlyph, want: tt.files},
+				{name: "comment count", text: commentGlyph, want: tt.comments},
 				{name: "review", text: "✔", want: tt.review},
 				{name: "age", text: "2h", want: tt.age},
 			} {
@@ -314,6 +329,64 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The repository, number and author read as one phrase. Laying them out as
+// three columns leaves gaps you have to jump, which is what gh-dash gets right.
+func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
+	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{pr("Fix auth retry")}), "#412"))
+
+	if !strings.Contains(row, "zen-octo/zen-octo #412 by @drucial") {
+		t.Errorf("the identity is spread across columns\n%q", row)
+	}
+}
+
+// Author is nil on GitHub once an account is deleted, so the login can be empty
+// on a real pull request. A dangling "by @" is worse than no attribution.
+func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
+	p := pr("Fix auth retry")
+	p.Author = gh.Actor{}
+
+	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{p}), "#412"))
+
+	if strings.Contains(row, "by ") || strings.Contains(row, "@") {
+		t.Errorf("a deleted author still leaves an attribution\n%q", row)
+	}
+	if !strings.Contains(row, "zen-octo/zen-octo #412") {
+		t.Errorf("the rest of the identity went with the author\n%q", row)
+	}
+}
+
+// Additions and deletions carry their own colour, which one cell cannot do: a
+// cell is one style all the way through.
+func TestTheChurnColoursAdditionsAndDeletionsApart(t *testing.T) {
+	second := pr("Bump deps")
+	second.Number, second.Additions, second.Deletions = 408, 11, 3
+
+	// The row the cursor is not on. An unselected cell carries the foreground
+	// alone, so the sequence names a colour with no background spliced into it.
+	row := rowContaining(t, screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), second}), "#408")
+
+	if got := styleOf(t, row, "+11"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
+		t.Errorf("additions render as %s, want the success colour", got)
+	}
+	if got := styleOf(t, row, "−3"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Error)) {
+		t.Errorf("deletions render as %s, want the error colour", got)
+	}
+}
+
+// styleOf is the SGR parameters of the styled run carrying want. Matching the
+// sequence and the text as one string breaks the moment a cell pads.
+func styleOf(t *testing.T, row, want string) string {
+	t.Helper()
+
+	for _, run := range strings.Split(row, "\x1b[") {
+		if end := strings.Index(run, "m"); end >= 0 && strings.Contains(run[end+1:], want) {
+			return run[:end]
+		}
+	}
+	t.Fatalf("no styled run carries %q\n%q", want, row)
+	return ""
 }
 
 // Review sits next to the check rollup, so the two have to be told apart by

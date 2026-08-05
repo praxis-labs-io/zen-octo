@@ -221,13 +221,13 @@ func TestCursorMovesAndStopsAtTheEnds(t *testing.T) {
 
 	// Two rows, so one "j" lands on the second and a second "j" holds there.
 	moved := press(base, "j", "j")
-	if !strings.Contains(selectedLine(t, moved), "#408") {
-		t.Errorf("selection = %q, want it clamped to the last row", selectedLine(t, moved))
+	if !strings.Contains(selectedText(t, moved), "#408") {
+		t.Errorf("selection = %q, want it clamped to the last row", selectedText(t, moved))
 	}
 
 	back := press(moved, "k", "k", "k")
-	if !strings.Contains(selectedLine(t, back), "#412") {
-		t.Errorf("selection = %q, want it clamped to the first row", selectedLine(t, back))
+	if !strings.Contains(selectedText(t, back), "#412") {
+		t.Errorf("selection = %q, want it clamped to the first row", selectedText(t, back))
 	}
 }
 
@@ -316,7 +316,7 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 	}}, samplePRs()...)
 	m = settle(m, keyMsg("r"))
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#408") {
+	if got := selectedText(t, m); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want it still on #408 after the refresh", got)
 	}
 }
@@ -328,7 +328,7 @@ func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	client.prs = samplePRs()[:1] // #408 merged and dropped out of the section
 	m = settle(m, keyMsg("r"))
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#412") {
+	if got := selectedText(t, m); !strings.Contains(got, "#412") {
 		t.Errorf("selection = %q, want it clamped onto the remaining row", got)
 	}
 }
@@ -385,10 +385,10 @@ func TestCursorStaysVisibleWhenScrollingPastTheFold(t *testing.T) {
 		m = press(m, "j")
 	}
 
-	if selectedLine(t, m) == "" {
+	if selectedText(t, m) == "" {
 		t.Fatal("the selected row is not in the rendered frame after scrolling")
 	}
-	if got := selectedLine(t, m); !strings.Contains(got, "#30") {
+	if got := selectedText(t, m); !strings.Contains(got, "#30") {
 		t.Errorf("selection = %q, want the 31st row (#30)", got)
 	}
 }
@@ -409,7 +409,7 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	if !strings.Contains(render(t, back), "Fix auth retry") {
 		t.Error("escape did not return to the list")
 	}
-	if got := selectedLine(t, back); !strings.Contains(got, "#408") {
+	if got := selectedText(t, back); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want the same row still selected", got)
 	}
 }
@@ -579,11 +579,11 @@ func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	for range 4 {
 		m = press(m, "j")
 	}
-	if !strings.Contains(render(t, m), "#0 ") {
+	if !strings.Contains(stripANSI(render(t, m)), "#0 ") {
 		t.Fatal("the window moved before the cursor reached the fold")
 	}
 
-	out := render(t, press(m, "j"))
+	out := stripANSI(render(t, press(m, "j")))
 	if strings.Contains(out, "#0 ") {
 		t.Error("the window did not move once the cursor passed the fold")
 	}
@@ -602,7 +602,7 @@ func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
 
 	m = settle(m, tea.WindowSizeMsg{Width: 120, Height: 14})
 
-	if got := selectedLine(t, m); !strings.Contains(got, "#30") {
+	if got := selectedText(t, m); !strings.Contains(got, "#30") {
 		t.Errorf("selection = %q, want row 30 still on screen after the shrink", got)
 	}
 }
@@ -628,7 +628,7 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 				m = settle(m, k)
 			}
 
-			if got := selectedLine(t, m); !strings.Contains(got, tt.want+" ") {
+			if got := selectedText(t, m); !strings.Contains(got, tt.want+" ") {
 				t.Errorf("selection = %q, want %s", got, tt.want)
 			}
 		})
@@ -772,4 +772,28 @@ func selectedLine(t *testing.T, m tea.Model) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// selectedText is the selected row with its styling dropped, for assertions
+// about what it says rather than how it is painted.
+func selectedText(t *testing.T, m tea.Model) string {
+	t.Helper()
+	return stripANSI(selectedLine(t, m))
+}
+
+// stripANSI drops SGR sequences so an assertion can reason about the text. A
+// cell ends in a reset, so "#5 " is not a substring of the styled frame even
+// when the number is followed by its padding.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }

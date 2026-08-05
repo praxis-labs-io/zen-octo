@@ -26,6 +26,8 @@ query SearchPullRequests($q: String!, $limit: Int!) {
         headRefName
         baseRefName
         reviewDecision
+        comments { totalCount }
+        reviewThreads { totalCount }
         author { login }
         repository { nameWithOwner }
         statusCheckRollup: commits(last: 1) {
@@ -63,6 +65,8 @@ type searchPullRequestsResponse struct {
 			BaseRefName  string
 
 			ReviewDecision string
+			Comments       struct{ TotalCount int }
+			ReviewThreads  struct{ TotalCount int }
 			Author         *struct{ Login string }
 			Repository     struct{ NameWithOwner string }
 
@@ -109,6 +113,7 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 			Additions:      n.Additions,
 			Deletions:      n.Deletions,
 			ChangedFiles:   n.ChangedFiles,
+			Comments:       n.Comments.TotalCount + n.ReviewThreads.TotalCount,
 			ReviewDecision: ReviewDecision(n.ReviewDecision),
 			CreatedAt:      n.CreatedAt,
 			UpdatedAt:      n.UpdatedAt,
