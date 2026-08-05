@@ -71,9 +71,9 @@ type layout struct {
 // columns vanish mid-cell with no ellipsis, and the selection background stops
 // short of the edge because the line is no longer as wide as its pane.
 //
-// The first line has only review to give before the title starts clipping. The
-// second drops the comment count, then the file count, then the churn, and
-// gives what is left to the identity group, which sheds its own parts by
+// The first line gives up the comment count before review, and review before
+// the title starts clipping. The second drops the file count, then the churn,
+// and gives what is left to the identity group, which sheds its own parts by
 // content.
 func fit(width int) layout {
 	l := layout{review: true, diff: true, files: true, comments: true}
@@ -83,11 +83,16 @@ func fit(width int) layout {
 		if l.review {
 			n += gutter + reviewWidth
 		}
+		if l.comments {
+			n += gutter + commentsWidth
+		}
 		return n
 	}
 
 	for headWidth+minTitleWidth+tail() > width {
 		switch {
+		case l.comments:
+			l.comments = false
 		case l.review:
 			l.review = false
 		default:
@@ -114,16 +119,11 @@ func fit(width int) layout {
 		if l.files {
 			n += gutter + filesWidth
 		}
-		if l.comments {
-			n += gutter + commentsWidth
-		}
 		return n
 	}
 
 	for indentWidth+minIdentWidth+metaTail() > width {
 		switch {
-		case l.comments:
-			l.comments = false
 		case l.files:
 			l.files = false
 		case l.diff:
@@ -161,11 +161,18 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
 		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Secondary)),
 		cell(l.title, pr.Title, base.Foreground(th.Primary)) + base.Render(strings.Repeat(" ", l.slack)),
-		cell(checksWidth, checkIcon, base.Foreground(checkColor)),
 	}
+	if l.comments {
+		head = append(head, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), base.Foreground(th.Faint)))
+	}
+	// Review sits inside checks, and both glyphs sit at the right of their cell.
+	// Checks is the one nearly every pull request fills, so putting it outermost
+	// is what keeps the edge of the line from being blank on most rows, and the
+	// alignment is what makes it end where the counts below it do.
 	if l.review {
-		head = append(head, cell(reviewWidth, reviewIcon, base.Foreground(reviewColor)))
+		head = append(head, cell(reviewWidth, alignRight(reviewIcon, reviewWidth), base.Foreground(reviewColor)))
 	}
+	head = append(head, cell(checksWidth, alignRight(checkIcon, checksWidth), base.Foreground(checkColor)))
 
 	tail := []string{identity(th, pr, l.ident, base)}
 	if l.diff {
@@ -179,9 +186,6 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	if l.files {
 		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Faint)))
 	}
-	if l.comments {
-		tail = append(tail, cell(commentsWidth, counted(glyphComments, pr.Comments, commentsWidth), base.Foreground(th.Faint)))
-	}
 
 	lines := []string{
 		line(leftMargin, head, width, base),
@@ -193,9 +197,16 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 	return lines
 }
 
-// counted is a glyph and its number. The glyph holds its column while the digits
-// grow leftward from the right edge, so neither runs ragged down a screenful.
+// counted is a glyph and its number, or nothing at all when there is nothing to
+// count: an icon next to a zero reads as a reading worth noticing. The column
+// stays either way, so the rows still line up.
+//
+// The glyph holds its place while the digits grow leftward from the right edge,
+// so neither runs ragged down a screenful.
 func counted(glyph string, n, width int) string {
+	if n == 0 {
+		return ""
+	}
 	return glyph + " " + alignRight(strconv.Itoa(n), width-2)
 }
 

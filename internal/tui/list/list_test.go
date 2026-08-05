@@ -209,6 +209,63 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	}
 }
 
+// Both lines of a row end in the same column. The status glyphs used to stop
+// three columns short of the counts below them, which left every row with a
+// ragged right edge.
+func TestBothLinesOfARowEndInTheSameColumn(t *testing.T) {
+	lines := strings.Split(stripANSI(selectedRow(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}))), "\n")
+
+	end := func(s string) int {
+		return len([]rune(strings.TrimRight(strings.Trim(s, "│"), " ")))
+	}
+	if first, second := end(lines[0]), end(lines[1]); first != second {
+		t.Errorf("the title line ends at column %d and the line under it at %d\n%q\n%q", first, second, lines[0], lines[1])
+	}
+}
+
+// Checks takes the outermost column because it is the one nearly every pull
+// request fills. Review out there left the edge short on every row without one,
+// which is most of them.
+func TestARowWithNoReviewStillReachesTheEdge(t *testing.T) {
+	none := pr("Bump deps")
+	none.ID, none.ReviewDecision = "PR_bump", gh.ReviewDecisionNone
+
+	out := screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), none})
+	end := func(title string) int {
+		row := stripANSI(rowContaining(t, out, title))
+		return len([]rune(strings.TrimRight(strings.Trim(row, "│"), " ")))
+	}
+
+	if with, without := end("Fix auth retry"), end("Bump deps"); with != without {
+		t.Errorf("a row with a review ends at column %d and one without at %d, want the same", with, without)
+	}
+}
+
+// An icon next to a zero reads as a reading worth noticing, so nothing to count
+// renders as nothing. The column stays, or the rows stop lining up.
+func TestACountOfZeroRendersNothingButKeepsItsColumn(t *testing.T) {
+	quiet := pr("Bump deps")
+	quiet.ID, quiet.Comments = "PR_bump", 0
+
+	out := screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), quiet})
+	title := func(t *testing.T, want string) string {
+		t.Helper()
+		return stripANSI(rowContaining(t, out, want))
+	}
+
+	if loud := title(t, "Fix auth retry"); !strings.Contains(loud, commentGlyph) {
+		t.Fatalf("setup: the row with comments does not show them: %q", loud)
+	}
+	if row := title(t, "Bump deps"); strings.Contains(row, commentGlyph) {
+		t.Errorf("a pull request with no comments still shows the glyph: %q", row)
+	}
+
+	end := func(s string) int { return len([]rune(strings.TrimRight(strings.Trim(s, "│"), " "))) }
+	if with, without := end(title(t, "Fix auth retry")), end(title(t, "Bump deps")); with != without {
+		t.Errorf("the row with comments ends at column %d and the one without at %d", with, without)
+	}
+}
+
 // One pane means there is no focus to report, so the border never takes the
 // accent that says "your keys reach this one".
 func TestTheBorderNeverReadsAsFocused(t *testing.T) {
@@ -370,10 +427,10 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	}
 }
 
-// Columns drop in a fixed order rather than overflowing. The first line has
-// only review to give. The second drops the comment count, then the files, then
-// the churn, and the identity sheds the author, then the age, before the
-// repository is left to clip. The number is on the first line and never goes.
+// Columns drop in a fixed order rather than overflowing. The first line gives
+// up the comment count, then review. The second drops the file count, then the
+// churn, and the identity sheds the author, then the age, before the repository
+// is left to clip. The number and the check rollup never go.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
 		width                              int
@@ -381,8 +438,8 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 		review                             bool
 	}{
 		{width: 140, author: true, age: true, diff: true, files: true, comments: true, review: true},
-		{width: 60, author: false, age: true, diff: true, files: true, comments: true, review: true},
-		{width: 48, author: false, age: false, diff: true, files: true, comments: true, review: true},
+		{width: 56, author: false, age: true, diff: true, files: true, comments: true, review: true},
+		{width: 44, author: false, age: false, diff: true, files: true, comments: true, review: true},
 		{width: 36, author: false, age: false, diff: true, files: true, comments: false, review: true},
 		{width: 30, author: false, age: false, diff: true, files: false, comments: false, review: false},
 		{width: 16, author: false, age: false, diff: false, files: false, comments: false, review: false},
