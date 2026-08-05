@@ -32,7 +32,7 @@ const detailBody = `{
     "reviewRequests": {"nodes": [
       {"requestedReviewer": {"login": "nkr"}},
       {"requestedReviewer": {"login": "copilot-pull-request-reviewer"}},
-      {"requestedReviewer": {"name": "maintainers"}},
+      {"requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "zen-octo"}}},
       {"requestedReviewer": null}
     ]},
 
@@ -145,7 +145,7 @@ func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1},
 		// A bot and a team, neither of which has answered yet.
 		{Actor: Actor{Login: "copilot-pull-request-reviewer"}},
-		{Actor: Actor{Login: "maintainers"}},
+		{Actor: Actor{Login: "zen-octo/core-maintainers"}},
 	}
 
 	got := fetchDetail(t).Reviewers
@@ -389,7 +389,7 @@ func TestHowFarBehindTheBaseComesBack(t *testing.T) {
 // requested as a Bot, and leaving that fragment out drops it from the list
 // with no error anywhere.
 func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
-	for _, want := range []string{"... on User { login }", "... on Bot { login }", "... on Team { name }"} {
+	for _, want := range []string{"... on User { login }", "... on Bot { login }", "... on Team { slug"} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)
 		}
@@ -411,5 +411,29 @@ func TestOpenThreadsCountAgainstTheReviewerWhoOpenedThem(t *testing.T) {
 				t.Errorf("%s has %d open threads, want none", r.Actor.Login, r.Unresolved)
 			}
 		}
+	}
+}
+
+// A team's display name is not a handle: it carries spaces and case, it is not
+// unique, and it can collide with somebody's login. The rail writes whatever
+// this returns with an @ in front of it.
+func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
+	tests := []struct {
+		name string
+		org  string
+		slug string
+		want string
+	}{
+		{name: "under its organization", org: "zen-octo", slug: "core-maintainers", want: "zen-octo/core-maintainers"},
+		{name: "with no organization", org: "", slug: "core-maintainers", want: "core-maintainers"},
+		{name: "with nothing at all", org: "zen-octo", slug: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := teamHandle(tt.org, tt.slug); got != tt.want {
+				t.Errorf("teamHandle(%q, %q) = %q, want %q", tt.org, tt.slug, got, tt.want)
+			}
+		})
 	}
 }

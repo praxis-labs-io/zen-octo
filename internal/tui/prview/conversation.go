@@ -57,7 +57,11 @@ func (m *Model) entries() string {
 			blocks = append(blocks, m.review(item, d.Threads, shown, width))
 
 		default:
-			blocks = append(blocks, m.event(item))
+			// An event this build has no words for renders to nothing, and an
+			// empty block still costs the blank line the join puts after it.
+			if line := m.event(item); line != "" {
+				blocks = append(blocks, line)
+			}
 		}
 	}
 

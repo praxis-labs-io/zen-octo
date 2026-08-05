@@ -1495,3 +1495,44 @@ func TestTheRailNamesPeopleAsHandles(t *testing.T) {
 		}
 	}
 }
+
+// eventKinds and eventLabels are two maps, so a kind can land in one and not
+// the other. An entry that renders to nothing still costs the blank line the
+// join puts after it.
+func TestAnEventWithNoWordsForItLeavesNoGap(t *testing.T) {
+	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+
+	d := sampleDetail()
+	d.Threads = nil
+	// Between two comments, so the extra gap is between two cards rather than
+	// at the end, where the pane's own padding would hide it.
+	d.Timeline = []gh.TimelineItem{
+		{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(2 * time.Hour), Body: "First."},
+		{Kind: "SOMETHING_GITHUB_ADDED_LATER", Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour)},
+		{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "nkr"}, CreatedAt: ago(time.Minute), Body: "Second."},
+	}
+
+	frame := detailed(held(d), 200, 44).View()
+	right := paneRight(t, frame)
+	lines := strings.Split(stripANSI(frame), "\n")
+
+	// Every gap, not the first: the unrendered event sits between the second
+	// card and the third, and stopping at the first pair never reaches it.
+	closed, gaps := -1, 0
+	for i, line := range lines {
+		body := paneBody(line, right)
+		switch {
+		case strings.Contains(body, "╰"):
+			closed = i
+		case closed >= 0 && strings.Contains(body, "╭"):
+			gaps++
+			if gap := i - closed - 1; gap != 1 {
+				t.Errorf("%d blank lines between cards %d and %d, want 1", gap, gaps, gaps+1)
+			}
+			closed = -1
+		}
+	}
+	if gaps < 2 {
+		t.Fatalf("found %d gaps between cards, want the two either side of the event", gaps)
+	}
+}

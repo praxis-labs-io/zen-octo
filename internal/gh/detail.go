@@ -48,7 +48,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
           requestedReviewer {
             ... on User { login }
             ... on Bot { login }
-            ... on Team { name }
+            ... on Team { slug organization { login } }
           }
         }
       }
@@ -171,7 +171,9 @@ type pullRequestResponse struct {
 			Nodes []struct {
 				RequestedReviewer *struct {
 					Login string
-					Name  string
+					Slug  string
+
+					Organization struct{ Login string }
 				}
 			}
 		}
@@ -394,13 +396,13 @@ func reviewers(n pullRequestResponse) []Reviewer {
 	}
 
 	for _, r := range n.Node.ReviewRequests.Nodes {
-		// A requested reviewer is a user, a bot or a team, and only one of the
-		// two fields is set. Teams have no login; Copilot is a bot, and leaving
-		// its fragment out drops it from the list entirely.
+		// A requested reviewer is a user, a bot or a team, and only one shape is
+		// filled in. Teams have no login; Copilot is a bot, and leaving its
+		// fragment out drops it from the list entirely.
 		if r.RequestedReviewer == nil {
 			continue
 		}
-		name := cmp.Or(r.RequestedReviewer.Login, r.RequestedReviewer.Name)
+		name := cmp.Or(r.RequestedReviewer.Login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
 		if _, seen := at[name]; name == "" || seen {
 			continue
 		}
@@ -408,6 +410,19 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		out = append(out, Reviewer{Actor: Actor{Login: name}})
 	}
 	return out
+}
+
+// teamHandle is how a team is written where a login goes. A team's display name
+// is not a handle: it carries spaces and case, it is not unique, and it can
+// collide with somebody's login. The slug under its organization is.
+func teamHandle(org, slug string) string {
+	if slug == "" {
+		return ""
+	}
+	if org == "" {
+		return slug
+	}
+	return org + "/" + slug
 }
 
 // timeline folds comments, reviews and events into one list in the order they

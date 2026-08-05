@@ -1168,3 +1168,41 @@ func TestOpeningArmsTheDetailSpinner(t *testing.T) {
 		t.Error("the tick did not reach the detail screen")
 	}
 }
+
+// The screen is new on every open, and so is its spinner. Arming the chain with
+// the fetch leaves it frozen here, because the request is already out and the
+// old chain's ticks carry a tag the new spinner drops.
+func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	// Open and leave without letting the response land, so the store still has
+	// the request out when the second open happens.
+	opened, pending := opening(loaded(t, client, 160, 40))
+	back := settle(opened, keyMsg("esc"))
+
+	again, reopened := opening(back)
+
+	var tick spinner.TickMsg
+	var armed bool
+	for _, msg := range immediate(reopened) {
+		if got, ok := msg.(spinner.TickMsg); ok {
+			tick, armed = got, true
+		}
+	}
+	if !armed {
+		t.Fatal("the reopen armed no spinner, so the glyph would sit frozen")
+	}
+
+	before := stripANSI(render(t, again))
+	moved, _ := again.Update(tick)
+	if stripANSI(render(t, moved)) == before {
+		t.Error("the tick did not reach the reopened screen")
+	}
+
+	// The fetch was not started twice: the first one is still out.
+	settle(again, immediate(pending)...)
+	if got := client.opened(); len(got) != 1 {
+		t.Errorf("opened %v, want the one request that was already in flight", got)
+	}
+}

@@ -213,16 +213,21 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail = prview.New(m.theme, pr, m.detail.Rail())
 	m.screen = screenDetail
 
-	var cmd tea.Cmd
+	var cmds []tea.Cmd
 	if m.store.BeginDetail(pr.ID) {
-		// Init arms the screen's own spinner chain. It ends itself once there is
-		// something to read, so a reopen off the cache costs one tick.
-		cmd = tea.Batch(m.fetchDetail(pr.ID, pr.HeadRefName), m.detail.Init())
+		cmds = append(cmds, m.fetchDetail(pr.ID, pr.HeadRefName))
+	}
+	// Init arms this screen's own spinner chain, and the screen is new on every
+	// open. Arming it with the fetch instead would leave it frozen on a reopen
+	// while the first request is still out: BeginDetail refuses that one, and
+	// the old chain's ticks carry a tag the new spinner drops.
+	if !m.store.Detail(pr.ID).Loaded {
+		cmds = append(cmds, m.detail.Init())
 	}
 
 	m.detail.SetDetail(m.store.Detail(pr.ID))
 	m.resize()
-	return m, cmd
+	return m, tea.Batch(cmds...)
 }
 
 // fetchDetail carries the head branch as well as the id: the query asks how far
