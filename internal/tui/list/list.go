@@ -178,9 +178,18 @@ func (m *Model) scrollToCursor() {
 	}
 
 	first, last := m.rows.span(m.cursor)
+
+	// Scrolling up brings the row's header with it, so long as the two still
+	// fit. Anchoring on the row alone left the header stranded above the window
+	// with nothing able to scroll back to it.
+	top := m.rows.top(m.cursor)
+	if last-top+1 > height {
+		top = first
+	}
+
 	switch offset := m.view.YOffset(); {
-	case first < offset:
-		m.view.SetYOffset(first)
+	case top < offset:
+		m.view.SetYOffset(top)
 	case last >= offset+height:
 		// A window shorter than a row can only hold one of its lines, and the
 		// first is the one carrying the title.

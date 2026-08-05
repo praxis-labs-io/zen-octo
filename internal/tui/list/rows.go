@@ -165,6 +165,21 @@ func (r rows) align(line int) int {
 	return line
 }
 
+// top is the line to put at the top of the window to show the nth row along
+// with whatever header introduces it. A row above its own group's name says
+// less than it should, and the first row would otherwise pin the list one
+// header below its own top line.
+func (r rows) top(n int) int {
+	i := r.item(n)
+	if i < 0 {
+		return 0
+	}
+	for i > 0 && !r.items[i-1].isPR() {
+		i--
+	}
+	return r.lineOf[i]
+}
+
 // span is the first and last viewport line of the nth selectable row.
 func (r rows) span(n int) (first, last int) {
 	i := r.item(n)

@@ -209,6 +209,55 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	}
 }
 
+// Going to the bottom and back has to bring the top of the list with it.
+// Anchoring the scroll on the selected row alone left the first group's header
+// stranded above the window with nothing able to reach it again.
+func TestReturningToTheTopBringsTheFirstHeaderBack(t *testing.T) {
+	walked := newList(120, 13, numbered(20))
+	for range 19 {
+		walked = press(walked, key('j'))
+	}
+	for range 19 {
+		walked = press(walked, key('k'))
+	}
+
+	for name, m := range map[string]list.Model{
+		"g from the bottom": press(newList(120, 13, numbered(20)), key('G'), key('g')),
+		"walked back up":    walked,
+	} {
+		lines := strings.Split(stripANSI(m.View()), "\n")
+
+		if gap := strings.Trim(lines[1], "│ "); gap != "" {
+			t.Errorf("%s: the line above the first group did not come back: %q", name, lines[1])
+		}
+		if !strings.Contains(lines[2], "─ Ready") {
+			t.Errorf("%s: the first group's header did not come back: %q", name, lines[2])
+		}
+	}
+}
+
+// A group's header comes into view with the first row under it, so a row is
+// never on screen above the name of the group it belongs to.
+func TestScrollingToAGroupsFirstRowShowsItsHeader(t *testing.T) {
+	prs := numbered(12)
+	for i := range prs[6:] {
+		prs[6+i].IsDraft = true
+	}
+
+	m := newList(120, 13, prs)
+	for range 11 {
+		m = press(m, key('j'))
+	}
+	for range 5 {
+		m = press(m, key('k'))
+	}
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "─ Draft") {
+		t.Errorf("the draft header is not on screen with its first row\n%s", out)
+	}
+}
+
 // The status pair closes the second line: two spaces off the file count, then
 // review, then the check rollup at the edge.
 func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
