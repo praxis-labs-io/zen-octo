@@ -62,6 +62,8 @@ func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 		return "✗", th.Error
 	case gh.CheckStatePending, gh.CheckStateExpected:
 		return "●", th.Warning
+	case gh.CheckStateSkipped:
+		return "○", th.Faint
 	case gh.CheckStateSuccess, gh.CheckStateNone:
 		return "✓", th.Success
 	}
@@ -85,10 +87,68 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 		return "running", th.Warning
 	case gh.CheckStateExpected:
 		return "queued", th.Warning
+	case gh.CheckStateSkipped:
+		return "skipped", th.Faint
 	case gh.CheckStateNone:
 		return "", th.Faint
 	}
 	return "", th.Faint
+}
+
+// ReviewerColor is where one reviewer stands, for a caller with room for a mark
+// but not for the words. Three answers, because a rail row has one cell to say
+// them in: green is done with it, red is waiting on a change, muted has not
+// weighed in.
+//
+// An open thread reads as red whatever the verdict was. Someone who left three
+// unanswered questions and called it a comment is waiting on the same thing as
+// someone who asked for changes.
+func ReviewerColor(th theme.Theme, r gh.Reviewer) color.Color {
+	switch {
+	case r.State == gh.ReviewStateChangesRequested, r.Unresolved > 0:
+		return th.Error
+	case r.State == gh.ReviewStateApproved:
+		return th.Success
+	}
+	return th.Faint
+}
+
+// ReviewStateLabel names one reviewer's verdict, in the past tense the
+// conversation reads it in. It is not ReviewLabel: that one summarises the pull
+// request, this one is what a person said.
+func ReviewStateLabel(th theme.Theme, s gh.ReviewState) (string, color.Color) {
+	switch s {
+	case gh.ReviewStateApproved:
+		return "approved", th.Success
+	case gh.ReviewStateChangesRequested:
+		return "requested changes", th.Error
+	case gh.ReviewStateDismissed:
+		return "had a review dismissed", th.Faint
+	}
+	return "reviewed", th.Secondary
+}
+
+// MergeStateLabel names whether the pull request can be merged, and what is in
+// the way if it cannot. GitHub reports only the topmost reason, so this says
+// one thing rather than listing them.
+func MergeStateLabel(th theme.Theme, s gh.MergeState) (string, color.Color) {
+	switch s {
+	case gh.MergeClean:
+		return "Ready to merge", th.Success
+	case gh.MergeBlocked:
+		return "Blocked", th.Error
+	case gh.MergeConflicting:
+		return "Conflicts", th.Error
+	case gh.MergeBehind:
+		return "Behind the base", th.Warning
+	case gh.MergeUnstable:
+		return "Checks failing", th.Warning
+	case gh.MergeDraft:
+		return "Draft", th.Faint
+	}
+	// GitHub computes mergeability lazily and answers UNKNOWN until it has. It
+	// is a wait rather than an answer.
+	return "Checking", th.Faint
 }
 
 // ReviewColor is where review stands, as a color for a caller drawing its own

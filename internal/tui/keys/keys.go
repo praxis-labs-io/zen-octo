@@ -46,6 +46,7 @@ type DetailMap struct {
 	FocusMain    key.Binding
 	FocusRail    key.Binding
 	ToggleRail   key.Binding
+	Expand       key.Binding
 	Back         key.Binding
 }
 
@@ -88,6 +89,7 @@ var (
 		FocusMain:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "conversation")),
 		FocusRail:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "details")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
+		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand folds")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	}
 )
@@ -110,7 +112,7 @@ func (k ListMap) FullHelp() [][]key.Binding {
 
 // ShortHelp is the one line the status bar carries.
 func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.NextTab, k.PaneRight, k.ToggleRail, k.Back, Global.Help}
+	return []key.Binding{k.Down, k.NextTab, k.Expand, k.ToggleRail, k.Back, Global.Help}
 }
 
 // FullHelp is the overlay.
@@ -118,8 +120,9 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
-		{k.NextTab, k.PrevTab, k.PaneLeft, k.PaneRight},
-		{k.FocusMain, k.FocusRail, k.ToggleRail, k.Back},
+		{k.NextTab, k.PrevTab},
+		{k.FocusMain, k.FocusRail, k.ToggleRail, k.Expand},
+		{k.PaneLeft, k.PaneRight, k.Back},
 		{Global.Help, Global.Quit},
 	}
 }
