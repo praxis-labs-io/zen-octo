@@ -137,6 +137,18 @@ type Model struct {
 	// back by it.
 	spans []fileSpan
 
+	// blocks holds the rendered file blocks. Moving the cursor one row repaints
+	// the diff, and rendering a block tokenises the whole file, so without this
+	// a single keystroke costs the diff twice over. blocksAt is what the cache
+	// was built against; anything else invalidates the lot.
+	blocks   map[blockKey]string
+	blocksAt blockState
+
+	// shown is the body the main viewport already holds, and shownAt the width
+	// it was measured at.
+	shown   string
+	shownAt int
+
 	// expanded unfolds every <details> block on the screen at once. It is one
 	// bool because the conversation has no cursor to hang a per-block state on;
 	// that lands with the ticket that gives it one.
@@ -186,6 +198,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 // which is what the diff beside it is already showing.
 func (m *Model) SetFiles(f store.Files) {
 	m.files = f
+	m.blocks = nil
 	m.syncRows()
 
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
@@ -207,8 +220,11 @@ func (m Model) firstFile() int {
 // SetDetail takes what the store holds for this pull request. A detail that has
 // loaded replaces the row, so the header and the rail stop showing the thinner
 // version search returned.
+// SetDetail carries the review threads the diff hangs off its lines, so a
+// block rendered before they landed is stale.
 func (m *Model) SetDetail(d store.Detail) {
 	m.detail = d
+	m.blocks = nil
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
@@ -521,10 +537,17 @@ func (m *Model) syncContent() {
 	// out of step with its own number.
 	m.view.SoftWrap = m.tab != tabFiles
 
-	if m.main.InnerWidth() > 0 {
+	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens
 		// with. Content flush against the top border reads as clipped.
-		m.view.SetContent("\n" + indent(m.tabBody(), m.bodyGutter()))
+		body := "\n" + indent(m.tabBody(), m.bodyGutter())
+		// Handing the viewport a body measures every line of it, and a diff is
+		// tens of thousands. A cursor moving down the file column does not
+		// change a character of it.
+		if body != m.shown || inner != m.shownAt {
+			m.view.SetContent(body)
+			m.shown, m.shownAt = body, inner
+		}
 	}
 	if m.treeVisible() {
 		// No gutter and no opening blank line. The column is a list of rows,

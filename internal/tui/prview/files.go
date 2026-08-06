@@ -39,6 +39,20 @@ type fileSpan struct {
 	end   int
 }
 
+// blockKey identifies a rendered file block. Folding changes what a block is,
+// so the same file has one under each state.
+type blockKey struct {
+	key    string
+	folded bool
+}
+
+// blockState is everything outside a single file that its block is rendered
+// against. A change to any of it retires the whole cache.
+type blockState struct {
+	width    int
+	expanded bool
+}
+
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
 // failed refetch; the root raises a toast for that.
 func (m *Model) filesBody() string {
@@ -61,6 +75,10 @@ func (m *Model) diff() string {
 	width := m.bodyWidth()
 	m.spans = m.spans[:0]
 
+	if state := (blockState{width: width, expanded: m.expanded}); m.blocks == nil || m.blocksAt != state {
+		m.blocks, m.blocksAt = make(map[blockKey]string, len(m.rows)), state
+	}
+
 	blocks := make([]string, 0, len(m.rows))
 	at := 0
 	for _, r := range m.rows {
@@ -68,7 +86,12 @@ func (m *Model) diff() string {
 			continue
 		}
 
-		block := m.fileBlock(*r.file, r.folded, width)
+		bk := blockKey{key: r.key, folded: r.folded}
+		block, ok := m.blocks[bk]
+		if !ok {
+			block = m.fileBlock(*r.file, r.folded, width)
+			m.blocks[bk] = block
+		}
 		blocks = append(blocks, block)
 
 		lines := strings.Count(block, "\n") + 1
@@ -106,7 +129,7 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 // spaces, which would leave a hole at the end of every one.
 func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 	if f.Omitted != "" {
-		return " " + m.faint().Render(f.Omitted)
+		return " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
 	}
 
 	threads := m.threadsIn(f.Path)
@@ -152,7 +175,10 @@ func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(churn))
-	return lead + strings.Repeat(" ", gap) + churn
+	// The gap has a floor, so a width with no room for the churn still asks for
+	// one more cell than it has. The pane would take that off the end of the
+	// count, and a truncated count reads as a real one.
+	return clipTo(lead+strings.Repeat(" ", gap)+churn, width, m.faint())
 }
 
 func (m Model) fileChurn(f gh.ChangedFile) string {

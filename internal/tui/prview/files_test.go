@@ -73,6 +73,25 @@ func onFiles(width, height int) prview.Model {
 	return press(m, "]", "]", "]")
 }
 
+// The diff is rendered once and kept, so the two queries landing in either
+// order have to reach the screen. The threads come from the detail and the
+// lines they hang off from the diff.
+func TestThreadsLandingAfterTheDiffStillRender(t *testing.T) {
+	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, syntax())
+	m.SetSize(200, 60)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	m = press(m, "]", "]", "]")
+
+	if strings.Contains(stripANSI(m.View()), "This backs off forever.") {
+		t.Fatal("setup: the thread is on screen before the detail landed")
+	}
+
+	m.SetDetail(held(sampleDetail()))
+	if !strings.Contains(stripANSI(m.View()), "This backs off forever.") {
+		t.Error("a thread arriving after the diff never reaches the screen")
+	}
+}
+
 func TestTheFilesTabRendersTheDiff(t *testing.T) {
 	out := stripANSI(onFiles(200, 50).View())
 
@@ -547,6 +566,33 @@ func TestOverflowIsReportedRatherThanDropped(t *testing.T) {
 	}
 }
 
+// The reason a file has no diff is a sentence, and it is the only thing in the
+// block. Cut without a mark it reads as the whole reason.
+func TestTheOmittedReasonIsMarkedRatherThanCut(t *testing.T) {
+	m := detailed(held(sampleDetail()), 75, 30)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	out := stripANSI(press(m, "]", "]", "]").View())
+	if strings.Contains(out, "return a di") && !strings.Contains(out, "return a diff") {
+		t.Errorf("the omitted reason was cut without a mark:\n%s", out)
+	}
+}
+
+// The pane clips a heading that does not fit, and it clips mid-cell without a
+// mark. A count losing its last digit that way still reads as a count.
+func TestAChurnTooWideToFitIsMarkedRatherThanCut(t *testing.T) {
+	files := sampleFiles()
+	files[0].Additions, files[0].Deletions = 12345, 67890
+
+	m := detailed(held(sampleDetail()), 18, 20)
+	m.SetFiles(loadedFiles(files, 0))
+
+	out := stripANSI(press(m, "]", "]", "]").View())
+	if strings.Contains(out, "−6789") && !strings.Contains(out, "−67890") {
+		t.Errorf("the deletion count was cut without a mark:\n%s", out)
+	}
+}
+
 func TestTheDiffSpinsUntilItLands(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetFiles(store.Files{Status: store.StatusLoading})
@@ -782,4 +828,43 @@ func diffHeads(frame string) string {
 		}
 	}
 	return strings.Join(out, " | ")
+}
+
+// bigDiff is a pull request the size of a real refactor. Rendering one file
+// tokenises the whole of it, so the cost the diff pays per keystroke is what
+// this measures.
+func bigDiff(files, lines int) []gh.ChangedFile {
+	out := make([]gh.ChangedFile, files)
+	for i := range out {
+		hunk := gh.Hunk{Header: fmt.Sprintf("@@ -1,%d +1,%d @@", lines, lines)}
+		for n := 1; n <= lines; n++ {
+			kind := gh.DiffContext
+			if n%7 == 0 {
+				kind = gh.DiffAdded
+			}
+			hunk.Lines = append(hunk.Lines, gh.DiffLine{
+				Kind: kind, Old: n, New: n,
+				Content: fmt.Sprintf("\tfor i := range items { total += items[i].weight * %d }", n),
+			})
+		}
+		out[i] = gh.ChangedFile{
+			Path:      fmt.Sprintf("internal/pkg%02d/service.go", i),
+			Status:    gh.FileModified,
+			Additions: lines / 7,
+			Hunks:     []gh.Hunk{hunk},
+		}
+	}
+	return out
+}
+
+// Walking the file column repaints the diff. Every file rendering again for a
+// cursor that moved one row is what made a large pull request unreadable.
+func BenchmarkMoveTheCursorOnALargeDiff(b *testing.B) {
+	m := detailed(held(sampleDetail()), 200, 50)
+	m.SetFiles(loadedFiles(bigDiff(60, 200), 0))
+	m = press(m, "]", "]", "]", "1")
+
+	for b.Loop() {
+		m = press(m, "j")
+	}
 }
