@@ -868,3 +868,60 @@ func BenchmarkMoveTheCursorOnALargeDiff(b *testing.B) {
 		m = press(m, "j")
 	}
 }
+
+// The spans the jump keys read outlive a tab switch, and one viewport serves
+// every tab, so a stale one scrolls the conversation to a diff offset.
+func TestBraceDoesNothingOffTheFilesTab(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 30)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	// Round the tabs once so the diff renders and records its spans.
+	m = press(m, "]", "]", "]", "]")
+
+	before := m.View()
+	if got := press(m, "}").View(); got != before {
+		t.Error("} moved the conversation using the diff's spans")
+	}
+	if got := press(m, "{").View(); got != before {
+		t.Error("{ moved the conversation using the diff's spans")
+	}
+}
+
+// The rail is suppressed on the Files tab whatever the user asked for, so the
+// key cannot read the screen to decide what to do next.
+func TestTogglingTheRailOnFilesDoesNotUndoItOnTheConversation(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 40)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	m = press(m, "d")
+	if strings.Contains(stripANSI(m.View()), "Details") {
+		t.Fatal("setup: d did not hide the rail")
+	}
+
+	// Out to Files, press it there, and back.
+	m = press(m, "]", "]", "]", "d", "[", "[", "[")
+
+	if strings.Contains(stripANSI(m.View()), "Details") {
+		t.Error("d on the Files tab turned the hidden rail back on")
+	}
+	if m.Rail().On {
+		t.Error("the rail preference handed to the next screen was flipped too")
+	}
+}
+
+// Focus lands on the diff after a tab switch, and on a narrow frame the tree
+// is not on screen to take it, so folding cannot depend on which pane has it.
+func TestFoldingWorksFromTheDiffPane(t *testing.T) {
+	// The cursor opens on the first file, docs/screenshot.png, whose body is
+	// the reason it has no diff.
+	const body = "binary, or too large"
+
+	m := press(onFiles(200, 40), "2")
+	if !strings.Contains(stripANSI(m.View()), body) {
+		t.Fatal("setup: the file under the cursor is already folded")
+	}
+
+	if strings.Contains(stripANSI(press(m, "o").View()), body) {
+		t.Error("o with the diff focused did not fold the file")
+	}
+}

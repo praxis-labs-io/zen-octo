@@ -285,10 +285,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	case key.Matches(keyMsg, k.NextFile):
+	// A file is a Files tab idea. The spans outlive a tab switch, so without
+	// this the conversation scrolls to wherever the diff last had a file.
+	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
 		m.jumpFile(1)
 		follow = false
-	case key.Matches(keyMsg, k.PrevFile):
+	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
 		m.jumpFile(-1)
 		follow = false
 
@@ -299,13 +301,19 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
+	// On the Files tab the key folds whichever pane has focus, because the
+	// cursor it folds at is the same one either pane is driving, and the tree
+	// it belongs to is not on screen at all on a narrow frame.
+	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles:
+		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
-		if m.focus == paneTree {
-			m.toggleFold()
-			break
-		}
 		m.expanded = !m.expanded
 		m.syncContent()
+
+	// The Files tab has no rail to toggle. Reading railVisible here would take
+	// its hard false for the user's preference and turn a hidden rail back on,
+	// with nothing on screen to show for the keypress.
+	case key.Matches(keyMsg, k.ToggleRail) && m.tab == tabFiles:
 
 	case key.Matches(keyMsg, k.ToggleRail):
 		m.railOn, m.railUserSet = !m.railVisible(), true
