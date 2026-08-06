@@ -145,6 +145,7 @@ type Commit struct {
 	SHA         string
 	Short       string
 	Headline    string
+	Body        string
 	Author      Actor
 	AuthorName  string
 	CommittedAt time.Time

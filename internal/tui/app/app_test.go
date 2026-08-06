@@ -41,6 +41,7 @@ type fakeSearcher struct {
 	detailErr   error
 	filesErr    error
 	commitErr   error
+	commitHold  time.Duration
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -176,13 +177,23 @@ func (f *fakeSearcher) fetched() []string {
 func (f *fakeSearcher) CommitFiles(_ context.Context, repo, sha string) (gh.FilesResult, error) {
 	f.mu.Lock()
 	f.commitDiffs = append(f.commitDiffs, repo+"@"+sha)
-	files, err := f.commitFiles[sha], f.commitErr
+	files, err, hold := f.commitFiles[sha], f.commitErr, f.commitHold
 	f.mu.Unlock()
+
+	time.Sleep(hold)
 
 	if err != nil {
 		return gh.FilesResult{}, err
 	}
 	return gh.FilesResult{Files: files}, nil
+}
+
+// holdCommits makes every commit diff answer later than the pump above waits,
+// which is how a test gets its hands on a request that is still in flight.
+func (f *fakeSearcher) holdCommits() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commitHold = 50 * time.Millisecond
 }
 
 // serveCommit stages one commit's diff.
@@ -1423,6 +1434,78 @@ func TestACommitsDiffIsFetchedOnSelectionAndOnlyThen(t *testing.T) {
 	}
 }
 
+// The cache is keyed by sha because a commit's diff is the same wherever it is
+// opened from. Walking back up a branch to a commit already read costs nothing.
+func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the count"},
+	})
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+	client.serveCommit("7b20ef4a11", sampleFiles())
+
+	// The first, the second, then back to the first.
+	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "enter", "j", "enter", "k", "enter")
+
+	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@7b20ef4a11"}
+	if got := client.fetchedCommits(); !slices.Equal(got, want) {
+		t.Errorf("fetched %v, want %v: the second read of a commit is cached", got, want)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the cached diff never reached the screen")
+	}
+}
+
+// Selecting a commit resets the pane to idle, and a spinner over an idle pane
+// stops ticking. Reselecting one whose request is still out has to put the pane
+// back into its loading state or the glyph sits there frozen.
+func TestReselectingACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the count"},
+	})
+	client.holdCommits()
+
+	// The first, on to the second, then back before either answers.
+	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "enter", "j", "enter", "k", "enter")
+
+	if !strings.Contains(stripANSI(render(t, m)), "Loading the diff") {
+		t.Fatal("the pane dropped out of its loading state with the request still out")
+	}
+	if got := client.fetchedCommits(); len(got) != 2 {
+		t.Errorf("fetched %v, want the reselection to ride the request already out", got)
+	}
+
+	// The glyph is the tell. A pane the reselection left reading idle renders
+	// the spinner and then never advances it again.
+	before := spinnerGlyph(render(t, m), "Loading the diff")
+	m, _ = m.Update(spinner.TickMsg{})
+	after := spinnerGlyph(render(t, m), "Loading the diff")
+
+	if before == "" || after == "" {
+		t.Fatalf("no spinner on the pane, glyphs %q and %q", before, after)
+	}
+	if before == after {
+		t.Error("the spinner froze with the request still out")
+	}
+}
+
+// spinnerGlyph is the frame of the spinner sitting beside a label.
+func spinnerGlyph(frame, label string) string {
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		at := strings.Index(line, label)
+		if at <= 0 {
+			continue
+		}
+		if lead := []rune(strings.TrimRight(line[:at], " ")); len(lead) > 0 {
+			return string(lead[len(lead)-1])
+		}
+	}
+	return ""
+}
+
 func TestAFailedCommitDiffSaysSoOnTheTab(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
@@ -1432,6 +1515,30 @@ func TestAFailedCommitDiffSaysSoOnTheTab(t *testing.T) {
 
 	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
 		t.Error("a failed commit diff reads as an empty one")
+	}
+}
+
+// A failed fetch leaves the sha latched, and the key that selected it is the
+// only way to ask again.
+func TestSelectingAFailedCommitAgainRetriesIt(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+	client.failCommits(errors.New("context deadline exceeded"))
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "enter")
+	if got := client.fetchedCommits(); len(got) != 1 {
+		t.Fatalf("fetched %v, want the first request", got)
+	}
+
+	client.failCommits(nil)
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+	m = press(m, "enter")
+
+	if got := client.fetchedCommits(); len(got) != 2 {
+		t.Errorf("fetched %v, want the failed commit asked for again", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the retry never reached the screen")
 	}
 }
 

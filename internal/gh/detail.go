@@ -87,13 +87,14 @@ query PullRequestDetail($id: ID!, $head: String!) {
         }
       }
 
-      commits(first: 100) {
+      commits(last: 100) {
         totalCount
         nodes {
           commit {
             oid
             abbreviatedOid
             messageHeadline
+            messageBody
             committedDate
             author { name user { login } }
             statusCheckRollup { state }
@@ -247,6 +248,7 @@ type pullRequestResponse struct {
 					OID             string
 					AbbreviatedOID  string
 					MessageHeadline string
+					MessageBody     string
 					CommittedDate   time.Time
 					Author          *struct {
 						Name string
@@ -477,8 +479,10 @@ func teamHandle(org, slug string) string {
 	return org + "/" + slug
 }
 
-// commits is every commit on the branch, oldest first, which is the order the
-// connection returns them in and the order the tab reads them.
+// commits is the branch's last hundred, oldest first, which is the order the
+// connection returns them in and the order the tab reads them. The query asks
+// from the newest end: a long branch is read from its head, and the commits
+// that fall off are the ones already merged into it.
 func commits(n pullRequestResponse) []Commit {
 	out := make([]Commit, 0, len(n.Node.Commits.Nodes))
 	for _, node := range n.Node.Commits.Nodes {
@@ -487,6 +491,7 @@ func commits(n pullRequestResponse) []Commit {
 			SHA:         c.OID,
 			Short:       c.AbbreviatedOID,
 			Headline:    c.MessageHeadline,
+			Body:        c.MessageBody,
 			CommittedAt: c.CommittedDate,
 		}
 		// A commit written from an email GitHub cannot match has no account

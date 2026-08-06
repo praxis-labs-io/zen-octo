@@ -81,7 +81,9 @@ const detailBody = `{
       "totalCount": 9,
       "nodes": [
         {"commit": {"oid": "a3f91c2d5e", "abbreviatedOid": "a3f91c2",
-          "messageHeadline": "Cap the backoff", "committedDate": "2026-08-02T08:00:00Z",
+          "messageHeadline": "Cap the backoff",
+          "messageBody": "The retry loop had no ceiling.",
+          "committedDate": "2026-08-02T08:00:00Z",
           "author": {"name": "Drew White", "user": {"login": "drucial"}},
           "statusCheckRollup": {"state": "SUCCESS"}}},
         {"commit": {"oid": "7b20ef4a11", "abbreviatedOid": "7b20ef4",
@@ -295,6 +297,22 @@ func TestWhatThePageDidNotReachIsReported(t *testing.T) {
 	}
 }
 
+// The connection is chronological, so asking for the first hundred on a long
+// branch returns the oldest hundred and leaves the head commit unreachable.
+func TestTheCommitsAreAskedForFromTheNewestEnd(t *testing.T) {
+	doer := &fakeDoer{body: detailBody}
+	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
+		t.Fatalf("PullRequest() error = %v, want nil", err)
+	}
+
+	if !strings.Contains(doer.gotQuery, "commits(last: 100)") {
+		t.Error("the query does not ask for the commits at the newest end of the branch")
+	}
+	if strings.Contains(doer.gotQuery, "commits(first:") {
+		t.Error("the query asks for the oldest commits on the branch")
+	}
+}
+
 func TestTheCommitsCarryTheirShaHeadlineAndOwnRollup(t *testing.T) {
 	commits := fetchDetail(t).Commits
 
@@ -308,6 +326,9 @@ func TestTheCommitsCarryTheirShaHeadlineAndOwnRollup(t *testing.T) {
 	}
 	if first.Headline != "Cap the backoff" {
 		t.Errorf("Headline = %q, want the message headline", first.Headline)
+	}
+	if first.Body != "The retry loop had no ceiling." {
+		t.Errorf("Body = %q, want the rest of the message", first.Body)
 	}
 	if first.Author.Login != "drucial" {
 		t.Errorf("Author = %q, want the linked account", first.Author.Login)

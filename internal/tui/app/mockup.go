@@ -132,7 +132,10 @@ func mockCommits() []gh.Commit {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
 	return []gh.Commit{
-		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the retry backoff at the fetch timeout",
+		{SHA: "a3f91c2d5e8b4770c1e2f6a9d3045bb812e7c440", Short: "a3f91c2",
+			Headline: "Cap the retry backoff at the fetch timeout",
+			Body: "The loop doubled the delay with no ceiling, so a dead endpoint\n" +
+				"backed off past the point anything was waiting for it.",
 			Author: gh.Actor{Login: "drucial"}, CommittedAt: ago(19 * time.Hour), Checks: gh.CheckStateSuccess},
 		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the phantom count from the search total",
 			Author: gh.Actor{Login: "drucial"}, CommittedAt: ago(18 * time.Hour), Checks: gh.CheckStateSuccess},

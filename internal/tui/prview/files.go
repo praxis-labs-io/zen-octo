@@ -65,6 +65,15 @@ type diffBody struct {
 	spans  []fileSpan
 	blocks map[blockKey]string
 	at     blockState
+
+	// threads is whether review threads hang off these lines. They are written
+	// against the pull request's head, and the same line number in an older
+	// commit is different code, so a commit's diff carries none.
+	threads bool
+
+	// lead is what sits above the first block. The spans are what a jump lands
+	// on, and they have to clear whatever the tab put in front of them.
+	lead int
 }
 
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
@@ -94,7 +103,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	}
 
 	blocks := make([]string, 0, len(rows))
-	at := 0
+	at := d.lead
 	for _, r := range rows {
 		if r.file == nil {
 			continue
@@ -103,7 +112,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		bk := blockKey{key: r.key, folded: r.folded}
 		block, ok := d.blocks[bk]
 		if !ok {
-			block = m.fileBlock(*r.file, r.folded, width)
+			block = m.fileBlock(*r.file, r.folded, width, d.threads)
 			d.blocks[bk] = block
 		}
 		blocks = append(blocks, block)
@@ -138,13 +147,13 @@ func overflow(res store.Files) string {
 // heading, ruled off from the hunks and the review threads anchored inside
 // them. A folded one collapses to the heading line without the box, the same
 // way a resolved thread does in the conversation.
-func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
+func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool) string {
 	if folded {
 		return m.fileHead(f, true, width)
 	}
 
 	inner := max(1, width-2)
-	body := m.fileBody(f, inner)
+	body := m.fileBody(f, inner, threads)
 	lines := strings.Count(body, "\n") + 1
 
 	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
@@ -154,13 +163,17 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 // fileBody is everything under a file's heading, already the full inner width
 // so a changed line's background runs to the border. The pane pads with plain
 // spaces, which would leave a hole at the end of every one.
-func (m *Model) fileBody(f gh.ChangedFile, width int) string {
+func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) string {
 	if f.Omitted != "" {
 		return " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
 	}
 
-	threads := m.threadsIn(f.Path)
-	placed := make(map[int]bool, len(threads))
+	// A nil map answers nothing, so the lines below need no guard of their own.
+	var anchored map[anchor][]gh.ReviewThread
+	if threads {
+		anchored = m.threadsIn(f.Path)
+	}
+	placed := make(map[int]bool, len(anchored))
 
 	tokens := m.lineTokens(f)
 	gutter := max(gutterMin, len(strconv.Itoa(widest(f))))
@@ -172,11 +185,14 @@ func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 		for _, l := range h.Lines {
 			lines = append(lines, m.diffLine(l, tokens[seen], gutter, width))
 			seen++
-			lines = append(lines, m.threadsAt(threads, placed, l, width)...)
+			lines = append(lines, m.threadsAt(anchored, placed, l, width)...)
 		}
 	}
 
-	return strings.Join(append(lines, m.strayThreads(f.Path, placed, width)...), "\n")
+	if threads {
+		lines = append(lines, m.strayThreads(f.Path, placed, width)...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff

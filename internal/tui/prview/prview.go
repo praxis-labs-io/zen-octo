@@ -71,13 +71,9 @@ const contentMeasure = 90
 // narrowing it.
 const sideMin = 24
 
-// treeMinFrame is the width below which the file tree hides. Under it the diff
-// is down to a gutter and a fragment, and the file headings in the diff itself
-// still carry navigation.
-//
-// The commit column has no floor of its own: nothing else on that tab names a
-// commit, so hiding it would leave the diff beside it with no way to change
-// what it is showing.
+// treeMinFrame is the width below which a left column hides. Under it the pane
+// beside it is down to a gutter and a fragment, and the tab strip above it no
+// longer fits the frame at all.
 const treeMinFrame = 70
 
 // diffMeasure is the width the diff keeps before the tree gives any up. Below
@@ -185,18 +181,21 @@ type Model struct {
 // header and the rail paint before the detail query answers.
 func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syntax) Model {
 	return Model{
-		theme:       th,
-		side:        comp.NewPane(th),
-		main:        comp.NewPane(th),
-		rail:        comp.NewPane(th),
-		sideView:    newViewport(),
-		view:        newViewport(),
-		railView:    newViewport(),
-		md:          comp.NewMarkdown(th),
-		syntax:      syntax,
-		spinner:     comp.NewSpinner(th),
-		pr:          pr,
-		focus:       paneMain,
+		theme:    th,
+		side:     comp.NewPane(th),
+		main:     comp.NewPane(th),
+		rail:     comp.NewPane(th),
+		sideView: newViewport(),
+		view:     newViewport(),
+		railView: newViewport(),
+		md:       comp.NewMarkdown(th),
+		syntax:   syntax,
+		spinner:  comp.NewSpinner(th),
+		pr:       pr,
+		focus:    paneMain,
+		// The pull request's own diff is the one review threads were written
+		// against. The Commits tab keeps a diffBody of its own, which does not.
+		diff:        diffBody{threads: true},
 		collapsed:   make(map[string]bool),
 		offsets:     make([]int, len(tabs)),
 		railOn:      rail.On,
@@ -367,19 +366,19 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.scroll().GotoBottom()
 		}
 	case key.Matches(keyMsg, k.PageDown):
-		if !m.jumped(m.sideView.Height()) {
+		if !m.jumped(m.sidePage()) {
 			m.scroll().PageDown()
 		}
 	case key.Matches(keyMsg, k.PageUp):
-		if !m.jumped(-m.sideView.Height()) {
+		if !m.jumped(-m.sidePage()) {
 			m.scroll().PageUp()
 		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		if !m.jumped(m.sideView.Height() / 2) {
+		if !m.jumped(m.sidePage() / 2) {
 			m.scroll().HalfPageDown()
 		}
 	case key.Matches(keyMsg, k.HalfPageUp):
-		if !m.jumped(-m.sideView.Height() / 2) {
+		if !m.jumped(-m.sidePage() / 2) {
 			m.scroll().HalfPageUp()
 		}
 	}
@@ -437,6 +436,31 @@ func (m Model) sideRows() int {
 	return len(m.rows)
 }
 
+// sidePage is a page of the column in its own rows. The keys that move by one
+// are counting rows, and a commit row is two lines: paged by the line count the
+// cursor clears a screenful of commits on every press.
+func (m Model) sidePage() int {
+	if m.tab == tabCommits {
+		return max(1, m.sideView.Height()/commitRowHeight)
+	}
+	return m.sideView.Height()
+}
+
+// showSideCursor puts the column's own cursor back inside its window. One
+// viewport serves both columns and their rows are different heights, so an
+// offset left behind by the other tab opens this one mid-row.
+func (m *Model) showSideCursor() {
+	if m.sideRows() == 0 {
+		m.sideView.SetYOffset(0)
+		return
+	}
+	if m.tab == tabCommits {
+		m.moveCommit(0)
+		return
+	}
+	m.showCursorRow()
+}
+
 // changeTab moves the strip and takes the scroll position with it. The offset
 // is restored after the content, because SetYOffset clamps to what is there.
 //
@@ -450,6 +474,7 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	// that is no longer on screen.
 	m.layout()
 	m.view.SetYOffset(m.offsets[m.tab])
+	m.showSideCursor()
 
 	// Asked once per screen rather than once per cached diff. The screen is new
 	// on every open, so a pull request reopened after a push fetches its diff
@@ -544,7 +569,7 @@ func (m *Model) layout() {
 		mainWidth -= column
 		m.side = m.side.Size(column, m.height)
 		m.sideView.SetWidth(m.side.InnerWidth())
-		m.sideView.SetHeight(m.side.InnerHeight())
+		m.sideView.SetHeight(m.sideHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
@@ -579,17 +604,16 @@ func (m Model) railVisible() bool {
 // railTab is whether this tab has a rail at all, at any width.
 func (m Model) railTab() bool { return m.tab != tabFiles && m.tab != tabCommits }
 
-// sideVisible decides whether the left column is on screen.
+// sideVisible decides whether the left column is on screen. Both columns share
+// the floor: below it the main pane is too narrow for its own tab strip, and
+// the frame renders wider than the terminal it was given.
 //
-// On Files a frame too narrow for it falls back to the file headings inside the
-// diff. On Commits it stays at every width: it is the only thing naming a
-// commit, so hiding it would leave the diff beside it stuck on whatever it
-// happened to be showing.
+// Files falls back to the file headings inside the diff. Commits has no
+// fallback, so a frame that narrow shows the diff it was last given and nothing
+// to change it with. The card above the diff still names the commit.
 func (m Model) sideVisible() bool {
 	switch m.tab {
-	case tabCommits:
-		return true
-	case tabFiles:
+	case tabCommits, tabFiles:
 		return m.width >= treeMinFrame
 	}
 	return false
@@ -600,6 +624,18 @@ func (m Model) sideVisible() bool {
 // down to a floor.
 func (m Model) sideColumn() int {
 	return min(columnWidth, max(sideMin, m.width-diffMeasure))
+}
+
+// sideHeight is what the column's viewport holds. The commit column stacks two
+// lines to a row, and an odd number of them leaves a last offset the viewport
+// clamps off a row boundary, opening the column on a row's second line with its
+// headline cut off above. The pane pads the line back.
+func (m Model) sideHeight() int {
+	h := m.side.InnerHeight()
+	if m.tab == tabCommits && h >= commitRowHeight {
+		return h / commitRowHeight * commitRowHeight
+	}
+	return h
 }
 
 // PullRequest is what the screen is showing.

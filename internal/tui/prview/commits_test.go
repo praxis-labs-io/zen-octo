@@ -56,11 +56,12 @@ func TestTheCommitColumnNamesEveryCommit(t *testing.T) {
 	out := stripANSI(onCommits(160, 24).View())
 
 	for _, want := range []string{
-		"a3f91c2 Cap the backoff",
-		"@drucial · 19h",
-		"7b20ef4 Drop the count",
-		"@nkr · 18h",
-		"c1d8a04 Fix the typo",
+		"● Cap the backoff",
+		"a3f91c2 · @drucial · 19h",
+		"● Drop the count",
+		"7b20ef4 · @nkr · 18h",
+		"● Fix the typo",
+		"c1d8a04 · Drew White · 17h",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the column is missing %q", want)
@@ -69,6 +70,30 @@ func TestTheCommitColumnNamesEveryCommit(t *testing.T) {
 
 	if !strings.Contains(out, "3 commits") {
 		t.Error("the column is not titled with its count")
+	}
+}
+
+// The headline gets the top line to itself. The sha reads as metadata, so it
+// sits with the author and the age on the line under it.
+func TestTheCommitHeadlineHasTheTopLineToItself(t *testing.T) {
+	column := columnLines(onCommits(160, 24).View())
+
+	at := -1
+	for i, line := range column {
+		if strings.Contains(line, "Cap the backoff") {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatal("the column never named the first commit")
+	}
+
+	if strings.Contains(column[at], "a3f91c2") {
+		t.Errorf("the headline line is %q, want the sha off it", column[at])
+	}
+	if !strings.Contains(column[at+1], "a3f91c2") {
+		t.Errorf("the line under the headline is %q, want the sha on it", column[at+1])
 	}
 }
 
@@ -243,12 +268,169 @@ func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
 				t.Fatalf("the column rendered %d lines, want two whole rows", len(column))
 			}
 
-			// The window opens on a row's first line, not the author line under it.
-			if !strings.Contains(column[0], "7b20ef4") {
+			// The window opens on a row's first line, not the meta line under it.
+			if !strings.Contains(column[0], "Drop the count") {
 				t.Errorf("the column opens on %q, want the top of a row", column[0])
 			}
-			if !strings.Contains(column[2], "c1d8a04") || !strings.Contains(column[3], "Drew White") {
+			if !strings.Contains(column[1], "7b20ef4") {
+				t.Errorf("the second line is %q, want the sha under its headline", column[1])
+			}
+			if !strings.Contains(column[2], "Fix the typo") || !strings.Contains(column[3], "Drew White") {
 				t.Error("the cursor's row is not on screen whole")
+			}
+		})
+	}
+}
+
+// Review threads are written against the pull request's head. The same line
+// number in an older commit is different code, so a commit's diff hangs none of
+// them: a comment about the final diff under a line it was never about reads as
+// a comment about that line.
+func TestACommitDiffCarriesNoReviewThreads(t *testing.T) {
+	m, _ := enter(onCommits(160, 40))
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	out := stripANSI(m.View())
+	for _, gone := range []string{"This backs off forever.", "Typo.", "Fixed."} {
+		if strings.Contains(out, gone) {
+			t.Errorf("the commit's diff carries the review comment %q", gone)
+		}
+	}
+}
+
+// The column has room for a short sha and a headline. Everything else about the
+// commit goes above its diff, where there is width for it.
+func TestTheSelectedCommitIsNamedAboveItsDiff(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+	d.Commits[0].Body = "The retry loop had no ceiling, so a dead endpoint backed off forever."
+
+	m, _ := enter(press(detailed(held(d), 160, 40), "]"))
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+	out := stripANSI(m.View())
+
+	for _, want := range []string{
+		"Cap the backoff",
+		"The retry loop had no ceiling",
+		"a3f91c2d5e",
+		"@drucial · 19h",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the card is missing %q", want)
+		}
+	}
+
+	card := strings.Index(out, "The retry loop had no ceiling")
+	first := strings.Index(out, "internal/gh/client.go")
+	if card < 0 || first < 0 || card > first {
+		t.Error("the card is not above the first file")
+	}
+}
+
+// A commit written with no body is its headline alone. The card still carries
+// the sha and the author, which is what the column could not fit.
+func TestTheCardHoldsUpWithNoMessageBody(t *testing.T) {
+	m, _ := enter(onCommits(160, 40))
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "a3f91c2d5e") {
+		t.Error("the card lost the full sha")
+	}
+	if !strings.Contains(out, "internal/gh/client.go") {
+		t.Error("the diff under the card is gone")
+	}
+}
+
+// The cursor walks rows and a row is two lines, so a page of the column is half
+// the lines the pane holds. Paged by the line count instead, every press clears
+// a screenful of commits the reader never sees.
+func TestPagingTheCommitColumnMovesByRows(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = manyCommits(40)
+	m := press(detailed(held(d), 160, 24), "]", "1")
+
+	before := shownHeadlines(m.View())
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	after := shownHeadlines(m.View())
+
+	if len(before) == 0 || len(after) == 0 {
+		t.Fatalf("the column showed %d rows then %d", len(before), len(after))
+	}
+	if before[0] == after[0] {
+		t.Fatal("page down did not move the column")
+	}
+
+	// A page moves the window by what it holds. Anything more and the commits
+	// in between never appear on screen at all.
+	if at := indexOf(before, after[0]); at < 0 {
+		t.Errorf("the window jumped from %q to %q, skipping every commit between",
+			before[len(before)-1], after[0])
+	}
+}
+
+// manyCommits is a branch long enough to scroll, each row telling itself apart
+// from the rest.
+func manyCommits(n int) []gh.Commit {
+	out := make([]gh.Commit, 0, n)
+	for i := range n {
+		out = append(out, gh.Commit{
+			SHA:         fmt.Sprintf("%010d", i),
+			Short:       fmt.Sprintf("%07d", i),
+			Headline:    "Commit number " + strconv.Itoa(i),
+			Author:      gh.Actor{Login: "drucial"},
+			CommittedAt: time.Now().Add(-time.Duration(n-i) * time.Hour),
+		})
+	}
+	return out
+}
+
+// shownHeadlines is the commit headlines on screen, in order.
+func shownHeadlines(frame string) []string {
+	var out []string
+	for i, line := range columnLines(frame) {
+		if i%2 == 0 && strings.TrimSpace(line) != "" {
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "●")))
+		}
+	}
+	return out
+}
+
+func indexOf(lines []string, want string) int {
+	for i, line := range lines {
+		if line == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// One viewport serves the file column and the commit column, and their rows are
+// different heights. An offset the tree left behind opens the commit column on
+// a row's second line, with its headline cut off above the window.
+func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
+	for _, height := range []int{9, 10, 11, 12, 13} {
+		t.Run(strconv.Itoa(height), func(t *testing.T) {
+			d := sampleDetail()
+			d.Commits = manyCommits(40)
+
+			m := detailed(held(d), 160, height)
+			m.SetFiles(store.Files{Files: sampleFiles(), Status: store.StatusReady, Loaded: true})
+
+			// Into the file tree, down it far enough to scroll, then round to
+			// Commits.
+			m = press(m, "]", "]", "]", "1")
+			for range 9 {
+				m = press(m, "j")
+			}
+			m = press(m, "]", "]")
+
+			lines := columnLines(m.View())
+			if len(lines) == 0 {
+				t.Fatal("the commit column rendered nothing")
+			}
+			if !strings.Contains(lines[0], "●") {
+				t.Errorf("the column opens on %q, want the top of a row", lines[0])
 			}
 		})
 	}
@@ -279,14 +461,48 @@ func TestTheRailIsOffOnTheCommitsTab(t *testing.T) {
 	}
 }
 
-// The column is the only thing on the tab naming a commit. Hiding it would
-// leave the diff beside it stuck on whatever it happened to be showing, so it
-// narrows at every width rather than going away.
-func TestTheCommitColumnStaysAtEveryWidth(t *testing.T) {
-	for _, width := range []int{160, 100, 70, 60} {
+// The column narrows before it goes, and goes at the width the pane beside it
+// stops fitting its own tab strip. Below that the two of them render wider than
+// the terminal they were handed.
+func TestTheCommitColumnHidesOnANarrowFrame(t *testing.T) {
+	for _, width := range []int{160, 100, 70} {
 		if !strings.Contains(stripANSI(onCommits(width, 24).View()), "a3f91c2") {
 			t.Errorf("the column is gone at %d columns", width)
 		}
+	}
+	for _, width := range []int{69, 60, 40, 20} {
+		if strings.Contains(stripANSI(onCommits(width, 24).View()), "a3f91c2") {
+			t.Errorf("the column is still on screen at %d columns", width)
+		}
+	}
+}
+
+// The column opens on a row rather than between two. A window that holds an odd
+// number of lines is the one that catches it: the offset the cursor asks for at
+// the end of the list is one the viewport clamps back off the boundary, and the
+// row on the top line loses its headline above the window.
+func TestTheCommitColumnOpensOnAWholeRow(t *testing.T) {
+	for _, height := range []int{10, 11, 12, 13} {
+		t.Run(strconv.Itoa(height), func(t *testing.T) {
+			d := sampleDetail()
+			d.Commits = append(sampleCommits(), sampleCommits()...)
+			m := press(detailed(held(d), 160, height), "]", "1", "G")
+
+			lines := columnLines(m.View())
+			if len(lines) < 2 {
+				t.Fatalf("the column rendered %d lines, want a row", len(lines))
+			}
+			for i, line := range lines {
+				// An odd window holds a whole number of rows and a spare line,
+				// which the pane pads out under them.
+				if strings.TrimSpace(line) == "" {
+					break
+				}
+				if headline := strings.Contains(line, "●"); headline != (i%2 == 0) {
+					t.Errorf("line %d is %q, want the column on a row boundary", i, line)
+				}
+			}
+		})
 	}
 }
 
@@ -296,6 +512,9 @@ func TestTheFrameFillsItsSizeExactlyOnTheCommitsTab(t *testing.T) {
 		{width: 160, height: 24},
 		{width: 100, height: 20},
 		{width: 60, height: 10},
+		{width: 40, height: 10},
+		{width: 30, height: 12},
+		{width: 20, height: 8},
 	}
 
 	for _, size := range sizes {
@@ -382,8 +601,13 @@ func columnLines(frame string) []string {
 		if len(cells) < 2 || cells[0] != '│' {
 			continue
 		}
-		if at := strings.IndexRune(string(cells[1:]), '│'); at >= 0 {
-			out = append(out, string(cells[1:1+at]))
+		// Indexed by rune rather than by byte: the rows carry marks and dots
+		// that run to three bytes, and a byte offset lands past the border.
+		for i, r := range cells[1:] {
+			if r == '│' {
+				out = append(out, string(cells[1:1+i]))
+				break
+			}
 		}
 	}
 	return out

@@ -317,7 +317,20 @@ func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
 // needCommit answers the screen asking for a commit's diff, the same way
 // needFiles answers it asking for the pull request's.
 func (m Model) needCommit(sha string) (tea.Model, tea.Cmd) {
-	if m.screen != screenDetail || !m.store.BeginCommitFiles(sha) {
+	if m.screen != screenDetail {
+		return m, nil
+	}
+
+	// A commit's diff is the same wherever it is read, so one already held is
+	// pushed rather than fetched again. One already in flight is pushed too:
+	// selecting resets the pane to idle, and a spinner over an idle pane stops
+	// ticking and sits there until the first response happens to land.
+	if held := m.store.CommitFiles(sha); held.Loaded || held.Status == store.StatusLoading {
+		m.detail.SetCommitFiles(sha, held)
+		return m, m.detail.Init()
+	}
+
+	if !m.store.BeginCommitFiles(sha) {
 		return m, nil
 	}
 	m.detail.SetCommitFiles(sha, m.store.CommitFiles(sha))

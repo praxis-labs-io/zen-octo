@@ -66,7 +66,12 @@ func (m *Model) selectCommit() tea.Cmd {
 	}
 
 	sha := list[m.commit.cursor].SHA
-	if sha == "" || sha == m.commit.sha {
+	if sha == "" {
+		return nil
+	}
+	// A fetch that failed is the exception: this key is the only way to ask
+	// again, and without it the pane keeps its error until the screen is closed.
+	if sha == m.commit.sha && m.commit.files.Status != store.StatusFailed {
 		return nil
 	}
 
@@ -108,8 +113,12 @@ func (m Model) commitColumn(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// commitRow is one commit over two lines: the check marker, the short sha and
-// the headline, then who wrote it and when.
+// commitRow is one commit over two lines: the check marker and the headline,
+// then the short sha with who wrote it and when.
+//
+// The headline gets the top line to itself because it is the only part worth
+// reading at a glance, and the sha sits with the rest of the metadata under it.
+// The marker stays up top: it says whether the commit is worth opening.
 //
 // Selection is painted cell by cell, the same way the file column paints it.
 // Every styled run ends in a reset that clears the background with it, so a
@@ -123,12 +132,14 @@ func (m Model) commitRow(c gh.Commit, width int, selected bool) []string {
 
 	_, checks := comp.CheckStateIcon(m.theme, c.Checks)
 	head := base.Foreground(checks).Render(glyphCheck) + base.Render(" ") +
-		base.Foreground(m.theme.Secondary).Render(c.Short) + base.Render(" ") +
 		base.Foreground(m.theme.Primary).Render(c.Headline)
 
-	// The second line is set in under the sha rather than under the marker, so
-	// the two lines read as one row.
-	by := base.Render("  ") + base.Foreground(m.theme.Faint).Render(commitBy(c))
+	// The second line is set in under the headline rather than under the
+	// marker, so the two lines read as one row.
+	by := base.Render("  ") + base.Foreground(m.theme.Secondary).Render(c.Short)
+	if who := commitBy(c); who != "" {
+		by += base.Foreground(m.theme.Faint).Render(" · " + who)
+	}
 
 	return []string{m.padTo(head, width, base), m.padTo(by, width, base)}
 }
@@ -166,7 +177,8 @@ func (m Model) padTo(line string, width int, base lipgloss.Style) string {
 }
 
 // commitBody is the selected commit's diff, through the same renderer the Files
-// tab uses. Nothing selected yet says which key selects one.
+// tab uses, under a card naming the commit it belongs to. Nothing selected yet
+// says which key selects one.
 func (m *Model) commitBody() string {
 	switch {
 	case m.commit.sha == "":
@@ -174,11 +186,64 @@ func (m *Model) commitBody() string {
 		// prompt with it.
 		return m.faint().Render("Press " + m.Keys().Select.Help().Key + " to show a commit's diff.")
 	case m.commit.files.Loaded:
-		return m.renderDiff(m.commit.rows, m.commit.files, &m.commit.diff)
+		card := m.commitCard(m.bodyWidth())
+		if card == "" {
+			m.commit.diff.lead = 0
+			return m.renderDiff(m.commit.rows, m.commit.files, &m.commit.diff)
+		}
+		// The card and the blank line under it sit above the first block, and
+		// the spans have to clear both or a jump to the first file lands inside
+		// the card instead.
+		m.commit.diff.lead = strings.Count(card, "\n") + 2
+		return card + "\n\n" + m.renderDiff(m.commit.rows, m.commit.files, &m.commit.diff)
 	case m.commit.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.commit.files.Err.Error())
 	}
 	return m.spinner.Render("Loading the diff")
+}
+
+// commitCard is the commit above its diff: the headline with its check state,
+// the message under it, then the full sha and who wrote it when. The column
+// beside it has room for none of that, and the full sha is the one thing there
+// is no other way to read.
+func (m Model) commitCard(width int) string {
+	c, ok := m.selected()
+	if !ok {
+		return ""
+	}
+
+	inner := max(1, width-2)
+	_, checks := comp.CheckStateIcon(m.theme, c.Checks)
+
+	lines := []string{wrap(lipgloss.NewStyle().Foreground(checks).Render(glyphCheck)+" "+
+		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(c.Headline), inner)}
+
+	// The body keeps the line breaks whoever wrote it chose; wrap only folds
+	// the ones that run past the card.
+	if body := strings.TrimSpace(c.Body); body != "" {
+		lines = append(lines, "", wrap(m.faint().Render(body), inner))
+	}
+
+	meta := lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(c.SHA)
+	if who := commitBy(c); who != "" {
+		meta += m.faint().Render(" · " + who)
+	}
+	lines = append(lines, "", wrap(meta, inner))
+
+	body := strings.Join(lines, "\n")
+	pane := comp.NewPane(m.theme)
+	return pane.Size(width, strings.Count(body, "\n")+1+pane.Chrome()).Render(body)
+}
+
+// selected is the commit whose diff is on screen. It is found by sha rather
+// than by the cursor: the cursor is free to walk on while a diff is being read.
+func (m Model) selected() (gh.Commit, bool) {
+	for _, c := range m.detail.Detail.Commits {
+		if c.SHA == m.commit.sha {
+			return c, true
+		}
+	}
+	return gh.Commit{}, false
 }
 
 // moveCommit walks the column and keeps the cursor inside its own window. The
@@ -191,9 +256,10 @@ func (m *Model) moveCommit(delta int) {
 	m.commit.cursor = min(max(m.commit.cursor+delta, 0), len(list)-1)
 
 	// The window is counted in rows rather than lines, so the offset always
-	// lands on a row boundary. A pane with an odd number of lines would
-	// otherwise open the column on a row's second line, with its sha cut off
-	// above.
+	// lands on a row boundary. It holds all the way to the end of the list
+	// because the viewport is sized to a whole number of rows; against an odd
+	// height the last offset clamps back off the boundary and opens the column
+	// on a row's second line.
 	rows := max(1, m.sideView.Height()/commitRowHeight)
 	first := m.sideView.YOffset() / commitRowHeight
 
