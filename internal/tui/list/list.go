@@ -32,7 +32,7 @@ type Model struct {
 	theme   theme.Theme
 	pane    comp.Pane
 	view    viewport.Model
-	spinner spinner.Model
+	spinner comp.Spinner
 
 	sections []store.Section
 	active   int
@@ -50,9 +50,6 @@ type Model struct {
 // New builds the list. It starts with no sections: the store is the one source
 // of what they are, and the root pushes a snapshot before the first frame.
 func New(th theme.Theme) Model {
-	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
-
 	vp := viewport.New()
 	vp.SoftWrap = false
 	vp.FillHeight = true
@@ -61,12 +58,12 @@ func New(th theme.Theme) Model {
 		theme:   th,
 		pane:    comp.NewPane(th),
 		view:    vp,
-		spinner: sp,
+		spinner: comp.NewSpinner(th),
 	}
 }
 
 // Init starts the spinner.
-func (m Model) Init() tea.Cmd { return m.spinner.Tick }
+func (m Model) Init() tea.Cmd { return m.spinner.Tick() }
 
 // Update handles the keys that belong to this screen and the spinner. Anything
 // the root has to act on leaves as a command.
@@ -79,11 +76,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Re-arm while any section is in flight, not just the one on screen.
 		// Gating on the active section kills the chain the moment it lands, and
 		// a switch onto a slower tab then finds a frozen spinner.
-		if !store.Loading(m.sections) {
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		cmd := m.spinner.Advance(msg, store.Loading(m.sections))
 		return m, cmd
 	}
 	return m, nil
@@ -359,7 +352,7 @@ func (m Model) body() string {
 		// Scope errors carry a multi-line fix; keep the newlines the error wrote.
 		return label + "\n" + faint.Render(section.Err.Error())
 	case section.Status != store.StatusReady:
-		return m.spinner.View() + " " + faint.Render("Loading pull requests")
+		return m.spinner.Render("Loading pull requests")
 	case m.rows.len() == 0:
 		return faint.Render("Nothing matches this section.")
 	default:

@@ -38,9 +38,23 @@ type Section struct {
 	Loaded bool
 }
 
-// Store holds every configured section and the point budget across them.
+// Detail is one pull request's full state, keyed by its id. Same lifecycle as a
+// section: begun, then either applied or failed.
+type Detail struct {
+	Detail gh.PullRequestDetail
+	Status Status
+	Err    error
+
+	// Loaded marks a detail that has answered at least once, so a background
+	// refetch can be told from a first open.
+	Loaded bool
+}
+
+// Store holds every configured section, every detail opened this session, and
+// the point budget across all of them.
 type Store struct {
 	sections []Section
+	details  map[string]Detail
 	rate     gh.RateLimit
 }
 
@@ -50,7 +64,7 @@ func New(sections []config.Section) Store {
 	for i, s := range sections {
 		held[i] = Section{Section: s}
 	}
-	return Store{sections: held}
+	return Store{sections: held, details: make(map[string]Detail)}
 }
 
 // Sections is a snapshot for the view.
@@ -109,6 +123,54 @@ func (s *Store) Failed(i int, err error) {
 	}
 	s.sections[i].Status = StatusFailed
 	s.sections[i].Err = err
+}
+
+// Detail is what is held for a pull request. The zero value is one never
+// opened, which reads as idle and unloaded.
+func (s Store) Detail(id string) Detail { return s.details[id] }
+
+// BeginDetail marks a pull request in flight and reports whether it started. It
+// refuses one already on its way, so opening a screen twice in quick succession
+// costs one request rather than two.
+func (s *Store) BeginDetail(id string) bool {
+	held := s.details[id]
+	if id == "" || held.Status == StatusLoading {
+		return false
+	}
+	held.Status = StatusLoading
+	s.put(id, held)
+	return true
+}
+
+// DetailApplied stores a pull request and folds the response into the budget.
+func (s *Store) DetailApplied(id string, res gh.DetailResult) {
+	if id == "" {
+		return
+	}
+	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
+	s.adopt(res.RateLimit)
+}
+
+// DetailFailed puts a pull request into its error state, keeping whatever it
+// already held. A background refetch that fails must not empty a screen that
+// was reading fine a moment ago.
+func (s *Store) DetailFailed(id string, err error) {
+	held, ok := s.details[id]
+	if id == "" || !ok {
+		return
+	}
+	held.Status = StatusFailed
+	held.Err = err
+	s.put(id, held)
+}
+
+// put writes a detail, building the map if this Store was made without New. A
+// nil map panics on write, and it would do it inside Update.
+func (s *Store) put(id string, d Detail) {
+	if s.details == nil {
+		s.details = make(map[string]Detail)
+	}
+	s.details[id] = d
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever

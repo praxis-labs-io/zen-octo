@@ -4,7 +4,6 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -235,7 +234,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 
 	text := pr.Title
 	if lipgloss.Width(text) > room {
-		text = clip(text, room, lipgloss.NewStyle())
+		text = comp.Clip(text, room, lipgloss.NewStyle())
 	}
 	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
 
@@ -253,7 +252,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 // attribution at all.
 func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
 	age := ""
-	if at := relativeTime(pr.UpdatedAt); at != "" {
+	if at := comp.RelativeTime(pr.UpdatedAt); at != "" {
 		age = " · " + at
 	}
 
@@ -301,7 +300,7 @@ func line(indent int, cells []string, width int, base lipgloss.Style) string {
 	case w < width:
 		return s + base.Render(strings.Repeat(" ", width-w))
 	case w > width:
-		return clip(s, width, base)
+		return comp.Clip(s, width, base)
 	}
 	return s
 }
@@ -316,47 +315,8 @@ func cell(width int, content string, style lipgloss.Style) string {
 		return ""
 	}
 	if lipgloss.Width(content) > width {
-		content = clip(content, width, lipgloss.NewStyle())
+		content = comp.Clip(content, width, lipgloss.NewStyle())
 	}
 	pad := max(0, width-lipgloss.Width(content))
 	return style.Render(content + strings.Repeat(" ", pad))
-}
-
-// clip truncates to width, marking the cut. A single column has room for the
-// mark and nothing else, and MaxWidth(0) means no limit rather than no room.
-//
-// The mark carries its own style, because the content is already rendered by
-// the time it is cut: a caller that restyles the result afterwards passes a
-// plain one, and a caller clipping a finished line passes the row's, or the
-// selection stops one cell short of the edge.
-func clip(content string, width int, mark lipgloss.Style) string {
-	switch {
-	case width <= 0:
-		return ""
-	case width == 1:
-		return mark.Render("…")
-	}
-	return lipgloss.NewStyle().MaxWidth(width-1).Render(content) + mark.Render("…")
-}
-
-// relativeTime renders a compact age: 34m, 5h, 12d, 3y. Anything in the future
-// reads as "now" rather than a negative number.
-func relativeTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		return strconv.Itoa(int(d.Minutes())) + "m"
-	case d < 24*time.Hour:
-		return strconv.Itoa(int(d.Hours())) + "h"
-	case d < 365*24*time.Hour:
-		return strconv.Itoa(int(d.Hours()/24)) + "d"
-	default:
-		return strconv.Itoa(int(d.Hours()/24/365)) + "y"
-	}
 }

@@ -186,3 +186,102 @@ func TestAnIndexOffTheEndIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+func detailResult(id string, remaining int) gh.DetailResult {
+	return gh.DetailResult{
+		Detail:    gh.PullRequestDetail{PullRequest: gh.PullRequest{ID: id}, Body: "the description"},
+		RateLimit: gh.RateLimit{Limit: 5000, Remaining: remaining, ResetAt: time.Now().Add(time.Hour)},
+	}
+}
+
+func TestADetailIsHeldForTheNextOpen(t *testing.T) {
+	s := store.New(configured())
+
+	if held := s.Detail("PR_412"); held.Loaded || held.Status != store.StatusIdle {
+		t.Errorf("a pull request never opened reads as %+v, want the zero value", held)
+	}
+
+	s.BeginDetail("PR_412")
+	s.DetailApplied("PR_412", detailResult("PR_412", 4800))
+
+	held := s.Detail("PR_412")
+	if !held.Loaded || held.Status != store.StatusReady {
+		t.Errorf("held = loaded %v status %v, want loaded and ready", held.Loaded, held.Status)
+	}
+	if held.Detail.Body != "the description" {
+		t.Errorf("Body = %q, want what came back", held.Detail.Body)
+	}
+}
+
+// One request per pull request is what makes opening the same row twice in
+// quick succession cost one round trip rather than two.
+func TestBeginDetailRefusesOneAlreadyInFlight(t *testing.T) {
+	s := store.New(configured())
+
+	if !s.BeginDetail("PR_412") {
+		t.Fatal("the first BeginDetail was refused")
+	}
+	if s.BeginDetail("PR_412") {
+		t.Error("a second BeginDetail started a duplicate request")
+	}
+
+	s.DetailApplied("PR_412", detailResult("PR_412", 4800))
+	if !s.BeginDetail("PR_412") {
+		t.Error("a settled pull request refused a refetch")
+	}
+}
+
+// The screen keeps reading through a failed background refetch. Emptying it
+// would be worse news than the news.
+func TestAFailedRefetchKeepsTheDetailItAlreadyHad(t *testing.T) {
+	s := store.New(configured())
+	s.BeginDetail("PR_412")
+	s.DetailApplied("PR_412", detailResult("PR_412", 4800))
+
+	boom := errors.New("context deadline exceeded")
+	s.BeginDetail("PR_412")
+	s.DetailFailed("PR_412", boom)
+
+	held := s.Detail("PR_412")
+	if held.Status != store.StatusFailed {
+		t.Errorf("status = %v, want failed", held.Status)
+	}
+	if !errors.Is(held.Err, boom) {
+		t.Errorf("err = %v, want the one it failed with", held.Err)
+	}
+	if !held.Loaded || held.Detail.Body != "the description" {
+		t.Error("the failure took the detail with it")
+	}
+}
+
+// The budget is one number across every call, so a detail has to move it the
+// same way a section does.
+func TestADetailResponseMovesTheBudget(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, gh.SearchResult{RateLimit: gh.RateLimit{
+		Limit: 5000, Remaining: 4800, ResetAt: time.Now().Add(time.Hour),
+	}})
+
+	s.BeginDetail("PR_412")
+	s.DetailApplied("PR_412", detailResult("PR_412", 4797))
+
+	if got := s.Rate().Remaining; got != 4797 {
+		t.Errorf("remaining = %d, want 4797", got)
+	}
+}
+
+// An empty id is a caller bug, not a map entry nothing can reach.
+func TestAnEmptyIDIsIgnored(t *testing.T) {
+	s := store.New(configured())
+
+	if s.BeginDetail("") {
+		t.Error("BeginDetail started a request for no pull request")
+	}
+	s.DetailApplied("", detailResult("", 4800))
+	s.DetailFailed("", errors.New("nope"))
+
+	if held := s.Detail(""); held.Loaded || held.Status != store.StatusIdle {
+		t.Errorf("held = %+v, want nothing recorded", held)
+	}
+}

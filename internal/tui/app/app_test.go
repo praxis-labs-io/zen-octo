@@ -32,6 +32,9 @@ type fakeSearcher struct {
 	mu          sync.Mutex
 	prs         []gh.PullRequest
 	queries     []string
+	opens       []string
+	details     map[string]gh.PullRequestDetail
+	detailErr   error
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -66,6 +69,52 @@ func (f *fakeSearcher) asked() []string {
 
 func (f *fakeSearcher) calls() int { return len(f.asked()) }
 
+// PullRequest answers with the row it was asked for, wrapped in whatever detail
+// the test staged. Echoing the row matters: a detail response replaces what the
+// list had, so a fake that returned a bare id would blank the header.
+func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
+	f.mu.Lock()
+	f.opens = append(f.opens, id)
+	detail, err, rows := f.details[id], f.detailErr, f.prs
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.DetailResult{}, err
+	}
+	for _, pr := range rows {
+		if pr.ID == id {
+			detail.PullRequest = pr
+		}
+	}
+	return gh.DetailResult{Detail: detail, RateLimit: f.rate}, nil
+}
+
+// serveDetail stages one pull request's conversation. It is per id because a
+// response that lands after the reader moved on has to be told apart from the
+// one they are looking at.
+func (f *fakeSearcher) serveDetail(id, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	f.details[id] = gh.PullRequestDetail{Body: body}
+}
+
+// failDetails makes every open fail from here on.
+func (f *fakeSearcher) failDetails(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.detailErr = err
+}
+
+// opened is the pull request ids the model asked for, in order.
+func (f *fakeSearcher) opened() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.opens)
+}
+
 // querySearcher answers per query, so a test can hold one section's fetch back
 // and let another land first.
 type querySearcher struct {
@@ -78,6 +127,10 @@ func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ in
 		return gh.SearchResult{}, err
 	}
 	return f.results[query], nil
+}
+
+func (f *querySearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
+	return gh.DetailResult{Detail: gh.PullRequestDetail{PullRequest: gh.PullRequest{ID: id}}}, nil
 }
 
 func testConfig() *config.Config {
@@ -462,7 +515,7 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	if !strings.Contains(out, "Conversation") {
 		t.Errorf("detail = %q, want the conversation tab strip", out)
 	}
-	if !strings.Contains(out, "Bump deps #408") {
+	if !strings.Contains(stripANSI(out), "#408 Bump deps") {
 		t.Errorf("detail = %q, want the selected pull request", out)
 	}
 
@@ -476,9 +529,10 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 }
 
 func TestTheRailCollapsesOnANarrowTerminal(t *testing.T) {
-	// "Branch" is a rail section heading. The pane title reads "Details", which
-	// also appears in the status bar hints, so it cannot tell the two apart.
-	const railOnly = "Branch"
+	// "Author" is a rail section heading. The pane title reads "Details", which
+	// also appears in the status bar hints, and the header spells the login with
+	// an @ and no heading, so this tells the two columns apart.
+	const railOnly = "Author"
 
 	wide := press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "enter")
 	if !strings.Contains(render(t, wide), railOnly) {
@@ -958,4 +1012,197 @@ func stripANSI(s string) string {
 		b.WriteByte(s[i])
 	}
 	return b.String()
+}
+
+// opening presses enter and stops before the detail response lands, so a test
+// can see the frame the reader gets first. The pending fetch comes back with
+// it, to be delivered when the test is ready.
+func opening(m tea.Model) (tea.Model, tea.Cmd) {
+	m, cmd := m.Update(keyMsg("enter"))
+	for _, msg := range immediate(cmd) {
+		m, cmd = m.Update(msg)
+	}
+	return m, cmd
+}
+
+func TestOpeningAPullRequestFetchesItOnce(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+
+	if got := client.opened(); len(got) != 1 || got[0] != "PR_412" {
+		t.Errorf("opened %v, want one fetch for PR_412", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "Caps the backoff at 30s.") {
+		t.Error("the conversation never reached the screen")
+	}
+}
+
+// The point of holding a detail is that the second open costs no wait. The
+// refetch still goes out; it swaps in behind whatever is already being read.
+func TestReopeningPaintsFromWhatIsHeldAndRefetchesBehindIt(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	if !strings.Contains(stripANSI(render(t, m)), "Caps the backoff at 30s.") {
+		t.Fatal("setup: the first open never loaded")
+	}
+
+	again, pending := opening(press(m, "esc"))
+	if !strings.Contains(stripANSI(render(t, again)), "Caps the backoff at 30s.") {
+		t.Error("the second open waited on the network rather than painting what was held")
+	}
+
+	settle(again, immediate(pending)...)
+	if got := client.opened(); len(got) != 2 {
+		t.Errorf("opened %v, want the reopen to have refetched", got)
+	}
+}
+
+// Open one, escape, open another, and the first response still arrives. It
+// must not land on the screen that replaced it.
+func TestAResponseForAPullRequestYouLeftDoesNotReachTheScreen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "the auth retry description")
+	client.serveDetail("PR_408", "the dependency bump description")
+
+	first, stale := opening(loaded(t, client, 160, 40))
+	elsewhere := press(press(first, "esc"), "j", "enter")
+
+	if !strings.Contains(stripANSI(render(t, elsewhere)), "the dependency bump description") {
+		t.Fatal("setup: the second pull request never loaded")
+	}
+
+	settled := settle(elsewhere, immediate(stale)...)
+	out := stripANSI(render(t, settled))
+	if strings.Contains(out, "the auth retry description") {
+		t.Error("a response from the pull request that was left landed on the one on screen")
+	}
+	if !strings.Contains(out, "the dependency bump description") {
+		t.Error("the screen lost what it was showing")
+	}
+}
+
+// The screen keeps reading through a failed refetch, so the toast is the only
+// thing saying it happened.
+func TestAFailedRefetchKeepsTheConversationAndSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	client.failDetails(errors.New("no such host"))
+
+	again := press(press(m, "esc"), "enter")
+	out := stripANSI(render(t, again))
+
+	if !strings.Contains(out, "Caps the backoff at 30s.") {
+		t.Error("the failed refetch emptied a screen that was reading fine")
+	}
+	if !strings.Contains(out, "Could not refresh #412") {
+		t.Errorf("frame = %q, want a toast naming the pull request that failed", out)
+	}
+}
+
+// Nothing held and nothing back yet is its own state, and it is the one the
+// reader sees most often.
+func TestAFirstOpenSaysItIsLoading(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	waiting, _ := opening(loaded(t, client, 160, 40))
+	out := stripANSI(render(t, waiting))
+
+	if !strings.Contains(out, "Loading the conversation") {
+		t.Error("the first open renders nothing while it waits")
+	}
+	// The glyph is the only thing saying the wait is going somewhere. Its first
+	// frame is what a screen that never armed its spinner would also render, so
+	// the moving part is asserted in the prview suite.
+	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
+		t.Errorf("frame = %q, want a spinner beside the label", out)
+	}
+}
+
+// The detail query is the most expensive call in the app, so the budget on
+// screen has to move with it rather than only with the sections.
+func TestOpeningMovesTheBudget(t *testing.T) {
+	client := &fakeSearcher{
+		prs:  samplePRs(),
+		rate: gh.RateLimit{Limit: 5000, Remaining: 4700, ResetAt: time.Now().Add(time.Hour)},
+	}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := loaded(t, client, 160, 40)
+	client.rate = gh.RateLimit{Limit: 5000, Remaining: 4697, ResetAt: client.rate.ResetAt}
+
+	if out := render(t, press(m, "enter")); !strings.Contains(out, "4697") {
+		t.Errorf("frame = %q, want the budget the detail response carried", out)
+	}
+}
+
+// The glyph appearing is not the same as the glyph moving. This is the wiring
+// between the two: the screen arms its own chain, and the root routes the ticks
+// back to it.
+func TestOpeningArmsTheDetailSpinner(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	waiting, pending := opening(loaded(t, client, 160, 40))
+
+	var started spinner.TickMsg
+	var armed bool
+	for _, msg := range immediate(pending) {
+		if got, ok := msg.(spinner.TickMsg); ok {
+			started, armed = got, true
+		}
+	}
+	if !armed {
+		t.Fatal("opening armed no spinner, so the glyph would never move")
+	}
+
+	before := stripANSI(render(t, waiting))
+	moved, _ := waiting.Update(started)
+	if stripANSI(render(t, moved)) == before {
+		t.Error("the tick did not reach the detail screen")
+	}
+}
+
+// The screen is new on every open, and so is its spinner. Arming the chain with
+// the fetch leaves it frozen here, because the request is already out and the
+// old chain's ticks carry a tag the new spinner drops.
+func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	// Open and leave without letting the response land, so the store still has
+	// the request out when the second open happens.
+	opened, pending := opening(loaded(t, client, 160, 40))
+	back := settle(opened, keyMsg("esc"))
+
+	again, reopened := opening(back)
+
+	var tick spinner.TickMsg
+	var armed bool
+	for _, msg := range immediate(reopened) {
+		if got, ok := msg.(spinner.TickMsg); ok {
+			tick, armed = got, true
+		}
+	}
+	if !armed {
+		t.Fatal("the reopen armed no spinner, so the glyph would sit frozen")
+	}
+
+	before := stripANSI(render(t, again))
+	moved, _ := again.Update(tick)
+	if stripANSI(render(t, moved)) == before {
+		t.Error("the tick did not reach the reopened screen")
+	}
+
+	// The fetch was not started twice: the first one is still out.
+	settle(again, immediate(pending)...)
+	if got := client.opened(); len(got) != 1 {
+		t.Errorf("opened %v, want the one request that was already in flight", got)
+	}
 }

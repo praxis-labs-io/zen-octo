@@ -30,6 +30,7 @@ type Tab struct {
 type Pane struct {
 	theme   theme.Theme
 	title   string
+	header  string
 	index   int
 	tabs    []Tab
 	active  int
@@ -49,6 +50,27 @@ func NewPane(th theme.Theme) Pane {
 func (p Pane) Title(s string) Pane {
 	p.title = s
 	return p
+}
+
+// Header sets a heading row inside the pane, ruled off from the content below
+// it. The text is taken as-is: a heading colored piece by piece would be cut
+// short by the first reset inside it if the pane restyled it.
+//
+// This is not Title. A title sits in the top border and names the pane; a
+// header is the first thing in the pane, and it is what a comment card wants.
+func (p Pane) Header(s string) Pane {
+	p.header = s
+	return p
+}
+
+// Chrome is the lines the pane spends on itself: two borders, plus the heading
+// row and its rule when there is one. A caller sizing a pane to its content
+// adds this.
+func (p Pane) Chrome() int {
+	if p.header == "" {
+		return 2
+	}
+	return 4
 }
 
 // Index sets the bracketed number that leads the top border and jumps focus
@@ -100,12 +122,36 @@ func (p Pane) Render(content string) string {
 
 	lines := make([]string, 0, p.height)
 	lines = append(lines, p.topBorder())
+
+	// The heading and its rule are two of the pane's own lines. A pane with no
+	// room for both of them plus a line of content is better off showing the
+	// content, which is the part that carries the meaning.
+	rows := p.InnerHeight()
+	if p.header != "" && rows >= 3 {
+		lines = append(lines, p.row(p.header), p.rule())
+		rows -= 2
+	}
+
 	// At a height of two the borders are the whole pane. Writing the body
 	// unconditionally costs a third line and overflows the frame.
-	if body := p.body(content); body != "" {
+	if body := p.body(content, rows); body != "" {
 		lines = append(lines, body)
 	}
 	return strings.Join(append(lines, p.bottomBorder()), "\n")
+}
+
+// rule divides the heading from the content, joining the side borders rather
+// than floating inside them.
+func (p Pane) rule() string {
+	style := p.borderStyle()
+	return style.Render("├" + strings.Repeat("─", p.InnerWidth()) + "┤")
+}
+
+// row frames one line of content, clipping and padding it to the interior.
+func (p Pane) row(line string) string {
+	side := p.borderStyle().Render("│")
+	line = lipgloss.NewStyle().MaxWidth(p.InnerWidth()).Render(line)
+	return side + line + strings.Repeat(" ", max(0, p.InnerWidth()-lipgloss.Width(line))) + side
 }
 
 func (p Pane) borderStyle() lipgloss.Style {
@@ -189,11 +235,8 @@ func (p Pane) tabStrip() string {
 	return strings.Join(parts, sep)
 }
 
-// body pads or clips content to the pane's interior.
-func (p Pane) body(content string) string {
-	inner, rows := p.InnerWidth(), p.InnerHeight()
-	side := p.borderStyle().Render("│")
-
+// body pads or clips content to the rows it was left.
+func (p Pane) body(content string, rows int) string {
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, rows)
 	for i := range rows {
@@ -201,9 +244,7 @@ func (p Pane) body(content string) string {
 		if i < len(lines) {
 			line = lines[i]
 		}
-		line = lipgloss.NewStyle().MaxWidth(inner).Render(line)
-		line += strings.Repeat(" ", max(0, inner-lipgloss.Width(line)))
-		out = append(out, side+line+side)
+		out = append(out, p.row(line))
 	}
 	return strings.Join(out, "\n")
 }

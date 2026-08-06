@@ -23,6 +23,133 @@ func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.Searc
 	}, nil
 }
 
+// PullRequest answers with one conversation whatever is asked for, wrapped
+// round the row that was opened. The fixture exists to judge the detail layout,
+// and every row leading to the same discussion is what makes it reachable.
+func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
+	var row gh.PullRequest
+	for _, pr := range mockPullRequests() {
+		if pr.ID == id {
+			row = pr
+			break
+		}
+	}
+
+	detail := mockDetail()
+	detail.PullRequest = row
+	detail.Checks = detail.Rollup.State
+
+	return gh.DetailResult{
+		Detail:    detail,
+		RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4818},
+	}, nil
+}
+
+// mockDetail covers what the conversation has to tell apart: a description with
+// every markdown element the renderer styles, comments, both review verdicts, a
+// resolved thread beside two open ones, and a rollup that is neither all green
+// nor all red.
+func mockDetail() gh.PullRequestDetail {
+	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+
+	return gh.PullRequestDetail{
+		Body: mockBody,
+
+		Labels: []gh.Label{
+			{Name: "bug", Color: "d73a4a"},
+			{Name: "needs-design", Color: "c5def5"},
+			{Name: "M2", Color: "0e8a16"},
+		},
+		Assignees: []gh.Actor{{Login: "drucial"}},
+		Reviewers: []gh.Reviewer{
+			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
+			{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}, State: gh.ReviewStateCommented},
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}},
+		},
+
+		Rollup: gh.CheckRollup{
+			State: gh.CheckStateFailure,
+			Checks: []gh.Check{
+				{Name: "test", Workflow: "Rails Unit Tests", State: gh.CheckStateSuccess},
+				{Name: "test", Workflow: "Rails Lint", State: gh.CheckStateSuccess},
+				{Name: "build", Workflow: "Build", State: gh.CheckStateFailure},
+				{Name: "e2e", Workflow: "E2E Tests", State: gh.CheckStatePending},
+				{Name: "windows", Workflow: "Build", State: gh.CheckStateSkipped},
+				{Name: "codecov", State: gh.CheckStateSuccess},
+			},
+			Passed: 3, Failed: 1, Pending: 1, Skipped: 1,
+		},
+		Merge:    gh.MergeBlocked,
+		BehindBy: 4,
+
+		Timeline: []gh.TimelineItem{
+			{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(20 * time.Hour),
+				Body: "Coverage held at 84.2%. No new uncovered branches in `internal/gh`."},
+
+			{Kind: gh.TimelineReview, ID: "REV_1", Actor: gh.Actor{Login: "nkr"},
+				CreatedAt: ago(6 * time.Hour), Review: gh.ReviewStateChangesRequested,
+				Body: "Close. Two things on the retry path, then this is good to go."},
+
+			{Kind: gh.TimelineForcePushed, Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(3 * time.Hour)},
+
+			{Kind: gh.TimelineComment, Actor: gh.Actor{}, CreatedAt: ago(2 * time.Hour),
+				Body: "Rebased onto main. The ceiling is a constant now."},
+
+			{Kind: gh.TimelineReview, ID: "REV_2", Actor: gh.Actor{Login: "nkr"},
+				CreatedAt: ago(90 * time.Minute), Review: gh.ReviewStateApproved},
+
+			{Kind: gh.TimelineReadyForReview, Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour)},
+		},
+
+		Threads: []gh.ReviewThread{
+			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42,
+				Comments: []gh.Comment{
+					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
+						Body: "This backs off forever. Needs a ceiling."},
+					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(5 * time.Hour),
+						Body: "Capped at 30s, matching `fetchTimeout`."},
+				}},
+
+			{ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, IsOutdated: true,
+				Comments: []gh.Comment{
+					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
+						Body: "Worth pulling this sum out into a named helper."},
+				}},
+
+			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, IsResolved: true,
+				Comments: []gh.Comment{
+					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour), Body: "Typo: refuces."},
+					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(5 * time.Hour), Body: "Fixed."},
+					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(4 * time.Hour), Body: "Thanks."},
+				}},
+		},
+
+		MoreComments: 12,
+	}
+}
+
+const mockBody = `Retries currently back off without a ceiling, so a GitHub
+outage leaves the client sleeping for minutes at a time with no way out but
+quitting. This caps the backoff and reports what it is waiting on.
+
+## What changed
+
+- ` + "`retryDelay`" + ` caps at 30s, matching ` + "`fetchTimeout`" + `
+- The sleep is interruptible, so **ctrl+c** still works mid-wait
+- Failures name the attempt they are on
+
+` + "```go" + `
+func backoff(attempt int) time.Duration {
+	return min(base<<attempt, ceiling)
+}
+` + "```" + `
+
+> The ceiling is the timeout on purpose. A retry that outlives the request it
+> is retrying is not a retry.
+
+Closes [ZNO-9](https://linear.app/praxis-labs/issue/ZNO-9).
+`
+
 // mockSubset is the fixtures a section gets. The one asking for the user's own
 // pull requests gets all of them: it is the default first tab and the one the
 // layout is judged on. The rest take a rotated slice, which still spans states

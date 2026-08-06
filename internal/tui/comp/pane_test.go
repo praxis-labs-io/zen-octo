@@ -201,3 +201,60 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// A heading needs a line of its own and a rule under it, and the rule has to
+// join the sides rather than float between them.
+func TestAHeaderIsRuledOffFromTheContent(t *testing.T) {
+	out := comp.NewPane(theme.RosePineMoon).
+		Header("octobot commented").
+		Size(30, 6).
+		Render("Coverage held.")
+
+	lines := strings.Split(stripANSI(out), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("pane is %d lines, want 6", len(lines))
+	}
+
+	if !strings.Contains(lines[1], "octobot commented") {
+		t.Errorf("line 1 = %q, want the heading", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "├") || !strings.HasSuffix(lines[2], "┤") {
+		t.Errorf("line 2 = %q, want a rule joined to both sides", lines[2])
+	}
+	if !strings.Contains(lines[3], "Coverage held.") {
+		t.Errorf("line 3 = %q, want the content under the rule", lines[3])
+	}
+}
+
+// A caller sizing a pane to its content has to know what the pane spends on
+// itself, and a heading costs two lines the borders do not.
+func TestChromeCountsTheHeaderAndItsRule(t *testing.T) {
+	plain := comp.NewPane(theme.RosePineMoon)
+	headed := plain.Header("octobot commented")
+
+	if plain.Chrome() != 2 {
+		t.Errorf("Chrome() = %d with no header, want 2", plain.Chrome())
+	}
+	if headed.Chrome() != 4 {
+		t.Errorf("Chrome() = %d with a header, want 4", headed.Chrome())
+	}
+
+	// Sized by that rule, one line of content fits exactly.
+	out := headed.Size(30, 1+headed.Chrome()).Render("Coverage held.")
+	if got := strings.Count(out, "\n") + 1; got != 5 {
+		t.Errorf("pane is %d lines, want 5", got)
+	}
+}
+
+// A pane too short for a heading, a rule and a line of content drops the
+// heading: the content is the part carrying the meaning.
+func TestAPaneTooShortForBothKeepsTheContent(t *testing.T) {
+	out := comp.NewPane(theme.RosePineMoon).
+		Header("octobot commented").
+		Size(30, 3).
+		Render("Coverage held.")
+
+	if !strings.Contains(stripANSI(out), "Coverage held.") {
+		t.Errorf("pane = %q, want the content rather than the heading", stripANSI(out))
+	}
+}
