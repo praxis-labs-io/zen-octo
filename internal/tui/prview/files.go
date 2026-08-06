@@ -149,7 +149,7 @@ func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 		}
 	}
 
-	return strings.Join(append(lines, m.strayThreads(threads, placed, width)...), "\n")
+	return strings.Join(append(lines, m.strayThreads(f.Path, placed, width)...), "\n")
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff
@@ -351,15 +351,17 @@ func anchorsOf(l gh.DiffLine) []anchor {
 // strayThreads is what the diff had no line for. An outdated thread anchors to
 // a line the pull request has since moved past, and dropping it loses the only
 // record of what was asked.
-func (m *Model) strayThreads(threads map[anchor][]gh.ReviewThread, placed map[int]bool, width int) []string {
+//
+// It walks the threads the query returned rather than the map they were
+// bucketed into: ranging a map is ordered at random, so the same comments came
+// out under the file in a different order every time it was rendered.
+func (m *Model) strayThreads(path string, placed map[int]bool, width int) []string {
 	var out []string
-	for _, held := range threads {
-		for _, t := range held {
-			if placed[thumbprint(t)] {
-				continue
-			}
-			out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
+	for _, t := range m.detail.Detail.Threads {
+		if t.Path != path || t.Line == 0 || placed[thumbprint(t)] {
+			continue
 		}
+		out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
 	}
 	return out
 }
@@ -583,6 +585,10 @@ func (m *Model) toggleFold() {
 	m.syncRows()
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
 	m.syncContent()
+	// Folding takes lines out from under the offset. Scrolled into the file
+	// being folded, the pane would land in the middle of the next one and the
+	// heading that just collapsed would be off screen entirely.
+	m.showCursorFile()
 }
 
 // syncRows rebuilds what the tree has on screen. Folding changes it, and so

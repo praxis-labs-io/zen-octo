@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -924,4 +926,71 @@ func TestFoldingWorksFromTheDiffPane(t *testing.T) {
 	if strings.Contains(stripANSI(press(m, "o").View()), body) {
 		t.Error("o with the diff focused did not fold the file")
 	}
+}
+
+// Folding takes lines out from under the viewport offset. Reading a file and
+// folding it, the pane landed in the middle of the next one with the heading
+// that had just collapsed nowhere on screen.
+func TestFoldingTheFileBeingReadKeepsItOnScreen(t *testing.T) {
+	m := press(onFiles(120, 16), "2", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j")
+	if !strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
+		t.Fatal("setup: the diff is not scrolled into the first file")
+	}
+
+	out := stripANSI(press(m, "o").View())
+	if !strings.Contains(out, "▸ internal/gh/client.go") {
+		t.Errorf("the folded file is not on screen:\n%s", out)
+	}
+}
+
+// Threads the diff has no line for are bucketed into a map on the way in.
+// Ranging that map to render them put the same comments in a different order
+// on every repaint, so they swapped places under the file as it was read.
+func TestOutdatedThreadsHoldTheirOrder(t *testing.T) {
+	d := sampleDetail()
+	for _, at := range []int{9001, 9002, 9003, 9004} {
+		d.Threads = append(d.Threads, gh.ReviewThread{
+			Path: "internal/gh/client.go", Line: at, Side: gh.SideRight, IsOutdated: true,
+			Comments: []gh.Comment{{
+				Author: gh.Actor{Login: "nkr"},
+				Body:   fmt.Sprintf("stray thread %d", at),
+			}},
+		})
+	}
+
+	// Each build renders the diff from scratch. Ranging the map is ordered at
+	// random per range, so one model repainting is not the test: the same
+	// comments have to come out the same way every time they are rendered.
+	var want []int
+	for i := range 20 {
+		m := detailed(held(d), 200, 60)
+		m.SetFiles(loadedFiles(sampleFiles(), 0))
+		m = press(m, "]", "]", "]")
+
+		got := strayOrder(m.View())
+		if len(got) != 4 {
+			t.Fatalf("build %d: %d stray threads on screen, want 4", i, len(got))
+		}
+		if want == nil {
+			want = got
+			continue
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("build %d rendered the stray threads as %v, want %v", i, got, want)
+		}
+	}
+}
+
+// strayOrder is the line numbers of the outdated threads, top to bottom.
+func strayOrder(frame string) []int {
+	var out []int
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if at := strings.Index(line, "stray thread "); at >= 0 {
+			n, err := strconv.Atoi(strings.TrimSpace(line[at+13:])[:4])
+			if err == nil {
+				out = append(out, n)
+			}
+		}
+	}
+	return out
 }
