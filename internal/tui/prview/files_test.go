@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 
@@ -1029,94 +1028,4 @@ func TestTheDiffSpinnerSurvivesLeavingTheTab(t *testing.T) {
 	if stripANSI(m.View()) == before {
 		t.Error("the glyph is frozen while the diff is still coming")
 	}
-}
-
-// A heading is assembled from runs that each end in a reset, and a reset drops
-// the background with the foreground. Painting the row as one piece afterwards
-// would tint the first token and leave the rest of it bare.
-func TestAHeadingRowIsPaintedBorderToBorder(t *testing.T) {
-	tests := []struct {
-		name  string
-		frame string
-		head  string
-	}{
-		{"a file in the diff", onFiles(90, 24).View(), "▾ docs/screenshot.png"},
-		{"a comment", detailed(held(sampleDetail()), 90, 24).View(), "drucial · opened this"},
-		{"a review thread", onFiles(90, 40).View(), "internal/gh/client.go:42"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			row, rule := rowAndRule(t, tt.frame, tt.head)
-
-			// The rule under a heading runs the box's interior exactly, so its
-			// two corners are the columns the surface has to fill between.
-			left := column(stripANSI(rule), "├")
-			right := column(stripANSI(rule), "┤")
-			if left < 0 || right <= left {
-				t.Fatalf("no rule under the heading: %q", stripANSI(rule))
-			}
-
-			painted := paintedCells(row)
-			for i := left + 1; i < right; i++ {
-				if i >= len(painted) || !painted[i] {
-					t.Fatalf("column %d of the heading carries no surface:\n%q", i, stripANSI(row))
-				}
-			}
-		})
-	}
-}
-
-// rowAndRule is the frame line carrying some text and the line under it, both
-// still styled.
-func rowAndRule(t *testing.T, frame, want string) (string, string) {
-	t.Helper()
-	lines := strings.Split(frame, "\n")
-	for i, line := range lines {
-		if strings.Contains(stripANSI(line), want) && i+1 < len(lines) {
-			return line, lines[i+1]
-		}
-	}
-	t.Fatalf("no row carrying %q", want)
-	return "", ""
-}
-
-// column is where a marker sits in cells, which is not where it sits in bytes:
-// a box-drawing rune is three of them.
-func column(line, marker string) int {
-	at := strings.Index(line, marker)
-	if at < 0 {
-		return -1
-	}
-	return utf8.RuneCountInString(line[:at])
-}
-
-// paintedCells says, for each visible cell of a styled line, whether a
-// background was in force when it was written.
-func paintedCells(line string) []bool {
-	var out []bool
-	bg := false
-
-	for i := 0; i < len(line); {
-		if line[i] != 0x1b {
-			_, size := utf8.DecodeRuneInString(line[i:])
-			out = append(out, bg)
-			i += size
-			continue
-		}
-
-		start := i
-		for i < len(line) && line[i] != 'm' {
-			i++
-		}
-		i++
-
-		switch params := line[start:i]; {
-		case strings.Contains(params, "48;2;"):
-			bg = true
-		case strings.HasSuffix(params, "[m"), strings.Contains(params, "[0m"), strings.Contains(params, ";49"):
-			bg = false
-		}
-	}
-	return out
 }

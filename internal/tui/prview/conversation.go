@@ -55,7 +55,7 @@ func (m *Model) entries() string {
 	for _, item := range d.Timeline {
 		switch item.Kind {
 		case gh.TimelineComment:
-			head := m.said(item.Actor, "commented", m.theme.Faint, item, m.headBase())
+			head := m.said(item.Actor, "commented", m.theme.Faint, item)
 			blocks = append(blocks, m.card(head, m.body(item.Body, m.cardWidth(width), "No comment."), width))
 
 		case gh.TimelineReview:
@@ -91,7 +91,7 @@ func (m *Model) entries() string {
 // reading as loose comments with no telling where it ends.
 func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown map[int]bool, width int) string {
 	label, c := comp.ReviewStateLabel(m.theme, item.Review)
-	head := m.said(item.Actor, label, c, item, m.headBase())
+	head := m.said(item.Actor, label, c, item)
 
 	block := m.card(head, m.body(item.Body, m.cardWidth(width), "No comment."), width)
 
@@ -148,7 +148,7 @@ func (m Model) branch(block string, last bool) string {
 // The gutter is the caller's rather than the pane's, because the rail already
 // indents its own entries and would end up with two.
 func (m Model) card(head, content string, width int) string {
-	pane := comp.NewPane(m.theme).Header(m.headBase().Render(" ") + head)
+	pane := comp.NewPane(m.theme).Header(" " + head)
 	body := indent(content, cardGutter)
 	lines := strings.Count(body, "\n") + 1
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
@@ -185,7 +185,7 @@ func (m *Model) markdown(text string, width int) string {
 }
 
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
-	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt}, m.headBase())
+	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
 	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description."), width)
 }
 
@@ -199,19 +199,16 @@ func (m *Model) body(text string, width int, empty string) string {
 
 // said is the line above a block of writing: who, what they did, and when. A
 // deleted account has no login, so the verb carries the line on its own.
-//
-// base is the surface it sits on, which is the heading of a box for the ones
-// that head a card and nothing for the ones inside it.
-func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.TimelineItem, base lipgloss.Style) string {
+func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.TimelineItem) string {
 	parts := make([]string, 0, 3)
 	if actor.Login != "" {
-		parts = append(parts, base.Foreground(m.theme.Actor).Render(actor.Login))
+		parts = append(parts, lipgloss.NewStyle().Foreground(m.theme.Actor).Render(actor.Login))
 	}
-	parts = append(parts, base.Foreground(c).Render(verb))
+	parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(verb))
 	if at := comp.RelativeTime(item.CreatedAt); at != "" {
-		parts = append(parts, base.Foreground(m.theme.Faint).Render(at))
+		parts = append(parts, m.faint().Render(at))
 	}
-	return strings.Join(parts, base.Foreground(m.theme.Faint).Render(" · "))
+	return strings.Join(parts, m.faint().Render(" · "))
 }
 
 // event is one line. Nobody reads a merge twice, and giving it the same block
@@ -221,7 +218,7 @@ func (m *Model) event(item gh.TimelineItem) string {
 	if !ok {
 		return ""
 	}
-	return wrap(m.faint().Render("● ")+m.said(item.Actor, label, m.theme.Faint, item, lipgloss.NewStyle()), m.bodyWidth())
+	return wrap(m.faint().Render("● ")+m.said(item.Actor, label, m.theme.Faint, item), m.bodyWidth())
 }
 
 var eventLabels = map[gh.TimelineKind]string{
@@ -254,10 +251,9 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) string {
 			comp.Plural(len(t.Comments), "comment")), width)
 	}
 
-	base := m.headBase()
-	head := base.Foreground(m.theme.Primary).Render(anchor)
+	head := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(anchor)
 	if t.IsOutdated {
-		head += base.Foreground(m.theme.Faint).Render(" · outdated")
+		head += m.faint().Render(" · outdated")
 	}
 
 	inner := m.cardWidth(width)
@@ -268,7 +264,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) string {
 		}
 	}
 	for _, c := range t.Comments {
-		said := m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt}, lipgloss.NewStyle())
+		said := m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt})
 		blocks = append(blocks, wrap(said, inner)+"\n\n"+m.body(c.Body, inner, "No comment."))
 	}
 
