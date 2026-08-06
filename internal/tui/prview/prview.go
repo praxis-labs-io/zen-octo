@@ -255,6 +255,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 	before := m.view.YOffset()
 
+	// A key that placed the cursor itself must not then have the diff place it
+	// again: a short file scrolled to the top of a tall window is not the file
+	// filling most of it.
+	follow := true
+
 	switch {
 	case key.Matches(keyMsg, k.Back):
 		return m, func() tea.Msg { return BackMsg{} }
@@ -263,6 +268,13 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
+
+	case key.Matches(keyMsg, k.NextFile):
+		m.jumpFile(1)
+		follow = false
+	case key.Matches(keyMsg, k.PrevFile):
+		m.jumpFile(-1)
+		follow = false
 
 	case key.Matches(keyMsg, k.PaneLeft):
 		m.focusPane(m.focus - 1)
@@ -320,7 +332,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// Whatever the key did to the diff, the file column follows it. Gated on
 	// the diff having actually moved: a key that only changes focus must not
 	// pull the cursor off the row the reader left it on.
-	if m.view.YOffset() != before {
+	if follow && m.view.YOffset() != before {
 		m.trackDiff()
 	}
 	return m, nil

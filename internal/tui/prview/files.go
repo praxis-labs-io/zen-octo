@@ -490,20 +490,59 @@ func (m *Model) trackDiff() {
 	m.syncContent()
 }
 
-// showCursorFile scrolls the diff to whatever the tree is pointing at. A
-// directory has no block of its own, so it scrolls to the first file under it.
-func (m *Model) showCursorFile() {
+// cursorSpan is the file the column is pointing at, as an index into spans. A
+// directory has no block of its own, so it answers with the first file under
+// it. Minus one when there is no file left below the cursor at all.
+func (m Model) cursorSpan() int {
 	if m.cursor >= len(m.rows) {
-		return
+		return -1
 	}
 	for _, r := range m.rows[m.cursor:] {
-		for _, s := range m.spans {
+		for i, s := range m.spans {
 			if s.key == r.key {
-				m.view.SetYOffset(contentLead + s.start)
-				return
+				return i
 			}
 		}
 	}
+	return -1
+}
+
+// showCursorFile scrolls the diff to whatever the tree is pointing at.
+func (m *Model) showCursorFile() {
+	if at := m.cursorSpan(); at >= 0 {
+		m.view.SetYOffset(contentLead + m.spans[at].start)
+	}
+}
+
+// jumpFile moves a whole file at a time, whichever pane has focus. Reading a
+// diff is reading one file after another, and doing that by the line takes as
+// many keystrokes as the file is long.
+//
+// From a directory row, forward means the first file inside it rather than the
+// one after it: the reader has not seen that file yet.
+func (m *Model) jumpFile(delta int) {
+	at := m.cursorSpan()
+	if at < 0 {
+		return
+	}
+
+	next := at
+	if delta < 0 || (m.cursor < len(m.rows) && m.rows[m.cursor].file != nil) {
+		next = at + delta
+	}
+	next = min(max(next, 0), len(m.spans)-1)
+
+	key := m.spans[next].key
+	for i, r := range m.rows {
+		if r.key == key {
+			m.cursor = i
+			break
+		}
+	}
+
+	m.showCursorRow()
+	m.syncContent()
+	m.showCursorFile()
 }
 
 // toggleFold folds the row under the cursor: a directory out of the tree, a

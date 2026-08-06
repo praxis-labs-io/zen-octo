@@ -711,3 +711,75 @@ func bgSeq(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
+
+// Reading a diff is reading one file after another, and doing that by the line
+// takes as many keystrokes as the file is long.
+func TestBraceJumpsAWholeFileFromEitherPane(t *testing.T) {
+	for _, focus := range []string{"1", "2"} {
+		// The column opens on the first file, so no jump to the top first: g on
+		// the tree would land on the directory above it.
+		m := press(onFiles(200, 20), focus)
+
+		want := []string{"screenshot.png", "client.go", "store.go", "files.go"}
+		for i, file := range want {
+			if got := cursorFile(m.View()); !strings.Contains(got, file) {
+				t.Fatalf("pane %s, jump %d: cursor on %q, want %q", focus, i, got, file)
+			}
+			// The diff follows the column, whichever one the keys are aimed at.
+			// The last file cannot reach the top of the window, only the screen.
+			if heads := diffHeads(m.View()); !strings.Contains(heads, file) {
+				t.Errorf("pane %s: the diff does not show %q, only %q", focus, file, heads)
+			}
+			m = press(m, "}")
+		}
+
+		// Past the last file it stays put rather than wrapping.
+		if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
+			t.Errorf("pane %s: } past the last file moved to %q", focus, got)
+		}
+	}
+}
+
+func TestBraceWalksBackUpTheFiles(t *testing.T) {
+	m := press(onFiles(200, 20), "2", "G")
+	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
+		t.Fatalf("setup: cursor on %q, want the last file", got)
+	}
+
+	for _, want := range []string{"store.go", "client.go", "screenshot.png"} {
+		m = press(m, "{")
+		if got := cursorFile(m.View()); !strings.Contains(got, want) {
+			t.Fatalf("{ landed on %q, want %q", got, want)
+		}
+	}
+
+	if got := cursorFile(press(m, "{").View()); !strings.Contains(got, "screenshot.png") {
+		t.Errorf("{ past the first file moved to %q", got)
+	}
+}
+
+// A directory row has no block of its own, and the reader has not seen the
+// files under it yet.
+func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
+	// docs/, screenshot.png, internal/, gh/, client.go
+	m := press(onFiles(200, 20), "1", "g", "j", "j")
+	if got := cursorFile(m.View()); !strings.Contains(got, "internal/") {
+		t.Fatalf("setup: cursor on %q, want the internal/ directory", got)
+	}
+
+	if got := cursorFile(press(m, "}").View()); !strings.Contains(got, "client.go") {
+		t.Errorf("} from internal/ landed on %q, want the first file inside it", got)
+	}
+}
+
+// diffHeads is every file heading the diff pane has on screen. A heading
+// carries the churn; the same path in the file column does not.
+func diffHeads(frame string) string {
+	var out []string
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if strings.Contains(line, "▾ ") && strings.ContainsAny(line, "+−") {
+			out = append(out, strings.TrimSpace(line))
+		}
+	}
+	return strings.Join(out, " | ")
+}
