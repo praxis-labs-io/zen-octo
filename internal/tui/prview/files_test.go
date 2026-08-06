@@ -356,17 +356,42 @@ func TestTheRailIsOffOnTheFilesTabAtEveryWidth(t *testing.T) {
 	}
 }
 
+// The two side columns never share a frame, so the only place a difference
+// between them shows is in the jump when you tab from one to the other.
+func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 40)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	top := stripANSI(firstLine(m.View()))
+	rail := 200 - lipgloss.Width(top[:strings.LastIndex(top, "╭")])
+	tree := paneEnd(t, press(m, "]", "]", "]").View())
+
+	if tree != rail {
+		t.Errorf("file column is %d wide and the rail is %d, want them equal", tree, rail)
+	}
+}
+
+// paneEnd is where the leftmost pane's right border sits, which is its width.
+func paneEnd(t *testing.T, frame string) int {
+	t.Helper()
+	top := stripANSI(firstLine(frame))
+	at := strings.Index(top, "╮")
+	if at < 0 {
+		t.Fatalf("no pane corner in %q", top)
+	}
+	return lipgloss.Width(top[:at]) + 1
+}
+
 // The column is the only navigation the tab has, so it narrows rather than
 // disappearing once the diff has taken its measure.
 func TestTheFileColumnNarrowsBeforeItHides(t *testing.T) {
-	widths := map[int]int{220: 40, 120: 40, 100: 24, 80: 24}
+	widths := map[int]int{220: 37, 120: 37, 100: 24, 80: 24}
 
 	for frame, want := range widths {
 		m := detailed(held(sampleDetail()), frame, 40)
 		m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-		top := stripANSI(firstLine(press(m, "]", "]", "]").View()))
-		got := lipgloss.Width(top[:strings.Index(top, "╮")]) + 1
+		got := paneEnd(t, press(m, "]", "]", "]").View())
 		if got != want {
 			t.Errorf("frame %d: file column is %d wide, want %d", frame, got, want)
 		}

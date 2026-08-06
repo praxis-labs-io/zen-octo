@@ -1388,7 +1388,7 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 // A bot login runs past the rail as readily as a workflow name does.
 func TestALongReviewerNameClipsRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
-	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}}}
+	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "zen-octo/copilot-pull-request-reviewers"}}}
 
 	rows := railRows(t, detailed(held(d), 200, 44).View())
 	for i, row := range rows {

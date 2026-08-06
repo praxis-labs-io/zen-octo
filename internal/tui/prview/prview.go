@@ -36,10 +36,15 @@ type RailPreference struct {
 	Set bool
 }
 
-// railWidth is fixed: a rail that grows with the frame just moves the
-// conversation around. It is wide enough for a branch name, which is the
-// longest thing it carries.
-const railWidth = 34
+// columnWidth is the side column on either edge of the screen: the details rail
+// on the conversation, the file tree on the diff. One number serves both. They
+// never share a frame, so the only place the difference shows is in the jump
+// when you tab between them, and there it reads as a mistake.
+//
+// It is fixed rather than proportional: a column that grows with the frame just
+// moves the content around. Wide enough for a branch name, which is the longest
+// thing the rail carries.
+const columnWidth = 37
 
 // railMinFrame is the width below which the rail hides itself. Under it the
 // conversation drops past the point where a diff inside a review comment reads.
@@ -47,7 +52,7 @@ const railMinFrame = 120
 
 // railMinForced is the floor even when the user asks for the rail by hand. A
 // conversation narrower than this is not worth the trade.
-const railMinForced = railWidth + 40
+const railMinForced = columnWidth + 40
 
 // railGutter is the space between the rail's borders and what it holds, on both
 // sides. Text against a border reads as a rendering fault rather than as a
@@ -59,13 +64,9 @@ const railGutter = 1
 // The diff is exempt: code wants every column it can have.
 const contentMeasure = 90
 
-// treeWidth is the file column at its full width: enough for a name after two
-// levels of nesting, which is where most of a repository sits. It is the one
-// column that shrinks rather than holding its size, because it is the only
-// navigation the tab has and hiding it costs more than narrowing it.
-const treeWidth = 40
-
-// treeMin is as narrow as the column goes before it hides instead.
+// treeMin is as narrow as the file column goes before it hides instead. It is
+// the one column that shrinks rather than holding its width, because it is the
+// only navigation the diff has and hiding it costs more than narrowing it.
 const treeMin = 24
 
 // treeMinFrame is the width below which the tree hides. Under it the diff is
@@ -454,8 +455,8 @@ func (m *Model) layout() {
 		m.treeView.SetHeight(m.tree.InnerHeight())
 	}
 	if m.railVisible() {
-		mainWidth -= railWidth
-		m.rail = m.rail.Size(railWidth, m.height)
+		mainWidth -= columnWidth
+		m.rail = m.rail.Size(columnWidth, m.height)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
@@ -493,7 +494,7 @@ func (m Model) treeVisible() bool {
 // diff can still be read at its measure and gives the rest back below that,
 // down to a floor.
 func (m Model) treeColumn() int {
-	return min(treeWidth, max(treeMin, m.width-diffMeasure))
+	return min(columnWidth, max(treeMin, m.width-diffMeasure))
 }
 
 // PullRequest is what the screen is showing.
