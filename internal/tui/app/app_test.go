@@ -33,8 +33,11 @@ type fakeSearcher struct {
 	prs         []gh.PullRequest
 	queries     []string
 	opens       []string
+	diffs       []string
 	details     map[string]gh.PullRequestDetail
+	files       map[int][]gh.ChangedFile
 	detailErr   error
+	filesErr    error
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -115,6 +118,45 @@ func (f *fakeSearcher) opened() []string {
 	return slices.Clone(f.opens)
 }
 
+// PullRequestFiles answers with whatever diff the test staged for that number.
+// It is keyed by number rather than id because the diff comes over REST, which
+// addresses a pull request by repository and number.
+func (f *fakeSearcher) PullRequestFiles(_ context.Context, repo string, number, changed int) (gh.FilesResult, error) {
+	f.mu.Lock()
+	f.diffs = append(f.diffs, repo+"#"+strconv.Itoa(number))
+	files, err := f.files[number], f.filesErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.FilesResult{}, err
+	}
+	return gh.FilesResult{Files: files, MoreFiles: max(0, changed-len(files))}, nil
+}
+
+// serveFiles stages one pull request's diff.
+func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.files == nil {
+		f.files = make(map[int][]gh.ChangedFile)
+	}
+	f.files[number] = files
+}
+
+// failFiles makes every diff fetch fail from here on.
+func (f *fakeSearcher) failFiles(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.filesErr = err
+}
+
+// fetched is the pull requests the model asked a diff for, in order.
+func (f *fakeSearcher) fetched() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.diffs)
+}
+
 // querySearcher answers per query, so a test can hold one section's fetch back
 // and let another land first.
 type querySearcher struct {
@@ -131,6 +173,10 @@ func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ in
 
 func (f *querySearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	return gh.DetailResult{Detail: gh.PullRequestDetail{PullRequest: gh.PullRequest{ID: id}}}, nil
+}
+
+func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+	return gh.FilesResult{}, nil
 }
 
 func testConfig() *config.Config {
@@ -933,6 +979,28 @@ func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	t.Fatal("the notice is not on screen")
 }
 
+// Falling back silently reads as "my config is ignored", and a syntax theme
+// nobody notices is one the diff was never going to be styled by.
+func TestAnUnknownSyntaxThemeIsReported(t *testing.T) {
+	cfg := testConfig()
+	cfg.SyntaxTheme = "not-a-chroma-style"
+
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}), tea.WindowSizeMsg{Width: 200, Height: 40})
+
+	if !strings.Contains(stripANSI(render(t, m)), `Unknown syntax theme "not-a-chroma-style"`) {
+		t.Error("an unknown syntax theme falls back with nothing said")
+	}
+}
+
+// The theme names its own, so a config that says nothing gets no warning.
+func TestAThemesOwnSyntaxStyleRaisesNoNotice(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 200, 40)
+
+	if strings.Contains(stripANSI(render(t, m)), "Unknown syntax theme") {
+		t.Error("the default theme names a style Chroma does not ship")
+	}
+}
+
 func TestTheBudgetShowsAtZeroAndNotBeforeItIsKnown(t *testing.T) {
 	spent := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 0}}
 	if out := render(t, loaded(t, spent, 120, 40)); !strings.Contains(out, "◆ 0") {
@@ -1205,4 +1273,88 @@ func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
 	if got := client.opened(); len(got) != 1 {
 		t.Errorf("opened %v, want the one request that was already in flight", got)
 	}
+}
+
+// The diff is a second request and often a large one. A pull request opened to
+// read the conversation must not pay for it.
+func TestTheDiffIsNotFetchedUntilTheFilesTabIsOpened(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	if got := client.fetched(); len(got) != 0 {
+		t.Fatalf("fetched %v before the tab was opened", got)
+	}
+
+	m = press(m, "]", "]", "]")
+	if got := client.fetched(); len(got) != 1 || got[0] != "zen-octo/zen-octo#412" {
+		t.Errorf("fetched %v, want one diff for zen-octo/zen-octo#412", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the diff never reached the screen")
+	}
+}
+
+// Tabbing in and out has to cost one request. The store refuses a second while
+// the first is out, and holds the answer for the rest of the session.
+func TestTabbingBackToFilesDoesNotFetchAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	m = press(m, "]", "]", "]") // to Files
+	m = press(m, "]")           // round to the conversation
+	press(m, "]", "]", "]")     // and back
+
+	if got := client.fetched(); len(got) != 1 {
+		t.Errorf("fetched %v, want one request", got)
+	}
+}
+
+func TestAFailedDiffFetchSaysSoOnTheTab(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.failFiles(errors.New("context deadline exceeded"))
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	m = press(m, "]", "]", "]")
+
+	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
+		t.Error("a failed diff fetch reads as an empty one")
+	}
+}
+
+// Both caches are keyed by pull request. Opening a second one must not paint
+// the first one's diff under it.
+func TestADiffDoesNotFollowTheReaderToTheNextPullRequest(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Fatal("the first diff never landed")
+	}
+
+	m = press(m, "esc", "j", "enter", "]", "]", "]")
+
+	if strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the first pull request's diff is showing on the second")
+	}
+	if got := client.fetched(); len(got) != 2 || got[1] != "zen-octo/zen-octo#408" {
+		t.Errorf("fetched %v, want a second request for #408", got)
+	}
+}
+
+func sampleFiles() []gh.ChangedFile {
+	return []gh.ChangedFile{{
+		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 2, Deletions: 1,
+		Hunks: []gh.Hunk{{
+			Header: "@@ -40,4 +40,5 @@",
+			Lines: []gh.DiffLine{
+				{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\tfor {"},
+				{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+				{Kind: gh.DiffAdded, New: 41, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+			},
+		}},
+	}}
 }

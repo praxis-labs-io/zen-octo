@@ -88,13 +88,28 @@ type Comment struct {
 	Body      string
 }
 
+// DiffSide is which half of the diff a line belongs to. A comment on a deleted
+// line and one on an added line can carry the same number, so the side is what
+// tells them apart.
+type DiffSide string
+
+const (
+	SideRight DiffSide = "RIGHT"
+	SideLeft  DiffSide = "LEFT"
+)
+
 // ReviewThread is a line-anchored discussion. ReviewID names the review its
 // first comment was submitted with, which is how the conversation puts a thread
 // under the review that opened it.
+//
+// StartLine is zero on a single-line thread. Line is the last line either way,
+// which is where GitHub itself hangs the thread.
 type ReviewThread struct {
 	ReviewID   string
 	Path       string
 	Line       int
+	StartLine  int
+	Side       DiffSide
 	IsResolved bool
 	IsOutdated bool
 	Comments   []Comment
@@ -193,6 +208,69 @@ type PullRequestDetail struct {
 	// dropped comment that reads as no comment is the failure worth a field.
 	MoreComments int
 	MoreThreads  int
+}
+
+// FileStatus is what happened to a file in the pull request.
+type FileStatus string
+
+const (
+	FileAdded     FileStatus = "added"
+	FileModified  FileStatus = "modified"
+	FileRemoved   FileStatus = "removed"
+	FileRenamed   FileStatus = "renamed"
+	FileCopied    FileStatus = "copied"
+	FileChanged   FileStatus = "changed"
+	FileUnchanged FileStatus = "unchanged"
+)
+
+// DiffKind is what a line does in the diff.
+type DiffKind int
+
+const (
+	DiffContext DiffKind = iota
+	DiffAdded
+	DiffRemoved
+)
+
+// DiffLine is one line of a hunk. Old is zero on an added line and New is zero
+// on a removed one, which is also how the gutter decides what to print.
+type DiffLine struct {
+	Kind    DiffKind
+	Old     int
+	New     int
+	Content string
+}
+
+// Hunk is one @@ block. Header is GitHub's own, section heading and all, since
+// the heading names the function the change sits in.
+type Hunk struct {
+	Header string
+	Lines  []DiffLine
+}
+
+// ChangedFile is one file's diff. Omitted says why there are no hunks, empty
+// when the hunks are the whole story: GitHub returns no patch for a binary file
+// or for a diff it considers too large, and a file that reads as unchanged is
+// worse than one that says why.
+type ChangedFile struct {
+	Path         string
+	PreviousPath string
+	Status       FileStatus
+	Additions    int
+	Deletions    int
+	Hunks        []Hunk
+	Omitted      string
+}
+
+// FilesResult is one files response. It carries no rate limit: the REST API
+// bills by request against a separate budget the GraphQL one knows nothing
+// about.
+type FilesResult struct {
+	Files []ChangedFile
+
+	// MoreFiles is what the first page did not reach, the same way MoreComments
+	// and MoreThreads report their own overflow.
+	MoreFiles int
 }
 
 // DetailResult is one detail response: what it returned and what it cost.

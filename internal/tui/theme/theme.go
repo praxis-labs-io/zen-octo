@@ -15,6 +15,12 @@ import (
 type Theme struct {
 	Name string
 
+	// Syntax names the Chroma style code is highlighted with. Chroma ships its
+	// own palettes and a diff needs far more token colors than the chrome has
+	// fields, so a theme points at the one that matches rather than restating
+	// it. Empty falls back to Chroma's own default.
+	Syntax string
+
 	// Text
 	Primary   color.Color
 	Secondary color.Color
@@ -66,6 +72,7 @@ func (t Theme) BorderFaintOrSecondary() color.Color {
 // already runs, so the two look the same side by side.
 var RosePineMoon = Theme{
 	Name:               "rose-pine-moon",
+	Syntax:             "rose-pine-moon",
 	Primary:            lipgloss.Color("#e0def4"),
 	Secondary:          lipgloss.Color("#c4a7e7"),
 	Faint:              lipgloss.Color("#a5a1bc"),

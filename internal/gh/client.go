@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -18,9 +19,16 @@ type graphQLDoer interface {
 	DoWithContext(ctx context.Context, query string, variables map[string]any, response any) error
 }
 
+// restDoer is the same seam over REST. GraphQL has no field carrying a patch,
+// so the diff is the one thing this package cannot ask for in a query.
+type restDoer interface {
+	DoWithContext(ctx context.Context, method, path string, body io.Reader, response any) error
+}
+
 // Client is a GitHub API client riding the token from the user's gh login.
 type Client struct {
-	gql graphQLDoer
+	gql  graphQLDoer
+	rest restDoer
 }
 
 // New builds a client from the ambient gh authentication.
@@ -29,12 +37,16 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building GitHub client: %w", err)
 	}
-	return &Client{gql: gql}, nil
+	rest, err := api.NewRESTClient(api.ClientOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("building GitHub client: %w", err)
+	}
+	return &Client{gql: gql, rest: rest}, nil
 }
 
-// newWithDoer builds a client around a substitute transport, for tests.
-func newWithDoer(d graphQLDoer) *Client {
-	return &Client{gql: d}
+// newWithDoer builds a client around substitute transports, for tests.
+func newWithDoer(gql graphQLDoer, rest restDoer) *Client {
+	return &Client{gql: gql, rest: rest}
 }
 
 // ScopeError is a 403 the token can't satisfy. It carries the command that

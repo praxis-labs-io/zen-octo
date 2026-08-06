@@ -50,11 +50,26 @@ type Detail struct {
 	Loaded bool
 }
 
+// Files is one pull request's diff, keyed by the same id as its Detail. It is
+// held apart because it costs a second request the detail screen only makes
+// when someone opens the Files tab.
+type Files struct {
+	Files     []gh.ChangedFile
+	MoreFiles int
+	Status    Status
+	Err       error
+
+	// Loaded marks a diff that has answered at least once, so a refetch can be
+	// told from a first open.
+	Loaded bool
+}
+
 // Store holds every configured section, every detail opened this session, and
 // the point budget across all of them.
 type Store struct {
 	sections []Section
 	details  map[string]Detail
+	files    map[string]Files
 	rate     gh.RateLimit
 }
 
@@ -64,7 +79,11 @@ func New(sections []config.Section) Store {
 	for i, s := range sections {
 		held[i] = Section{Section: s}
 	}
-	return Store{sections: held, details: make(map[string]Detail)}
+	return Store{
+		sections: held,
+		details:  make(map[string]Detail),
+		files:    make(map[string]Files),
+	}
 }
 
 // Sections is a snapshot for the view.
@@ -171,6 +190,55 @@ func (s *Store) put(id string, d Detail) {
 		s.details = make(map[string]Detail)
 	}
 	s.details[id] = d
+}
+
+// Files is the diff held for a pull request. The zero value is one never
+// fetched, which reads as idle and unloaded.
+func (s Store) Files(id string) Files { return s.files[id] }
+
+// BeginFiles marks a diff in flight and reports whether it started. It refuses
+// one already on its way, so tabbing in and out of Files costs one request.
+func (s *Store) BeginFiles(id string) bool {
+	held := s.files[id]
+	if id == "" || held.Status == StatusLoading {
+		return false
+	}
+	held.Status = StatusLoading
+	s.putFiles(id, held)
+	return true
+}
+
+// FilesApplied stores a pull request's diff. No budget to fold: the REST API
+// bills against a separate allowance the GraphQL response knows nothing about.
+func (s *Store) FilesApplied(id string, res gh.FilesResult) {
+	if id == "" {
+		return
+	}
+	s.putFiles(id, Files{
+		Files:     res.Files,
+		MoreFiles: res.MoreFiles,
+		Status:    StatusReady,
+		Loaded:    true,
+	})
+}
+
+// FilesFailed puts a diff into its error state, keeping whatever it already
+// held. A refetch that fails must not empty a diff that was reading fine.
+func (s *Store) FilesFailed(id string, err error) {
+	held, ok := s.files[id]
+	if id == "" || !ok {
+		return
+	}
+	held.Status = StatusFailed
+	held.Err = err
+	s.putFiles(id, held)
+}
+
+func (s *Store) putFiles(id string, f Files) {
+	if s.files == nil {
+		s.files = make(map[string]Files)
+	}
+	s.files[id] = f
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever

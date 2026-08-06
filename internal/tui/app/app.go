@@ -5,6 +5,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strconv"
@@ -32,6 +33,7 @@ import (
 type GitHub interface {
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
+	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
 }
 
 type sectionFetchedMsg struct {
@@ -57,6 +59,18 @@ type detailFailedMsg struct {
 	err error
 }
 
+// The diff is a second request, made the first time someone opens the Files
+// tab. It names its pull request for the same reason the detail messages do.
+type filesFetchedMsg struct {
+	id  string
+	res gh.FilesResult
+}
+
+type filesFailedMsg struct {
+	id  string
+	err error
+}
+
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
 // the UI spinning with no error and no way out but quitting.
 const fetchTimeout = 30 * time.Second
@@ -76,6 +90,7 @@ const (
 type Model struct {
 	client GitHub
 	theme  theme.Theme
+	syntax comp.Syntax
 	limit  int
 
 	store store.Store
@@ -106,12 +121,19 @@ type Model struct {
 func New(cfg *config.Config, client GitHub) Model {
 	th, ok := theme.Get(cfg.Theme)
 
+	// The syntax palette is a separate question from the chrome's. A theme
+	// names the Chroma style that matches it, and config overrides that for a
+	// theme with no counterpart.
+	syntaxName := cmp.Or(cfg.SyntaxTheme, th.Syntax)
+	syntax, syntaxOK := comp.NewSyntax(syntaxName)
+
 	h := help.New()
 	h.Styles = helpStyles(th)
 
 	m := Model{
 		client: client,
 		theme:  th,
+		syntax: syntax,
 		limit:  cfg.Defaults.PRsLimit,
 		store:  store.New(cfg.PRSections),
 		list:   list.New(th),
@@ -123,9 +145,13 @@ func New(cfg *config.Config, client GitHub) Model {
 	m.store.BeginAll()
 	m.list.SetSections(m.store.Sections())
 
-	if !ok {
+	switch {
+	case !ok:
 		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
 			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
+	case !syntaxOK:
+		m.notice = fmt.Sprintf("Unknown syntax theme %q, using Chroma's default. Known: %s",
+			syntaxName, strings.Join(comp.SyntaxNames(), ", "))
 	}
 	return m
 }
@@ -210,7 +236,7 @@ func stillLoading(sections []store.Section, indices []int) bool {
 // first frame; the refetch swaps in behind it, and SetContent keeps the scroll
 // position, so nothing moves under the reader.
 func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
-	m.detail = prview.New(m.theme, pr, m.detail.Rail())
+	m.detail = prview.New(m.theme, pr, m.detail.Rail(), m.syntax)
 	m.screen = screenDetail
 
 	var cmds []tea.Cmd
@@ -226,8 +252,53 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	}
 
 	m.detail.SetDetail(m.store.Detail(pr.ID))
+	m.detail.SetFiles(m.store.Files(pr.ID))
 	m.resize()
 	return m, tea.Batch(cmds...)
+}
+
+// needFiles answers the screen asking for a diff it does not have. The screen
+// cannot fetch, so entering the Files tab reaches the root as a message and the
+// request starts here.
+func (m Model) needFiles(id string) (tea.Model, tea.Cmd) {
+	if m.detail.PullRequest().ID != id || !m.store.BeginFiles(id) {
+		return m, nil
+	}
+	pr := m.detail.PullRequest()
+	m.detail.SetFiles(m.store.Files(id))
+	return m, tea.Batch(m.fetchFiles(id, pr.Repository, pr.Number, pr.ChangedFiles), m.detail.Init())
+}
+
+// fetchFiles carries the repository and number because the diff comes over
+// REST, which addresses a pull request by path rather than by node id. The
+// count is what the response is measured against to report its overflow.
+func (m Model) fetchFiles(id, repo string, number, changedFiles int) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.PullRequestFiles(ctx, repo, number, changedFiles)
+		if err != nil {
+			return filesFailedMsg{id: id, err: err}
+		}
+		return filesFetchedMsg{id: id, res: res}
+	}
+}
+
+// filesSettled pushes a diff into the screen, but only while the screen is
+// still showing the pull request it was fetched for.
+func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
+	held := m.store.Files(id)
+	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
+		return m, nil
+	}
+
+	m.detail.SetFiles(held)
+	if err != nil && held.Loaded {
+		return m, m.toasts.Show(comp.ToastError, "Could not refresh the diff for #"+strconv.Itoa(m.detail.PullRequest().Number))
+	}
+	return m, nil
 }
 
 // fetchDetail carries the head branch as well as the id: the query asks how far
@@ -305,6 +376,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailFailedMsg:
 		m.store.DetailFailed(msg.id, msg.err)
 		return m.detailSettled(msg.id, msg.err)
+
+	case filesFetchedMsg:
+		m.store.FilesApplied(msg.id, msg.res)
+		return m.filesSettled(msg.id, nil)
+
+	case filesFailedMsg:
+		m.store.FilesFailed(msg.id, msg.err)
+		return m.filesSettled(msg.id, msg.err)
+
+	case prview.NeedFilesMsg:
+		return m.needFiles(msg.ID)
 
 	case list.OpenMsg:
 		return m.open(msg.PR)

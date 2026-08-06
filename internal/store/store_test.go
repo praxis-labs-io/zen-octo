@@ -284,4 +284,94 @@ func TestAnEmptyIDIsIgnored(t *testing.T) {
 	if held := s.Detail(""); held.Loaded || held.Status != store.StatusIdle {
 		t.Errorf("held = %+v, want nothing recorded", held)
 	}
+
+	if s.BeginFiles("") {
+		t.Error("BeginFiles started a request for no pull request")
+	}
+	s.FilesApplied("", filesResult())
+	s.FilesFailed("", errors.New("nope"))
+
+	if held := s.Files(""); held.Loaded || held.Status != store.StatusIdle {
+		t.Errorf("held = %+v, want nothing recorded", held)
+	}
+}
+
+func filesResult() gh.FilesResult {
+	return gh.FilesResult{
+		Files:     []gh.ChangedFile{{Path: "internal/gh/files.go", Additions: 3}},
+		MoreFiles: 2,
+	}
+}
+
+func TestADiffIsHeldForTheNextVisitToTheTab(t *testing.T) {
+	s := store.New(configured())
+
+	if held := s.Files("PR_412"); held.Loaded || held.Status != store.StatusIdle {
+		t.Errorf("a diff never fetched reads as %+v, want the zero value", held)
+	}
+
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", filesResult())
+
+	held := s.Files("PR_412")
+	if !held.Loaded || held.Status != store.StatusReady {
+		t.Errorf("held = loaded %v status %v, want loaded and ready", held.Loaded, held.Status)
+	}
+	if len(held.Files) != 1 || held.Files[0].Path != "internal/gh/files.go" {
+		t.Errorf("files = %+v, want what came back", held.Files)
+	}
+	if held.MoreFiles != 2 {
+		t.Errorf("MoreFiles = %d, want 2", held.MoreFiles)
+	}
+}
+
+// Tabbing in and out of Files while the first request is out has to cost one
+// round trip, the same way opening a row twice does.
+func TestBeginFilesRefusesOneAlreadyInFlight(t *testing.T) {
+	s := store.New(configured())
+
+	if !s.BeginFiles("PR_412") {
+		t.Fatal("the first BeginFiles was refused")
+	}
+	if s.BeginFiles("PR_412") {
+		t.Error("a second BeginFiles started a duplicate request")
+	}
+
+	s.FilesApplied("PR_412", filesResult())
+	if !s.BeginFiles("PR_412") {
+		t.Error("a settled diff refused a refetch")
+	}
+}
+
+func TestAFailedRefetchKeepsTheDiffItAlreadyHad(t *testing.T) {
+	s := store.New(configured())
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", filesResult())
+
+	boom := errors.New("context deadline exceeded")
+	s.BeginFiles("PR_412")
+	s.FilesFailed("PR_412", boom)
+
+	held := s.Files("PR_412")
+	if held.Status != store.StatusFailed {
+		t.Errorf("status = %v, want failed", held.Status)
+	}
+	if !errors.Is(held.Err, boom) {
+		t.Errorf("err = %v, want the one it failed with", held.Err)
+	}
+	if !held.Loaded || len(held.Files) != 1 {
+		t.Error("the failure took the diff with it")
+	}
+}
+
+// The two caches are keyed the same but answer different questions. A diff must
+// not read as loaded because the conversation is.
+func TestTheDiffAndTheDetailAreHeldApart(t *testing.T) {
+	s := store.New(configured())
+	s.BeginDetail("PR_412")
+	s.DetailApplied("PR_412", detailResult("PR_412", 4800))
+
+	if held := s.Files("PR_412"); held.Loaded {
+		t.Error("a loaded detail made the diff read as loaded")
+	}
 }

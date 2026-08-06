@@ -70,7 +70,10 @@ query PullRequestDetail($id: ID!, $head: String!) {
           isOutdated
           path
           line
+          startLine
           originalLine
+          originalStartLine
+          diffSide
           comments(first: 50) {
             totalCount
             nodes {
@@ -201,12 +204,15 @@ type pullRequestResponse struct {
 		ReviewThreads struct {
 			TotalCount int
 			Nodes      []struct {
-				IsResolved   bool
-				IsOutdated   bool
-				Path         string
-				Line         int
-				OriginalLine int
-				Comments     struct {
+				IsResolved        bool
+				IsOutdated        bool
+				Path              string
+				Line              int
+				StartLine         int
+				OriginalLine      int
+				OriginalStartLine int
+				DiffSide          string
+				Comments          struct {
 					TotalCount int
 					Nodes      []struct {
 						Author            actorNode
@@ -308,9 +314,13 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	detail.Reviewers = reviewers(resp)
 
 	for _, t := range n.ReviewThreads.Nodes {
+		// GitHub nulls line and startLine once a thread goes outdated, so the
+		// original pair is what is left to anchor it by.
 		thread := ReviewThread{
 			Path:       t.Path,
 			Line:       cmp.Or(t.Line, t.OriginalLine),
+			StartLine:  cmp.Or(t.StartLine, t.OriginalStartLine),
+			Side:       DiffSide(cmp.Or(t.DiffSide, string(SideRight))),
 			IsResolved: t.IsResolved,
 			IsOutdated: t.IsOutdated,
 		}

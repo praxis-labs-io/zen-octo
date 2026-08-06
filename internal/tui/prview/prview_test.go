@@ -14,6 +14,7 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
+	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -29,10 +30,18 @@ func samplePR() gh.PullRequest {
 	}
 }
 
+// syntax is the colorizer the screen highlights code with. Tests use the same
+// style the default theme names, so the colors a diff test asserts are the ones
+// a reader sees.
+func syntax() comp.Syntax {
+	s, _ := comp.NewSyntax(theme.RosePineMoon.Syntax)
+	return s
+}
+
 func screen(width, height int) prview.Model { return sized(samplePR(), width, height) }
 
 func sized(pr gh.PullRequest, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetSize(width, height)
 	return m
 }
@@ -290,7 +299,7 @@ func TestTheBranchLineClipsTheHeadRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 
@@ -398,12 +407,13 @@ func sampleDetail() gh.PullRequestDetail {
 		},
 
 		Threads: []gh.ReviewThread{
-			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42,
+			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour),
 						Body: "This backs off forever."},
 				}},
-			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, IsResolved: true,
+			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
+				IsResolved: true,
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour), Body: "Typo."},
 					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour), Body: "Fixed."},
@@ -418,7 +428,7 @@ func held(d gh.PullRequestDetail) store.Detail {
 }
 
 func detailed(d store.Detail, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, syntax())
 	m.SetDetail(d)
 	m.SetSize(width, height)
 	return m
@@ -786,7 +796,7 @@ func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(150, 30)
 
@@ -1035,7 +1045,7 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 

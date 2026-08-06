@@ -29,7 +29,11 @@ type ListMap struct {
 }
 
 // DetailMap is live on the pull request detail screen. The same movement keys
-// serve the conversation and the rail; focus decides what they move.
+// serve every pane; focus decides what they move.
+//
+// FocusPane is one binding over the digits rather than one per pane, because
+// the Files tab puts a third pane on screen and the panes are numbered by where
+// they sit rather than by what they hold.
 type DetailMap struct {
 	Up           key.Binding
 	Down         key.Binding
@@ -43,8 +47,7 @@ type DetailMap struct {
 	PrevTab      key.Binding
 	PaneLeft     key.Binding
 	PaneRight    key.Binding
-	FocusMain    key.Binding
-	FocusRail    key.Binding
+	FocusPane    key.Binding
 	ToggleRail   key.Binding
 	Expand       key.Binding
 	Back         key.Binding
@@ -86,10 +89,9 @@ var (
 		PrevTab:      key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
-		FocusMain:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "conversation")),
-		FocusRail:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "details")),
+		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
-		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand folds")),
+		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	}
 )
@@ -121,7 +123,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab},
-		{k.FocusMain, k.FocusRail, k.ToggleRail, k.Expand},
+		{k.FocusPane, k.ToggleRail, k.Expand},
 		{k.PaneLeft, k.PaneRight, k.Back},
 		{Global.Help, Global.Quit},
 	}

@@ -60,7 +60,7 @@ const detailBody = `{
       "totalCount": 5,
       "nodes": [
         {"isResolved": false, "isOutdated": false, "path": "internal/gh/client.go", "line": 42,
-         "originalLine": 40,
+         "startLine": 40, "originalLine": 40, "originalStartLine": 38, "diffSide": "RIGHT",
          "comments": {"totalCount": 2, "nodes": [
            {"author": {"login": "nkr"}, "createdAt": "2026-08-03T09:00:00Z",
             "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"}},
@@ -68,7 +68,7 @@ const detailBody = `{
             "body": "Capped.", "pullRequestReview": {"id": "REV_1"}}
          ]}},
         {"isResolved": true, "isOutdated": true, "path": "internal/store/store.go", "line": null,
-         "originalLine": 88,
+         "startLine": null, "originalLine": 88, "originalStartLine": 86, "diffSide": "LEFT",
          "comments": {"totalCount": 1, "nodes": [
            {"author": {"login": "nkr"}, "createdAt": "2026-08-05T09:00:00Z",
             "body": "Typo.", "pullRequestReview": {"id": "REV_2"}}
@@ -110,7 +110,7 @@ const detailBody = `{
 func fetchDetail(t *testing.T) PullRequestDetail {
 	t.Helper()
 
-	res, err := newWithDoer(&fakeDoer{body: detailBody}).PullRequest(context.Background(), "PR_412", "fix-auth")
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
@@ -224,6 +224,44 @@ func TestAThreadNamesTheReviewThatOpenedIt(t *testing.T) {
 	}
 }
 
+func TestAThreadCarriesTheSideAndSpanItAnchorsTo(t *testing.T) {
+	threads := fetchDetail(t).Threads
+
+	first := threads[0]
+	if first.Side != SideRight {
+		t.Errorf("Side = %q, want RIGHT", first.Side)
+	}
+	if first.StartLine != 40 {
+		t.Errorf("StartLine = %d, want 40", first.StartLine)
+	}
+
+	// An outdated thread has neither line nor start line, so both fall back to
+	// what it was written against.
+	second := threads[1]
+	if second.Side != SideLeft {
+		t.Errorf("Side = %q, want LEFT", second.Side)
+	}
+	if second.StartLine != 86 {
+		t.Errorf("StartLine = %d, want 86 from originalStartLine", second.StartLine)
+	}
+}
+
+// A thread GitHub returns with no side at all still has to anchor somewhere,
+// and the right is where a single-sided comment lives.
+func TestAThreadWithNoSideDefaultsToTheRight(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 1, "nodes": [
+	  {"path": "a.go", "line": 3, "comments": {"totalCount": 0, "nodes": []}}
+	]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+	if got := res.Detail.Threads[0].Side; got != SideRight {
+		t.Errorf("Side = %q, want RIGHT", got)
+	}
+}
+
 // A page that stopped short has to say so. A dropped comment that reads as no
 // comment is the failure worth a field.
 func TestWhatThePageDidNotReachIsReported(t *testing.T) {
@@ -289,7 +327,7 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 }
 
 func TestPullRequestReportsWhatTheCallCost(t *testing.T) {
-	res, err := newWithDoer(&fakeDoer{body: detailBody}).PullRequest(context.Background(), "PR_412", "fix-auth")
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
@@ -304,7 +342,7 @@ func TestPullRequestReportsWhatTheCallCost(t *testing.T) {
 func TestPullRequestPassesTheNodeID(t *testing.T) {
 	doer := &fakeDoer{body: detailBody}
 
-	if _, err := newWithDoer(doer).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
+	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
 	if doer.gotVars["id"] != "PR_412" {
@@ -322,7 +360,7 @@ func TestPullRequestPassesTheNodeID(t *testing.T) {
 func TestAnIDBehindNoPullRequestIsAnError(t *testing.T) {
 	doer := &fakeDoer{body: `{"node": {}}`}
 
-	_, err := newWithDoer(doer).PullRequest(context.Background(), "I_1", "topic")
+	_, err := newWithDoer(doer, nil).PullRequest(context.Background(), "I_1", "topic")
 	if err == nil {
 		t.Fatal("PullRequest() error = nil, want an error")
 	}
@@ -390,6 +428,16 @@ func TestHowFarBehindTheBaseComesBack(t *testing.T) {
 // with no error anywhere.
 func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
 	for _, want := range []string{"... on User { login }", "... on Bot { login }", "... on Team { slug"} {
+		if !strings.Contains(pullRequestQuery, want) {
+			t.Errorf("the query does not ask for %q", want)
+		}
+	}
+}
+
+// Same reasoning: the fixture would decode a thread with no side and the Files
+// tab would anchor every comment to the right half of the diff.
+func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
+	for _, want := range []string{"startLine", "originalStartLine", "diffSide"} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)
 		}
