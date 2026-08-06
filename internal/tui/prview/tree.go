@@ -3,7 +3,6 @@ package prview
 import (
 	"path"
 	"sort"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -112,8 +111,9 @@ func flatten(n *node, collapsed map[string]bool, depth int, out []row) []row {
 	return out
 }
 
-// renderRow is one line of the tree: the fold marker, the name, and the churn
-// pushed to the right edge.
+// renderRow is one line of the tree: the fold marker and the name. No churn:
+// every file's own heading in the diff carries it, and repeating it here costs
+// the column the cells a nested path needs.
 //
 // Selection is painted cell by cell. A joined row wrapped in the background
 // style afterwards paints only its first cell, because every styled run ends in
@@ -135,32 +135,22 @@ func renderRow(th theme.Theme, r row, width int, selected bool) string {
 	}
 	lead += base.Foreground(th.Faint).Render(marker)
 
-	churn := ""
-	if r.file != nil {
-		churn = base.Foreground(th.Success).Render("+"+strconv.Itoa(r.file.Additions)) +
-			base.Render(" ") +
-			base.Foreground(th.Error).Render("−"+strconv.Itoa(r.file.Deletions))
-	}
-
 	name := base.Foreground(th.Primary)
 	if r.dir {
 		name = base.Foreground(th.Secondary)
 	}
 
-	room := max(0, width-lipgloss.Width(lead)-lipgloss.Width(churn)-1)
+	room := max(0, width-lipgloss.Width(lead))
 	label := name.Render(r.label)
 	if lipgloss.Width(label) > room {
 		label = comp.Clip(label, room, base.Foreground(th.Faint))
 	}
 
 	line := lead + label
-	gap := max(0, width-lipgloss.Width(line)-lipgloss.Width(churn))
-	line += base.Render(strings.Repeat(" ", gap)) + churn
-
-	// A column too narrow for the churn alone overflows everything above, and
-	// the pane would clip it mid-cell with nothing to say it had.
+	// A column too narrow for the indent alone overflows everything above it,
+	// and the pane would clip it mid-cell with nothing to say it had.
 	if lipgloss.Width(line) > width {
 		return comp.Clip(line, width, base.Foreground(th.Faint))
 	}
-	return line
+	return line + base.Render(strings.Repeat(" ", width-lipgloss.Width(line)))
 }

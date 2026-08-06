@@ -106,6 +106,30 @@ func TestTheFileColumnNestsThePathsAndFoldsASingleChildRun(t *testing.T) {
 	}
 }
 
+// The churn belongs to the file's own heading in the diff. In the column
+// beside it, it is the same number twice and the cells a nested path needs.
+func TestTheChurnIsOnTheFileHeadingAndNotInTheColumn(t *testing.T) {
+	m := onFiles(200, 50)
+
+	head := false
+	for _, line := range strings.Split(stripANSI(m.View()), "\n") {
+		cells := strings.Split(line, "│")
+		if len(cells) < 2 {
+			continue
+		}
+		if strings.ContainsAny(cells[1], "+−") {
+			t.Errorf("the file column carries churn: %q", strings.TrimSpace(cells[1]))
+		}
+		if strings.Contains(line, "internal/gh/client.go") && strings.Contains(line, "+2") {
+			head = true
+		}
+	}
+
+	if !head {
+		t.Error("the file heading in the diff lost its churn along with the column's")
+	}
+}
+
 func TestARenameShowsThePathItCameFrom(t *testing.T) {
 	out := stripANSI(onFiles(200, 50).View())
 	if !strings.Contains(out, "internal/tui/prview/diff.go → internal/tui/prview/files.go") {
