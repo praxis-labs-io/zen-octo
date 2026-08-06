@@ -82,15 +82,6 @@ const diffMeasure = 80
 // each file starts in its own body, and scrolling to one has to clear this.
 const contentLead = 1
 
-// headerGutter keeps the header line off both edges, so it sits over the panes'
-// interiors rather than over their borders.
-const headerGutter = 1
-
-// headerMinFrame is the shortest frame that gets a header. Under it the panes
-// take the line: a header over a pane with no room for content names something
-// that is not on the screen.
-const headerMinFrame = 4
-
 type pane int
 
 const (
@@ -455,24 +446,22 @@ func (m *Model) layout() {
 		m.focus = paneMain
 	}
 
-	height := m.height - m.headerHeight()
-
 	mainWidth := m.width
 	if m.treeVisible() {
 		column := m.treeColumn()
 		mainWidth -= column
-		m.tree = m.tree.Size(column, height)
+		m.tree = m.tree.Size(column, m.height)
 		m.treeView.SetWidth(m.tree.InnerWidth())
 		m.treeView.SetHeight(m.tree.InnerHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
-		m.rail = m.rail.Size(columnWidth, height)
+		m.rail = m.rail.Size(columnWidth, m.height)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, height)
+	m.main = m.main.Size(mainWidth, m.height)
 	m.view.SetWidth(m.main.InnerWidth())
 	m.view.SetHeight(m.main.InnerHeight())
 	m.syncContent()
@@ -602,62 +591,12 @@ func (m Model) View() string {
 		panes = append(panes, m.rail.
 			Index(index[paneRail]).
 			Title("Details").
-			Focus(m.focus == paneRail).
 			Footer(scrollFooter(m.railView)).
+			Focus(m.focus == paneRail).
 			Render(m.railView.View()))
 	}
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	if m.headerHeight() == 0 {
-		return body
-	}
-	return m.header() + "\n" + body
-}
-
-// headerHeight is the line above the panes, or nothing on a frame with no room
-// to spare for it.
-func (m Model) headerHeight() int {
-	if m.height < headerMinFrame {
-		return 0
-	}
-	return 1
-}
-
-// header names the pull request over every pane and on every tab. The
-// conversation says the same things in its own block, but only there: a diff
-// with nothing on screen naming what it belongs to is a diff you have to leave
-// to identify.
-//
-// It comes off the list row, so it is on screen before the detail query
-// answers.
-func (m Model) header() string {
-	icon, c := comp.PRStateIcon(m.theme, m.pr)
-	label, _ := comp.PRStateLabel(m.theme, m.pr)
-
-	lead := lipgloss.NewStyle().Foreground(c).Render(icon+" "+label) +
-		m.faint().Render(" · ") +
-		lipgloss.NewStyle().Foreground(m.theme.Secondary).Bold(true).Render("#"+strconv.Itoa(m.pr.Number)) +
-		" " + lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(m.pr.Title)
-
-	// A deleted account has no login, and the title takes the space back.
-	author := ""
-	if login := m.pr.Author.Login; login != "" {
-		author = lipgloss.NewStyle().Foreground(m.theme.Actor).Render(comp.Handle(login))
-	}
-
-	width := max(0, m.width-headerGutter*2)
-	room := max(0, width-lipgloss.Width(author)-1)
-	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, m.faint())
-	}
-
-	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(author))
-	line := lead + strings.Repeat(" ", gap) + author
-	if lipgloss.Width(line) > width {
-		line = comp.Clip(line, width, m.faint())
-	}
-	pad := strings.Repeat(" ", headerGutter)
-	return pad + line + pad
+	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A
