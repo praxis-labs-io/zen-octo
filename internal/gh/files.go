@@ -43,10 +43,41 @@ func (c *Client) PullRequestFiles(ctx context.Context, repo string, number, chan
 		return FilesResult{}, fmt.Errorf("fetching files (%s#%d): %w", repo, number, classify(err))
 	}
 
-	out := FilesResult{
-		Files:     make([]ChangedFile, 0, len(nodes)),
+	return FilesResult{
+		Files:     changed(nodes),
 		MoreFiles: max(0, changedFiles-len(nodes)),
+	}, nil
+}
+
+// CommitFiles fetches one commit's diff. The commit endpoint answers with the
+// same file nodes the pull request one does, so everything below the request is
+// shared.
+//
+// It reports overflow as a flag rather than a count: the response carries no
+// changed-file total, so a full page is all there is to go on.
+func (c *Client) CommitFiles(ctx context.Context, repo, sha string) (FilesResult, error) {
+	if !strings.Contains(repo, "/") {
+		return FilesResult{}, fmt.Errorf("fetching commit (%s@%s): %q is not owner/name", repo, sha, repo)
 	}
+
+	path := fmt.Sprintf("repos/%s/commits/%s?per_page=%d", repo, sha, filesPage)
+
+	var resp struct {
+		Files []fileNode `json:"files"`
+	}
+	if err := c.rest.DoWithContext(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return FilesResult{}, fmt.Errorf("fetching commit (%s@%s): %w", repo, sha, classify(err))
+	}
+
+	return FilesResult{
+		Files:     changed(resp.Files),
+		Truncated: len(resp.Files) >= filesPage,
+	}, nil
+}
+
+// changed turns the REST file nodes into the domain type.
+func changed(nodes []fileNode) []ChangedFile {
+	out := make([]ChangedFile, 0, len(nodes))
 	for _, n := range nodes {
 		file := ChangedFile{
 			Path:         n.Filename,
@@ -60,9 +91,9 @@ func (c *Client) PullRequestFiles(ctx context.Context, repo string, number, chan
 		} else {
 			file.Hunks = hunks(n.Patch)
 		}
-		out.Files = append(out.Files, file)
+		out = append(out, file)
 	}
-	return out, nil
+	return out
 }
 
 // omission says why a file arrived without a patch. GitHub does not tell us

@@ -77,6 +77,20 @@ const detailBody = `{
       ]
     },
 
+    "commits": {
+      "totalCount": 9,
+      "nodes": [
+        {"commit": {"oid": "a3f91c2d5e", "abbreviatedOid": "a3f91c2",
+          "messageHeadline": "Cap the backoff", "committedDate": "2026-08-02T08:00:00Z",
+          "author": {"name": "Drew White", "user": {"login": "drucial"}},
+          "statusCheckRollup": {"state": "SUCCESS"}}},
+        {"commit": {"oid": "7b20ef4a11", "abbreviatedOid": "7b20ef4",
+          "messageHeadline": "Drop the count", "committedDate": "2026-08-04T08:00:00Z",
+          "author": {"name": "Drew White", "user": null},
+          "statusCheckRollup": null}}
+      ]
+    },
+
     "timelineItems": {"nodes": [
       {"__typename": "HeadRefForcePushedEvent", "createdAt": "2026-08-04T12:00:00Z",
        "actor": {"login": "drucial"}},
@@ -169,8 +183,10 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 		kind  TimelineKind
 		login string
 	}{
-		{TimelineComment, ""}, // the deleted account, 2nd Aug
+		{TimelineCommit, "drucial"}, // a3f91c2, 2nd Aug 08:00
+		{TimelineComment, ""},       // the deleted account, 2nd Aug 09:00
 		{TimelineReview, "nkr"},
+		{TimelineCommit, ""}, // 7b20ef4, from an email GitHub matched to nobody
 		{TimelineComment, "octobot"},
 		{TimelineForcePushed, "drucial"},
 		{TimelineReview, "nkr"},
@@ -273,6 +289,58 @@ func TestWhatThePageDidNotReachIsReported(t *testing.T) {
 	}
 	if d.MoreThreads != 3 {
 		t.Errorf("MoreThreads = %d, want 3 of 5 past the two returned", d.MoreThreads)
+	}
+	if d.MoreCommits != 7 {
+		t.Errorf("MoreCommits = %d, want 7 of 9 past the two returned", d.MoreCommits)
+	}
+}
+
+func TestTheCommitsCarryTheirShaHeadlineAndOwnRollup(t *testing.T) {
+	commits := fetchDetail(t).Commits
+
+	if len(commits) != 2 {
+		t.Fatalf("%d commits, want the two the page returned", len(commits))
+	}
+
+	first := commits[0]
+	if first.SHA != "a3f91c2d5e" || first.Short != "a3f91c2" {
+		t.Errorf("sha = %q/%q, want the full and abbreviated oid", first.SHA, first.Short)
+	}
+	if first.Headline != "Cap the backoff" {
+		t.Errorf("Headline = %q, want the message headline", first.Headline)
+	}
+	if first.Author.Login != "drucial" {
+		t.Errorf("Author = %q, want the linked account", first.Author.Login)
+	}
+	if first.Checks != CheckStateSuccess {
+		t.Errorf("Checks = %q, want this commit's own rollup", first.Checks)
+	}
+
+	// A commit whose email matches no account has no login, and no checks have
+	// reported against it either.
+	second := commits[1]
+	if second.Author.Login != "" || second.AuthorName != "Drew White" {
+		t.Errorf("second author = %q/%q, want the git name alone",
+			second.Author.Login, second.AuthorName)
+	}
+	if second.Checks != CheckStateNone {
+		t.Errorf("Checks = %q, want none reported", second.Checks)
+	}
+}
+
+// A timeline commit carries the commit behind it, so the conversation can name
+// the sha without going back to the list for it.
+func TestATimelineCommitCarriesItsCommit(t *testing.T) {
+	for _, item := range fetchDetail(t).Timeline {
+		if item.Kind != TimelineCommit {
+			continue
+		}
+		if item.Commit == nil {
+			t.Fatal("a commit entry carries no commit")
+		}
+		if item.Commit.Short == "" {
+			t.Errorf("the commit behind the entry is empty: %+v", item.Commit)
+		}
 	}
 }
 

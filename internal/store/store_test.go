@@ -364,6 +364,60 @@ func TestAFailedRefetchKeepsTheDiffItAlreadyHad(t *testing.T) {
 	}
 }
 
+func TestACommitsDiffIsHeldForTheNextTimeItIsOpened(t *testing.T) {
+	s := store.New(configured())
+
+	if held := s.CommitFiles("a3f91c2"); held.Loaded || held.Status != store.StatusIdle {
+		t.Errorf("a commit never fetched reads as %+v, want the zero value", held)
+	}
+
+	if !s.BeginCommitFiles("a3f91c2") {
+		t.Fatal("the first BeginCommitFiles was refused")
+	}
+	if s.BeginCommitFiles("a3f91c2") {
+		t.Error("a second BeginCommitFiles started a duplicate request")
+	}
+	s.CommitFilesApplied("a3f91c2", filesResult())
+
+	held := s.CommitFiles("a3f91c2")
+	if !held.Loaded || held.Status != store.StatusReady {
+		t.Errorf("held = loaded %v status %v, want loaded and ready", held.Loaded, held.Status)
+	}
+	if len(held.Files) != 1 || held.Files[0].Path != "internal/gh/files.go" {
+		t.Errorf("files = %+v, want what came back", held.Files)
+	}
+}
+
+func TestAFailedCommitRefetchKeepsTheDiffItAlreadyHad(t *testing.T) {
+	s := store.New(configured())
+	s.BeginCommitFiles("a3f91c2")
+	s.CommitFilesApplied("a3f91c2", filesResult())
+
+	boom := errors.New("context deadline exceeded")
+	s.BeginCommitFiles("a3f91c2")
+	s.CommitFilesFailed("a3f91c2", boom)
+
+	held := s.CommitFiles("a3f91c2")
+	if !errors.Is(held.Err, boom) || held.Status != store.StatusFailed {
+		t.Errorf("held = %v / %v, want failed with the error it failed on", held.Status, held.Err)
+	}
+	if !held.Loaded || len(held.Files) != 1 {
+		t.Error("the failure took the diff with it")
+	}
+}
+
+// A commit and a pull request are keyed in separate maps, so a sha that happens
+// to match an id answers for its own diff rather than the other's.
+func TestACommitsDiffIsHeldApartFromThePullRequests(t *testing.T) {
+	s := store.New(configured())
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", filesResult())
+
+	if held := s.CommitFiles("PR_412"); held.Loaded {
+		t.Error("a pull request's diff answered for a commit")
+	}
+}
+
 // The two caches are keyed the same but answer different questions. A diff must
 // not read as loaded because the conversation is.
 func TestTheDiffAndTheDetailAreHeldApart(t *testing.T) {

@@ -100,7 +100,7 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	if strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation still reads as current after switching")
 	}
-	if !strings.Contains(next.View(), "Commits land with their own ticket.") {
+	if !strings.Contains(next.View(), "to show a commit's diff") {
 		t.Error("the body did not follow the tab")
 	}
 

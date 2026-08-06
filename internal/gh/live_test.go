@@ -65,10 +65,10 @@ func TestLiveSearchPullRequests(t *testing.T) {
 	}
 }
 
-// TestLiveDetailAndFiles covers the two calls the detail screen makes. The
-// detail query is GraphQL and dies whole on one unknown field; the files call
-// is REST and dies on a path, a media type, or a token scope instead. Neither
-// failure is reachable from canned JSON.
+// TestLiveDetailAndFiles covers the three calls the detail screen makes. The
+// detail query is GraphQL and dies whole on one unknown field; the two diff
+// calls are REST and die on a path, a media type, or a token scope instead.
+// None of those failures is reachable from canned JSON.
 //
 //	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveDetailAndFiles(t *testing.T) {
@@ -118,5 +118,23 @@ func TestLiveDetailAndFiles(t *testing.T) {
 		if len(f.Hunks) == 0 && f.Omitted == "" {
 			t.Errorf("%s has no hunks and no reason why", f.Path)
 		}
+	}
+
+	commits := detail.Detail.Commits
+	if len(commits) == 0 {
+		t.Fatalf("#%d has no commits, which no open pull request can be", pr.Number)
+	}
+	for _, c := range commits {
+		if c.SHA == "" || c.Short == "" {
+			t.Errorf("a commit came back with no sha: %+v", c)
+		}
+	}
+
+	commitFiles, err := client.CommitFiles(ctx, pr.Repository, commits[0].SHA)
+	if err != nil {
+		t.Fatalf("CommitFiles() error = %v", err)
+	}
+	if len(commitFiles.Files) == 0 {
+		t.Errorf("%s changed no files, which no commit does", commits[0].Short)
 	}
 }

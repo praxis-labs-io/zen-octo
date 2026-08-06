@@ -34,10 +34,13 @@ type fakeSearcher struct {
 	queries     []string
 	opens       []string
 	diffs       []string
+	commitDiffs []string
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
+	commitFiles map[string][]gh.ChangedFile
 	detailErr   error
 	filesErr    error
+	commitErr   error
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -104,6 +107,18 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 	f.details[id] = gh.PullRequestDetail{Body: body}
 }
 
+// serveCommits stages the commits behind one pull request.
+func (f *fakeSearcher) serveCommits(id string, commits []gh.Commit) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Commits = commits
+	f.details[id] = held
+}
+
 // failDetails makes every open fail from here on.
 func (f *fakeSearcher) failDetails(err error) {
 	f.mu.Lock()
@@ -157,6 +172,43 @@ func (f *fakeSearcher) fetched() []string {
 	return slices.Clone(f.diffs)
 }
 
+// CommitFiles answers with whatever diff the test staged for that sha.
+func (f *fakeSearcher) CommitFiles(_ context.Context, repo, sha string) (gh.FilesResult, error) {
+	f.mu.Lock()
+	f.commitDiffs = append(f.commitDiffs, repo+"@"+sha)
+	files, err := f.commitFiles[sha], f.commitErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.FilesResult{}, err
+	}
+	return gh.FilesResult{Files: files}, nil
+}
+
+// serveCommit stages one commit's diff.
+func (f *fakeSearcher) serveCommit(sha string, files []gh.ChangedFile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.commitFiles == nil {
+		f.commitFiles = make(map[string][]gh.ChangedFile)
+	}
+	f.commitFiles[sha] = files
+}
+
+// failCommits makes every commit diff fetch fail from here on.
+func (f *fakeSearcher) failCommits(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commitErr = err
+}
+
+// fetchedCommits is the commits the model asked a diff for, in order.
+func (f *fakeSearcher) fetchedCommits() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.commitDiffs)
+}
+
 // querySearcher answers per query, so a test can hold one section's fetch back
 // and let another land first.
 type querySearcher struct {
@@ -176,6 +228,10 @@ func (f *querySearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailR
 }
 
 func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+	return gh.FilesResult{}, nil
+}
+
+func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
 	return gh.FilesResult{}, nil
 }
 
@@ -1332,6 +1388,50 @@ func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
 		t.Error("the diff is not on screen after the reopen")
+	}
+}
+
+// A commit's diff is its own request, so the cursor walks the column for free
+// and the key is what pays for one.
+func TestACommitsDiffIsFetchedOnSelectionAndOnlyThen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the count"},
+	})
+	client.serveCommit("7b20ef4a11", sampleFiles())
+
+	// Open, on to Commits, into the column, down a row.
+	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "j")
+	if got := client.fetchedCommits(); len(got) != 0 {
+		t.Fatalf("fetched %v before anything was selected", got)
+	}
+
+	m = press(m, "enter")
+	want := "zen-octo/zen-octo@7b20ef4a11"
+	if got := client.fetchedCommits(); len(got) != 1 || got[0] != want {
+		t.Errorf("fetched %v, want one request for %q", got, want)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the commit's diff never reached the screen")
+	}
+
+	// Selecting the same commit again is answered by what is already on screen.
+	if press(m, "enter"); len(client.fetchedCommits()) != 1 {
+		t.Errorf("fetched %v, want the second selection to cost nothing",
+			client.fetchedCommits())
+	}
+}
+
+func TestAFailedCommitDiffSaysSoOnTheTab(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+	client.failCommits(errors.New("context deadline exceeded"))
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "enter")
+
+	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
+		t.Error("a failed commit diff reads as an empty one")
 	}
 }
 

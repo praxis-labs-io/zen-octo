@@ -37,9 +37,10 @@ type RailPreference struct {
 }
 
 // columnWidth is the side column on either edge of the screen: the details rail
-// on the conversation, the file tree on the diff. One number serves both. They
-// never share a frame, so the only place the difference shows is in the jump
-// when you tab between them, and there it reads as a mistake.
+// on the conversation, the file tree on the diff, the commit list on the
+// commits. One number serves all three. They never share a frame, so the only
+// place the difference shows is in the jump when you tab between them, and
+// there it reads as a mistake.
 //
 // It is fixed rather than proportional: a column that grows with the frame just
 // moves the content around. Wide enough for a branch name, which is the longest
@@ -64,14 +65,19 @@ const railGutter = 1
 // The diff is exempt: code wants every column it can have.
 const contentMeasure = 90
 
-// treeMin is as narrow as the file column goes before it hides instead. It is
+// sideMin is as narrow as the left column goes before it hides instead. It is
 // the one column that shrinks rather than holding its width, because it is the
-// only navigation the diff has and hiding it costs more than narrowing it.
-const treeMin = 24
+// only navigation the pane beside it has and hiding it costs more than
+// narrowing it.
+const sideMin = 24
 
-// treeMinFrame is the width below which the tree hides. Under it the diff is
-// down to a gutter and a fragment, and the file headings in the diff itself
+// treeMinFrame is the width below which the file tree hides. Under it the diff
+// is down to a gutter and a fragment, and the file headings in the diff itself
 // still carry navigation.
+//
+// The commit column has no floor of its own: nothing else on that tab names a
+// commit, so hiding it would leave the diff beside it with no way to change
+// what it is showing.
 const treeMinFrame = 70
 
 // diffMeasure is the width the diff keeps before the tree gives any up. Below
@@ -85,16 +91,19 @@ const contentLead = 1
 type pane int
 
 const (
-	paneTree pane = iota
+	paneSide pane = iota
 	paneMain
 	paneRail
 )
 
-// tabFiles is the diff. The tabs are a slice rather than an enum, so the one
-// with a body of its own is named.
-const tabFiles = 3
+// tabCommits and tabFiles have bodies of their own. The tabs are a slice rather
+// than an enum, so the ones that do are named.
+const (
+	tabCommits = 1
+	tabFiles   = 3
+)
 
-// tabs on the detail screen. Commits and Checks land with their own tickets.
+// tabs on the detail screen. Checks lands with its own ticket.
 var tabs = []comp.Tab{
 	{Label: "Conversation"},
 	{Label: "Commits"},
@@ -105,14 +114,14 @@ var tabs = []comp.Tab{
 // Model is the detail screen.
 type Model struct {
 	theme theme.Theme
-	tree  comp.Pane
+	side  comp.Pane
 	main  comp.Pane
 	rail  comp.Pane
 
 	// Each pane scrolls on its own. The rail overflows a short frame as readily
 	// as the conversation does, and its branch names are the only place some of
 	// them appear.
-	treeView viewport.Model
+	sideView viewport.Model
 	view     viewport.Model
 	railView viewport.Model
 
@@ -132,17 +141,13 @@ type Model struct {
 	cursor    int
 	collapsed map[string]bool
 
-	// spans is where each file's block sits inside the diff body, in the order
-	// the tree has them. The tree scrolls the diff by it and follows the diff
-	// back by it.
-	spans []fileSpan
+	// diff is the rendered Files tab: where each file's block sits, and the
+	// blocks themselves. The Commits tab keeps one of its own.
+	diff diffBody
 
-	// blocks holds the rendered file blocks. Moving the cursor one row repaints
-	// the diff, and rendering a block tokenises the whole file, so without this
-	// a single keystroke costs the diff twice over. blocksAt is what the cache
-	// was built against; anything else invalidates the lot.
-	blocks   map[blockKey]string
-	blocksAt blockState
+	// commit is the Commits tab: what the column has on screen, where its
+	// cursor is, and the diff of the commit that was last selected.
+	commit commits
 
 	// shown is the body the main viewport already holds, and shownAt the width
 	// it was measured at.
@@ -181,10 +186,10 @@ type Model struct {
 func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syntax) Model {
 	return Model{
 		theme:       th,
-		tree:        comp.NewPane(th),
+		side:        comp.NewPane(th),
 		main:        comp.NewPane(th),
 		rail:        comp.NewPane(th),
-		treeView:    newViewport(),
+		sideView:    newViewport(),
 		view:        newViewport(),
 		railView:    newViewport(),
 		md:          comp.NewMarkdown(th),
@@ -204,7 +209,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 // which is what the diff beside it is already showing.
 func (m *Model) SetFiles(f store.Files) {
 	m.files = f
-	m.blocks = nil
+	m.diff.blocks = nil
 	m.syncRows()
 
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
@@ -227,13 +232,15 @@ func (m Model) firstFile() int {
 // loaded replaces the row, so the header and the rail stop showing the thinner
 // version search returned.
 // SetDetail carries the review threads the diff hangs off its lines, so a
-// block rendered before they landed is stale.
+// block rendered before they landed is stale. It carries the commits too, so
+// the column beside the Commits tab comes with it.
 func (m *Model) SetDetail(d store.Detail) {
 	m.detail = d
-	m.blocks = nil
+	m.diff.blocks = nil
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
+	m.syncCommits()
 	m.syncContent()
 }
 
@@ -266,13 +273,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // waiting is the one state the spinner belongs in: nothing to read yet. A
 // refetch behind content already on screen spins over nothing.
 //
-// It answers for both requests rather than the tab's own, because the tick
+// It answers for every request rather than the tab's own, because the tick
 // chain is one and the answer is what keeps it alive. Reading only the tab in
 // front of the user killed the chain the moment they left the Files tab
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		(!m.files.Loaded && m.files.Status == store.StatusLoading)
+		waitingFor(m.files) || waitingFor(m.commit.files)
+}
+
+func waitingFor(f store.Files) bool {
+	return !f.Loaded && f.Status == store.StatusLoading
 }
 
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -293,13 +304,25 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	// A file is a Files tab idea. The spans outlive a tab switch, so without
-	// this the conversation scrolls to wherever the diff last had a file.
+	// Selecting is a Commits tab idea. Nothing else on the screen has anything
+	// to fetch on a keypress.
+	case key.Matches(keyMsg, k.Select) && m.tab == tabCommits:
+		return m, m.selectCommit()
+
+	// A file belongs to whichever tab is showing a diff. The spans outlive a
+	// tab switch, so without the guard the conversation scrolls to wherever the
+	// diff last had a file.
 	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
 		m.jumpFile(1)
 		follow = false
 	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
 		m.jumpFile(-1)
+		follow = false
+	case key.Matches(keyMsg, k.NextFile) && m.tab == tabCommits:
+		m.jumpCommitFile(1)
+		follow = false
+	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabCommits:
+		m.jumpCommitFile(-1)
 		follow = false
 
 	case key.Matches(keyMsg, k.PaneLeft):
@@ -318,10 +341,10 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.expanded = !m.expanded
 		m.syncContent()
 
-	// The Files tab has no rail to toggle. Reading railVisible here would take
-	// its hard false for the user's preference and turn a hidden rail back on,
-	// with nothing on screen to show for the keypress.
-	case key.Matches(keyMsg, k.ToggleRail) && m.tab == tabFiles:
+	// Neither tab with a column has a rail to toggle. Reading railVisible here
+	// would take its hard false for the user's preference and turn a hidden rail
+	// back on, with nothing on screen to show for the keypress.
+	case key.Matches(keyMsg, k.ToggleRail) && !m.railTab():
 
 	case key.Matches(keyMsg, k.ToggleRail):
 		m.railOn, m.railUserSet = !m.railVisible(), true
@@ -336,27 +359,27 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Up):
 		m.move(-1)
 	case key.Matches(keyMsg, k.Top):
-		if !m.jumped(-len(m.rows)) {
+		if !m.jumped(-m.sideRows()) {
 			m.scroll().GotoTop()
 		}
 	case key.Matches(keyMsg, k.Bottom):
-		if !m.jumped(len(m.rows)) {
+		if !m.jumped(m.sideRows()) {
 			m.scroll().GotoBottom()
 		}
 	case key.Matches(keyMsg, k.PageDown):
-		if !m.jumped(m.treeView.Height()) {
+		if !m.jumped(m.sideView.Height()) {
 			m.scroll().PageDown()
 		}
 	case key.Matches(keyMsg, k.PageUp):
-		if !m.jumped(-m.treeView.Height()) {
+		if !m.jumped(-m.sideView.Height()) {
 			m.scroll().PageUp()
 		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		if !m.jumped(m.treeView.Height() / 2) {
+		if !m.jumped(m.sideView.Height() / 2) {
 			m.scroll().HalfPageDown()
 		}
 	case key.Matches(keyMsg, k.HalfPageUp):
-		if !m.jumped(-m.treeView.Height() / 2) {
+		if !m.jumped(-m.sideView.Height() / 2) {
 			m.scroll().HalfPageUp()
 		}
 	}
@@ -370,11 +393,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// move is a row on the tree and a line everywhere else. The tree is the only
-// pane with something to point at.
+// move is a row in the left column and a line everywhere else. The column is
+// the only pane with something to point at.
 func (m *Model) move(delta int) {
-	if m.focus == paneTree {
-		m.moveCursor(delta)
+	if m.focus == paneSide {
+		m.moveSide(delta)
 		return
 	}
 	if delta > 0 {
@@ -385,14 +408,33 @@ func (m *Model) move(delta int) {
 }
 
 // jumped is the same split for the keys that move further than a line, and
-// reports whether it took the key. On the tree they move the cursor: a column
+// reports whether it took the key. In the column they move the cursor: a column
 // scrolled away from its own cursor answers nothing.
 func (m *Model) jumped(rows int) bool {
-	if m.focus != paneTree {
+	if m.focus != paneSide {
 		return false
 	}
-	m.moveCursor(rows)
+	m.moveSide(rows)
 	return true
+}
+
+// moveSide walks whichever column the tab has: files on one, commits on the
+// other.
+func (m *Model) moveSide(delta int) {
+	if m.tab == tabCommits {
+		m.moveCommit(delta)
+		return
+	}
+	m.moveCursor(delta)
+}
+
+// sideRows is how far the column runs, which is what the keys that go to one
+// end of it move by.
+func (m Model) sideRows() int {
+	if m.tab == tabCommits {
+		return len(m.detail.Detail.Commits)
+	}
+	return len(m.rows)
 }
 
 // changeTab moves the strip and takes the scroll position with it. The offset
@@ -404,8 +446,8 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	m.offsets[m.tab] = m.view.YOffset()
 	m.tab = (m.tab + delta + len(tabs)) % len(tabs)
 
-	// The tree comes and goes with the tab, and focus cannot sit on a pane that
-	// is no longer on screen.
+	// The column comes and goes with the tab, and focus cannot sit on a pane
+	// that is no longer on screen.
 	m.layout()
 	m.view.SetYOffset(m.offsets[m.tab])
 
@@ -425,7 +467,7 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 // focusPane moves focus to a pane, skipping whatever is not on screen. Focus
 // walks left to right, which is the order the panes are numbered in.
 func (m *Model) focusPane(want pane) {
-	for _, p := range []pane{paneTree, paneMain, paneRail} {
+	for _, p := range []pane{paneSide, paneMain, paneRail} {
 		if p == want && m.paneVisible(p) {
 			m.focus = p
 			m.syncContent()
@@ -436,14 +478,14 @@ func (m *Model) focusPane(want pane) {
 
 // focusIndex answers a digit with the pane sitting in that position. The panes
 // are numbered by where they are rather than by what they hold, so 2 is the
-// diff on the Files tab and the rail everywhere else.
+// diff on the tabs with a column and the rail on the ones without.
 func (m *Model) focusIndex(digit string) {
 	n, err := strconv.Atoi(digit)
 	if err != nil {
 		return
 	}
 	at := 0
-	for _, p := range []pane{paneTree, paneMain, paneRail} {
+	for _, p := range []pane{paneSide, paneMain, paneRail} {
 		if !m.paneVisible(p) {
 			continue
 		}
@@ -457,8 +499,8 @@ func (m *Model) focusIndex(digit string) {
 
 func (m Model) paneVisible(p pane) bool {
 	switch p {
-	case paneTree:
-		return m.treeVisible()
+	case paneSide:
+		return m.sideVisible()
 	case paneRail:
 		return m.railVisible()
 	}
@@ -469,8 +511,8 @@ func (m Model) paneVisible(p pane) bool {
 // the help text promises and what the pane borders show.
 func (m *Model) scroll() *viewport.Model {
 	switch m.focus {
-	case paneTree:
-		return &m.treeView
+	case paneSide:
+		return &m.sideView
 	case paneRail:
 		return &m.railView
 	}
@@ -497,12 +539,12 @@ func (m *Model) layout() {
 	}
 
 	mainWidth := m.width
-	if m.treeVisible() {
-		column := m.treeColumn()
+	if m.sideVisible() {
+		column := m.sideColumn()
 		mainWidth -= column
-		m.tree = m.tree.Size(column, m.height)
-		m.treeView.SetWidth(m.tree.InnerWidth())
-		m.treeView.SetHeight(m.tree.InnerHeight())
+		m.side = m.side.Size(column, m.height)
+		m.sideView.SetWidth(m.side.InnerWidth())
+		m.sideView.SetHeight(m.side.InnerHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
@@ -520,11 +562,12 @@ func (m *Model) layout() {
 // railVisible decides whether the rail is on screen. Width decides until the
 // user overrides it, and even then the conversation keeps a floor.
 //
-// The Files tab does without it. Everything the rail carries is about the pull
-// request rather than the change, the tree already wants a column, and a diff
-// between the two is a gutter and a fragment.
+// The tabs with a column of their own do without it. Everything the rail
+// carries is about the pull request rather than the change, the column beside
+// the diff already takes one, and a diff between the two is a gutter and a
+// fragment.
 func (m Model) railVisible() bool {
-	if m.tab == tabFiles {
+	if !m.railTab() {
 		return false
 	}
 	if m.railUserSet {
@@ -533,18 +576,30 @@ func (m Model) railVisible() bool {
 	return m.width >= railMinFrame
 }
 
-// treeVisible decides whether the file column is on screen. It belongs to the
-// Files tab alone, and a frame too narrow for it falls back to the file
-// headings inside the diff.
-func (m Model) treeVisible() bool {
-	return m.tab == tabFiles && m.width >= treeMinFrame
+// railTab is whether this tab has a rail at all, at any width.
+func (m Model) railTab() bool { return m.tab != tabFiles && m.tab != tabCommits }
+
+// sideVisible decides whether the left column is on screen.
+//
+// On Files a frame too narrow for it falls back to the file headings inside the
+// diff. On Commits it stays at every width: it is the only thing naming a
+// commit, so hiding it would leave the diff beside it stuck on whatever it
+// happened to be showing.
+func (m Model) sideVisible() bool {
+	switch m.tab {
+	case tabCommits:
+		return true
+	case tabFiles:
+		return m.width >= treeMinFrame
+	}
+	return false
 }
 
-// treeColumn is what the file column gets. It takes its full width where the
+// sideColumn is what the left column gets. It takes its full width where the
 // diff can still be read at its measure and gives the rest back below that,
 // down to a floor.
-func (m Model) treeColumn() int {
-	return min(columnWidth, max(treeMin, m.width-diffMeasure))
+func (m Model) sideColumn() int {
+	return min(columnWidth, max(sideMin, m.width-diffMeasure))
 }
 
 // PullRequest is what the screen is showing.
@@ -556,8 +611,8 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 func (m *Model) syncContent() {
 	// Code is clipped to the pane rather than wrapped: a line of source folded
 	// onto a second row puts its tail under the gutter and every line below it
-	// out of step with its own number.
-	m.view.SoftWrap = m.tab != tabFiles
+	// out of step with its own number. Both tabs that show a diff want it off.
+	m.view.SoftWrap = m.tab != tabFiles && m.tab != tabCommits
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens
@@ -571,12 +626,12 @@ func (m *Model) syncContent() {
 			m.shown, m.shownAt = body, inner
 		}
 	}
-	if m.treeVisible() {
+	if m.sideVisible() {
 		// No gutter and no opening blank line. The column is a list of rows,
-		// each led by its own fold marker, and every cell it gives back to
-		// padding comes off a file name that was already clipping.
-		if inner := m.tree.InnerWidth(); inner > 0 {
-			m.treeView.SetContent(m.treeBody(inner))
+		// each led by its own marker, and every cell it gives back to padding
+		// comes off a name that was already clipping.
+		if inner := m.side.InnerWidth(); inner > 0 {
+			m.sideView.SetContent(m.sideBody(inner))
 		}
 	}
 	if inner := m.rail.InnerWidth(); inner > railGutter*2 {
@@ -592,7 +647,7 @@ func (m *Model) syncContent() {
 // comment the whole way across the screen. Code is not prose, so the diff takes
 // the pane.
 func (m Model) bodyWidth() int {
-	if m.tab == tabFiles {
+	if m.tab == tabFiles || m.tab == tabCommits {
 		return m.main.InnerWidth()
 	}
 	return min(m.main.InnerWidth(), contentMeasure)
@@ -615,7 +670,7 @@ func (m Model) railDetail() gh.PullRequestDetail {
 // they are numbered left to right rather than by what they hold.
 func (m Model) View() string {
 	index, at := make(map[pane]int), 0
-	for _, p := range []pane{paneTree, paneMain, paneRail} {
+	for _, p := range []pane{paneSide, paneMain, paneRail} {
 		if m.paneVisible(p) {
 			at++
 			index[p] = at
@@ -625,8 +680,8 @@ func (m Model) View() string {
 		index = map[pane]int{}
 	}
 
-	// The tab strip goes on the diff rather than on the tree beside it: the
-	// strip is wider than the file column and would clip to a fragment there.
+	// The tab strip goes on the main pane rather than on the column beside it:
+	// the strip is wider than the column and would clip to a fragment there.
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
@@ -634,14 +689,14 @@ func (m Model) View() string {
 		Focus(m.focus == paneMain).
 		Render(m.view.View())}
 
-	if m.treeVisible() {
-		tree := m.tree.
-			Index(index[paneTree]).
-			Title(m.treeTitle()).
-			Footer(scrollFooter(m.treeView)).
-			Focus(m.focus == paneTree).
-			Render(m.treeView.View())
-		panes = append([]string{tree}, panes...)
+	if m.sideVisible() {
+		column := m.side.
+			Index(index[paneSide]).
+			Title(m.sideTitle()).
+			Footer(scrollFooter(m.sideView)).
+			Focus(m.focus == paneSide).
+			Render(m.sideView.View())
+		panes = append([]string{column}, panes...)
 	}
 
 	if m.railVisible() {
@@ -671,10 +726,29 @@ func (m *Model) tabBody() string {
 	switch m.tab {
 	case 0:
 		return m.conversation() + "\n" + m.conversationBody()
+	case tabCommits:
+		return m.commitBody()
 	case tabFiles:
 		return m.filesBody()
 	}
-	return m.faint().Render(tabs[m.tab].Label + " land with their own ticket.")
+	return m.faint().Render(tabs[m.tab].Label + " lands with its own ticket.")
+}
+
+// sideBody renders whichever column the tab has.
+func (m *Model) sideBody(width int) string {
+	if m.tab == tabCommits {
+		return m.commitColumn(width)
+	}
+	return m.treeBody(width)
+}
+
+// sideTitle names the column by what it holds, since the tab strip beside it
+// already says which tab this is.
+func (m Model) sideTitle() string {
+	if m.tab == tabCommits {
+		return m.commitTitle()
+	}
+	return m.treeTitle()
 }
 
 // conversation is the header block every GitHub PR page leads with. It comes
