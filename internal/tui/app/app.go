@@ -535,11 +535,21 @@ func (m Model) statusRight() string {
 	return strings.Join(right, m.status.Context(" · "))
 }
 
+// contextLabel names what is on screen. The detail screen gets the repository
+// as well as the number: the number alone says which pull request only if you
+// already know which repository you opened it from, and the tabs past the
+// conversation carry nothing else that answers it.
 func (m Model) contextLabel() string {
-	if m.screen == screenDetail {
-		return "#" + strconv.Itoa(m.detail.PullRequest().Number)
+	if m.screen != screenDetail {
+		return m.list.Section().Title
 	}
-	return m.list.Section().Title
+
+	pr := m.detail.PullRequest()
+	label := "#" + strconv.Itoa(pr.Number)
+	if pr.Repository != "" {
+		label += " " + pr.Repository
+	}
+	return label
 }
 
 func (m Model) helpBody() string {

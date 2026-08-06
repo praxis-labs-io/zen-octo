@@ -1358,3 +1358,28 @@ func sampleFiles() []gh.ChangedFile {
 		}},
 	}}
 }
+
+// The number alone says which pull request only if you already know which
+// repository you opened it from, and the tabs past the conversation carry
+// nothing else that answers it.
+func TestTheStatusBarNamesTheRepositoryOnTheDetailScreen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := press(loaded(t, client, 160, 40), "enter")
+
+	last := lastLine(render(t, m))
+	if !strings.Contains(last, "#412 zen-octo/zen-octo") {
+		t.Errorf("status bar = %q, want the number and the repository", strings.TrimSpace(last))
+	}
+
+	// The list names its section instead; a repository there would be wrong as
+	// often as right, since a section can span any number of them.
+	back := lastLine(render(t, press(m, "esc")))
+	if strings.Contains(back, "zen-octo/zen-octo") {
+		t.Errorf("the list's status bar carries a repository: %q", strings.TrimSpace(back))
+	}
+}
+
+func lastLine(frame string) string {
+	lines := strings.Split(stripANSI(frame), "\n")
+	return lines[len(lines)-1]
+}
