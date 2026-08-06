@@ -63,7 +63,8 @@ const detailBody = `{
          "startLine": 40, "originalLine": 40, "originalStartLine": 38, "diffSide": "RIGHT",
          "comments": {"totalCount": 2, "nodes": [
            {"author": {"login": "nkr"}, "createdAt": "2026-08-03T09:00:00Z",
-            "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"}},
+            "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"},
+            "diffHunk": "@@ -39,3 +39,4 @@\n \tfor {\n-\t\ttime.Sleep(delay)\n+\t\tdelay = min(delay*2, fetchTimeout)"},
            {"author": {"login": "drucial"}, "createdAt": "2026-08-03T10:00:00Z",
             "body": "Capped.", "pullRequestReview": {"id": "REV_1"}}
          ]}},
@@ -437,7 +438,7 @@ func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
 // Same reasoning: the fixture would decode a thread with no side and the Files
 // tab would anchor every comment to the right half of the diff.
 func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
-	for _, want := range []string{"startLine", "originalStartLine", "diffSide"} {
+	for _, want := range []string{"startLine", "originalStartLine", "diffSide", "diffHunk"} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)
 		}
@@ -483,5 +484,32 @@ func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
 				t.Errorf("teamHandle(%q, %q) = %q, want %q", tt.org, tt.slug, got, tt.want)
 			}
 		})
+	}
+}
+
+// A comment about a line nobody can see is an assertion about nothing. GitHub
+// returns the hunk it was written against on every comment in the thread.
+func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
+	threads := fetchDetail(t).Threads
+
+	hunk := threads[0].Hunk
+	if hunk == nil {
+		t.Fatal("the thread came back with no hunk")
+	}
+	if hunk.Header != "@@ -39,3 +39,4 @@" {
+		t.Errorf("header = %q", hunk.Header)
+	}
+	if len(hunk.Lines) != 3 {
+		t.Fatalf("lines = %d, want 3", len(hunk.Lines))
+	}
+	last := hunk.Lines[2]
+	if last.Kind != DiffAdded || last.New != 40 {
+		t.Errorf("last line = %+v, want the added line at 40", last)
+	}
+
+	// A thread whose comments carry no hunk keeps a nil one rather than an
+	// empty box on the screen.
+	if threads[1].Hunk != nil {
+		t.Errorf("Hunk = %+v, want nil where GitHub sent none", threads[1].Hunk)
 	}
 }

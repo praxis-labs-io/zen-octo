@@ -3,6 +3,7 @@ package prview_test
 import (
 	"errors"
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -242,12 +243,52 @@ func TestSelectingAFileScrollsTheDiffToIt(t *testing.T) {
 		t.Fatal("the last file is already on screen; the test proves nothing")
 	}
 
-	// Walk to the renamed file: internal/, gh/, client.go, store/, store.go,
-	// tui/prview/, files.go.
-	m = press(m, "j", "j", "j", "j", "j", "j")
+	m = press(m, "G")
 	if !strings.Contains(stripANSI(m.View()), "const tabWidth = 4") {
 		t.Error("selecting the file did not scroll the diff to it")
 	}
+}
+
+// The keys that move further than a line have to move the cursor too. A file
+// column scrolled away from its own cursor answers nothing.
+func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
+	m := press(onFiles(200, 16), "1", "G")
+
+	out := stripANSI(m.View())
+	last := strings.Index(out, "files.go")
+	if last < 0 {
+		t.Fatal("the last file is not in the tree")
+	}
+	if !strings.Contains(selectedRow(m.View()), "files.go") {
+		t.Errorf("the cursor is on %q, want the last file", stripANSI(selectedRow(m.View())))
+	}
+
+	if !strings.Contains(selectedRow(press(m, "g").View()), "docs/") {
+		t.Error("g did not take the cursor back to the top")
+	}
+}
+
+// The cursor says which file the diff is showing, which is the question the
+// column exists to answer whether or not the keys are pointed at it.
+func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
+	m := press(onFiles(200, 40), "1", "j", "j")
+	if !strings.Contains(selectedRow(m.View()), "internal/") {
+		t.Fatal("the cursor is not where the test put it")
+	}
+
+	if !strings.Contains(selectedRow(press(m, "2").View()), "internal/") {
+		t.Error("focusing the diff took the cursor off the file column")
+	}
+}
+
+// selectedRow is the line carrying the selection background.
+func selectedRow(frame string) string {
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.Contains(line, selectionSeq()) {
+			return line
+		}
+	}
+	return ""
 }
 
 // The rail and the tree both want a column, and a diff between them stops
@@ -408,13 +449,7 @@ func TestAPullRequestWithNoFilesSaysSo(t *testing.T) {
 func TestTheSelectedFileIsPaintedCellByCell(t *testing.T) {
 	m := press(onFiles(200, 40), "1")
 
-	var selected string
-	for _, line := range strings.Split(m.View(), "\n") {
-		if strings.Contains(line, selectionSeq()) {
-			selected = line
-			break
-		}
-	}
+	selected := selectedRow(m.View())
 	if selected == "" {
 		t.Fatal("no row carries the selection background")
 	}
@@ -425,5 +460,122 @@ func TestTheSelectedFileIsPaintedCellByCell(t *testing.T) {
 
 func selectionSeq() string {
 	r, g, b, _ := theme.RosePineMoon.SelectedBackground.RGBA()
+	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+// A changed line is read as a block, not a character at a time. The tint has to
+// run the whole width, and it is painted per cell because every styled run ends
+// in a reset that clears the background with it.
+func TestAChangedLineIsTintedEdgeToEdge(t *testing.T) {
+	frame := onFiles(200, 50).View()
+
+	added, removed := "", ""
+	for _, line := range strings.Split(frame, "\n") {
+		switch {
+		case strings.Contains(line, bgSeq(theme.RosePineMoon.AddedBackground)) && added == "":
+			added = line
+		case strings.Contains(line, bgSeq(theme.RosePineMoon.RemovedBackground)) && removed == "":
+			removed = line
+		}
+	}
+
+	if added == "" || removed == "" {
+		t.Fatal("no line carries an added or removed background")
+	}
+	for _, tt := range []struct {
+		name string
+		line string
+		seq  string
+	}{
+		{"added", added, bgSeq(theme.RosePineMoon.AddedBackground)},
+		{"removed", removed, bgSeq(theme.RosePineMoon.RemovedBackground)},
+	} {
+		if got := strings.Count(tt.line, tt.seq); got < 5 {
+			t.Errorf("the %s tint appears %d times, want it on every cell", tt.name, got)
+		}
+		// The frame is three panes wide, so the tint covers the diff's own
+		// width rather than the line's. Anything short of that is a hole.
+		if got := lipgloss.Width(tinted(tt.line, tt.seq)); got < 100 {
+			t.Errorf("the %s tint covers %d cells, want it running to the border", tt.name, got)
+		}
+	}
+}
+
+// A context line has no tint to run out, so it must not be filled: the trailing
+// spaces would be indistinguishable from a change with no color.
+func TestAContextLineIsNotTinted(t *testing.T) {
+	frame := stripANSI(onFiles(200, 50).View())
+
+	for _, line := range strings.Split(frame, "\n") {
+		if !strings.Contains(line, "40 40   ") {
+			continue
+		}
+		if strings.Contains(line, bgSeq(theme.RosePineMoon.AddedBackground)) {
+			t.Error("a context line came back tinted")
+		}
+		return
+	}
+	t.Fatal("the context line is not on screen")
+}
+
+// A run of hunks with nothing between them reads as one file. The box is what
+// says where one ends.
+func TestEachFileSitsInABoxWithItsOwnHeader(t *testing.T) {
+	lines := strings.Split(stripANSI(onFiles(200, 50).View()), "\n")
+
+	head, rule := -1, -1
+	for i, line := range lines {
+		if head < 0 && strings.Contains(line, "internal/gh/client.go") && strings.Contains(line, "+2") {
+			head = i
+			continue
+		}
+		if head >= 0 && strings.Contains(line, "├─") {
+			rule = i
+			break
+		}
+	}
+
+	if head < 0 {
+		t.Fatal("no heading row carries the path and the churn")
+	}
+	if rule != head+1 {
+		t.Errorf("the rule is %d rows under the heading, want 1", rule-head)
+	}
+	if !strings.Contains(lines[head-1], "╭") {
+		t.Error("the heading has no box around it")
+	}
+}
+
+// tinted is the text on a line the given background does cover. It walks the
+// SGR runs rather than the text, which is the only way to tell a painted cell
+// from a bare one.
+func tinted(line, seq string) string {
+	var out strings.Builder
+	painted := false
+
+	for len(line) > 0 {
+		i := strings.IndexByte(line, 0x1b)
+		if i < 0 {
+			if painted {
+				out.WriteString(line)
+			}
+			break
+		}
+		if painted {
+			out.WriteString(line[:i])
+		}
+
+		end := strings.IndexByte(line[i:], 'm')
+		if end < 0 {
+			break
+		}
+		painted = strings.Contains(line[i:i+end], seq)
+		line = line[i+end+1:]
+	}
+	return out.String()
+}
+
+func bgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }

@@ -21,6 +21,11 @@ const treeGutter = 2
 // against the border reads as a rendering fault rather than as a box.
 const cardGutter = 1
 
+// threadHunkLines caps the context shown above a review comment. GitHub returns
+// the whole hunk, which on a large change is a screenful, and the line the
+// comment is about is the last one in it.
+const threadHunkLines = 4
+
 // conversationBody is the description and everything said since. It renders
 // markdown, so it belongs on an Update path: m.md caches what it produces.
 //
@@ -67,7 +72,7 @@ func (m *Model) entries() string {
 
 	for i, thread := range d.Threads {
 		if !shown[i] {
-			blocks = append(blocks, m.thread(thread, width))
+			blocks = append(blocks, m.thread(thread, width, true))
 		}
 	}
 
@@ -96,7 +101,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 			continue
 		}
 		shown[i] = true
-		owned = append(owned, m.thread(thread, width-treeGutter))
+		owned = append(owned, m.thread(thread, width-treeGutter, true))
 	}
 	for i, thread := range owned {
 		block += "\n" + m.branch(thread, i == len(owned)-1)
@@ -231,7 +236,11 @@ var eventLabels = map[gh.TimelineKind]string{
 // A resolved one collapses to a single line instead. GitHub hides them by
 // default, and on a heavily reviewed pull request the settled nits bury the
 // live ones.
-func (m *Model) thread(t gh.ReviewThread, width int) string {
+//
+// hunk asks for the code the thread was written against. The conversation
+// wants it: a comment about a line nobody can see is an assertion about
+// nothing. The Files tab does not, because the line is already on the screen.
+func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) string {
 	anchor := t.Path
 	if t.Line > 0 {
 		anchor += ":" + strconv.Itoa(t.Line)
@@ -248,13 +257,60 @@ func (m *Model) thread(t gh.ReviewThread, width int) string {
 	}
 
 	inner := m.cardWidth(width)
-	blocks := make([]string, 0, len(t.Comments))
+	var blocks []string
+	if hunk {
+		if code := m.threadHunk(t, inner); code != "" {
+			blocks = append(blocks, code)
+		}
+	}
 	for _, c := range t.Comments {
 		said := m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt})
 		blocks = append(blocks, wrap(said, inner)+"\n\n"+m.body(c.Body, inner, "No comment."))
 	}
 
 	return m.card(head, strings.Join(blocks, "\n\n"), width)
+}
+
+// threadHunk is the tail of the diff the thread hangs off, rendered the same
+// way the Files tab renders one. Only the last few lines: GitHub returns up to
+// a screenful of leading context, and the line the comment is about is the last
+// one.
+func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
+	if t.Hunk == nil || len(t.Hunk.Lines) == 0 {
+		return ""
+	}
+
+	lines := t.Hunk.Lines
+	if len(lines) > threadHunkLines {
+		lines = lines[len(lines)-threadHunkLines:]
+	}
+
+	gutter := gutterMin
+	for _, l := range lines {
+		gutter = max(gutter, len(strconv.Itoa(max(l.Old, l.New))))
+	}
+
+	tokens := m.syntax.Lines(t.Path, hunkSource(lines))
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		var row []comp.Token
+		if i < len(tokens) {
+			row = tokens[i]
+		}
+		out[i] = m.diffLine(l, row, gutter, width)
+	}
+	return strings.Join(out, "\n")
+}
+
+// hunkSource is the code behind a hunk, for the lexer. Both sides go in
+// together here: a fragment this short is not valid source either way, and
+// splitting it would leave the removed line with no context at all.
+func hunkSource(lines []gh.DiffLine) string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = l.Content
+	}
+	return strings.Join(out, "\n")
 }
 
 func (m Model) faint() lipgloss.Style {

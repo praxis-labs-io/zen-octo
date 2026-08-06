@@ -270,17 +270,29 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Up):
 		m.move(-1)
 	case key.Matches(keyMsg, k.Top):
-		m.scroll().GotoTop()
+		if !m.jumped(-len(m.rows)) {
+			m.scroll().GotoTop()
+		}
 	case key.Matches(keyMsg, k.Bottom):
-		m.scroll().GotoBottom()
+		if !m.jumped(len(m.rows)) {
+			m.scroll().GotoBottom()
+		}
 	case key.Matches(keyMsg, k.PageDown):
-		m.scroll().PageDown()
+		if !m.jumped(m.treeView.Height()) {
+			m.scroll().PageDown()
+		}
 	case key.Matches(keyMsg, k.PageUp):
-		m.scroll().PageUp()
+		if !m.jumped(-m.treeView.Height()) {
+			m.scroll().PageUp()
+		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		m.scroll().HalfPageDown()
+		if !m.jumped(m.treeView.Height() / 2) {
+			m.scroll().HalfPageDown()
+		}
 	case key.Matches(keyMsg, k.HalfPageUp):
-		m.scroll().HalfPageUp()
+		if !m.jumped(-m.treeView.Height() / 2) {
+			m.scroll().HalfPageUp()
+		}
 	}
 
 	return m, nil
@@ -298,6 +310,17 @@ func (m *Model) move(delta int) {
 		return
 	}
 	m.scroll().ScrollUp(-delta)
+}
+
+// jumped is the same split for the keys that move further than a line, and
+// reports whether it took the key. On the tree they move the cursor: a column
+// scrolled away from its own cursor answers nothing.
+func (m *Model) jumped(rows int) bool {
+	if m.focus != paneTree {
+		return false
+	}
+	m.moveCursor(rows)
+	return true
 }
 
 // changeTab moves the strip and takes the scroll position with it. The offset

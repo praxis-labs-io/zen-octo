@@ -38,6 +38,13 @@ type Theme struct {
 	Background         color.Color
 	SelectedBackground color.Color
 
+	// Diff surfaces. A changed line is read as a block, not a character at a
+	// time, and a marker column alone does not carry that. They are tints of
+	// Success and Error over the base rather than the colors themselves: a
+	// filled row at full strength buries the code sitting on it.
+	AddedBackground   color.Color
+	RemovedBackground color.Color
+
 	// Borders
 	Border          color.Color
 	BorderSecondary color.Color
@@ -83,6 +90,8 @@ var RosePineMoon = Theme{
 	Actor:              lipgloss.Color("#ea9a97"),
 	Background:         nil,
 	SelectedBackground: lipgloss.Color("#2a283e"),
+	AddedBackground:    lipgloss.Color("#26383c"),
+	RemovedBackground:  lipgloss.Color("#3c2635"),
 	Border:             lipgloss.Color("#56526e"),
 	BorderSecondary:    lipgloss.Color("#44415a"),
 	BorderFaint:        lipgloss.Color("#393552"),

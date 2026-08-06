@@ -80,6 +80,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
               author { login }
               createdAt
               body
+              diffHunk
               pullRequestReview { id }
             }
           }
@@ -218,6 +219,7 @@ type pullRequestResponse struct {
 						Author            actorNode
 						CreatedAt         time.Time
 						Body              string
+						DiffHunk          string
 						PullRequestReview *struct{ ID string }
 					}
 				}
@@ -327,6 +329,13 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		for _, c := range t.Comments.Nodes {
 			if thread.ReviewID == "" && c.PullRequestReview != nil {
 				thread.ReviewID = c.PullRequestReview.ID
+			}
+			// Every comment carries the same hunk. The first one is the one the
+			// thread was opened against, which is the context worth showing.
+			if thread.Hunk == nil && c.DiffHunk != "" {
+				if parsed := hunks(c.DiffHunk); len(parsed) > 0 {
+					thread.Hunk = &parsed[0]
+				}
 			}
 			thread.Comments = append(thread.Comments, Comment{
 				Author:    login(c.Author),

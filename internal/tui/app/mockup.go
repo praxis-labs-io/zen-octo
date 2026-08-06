@@ -172,6 +172,15 @@ func mockDetail() gh.PullRequestDetail {
 
 		Threads: []gh.ReviewThread{
 			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				Hunk: &gh.Hunk{
+					Header: "@@ -38,4 +38,5 @@ func New() (*Client, error) {",
+					Lines: []gh.DiffLine{
+						{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\t\t\treturn resp, nil"},
+						{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+						{Kind: gh.DiffAdded, New: 41, Content: "\t\t// A retry that never gives up is a hang with a progress bar."},
+						{Kind: gh.DiffAdded, New: 42, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+					},
+				},
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
 						Body: "This backs off forever. Needs a ceiling."},

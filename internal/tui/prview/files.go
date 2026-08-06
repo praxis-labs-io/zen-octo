@@ -1,6 +1,7 @@
 package prview
 
 import (
+	"image/color"
 	"strconv"
 	"strings"
 
@@ -73,15 +74,29 @@ func (m *Model) diff() string {
 	return strings.Join(blocks, "\n\n")
 }
 
-// fileBlock is one file: its heading, then its hunks and the review threads
-// anchored inside them.
+// fileBlock is one file in a box of its own: the path and the churn in a
+// heading, ruled off from the hunks and the review threads anchored inside
+// them. A folded one collapses to the heading line without the box, the same
+// way a resolved thread does in the conversation.
 func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
-	head := m.fileHead(f, folded, width)
 	if folded {
-		return head
+		return m.fileHead(f, true, width)
 	}
+
+	inner := max(1, width-2)
+	body := m.fileBody(f, inner)
+	lines := strings.Count(body, "\n") + 1
+
+	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
+	return pane.Size(width, lines+pane.Chrome()).Render(body)
+}
+
+// fileBody is everything under a file's heading, already the full inner width
+// so a changed line's background runs to the border. The pane pads with plain
+// spaces, which would leave a hole at the end of every one.
+func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 	if f.Omitted != "" {
-		return head + "\n" + indent(m.faint().Render(f.Omitted), threadIndent)
+		return " " + m.faint().Render(f.Omitted)
 	}
 
 	threads := m.threadsIn(f.Path)
@@ -90,7 +105,7 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 	tokens := m.lineTokens(f)
 	gutter := max(gutterMin, len(strconv.Itoa(widest(f))))
 
-	lines := []string{head}
+	var lines []string
 	seen := 0
 	for _, h := range f.Hunks {
 		lines = append(lines, m.hunkHead(h, gutter, width))
@@ -101,8 +116,7 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 		}
 	}
 
-	lines = append(lines, m.strayThreads(threads, placed, width)...)
-	return strings.Join(lines, "\n")
+	return strings.Join(append(lines, m.strayThreads(threads, placed, width)...), "\n")
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff
@@ -138,25 +152,34 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 
 // hunkHead is the @@ line, set in over the gutter the numbers below it use.
 func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
-	line := strings.Repeat(" ", gutter*2+3) +
+	line := strings.Repeat(" ", gutter*2+4) +
 		lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(h.Header)
 	return clipTo(line, width, m.faint())
 }
 
 // diffLine is one line of code: the two line numbers, the marker, and the
-// highlighted source. The numbers are faint except on the side the line
-// belongs to, which is the same signal the marker carries.
+// highlighted source, on a tint of the color its change is in.
+//
+// The tint is painted cell by cell and the line is padded out to the full
+// width. Every styled run ends in a reset that clears the background with it,
+// so a joined line wrapped in the background style afterwards would carry it
+// only as far as the first token.
 func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) string {
 	marker, c := " ", m.theme.Faint
+	base := lipgloss.NewStyle()
+
 	switch l.Kind {
 	case gh.DiffAdded:
 		marker, c = "+", m.theme.Success
+		base = background(base, m.theme.AddedBackground)
 	case gh.DiffRemoved:
 		marker, c = "−", m.theme.Error
+		base = background(base, m.theme.RemovedBackground)
 	}
 
-	kind := lipgloss.NewStyle().Foreground(c)
-	oldNum, newNum := m.faint(), m.faint()
+	kind := base.Foreground(c)
+	faint := base.Foreground(m.theme.Faint)
+	oldNum, newNum := faint, faint
 	switch l.Kind {
 	case gh.DiffAdded:
 		newNum = kind
@@ -164,24 +187,41 @@ func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) s
 		oldNum = kind
 	}
 
-	line := oldNum.Render(number(l.Old, gutter)) + " " +
-		newNum.Render(number(l.New, gutter)) + " " +
-		kind.Render(marker) + " " + code(tokens)
+	line := base.Render(" ") +
+		oldNum.Render(number(l.Old, gutter)) + base.Render(" ") +
+		newNum.Render(number(l.New, gutter)) + base.Render(" ") +
+		kind.Render(marker) + base.Render(" ") + code(tokens, base)
 
-	return clipTo(line, width, m.faint())
+	if w := lipgloss.Width(line); w > width {
+		return comp.Clip(line, width, faint)
+	} else if l.Kind != gh.DiffContext {
+		// A context line needs no fill: it has no background to run out.
+		line += base.Render(strings.Repeat(" ", width-w))
+	}
+	return line
 }
 
-// code renders one line's tokens. Every token carries its own color and nothing
-// else, so a caller that wants a background can put one behind the whole line.
-func code(tokens []comp.Token) string {
+// background applies a color the theme may not define. A nil one leaves the
+// terminal's own showing, which is what keeps a transparent one transparent.
+func background(s lipgloss.Style, c color.Color) lipgloss.Style {
+	if c == nil {
+		return s
+	}
+	return s.Background(c)
+}
+
+// code renders one line's tokens over the style the row is painted in. Every
+// token takes only a foreground from it, so whatever the caller put behind the
+// line survives all the way across.
+func code(tokens []comp.Token, base lipgloss.Style) string {
 	var b strings.Builder
 	for _, t := range tokens {
 		text := strings.ReplaceAll(t.Text, "\t", strings.Repeat(" ", tabWidth))
 		if t.Color == nil {
-			b.WriteString(text)
+			b.WriteString(base.Render(text))
 			continue
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(t.Color).Render(text))
+		b.WriteString(base.Foreground(t.Color).Render(text))
 	}
 	return b.String()
 }
@@ -256,7 +296,7 @@ func (m *Model) threadsAt(threads map[anchor][]gh.ReviewThread, placed map[int]b
 	for _, key := range anchorsOf(l) {
 		for _, t := range threads[key] {
 			placed[thumbprint(t)] = true
-			out = append(out, indent(m.thread(t, width-threadIndent), threadIndent))
+			out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
 		}
 	}
 	return out
@@ -282,7 +322,7 @@ func (m *Model) strayThreads(threads map[anchor][]gh.ReviewThread, placed map[in
 			if placed[thumbprint(t)] {
 				continue
 			}
-			out = append(out, indent(m.thread(t, width-threadIndent), threadIndent))
+			out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
 		}
 	}
 	return out
@@ -347,9 +387,12 @@ func (m *Model) treeBody(width int) string {
 		return m.faint().Render("No files changed.")
 	}
 
+	// The cursor stays painted with focus elsewhere. Which file the diff is
+	// showing is the question the column exists to answer, and the pane borders
+	// already say where the keys go.
 	lines := make([]string, len(m.rows))
 	for i, r := range m.rows {
-		lines[i] = renderRow(m.theme, r, width, i == m.cursor && m.focus == paneTree)
+		lines[i] = renderRow(m.theme, r, width, i == m.cursor)
 	}
 	return strings.Join(lines, "\n")
 }

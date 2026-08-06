@@ -104,6 +104,10 @@ const (
 //
 // StartLine is zero on a single-line thread. Line is the last line either way,
 // which is where GitHub itself hangs the thread.
+//
+// Hunk is the few lines of diff the thread was written against, nil when GitHub
+// returned none. Without it a comment on the conversation reads as an assertion
+// about code that is nowhere on the screen.
 type ReviewThread struct {
 	ReviewID   string
 	Path       string
@@ -112,6 +116,7 @@ type ReviewThread struct {
 	Side       DiffSide
 	IsResolved bool
 	IsOutdated bool
+	Hunk       *Hunk
 	Comments   []Comment
 }
 
