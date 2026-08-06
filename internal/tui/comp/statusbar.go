@@ -27,9 +27,13 @@ func (s StatusBar) Size(width int) StatusBar {
 	return s
 }
 
-// Render puts left at the start of the line and right at its end. When the two
-// cannot both fit, the right side is dropped: it carries the rate limit and the
-// section name, and losing those beats losing the keys that get you out.
+// Render puts left at the start of the line and right at its end. The left side
+// never gives up a cell for the right: it carries the keys that get you out,
+// and the right carries the rate limit and what is on screen.
+//
+// The right takes what is left over and is clipped to it rather than dropped.
+// Dropping it whole cost the budget and the pull request number together for
+// want of one cell, and it is the leading few that carry those.
 func (s StatusBar) Render(left, right string) string {
 	if s.width <= 2 {
 		return ""
@@ -37,8 +41,9 @@ func (s StatusBar) Render(left, right string) string {
 	inner := s.width - 2
 
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
-	if rw > 0 && lw+rw+2 > inner {
-		right, rw = "", 0
+	if room := inner - lw - 2; rw > room {
+		right = Clip(right, max(0, room), lipgloss.NewStyle().Foreground(s.theme.Faint))
+		rw = lipgloss.Width(right)
 	}
 	if lw+rw > inner {
 		left = lipgloss.NewStyle().MaxWidth(max(0, inner-rw)).Render(left)

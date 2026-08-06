@@ -1335,6 +1335,22 @@ func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 	}
 }
 
+// Naming the repository made the right side of the status bar long enough to
+// stop fitting beside the detail screen's help line, and the bar used to drop
+// that side whole rather than clip it, taking the number with it.
+func TestTheDetailStatusBarKeepsTheNumberAtEveryWidth(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	for _, width := range []int{100, 120, 160, 200} {
+		// The number is in the header too, so only the bar's own line answers.
+		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
+		if !strings.Contains(bar, "#412") {
+			t.Errorf("width %d: the status bar lost the pull request number: %q", width, bar)
+		}
+	}
+}
+
 func TestAFailedDiffFetchSaysSoOnTheTab(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.failFiles(errors.New("context deadline exceeded"))

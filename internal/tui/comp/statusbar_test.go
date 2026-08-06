@@ -69,6 +69,22 @@ func TestStatusBarDropsTheRightSideBeforeTheLeft(t *testing.T) {
 	}
 }
 
+// A right side one cell too wide used to go entirely, taking the budget with
+// it. The leading few cells are the ones that carry anything.
+func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
+	got := bar().Size(46).Render("j/k move · q quit", "◆ 4821 · #412 zen-octo/zen-octo")
+
+	if !strings.Contains(got, "4821") {
+		t.Errorf("Render() = %q, want the budget kept", got)
+	}
+	if !strings.Contains(got, "#412") {
+		t.Errorf("Render() = %q, want the pull request number kept", got)
+	}
+	if !strings.Contains(got, "j/k move · q quit") {
+		t.Errorf("Render() = %q, want the keys untouched", got)
+	}
+}
+
 func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	s := bar()
 
