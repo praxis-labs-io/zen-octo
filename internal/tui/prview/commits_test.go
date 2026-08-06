@@ -559,9 +559,9 @@ func TestTheFrameFillsItsSizeExactlyOnTheCommitsTab(t *testing.T) {
 	}
 }
 
-// A run of pushes folds to one line the way GitHub folds it. Forty commits
-// spelled out one per line bury the discussion they sit between.
-func TestARunOfPushesFoldsToOneLine(t *testing.T) {
+// A run of pushes is headed by its count and then spelled out, one commit to a
+// row. The header alone says a branch moved without saying what landed on it.
+func TestARunOfPushesNamesEveryCommitUnderIt(t *testing.T) {
 	run := sampleCommits()
 	run[1].Author = run[0].Author
 
@@ -576,7 +576,35 @@ func TestARunOfPushesFoldsToOneLine(t *testing.T) {
 
 	out := stripANSI(detailed(held(d), 160, 30).View())
 	if !strings.Contains(out, "drucial · pushed 2 commits · 18h") {
-		t.Error("a run of pushes did not fold to one line")
+		t.Error("the run is not headed by its count")
+	}
+	for _, want := range []string{
+		"a3f91c2  Cap the backoff",
+		"7b20ef4  Drop the count",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the run is missing %q", want)
+		}
+	}
+
+	// The run sits under its own header, not above it.
+	head := strings.Index(out, "pushed 2 commits")
+	first := strings.Index(out, "a3f91c2  Cap the backoff")
+	if head < 0 || first < 0 || head > first {
+		t.Error("the commits are not under the line that counts them")
+	}
+}
+
+// A lone push already names its commit on the header line, so a row under it
+// would say the same thing twice.
+func TestALonePushHasNoRowUnderIt(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()[:1]
+	d.Timeline = []gh.TimelineItem{commitItem(d.Commits[0])}
+
+	out := stripANSI(detailed(held(d), 160, 30).View())
+	if strings.Count(out, "a3f91c2") != 1 {
+		t.Errorf("a lone push named its sha %d times, want once", strings.Count(out, "a3f91c2"))
 	}
 }
 

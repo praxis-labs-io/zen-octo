@@ -533,6 +533,25 @@ func TestScrollPositionSurvivesATabSwitch(t *testing.T) {
 	}
 }
 
+// The pane opens on a blank line and closes on one. Scrolled to the end, the
+// last line of a comment would otherwise sit against the bottom border and read
+// as clipped.
+func TestTheConversationEndsOnABlankLine(t *testing.T) {
+	// Narrow enough that the rail is off, so every column belongs to the one
+	// pane and a blank row is really blank.
+	m := press(detailed(held(sampleDetail()), 100, 12), "G")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("the frame is %d lines", len(lines))
+	}
+
+	last := lines[len(lines)-2]
+	if strings.TrimSpace(strings.Trim(last, "│")) != "" {
+		t.Errorf("the pane ends on %q, want a blank line above the border", last)
+	}
+}
+
 func TestTheRailTakesTheDetailOnceItLands(t *testing.T) {
 	out := stripANSI(detailed(held(sampleDetail()), 200, 40).View())
 

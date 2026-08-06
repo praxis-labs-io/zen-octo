@@ -241,10 +241,13 @@ func commitRun(items []gh.TimelineItem) []gh.TimelineItem {
 	return items
 }
 
-// pushed is a run of commits on one line, dated by the last of them. A lone
-// commit names its sha and headline; a run says how many, because the Commits
-// tab is where they are read one at a time and forty of them here bury the
-// discussion they sit in.
+// pushed is a run of commits that landed together: a line saying how many and
+// who, then the run itself, one commit to a row. A lone commit names its sha
+// and headline on the line and has no rows under it.
+//
+// The rows are what makes the branch readable from the conversation. A long
+// rebase is a long block, which is the honest shape of a long rebase; the
+// alternative hides work that happened between two comments.
 //
 // A run written by one person names them. A mixed one drops the login rather
 // than crediting the wrong author, and said carries the line without it.
@@ -264,8 +267,32 @@ func (m *Model) pushed(run []gh.TimelineItem) string {
 		}
 	}
 
-	line := m.faint().Render("● ") + m.said(actor, verb, m.theme.Faint, last)
-	return wrap(line, m.bodyWidth())
+	lines := []string{wrap(m.faint().Render("● ")+m.said(actor, verb, m.theme.Faint, last), m.bodyWidth())}
+	if len(run) == 1 {
+		return lines[0]
+	}
+
+	for _, item := range run {
+		if item.Commit != nil {
+			lines = append(lines, m.pushedRow(*item.Commit))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// pushedRow is one commit under a push. It is set in past the marker above it,
+// and clips rather than wrapping: a headline folded onto a second row reads as
+// two commits.
+func (m *Model) pushedRow(c gh.Commit) string {
+	const indent = "    "
+
+	sha := lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(c.Short)
+	line := indent + sha + m.faint().Render("  "+c.Headline)
+
+	if width := m.bodyWidth(); lipgloss.Width(line) > width {
+		return comp.Clip(line, width, m.faint())
+	}
+	return line
 }
 
 var eventLabels = map[gh.TimelineKind]string{

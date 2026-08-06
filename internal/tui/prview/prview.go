@@ -660,8 +660,10 @@ func (m *Model) syncContent() {
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens
-		// with. Content flush against the top border reads as clipped.
-		body := "\n" + indent(m.tabBody(), m.bodyGutter())
+		// with. Content flush against a border reads as clipped, so the last
+		// block gets one under it too: scrolled to the end, the closing line of
+		// a comment would otherwise sit on the border.
+		body := "\n" + indent(m.tabBody(), m.bodyGutter()) + "\n"
 		// Handing the viewport a body measures every line of it, and a diff is
 		// tens of thousands. A cursor moving down the file column does not
 		// change a character of it.
