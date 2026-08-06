@@ -260,11 +260,11 @@ func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
 	if last < 0 {
 		t.Fatal("the last file is not in the tree")
 	}
-	if !strings.Contains(selectedRow(m.View()), "files.go") {
-		t.Errorf("the cursor is on %q, want the last file", stripANSI(selectedRow(m.View())))
+	if !strings.Contains(cursorFile(m.View()), "files.go") {
+		t.Errorf("the cursor is on %q, want the last file", cursorFile(m.View()))
 	}
 
-	if !strings.Contains(selectedRow(press(m, "g").View()), "docs/") {
+	if !strings.Contains(cursorFile(press(m, "g").View()), "docs/") {
 		t.Error("g did not take the cursor back to the top")
 	}
 }
@@ -273,16 +273,16 @@ func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
 // column exists to answer whether or not the keys are pointed at it.
 func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
 	m := press(onFiles(200, 40), "1", "j", "j")
-	if !strings.Contains(selectedRow(m.View()), "internal/") {
+	if !strings.Contains(cursorFile(m.View()), "gh/") {
 		t.Fatal("the cursor is not where the test put it")
 	}
 
-	if !strings.Contains(selectedRow(press(m, "2").View()), "internal/") {
+	if !strings.Contains(cursorFile(press(m, "2").View()), "gh/") {
 		t.Error("focusing the diff took the cursor off the file column")
 	}
 }
 
-// selectedRow is the line carrying the selection background.
+// selectedRow is the whole frame line carrying the selection background.
 func selectedRow(frame string) string {
 	for _, line := range strings.Split(frame, "\n") {
 		if strings.Contains(line, selectionSeq()) {
@@ -290,6 +290,16 @@ func selectedRow(frame string) string {
 		}
 	}
 	return ""
+}
+
+// cursorFile is the file column's share of that line. The frame spans two
+// panes, and the whole line lets the diff beside the tree answer for it.
+func cursorFile(frame string) string {
+	cells := strings.Split(stripANSI(selectedRow(frame)), "│")
+	if len(cells) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(cells[1])
 }
 
 // The rail is about the pull request rather than the change, the tree wants a
@@ -410,7 +420,7 @@ func TestTheFileColumnFollowsTheDiffAsItScrolls(t *testing.T) {
 	at := 0
 
 	for range 60 {
-		on := stripANSI(selectedRow(m.View()))
+		on := cursorFile(m.View())
 		switch {
 		case strings.Contains(on, want[at]):
 		case at+1 < len(want) && strings.Contains(on, want[at+1]):
@@ -422,11 +432,21 @@ func TestTheFileColumnFollowsTheDiffAsItScrolls(t *testing.T) {
 		m = press(m, "j")
 	}
 
-	if at == 0 {
-		t.Error("the cursor never left the first file while the diff scrolled away")
-	}
 	if at < 2 {
-		t.Errorf("the cursor reached %q, want it to walk further down the diff", want[at])
+		t.Errorf("the cursor reached only %q, want it to walk down the diff", want[at])
+	}
+}
+
+// The ends are exact rather than proportional. Scrolled to the bottom the
+// answer is the last file, whatever share of the window it got.
+func TestTheEndsOfTheDiffPointAtTheFirstAndLastFile(t *testing.T) {
+	m := press(onFiles(200, 20), "2", "G")
+	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
+		t.Errorf("G left the cursor on %q, want the last file", got)
+	}
+
+	if got := cursorFile(press(m, "g").View()); !strings.Contains(got, "screenshot.png") {
+		t.Errorf("g left the cursor on %q, want the first file", got)
 	}
 }
 
@@ -434,9 +454,9 @@ func TestTheFileColumnFollowsTheDiffAsItScrolls(t *testing.T) {
 // reader left it on.
 func TestFocusingTheDiffLeavesTheCursorWhereItWas(t *testing.T) {
 	m := press(onFiles(200, 40), "1", "g")
-	before := stripANSI(selectedRow(m.View()))
+	before := cursorFile(m.View())
 
-	if got := stripANSI(selectedRow(press(m, "2").View())); got != before {
+	if got := cursorFile(press(m, "2").View()); got != before {
 		t.Errorf("focusing the diff moved the cursor to %q, want it left on %q",
 			strings.TrimSpace(got), strings.TrimSpace(before))
 	}

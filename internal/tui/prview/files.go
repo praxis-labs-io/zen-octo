@@ -430,16 +430,16 @@ func (m *Model) moveCursor(delta int) {
 	m.showCursorFile()
 }
 
-// showCursorRow keeps the cursor inside the tree's own window.
+// showCursorRow keeps the cursor inside the tree's own window. The column opens
+// with no blank line, so a row is its own offset.
 func (m *Model) showCursorRow() {
-	at := m.cursor + contentLead
 	height := m.treeView.Height()
 
 	switch offset := m.treeView.YOffset(); {
-	case at < offset:
-		m.treeView.SetYOffset(at)
-	case at >= offset+height:
-		m.treeView.SetYOffset(at - height + 1)
+	case m.cursor < offset:
+		m.treeView.SetYOffset(m.cursor)
+	case m.cursor >= offset+height:
+		m.treeView.SetYOffset(m.cursor - height + 1)
 	}
 }
 
@@ -463,6 +463,15 @@ func (m *Model) trackDiff() {
 		if covered := min(s.end, bottom) - max(s.start, top); covered > seen {
 			best, seen = s.key, covered
 		}
+	}
+
+	// The two ends are exact rather than proportional. Scrolled to the bottom
+	// the answer is the last file, whatever share of the window it got.
+	switch {
+	case m.view.AtTop():
+		best = m.spans[0].key
+	case m.view.AtBottom():
+		best = m.spans[len(m.spans)-1].key
 	}
 
 	at := m.cursor

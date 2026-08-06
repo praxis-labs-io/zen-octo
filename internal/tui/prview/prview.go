@@ -514,9 +514,11 @@ func (m *Model) syncContent() {
 		m.view.SetContent("\n" + indent(m.tabBody(), m.bodyGutter()))
 	}
 	if m.treeVisible() {
-		if inner := m.tree.InnerWidth(); inner > railGutter*2 {
-			body := indent(m.treeBody(inner-railGutter*2), railGutter)
-			m.treeView.SetContent("\n" + body)
+		// No gutter and no opening blank line. The column is a list of rows,
+		// each led by its own fold marker, and every cell it gives back to
+		// padding comes off a file name that was already clipping.
+		if inner := m.tree.InnerWidth(); inner > 0 {
+			m.treeView.SetContent(m.treeBody(inner))
 		}
 	}
 	if inner := m.rail.InnerWidth(); inner > railGutter*2 {
