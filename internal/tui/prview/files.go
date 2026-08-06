@@ -120,7 +120,9 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 	body := m.fileBody(f, inner)
 	lines := strings.Count(body, "\n") + 1
 
-	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
+	// The heading's own lead-in is painted too, or the surface starts a cell in
+	// from the border.
+	pane := comp.NewPane(m.theme).Header(m.headBase().Render(" ") + m.fileHead(f, false, inner-1))
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
 }
 
@@ -154,7 +156,13 @@ func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 
 // fileHead is the path and the churn, with a marker saying whether the diff
 // under it is folded away.
+//
+// Every run is drawn over the heading surface, gap included. A run ending in a
+// reset drops the background with the foreground, so painting this as one piece
+// afterwards would tint the marker and nothing else.
 func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
+	base := m.headBase()
+
 	marker := "▾ "
 	if folded {
 		marker = "▸ "
@@ -165,25 +173,32 @@ func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
 		path = f.PreviousPath + " → " + f.Path
 	}
 
-	lead := m.faint().Render(marker) +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(path)
+	lead := base.Foreground(m.theme.Faint).Render(marker) +
+		base.Foreground(m.theme.Primary).Bold(true).Render(path)
 
-	churn := m.fileChurn(f)
+	churn := m.fileChurn(f, base)
 	room := max(0, width-lipgloss.Width(churn)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, m.faint())
+		lead = comp.Clip(lead, room, base.Foreground(m.theme.Faint))
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(churn))
 	// The gap has a floor, so a width with no room for the churn still asks for
 	// one more cell than it has. The pane would take that off the end of the
 	// count, and a truncated count reads as a real one.
-	return clipTo(lead+strings.Repeat(" ", gap)+churn, width, m.faint())
+	line := lead + base.Render(strings.Repeat(" ", gap)) + churn
+	return clipTo(line, width, base.Foreground(m.theme.Faint))
 }
 
-func (m Model) fileChurn(f gh.ChangedFile) string {
-	return lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(f.Additions)) +
-		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
+func (m Model) fileChurn(f gh.ChangedFile, base lipgloss.Style) string {
+	return base.Foreground(m.theme.Success).Render("+"+strconv.Itoa(f.Additions)) +
+		base.Render(" ") + base.Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
+}
+
+// headBase is the surface a heading row is drawn on, for a box's own heading
+// and for anything the caller assembles into one.
+func (m Model) headBase() lipgloss.Style {
+	return background(lipgloss.NewStyle(), m.theme.HeaderBackground)
 }
 
 // hunkHead is the @@ line, set in over the gutter the numbers below it use.

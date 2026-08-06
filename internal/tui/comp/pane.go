@@ -128,7 +128,7 @@ func (p Pane) Render(content string) string {
 	// content, which is the part that carries the meaning.
 	rows := p.InnerHeight()
 	if p.header != "" && rows >= 3 {
-		lines = append(lines, p.row(p.header), p.rule())
+		lines = append(lines, p.headerRow(), p.rule())
 		rows -= 2
 	}
 
@@ -145,6 +145,24 @@ func (p Pane) Render(content string) string {
 func (p Pane) rule() string {
 	style := p.borderStyle()
 	return style.Render("├" + strings.Repeat("─", p.InnerWidth()) + "┤")
+}
+
+// headerRow frames the heading over the surface the theme sets aside for it.
+//
+// Only the padding is painted here. Every styled run ends in a reset that
+// clears the background along with the foreground, so a heading wrapped in the
+// surface afterwards would carry it as far as its first token and no further:
+// the caller paints its own runs, and this fills the rest of the row.
+func (p Pane) headerRow() string {
+	side := p.borderStyle().Render("│")
+	line := lipgloss.NewStyle().MaxWidth(p.InnerWidth()).Render(p.header)
+
+	fill := lipgloss.NewStyle()
+	if p.theme.HeaderBackground != nil {
+		fill = fill.Background(p.theme.HeaderBackground)
+	}
+	pad := fill.Render(strings.Repeat(" ", max(0, p.InnerWidth()-lipgloss.Width(line))))
+	return side + line + pad + side
 }
 
 // row frames one line of content, clipping and padding it to the interior.

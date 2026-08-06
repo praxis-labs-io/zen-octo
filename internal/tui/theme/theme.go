@@ -45,6 +45,13 @@ type Theme struct {
 	AddedBackground   color.Color
 	RemovedBackground color.Color
 
+	// HeaderBackground fills the heading row of a box: a file in the diff, a
+	// comment, a review thread. A rule alone divides the heading from what is
+	// under it; a page of stacked boxes needs the heading to read as a heading
+	// before the eye gets to the rule. A step above SelectedBackground, so a
+	// cursor and a heading in the same frame are not the same tint.
+	HeaderBackground color.Color
+
 	// Borders
 	Border          color.Color
 	BorderSecondary color.Color
@@ -92,6 +99,7 @@ var RosePineMoon = Theme{
 	SelectedBackground: lipgloss.Color("#2a283e"),
 	AddedBackground:    lipgloss.Color("#26383c"),
 	RemovedBackground:  lipgloss.Color("#3c2635"),
+	HeaderBackground:   lipgloss.Color("#2f2b43"),
 	Border:             lipgloss.Color("#56526e"),
 	BorderSecondary:    lipgloss.Color("#44415a"),
 	BorderFaint:        lipgloss.Color("#393552"),
