@@ -34,11 +34,17 @@ type Defaults struct {
 }
 
 // Config is the whole of what's on disk, after defaults are applied.
+//
+// SyntaxTheme names the palette code is highlighted with, which is a separate
+// question from the palette the chrome is drawn in. It stays empty by default:
+// a theme already names the one that matches it, and this is the override for a
+// theme with no counterpart.
 type Config struct {
 	PRSections    []Section `yaml:"prSections"`
 	IssueSections []Section `yaml:"issueSections"`
 	Defaults      Defaults  `yaml:"defaults"`
 	Theme         string    `yaml:"theme"`
+	SyntaxTheme   string    `yaml:"syntaxTheme"`
 }
 
 // Default is what a user gets before they've written a config file.

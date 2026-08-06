@@ -70,13 +70,17 @@ query PullRequestDetail($id: ID!, $head: String!) {
           isOutdated
           path
           line
+          startLine
           originalLine
+          originalStartLine
+          diffSide
           comments(first: 50) {
             totalCount
             nodes {
               author { login }
               createdAt
               body
+              diffHunk
               pullRequestReview { id }
             }
           }
@@ -201,17 +205,21 @@ type pullRequestResponse struct {
 		ReviewThreads struct {
 			TotalCount int
 			Nodes      []struct {
-				IsResolved   bool
-				IsOutdated   bool
-				Path         string
-				Line         int
-				OriginalLine int
-				Comments     struct {
+				IsResolved        bool
+				IsOutdated        bool
+				Path              string
+				Line              int
+				StartLine         int
+				OriginalLine      int
+				OriginalStartLine int
+				DiffSide          string
+				Comments          struct {
 					TotalCount int
 					Nodes      []struct {
 						Author            actorNode
 						CreatedAt         time.Time
 						Body              string
+						DiffHunk          string
 						PullRequestReview *struct{ ID string }
 					}
 				}
@@ -308,15 +316,26 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	detail.Reviewers = reviewers(resp)
 
 	for _, t := range n.ReviewThreads.Nodes {
+		// GitHub nulls line and startLine once a thread goes outdated, so the
+		// original pair is what is left to anchor it by.
 		thread := ReviewThread{
 			Path:       t.Path,
 			Line:       cmp.Or(t.Line, t.OriginalLine),
+			StartLine:  cmp.Or(t.StartLine, t.OriginalStartLine),
+			Side:       DiffSide(cmp.Or(t.DiffSide, string(SideRight))),
 			IsResolved: t.IsResolved,
 			IsOutdated: t.IsOutdated,
 		}
 		for _, c := range t.Comments.Nodes {
 			if thread.ReviewID == "" && c.PullRequestReview != nil {
 				thread.ReviewID = c.PullRequestReview.ID
+			}
+			// Every comment carries the same hunk. The first one is the one the
+			// thread was opened against, which is the context worth showing.
+			if thread.Hunk == nil && c.DiffHunk != "" {
+				if parsed := hunks(c.DiffHunk); len(parsed) > 0 {
+					thread.Hunk = &parsed[0]
+				}
 			}
 			thread.Comments = append(thread.Comments, Comment{
 				Author:    login(c.Author),

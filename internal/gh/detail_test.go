@@ -60,15 +60,16 @@ const detailBody = `{
       "totalCount": 5,
       "nodes": [
         {"isResolved": false, "isOutdated": false, "path": "internal/gh/client.go", "line": 42,
-         "originalLine": 40,
+         "startLine": 40, "originalLine": 40, "originalStartLine": 38, "diffSide": "RIGHT",
          "comments": {"totalCount": 2, "nodes": [
            {"author": {"login": "nkr"}, "createdAt": "2026-08-03T09:00:00Z",
-            "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"}},
+            "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"},
+            "diffHunk": "@@ -39,3 +39,4 @@\n \tfor {\n-\t\ttime.Sleep(delay)\n+\t\tdelay = min(delay*2, fetchTimeout)"},
            {"author": {"login": "drucial"}, "createdAt": "2026-08-03T10:00:00Z",
             "body": "Capped.", "pullRequestReview": {"id": "REV_1"}}
          ]}},
         {"isResolved": true, "isOutdated": true, "path": "internal/store/store.go", "line": null,
-         "originalLine": 88,
+         "startLine": null, "originalLine": 88, "originalStartLine": 86, "diffSide": "LEFT",
          "comments": {"totalCount": 1, "nodes": [
            {"author": {"login": "nkr"}, "createdAt": "2026-08-05T09:00:00Z",
             "body": "Typo.", "pullRequestReview": {"id": "REV_2"}}
@@ -110,7 +111,7 @@ const detailBody = `{
 func fetchDetail(t *testing.T) PullRequestDetail {
 	t.Helper()
 
-	res, err := newWithDoer(&fakeDoer{body: detailBody}).PullRequest(context.Background(), "PR_412", "fix-auth")
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
@@ -224,6 +225,44 @@ func TestAThreadNamesTheReviewThatOpenedIt(t *testing.T) {
 	}
 }
 
+func TestAThreadCarriesTheSideAndSpanItAnchorsTo(t *testing.T) {
+	threads := fetchDetail(t).Threads
+
+	first := threads[0]
+	if first.Side != SideRight {
+		t.Errorf("Side = %q, want RIGHT", first.Side)
+	}
+	if first.StartLine != 40 {
+		t.Errorf("StartLine = %d, want 40", first.StartLine)
+	}
+
+	// An outdated thread has neither line nor start line, so both fall back to
+	// what it was written against.
+	second := threads[1]
+	if second.Side != SideLeft {
+		t.Errorf("Side = %q, want LEFT", second.Side)
+	}
+	if second.StartLine != 86 {
+		t.Errorf("StartLine = %d, want 86 from originalStartLine", second.StartLine)
+	}
+}
+
+// A thread GitHub returns with no side at all still has to anchor somewhere,
+// and the right is where a single-sided comment lives.
+func TestAThreadWithNoSideDefaultsToTheRight(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 1, "nodes": [
+	  {"path": "a.go", "line": 3, "comments": {"totalCount": 0, "nodes": []}}
+	]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+	if got := res.Detail.Threads[0].Side; got != SideRight {
+		t.Errorf("Side = %q, want RIGHT", got)
+	}
+}
+
 // A page that stopped short has to say so. A dropped comment that reads as no
 // comment is the failure worth a field.
 func TestWhatThePageDidNotReachIsReported(t *testing.T) {
@@ -289,7 +328,7 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 }
 
 func TestPullRequestReportsWhatTheCallCost(t *testing.T) {
-	res, err := newWithDoer(&fakeDoer{body: detailBody}).PullRequest(context.Background(), "PR_412", "fix-auth")
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
@@ -304,7 +343,7 @@ func TestPullRequestReportsWhatTheCallCost(t *testing.T) {
 func TestPullRequestPassesTheNodeID(t *testing.T) {
 	doer := &fakeDoer{body: detailBody}
 
-	if _, err := newWithDoer(doer).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
+	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
 	if doer.gotVars["id"] != "PR_412" {
@@ -322,7 +361,7 @@ func TestPullRequestPassesTheNodeID(t *testing.T) {
 func TestAnIDBehindNoPullRequestIsAnError(t *testing.T) {
 	doer := &fakeDoer{body: `{"node": {}}`}
 
-	_, err := newWithDoer(doer).PullRequest(context.Background(), "I_1", "topic")
+	_, err := newWithDoer(doer, nil).PullRequest(context.Background(), "I_1", "topic")
 	if err == nil {
 		t.Fatal("PullRequest() error = nil, want an error")
 	}
@@ -396,6 +435,16 @@ func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
 	}
 }
 
+// Same reasoning: the fixture would decode a thread with no side and the Files
+// tab would anchor every comment to the right half of the diff.
+func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
+	for _, want := range []string{"startLine", "originalStartLine", "diffSide", "diffHunk"} {
+		if !strings.Contains(pullRequestQuery, want) {
+			t.Errorf("the query does not ask for %q", want)
+		}
+	}
+}
+
 // A reviewer who left unanswered questions is waiting on the same thing as one
 // who asked for changes, whatever they called the review.
 func TestOpenThreadsCountAgainstTheReviewerWhoOpenedThem(t *testing.T) {
@@ -435,5 +484,32 @@ func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
 				t.Errorf("teamHandle(%q, %q) = %q, want %q", tt.org, tt.slug, got, tt.want)
 			}
 		})
+	}
+}
+
+// A comment about a line nobody can see is an assertion about nothing. GitHub
+// returns the hunk it was written against on every comment in the thread.
+func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
+	threads := fetchDetail(t).Threads
+
+	hunk := threads[0].Hunk
+	if hunk == nil {
+		t.Fatal("the thread came back with no hunk")
+	}
+	if hunk.Header != "@@ -39,3 +39,4 @@" {
+		t.Errorf("header = %q", hunk.Header)
+	}
+	if len(hunk.Lines) != 3 {
+		t.Fatalf("lines = %d, want 3", len(hunk.Lines))
+	}
+	last := hunk.Lines[2]
+	if last.Kind != DiffAdded || last.New != 40 {
+		t.Errorf("last line = %+v, want the added line at 40", last)
+	}
+
+	// A thread whose comments carry no hunk keeps a nil one rather than an
+	// empty box on the screen.
+	if threads[1].Hunk != nil {
+		t.Errorf("Hunk = %+v, want nil where GitHub sent none", threads[1].Hunk)
 	}
 }

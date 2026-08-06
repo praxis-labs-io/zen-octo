@@ -15,6 +15,12 @@ import (
 type Theme struct {
 	Name string
 
+	// Syntax names the Chroma style code is highlighted with. Chroma ships its
+	// own palettes and a diff needs far more token colors than the chrome has
+	// fields, so a theme points at the one that matches rather than restating
+	// it. Empty falls back to Chroma's own default.
+	Syntax string
+
 	// Text
 	Primary   color.Color
 	Secondary color.Color
@@ -31,6 +37,13 @@ type Theme struct {
 	// alone", which is what keeps transparency working.
 	Background         color.Color
 	SelectedBackground color.Color
+
+	// Diff surfaces. A changed line is read as a block, not a character at a
+	// time, and a marker column alone does not carry that. They are tints of
+	// Success and Error over the base rather than the colors themselves: a
+	// filled row at full strength buries the code sitting on it.
+	AddedBackground   color.Color
+	RemovedBackground color.Color
 
 	// Borders
 	Border          color.Color
@@ -66,6 +79,7 @@ func (t Theme) BorderFaintOrSecondary() color.Color {
 // already runs, so the two look the same side by side.
 var RosePineMoon = Theme{
 	Name:               "rose-pine-moon",
+	Syntax:             "rose-pine-moon",
 	Primary:            lipgloss.Color("#e0def4"),
 	Secondary:          lipgloss.Color("#c4a7e7"),
 	Faint:              lipgloss.Color("#a5a1bc"),
@@ -76,6 +90,8 @@ var RosePineMoon = Theme{
 	Actor:              lipgloss.Color("#ea9a97"),
 	Background:         nil,
 	SelectedBackground: lipgloss.Color("#2a283e"),
+	AddedBackground:    lipgloss.Color("#26383c"),
+	RemovedBackground:  lipgloss.Color("#3c2635"),
 	Border:             lipgloss.Color("#56526e"),
 	BorderSecondary:    lipgloss.Color("#44415a"),
 	BorderFaint:        lipgloss.Color("#393552"),

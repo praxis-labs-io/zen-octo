@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
+	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -29,10 +31,18 @@ func samplePR() gh.PullRequest {
 	}
 }
 
+// syntax is the colorizer the screen highlights code with. Tests use the same
+// style the default theme names, so the colors a diff test asserts are the ones
+// a reader sees.
+func syntax() comp.Syntax {
+	s, _ := comp.NewSyntax(theme.RosePineMoon.Syntax)
+	return s
+}
+
 func screen(width, height int) prview.Model { return sized(samplePR(), width, height) }
 
 func sized(pr gh.PullRequest, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetSize(width, height)
 	return m
 }
@@ -290,7 +300,7 @@ func TestTheBranchLineClipsTheHeadRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 
@@ -398,12 +408,21 @@ func sampleDetail() gh.PullRequestDetail {
 		},
 
 		Threads: []gh.ReviewThread{
-			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42,
+			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				Hunk: &gh.Hunk{
+					Header: "@@ -40,3 +40,4 @@",
+					Lines: []gh.DiffLine{
+						{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\tfor {"},
+						{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+						{Kind: gh.DiffAdded, New: 41, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+					},
+				},
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour),
 						Body: "This backs off forever."},
 				}},
-			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, IsResolved: true,
+			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
+				IsResolved: true,
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour), Body: "Typo."},
 					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour), Body: "Fixed."},
@@ -418,7 +437,7 @@ func held(d gh.PullRequestDetail) store.Detail {
 }
 
 func detailed(d store.Detail, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, syntax())
 	m.SetDetail(d)
 	m.SetSize(width, height)
 	return m
@@ -786,7 +805,7 @@ func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(150, 30)
 
@@ -1035,7 +1054,7 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{})
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 
@@ -1369,7 +1388,7 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 // A bot login runs past the rail as readily as a workflow name does.
 func TestALongReviewerNameClipsRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
-	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}}}
+	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "zen-octo/copilot-pull-request-reviewers"}}}
 
 	rows := railRows(t, detailed(held(d), 200, 44).View())
 	for i, row := range rows {
@@ -1534,5 +1553,44 @@ func TestAnEventWithNoWordsForItLeavesNoGap(t *testing.T) {
 	}
 	if gaps < 2 {
 		t.Fatalf("found %d gaps between cards, want the two either side of the event", gaps)
+	}
+}
+
+// A review comment is about a line of code. Without the line the conversation
+// is an assertion about something that is nowhere on the screen.
+func TestAThreadShowsTheCodeItWasWrittenAgainst(t *testing.T) {
+	out := stripANSI(detailed(held(sampleDetail()), 200, 80).View())
+
+	anchor := strings.Index(out, "internal/gh/client.go:42")
+	code := strings.Index(out, "delay = min(delay*2, fetchTimeout)")
+	comment := strings.Index(out, "This backs off forever.")
+
+	switch {
+	case code < 0:
+		t.Fatal("the thread shows no diff at all")
+	case code < anchor:
+		t.Error("the diff renders above the thread it belongs to")
+	case comment > 0 && code > comment:
+		t.Error("the diff renders under the comment rather than over it")
+	}
+}
+
+// GitHub returns the whole hunk, which on a large change is a screenful, and
+// the line the comment is about is the last one in it.
+func TestALongThreadHunkIsCutToItsTail(t *testing.T) {
+	d := sampleDetail()
+	long := make([]gh.DiffLine, 0, 30)
+	for i := 1; i <= 30; i++ {
+		long = append(long, gh.DiffLine{Kind: gh.DiffContext, Old: i, New: i,
+			Content: "line" + strconv.Itoa(i)})
+	}
+	d.Threads[0].Hunk = &gh.Hunk{Header: "@@ -1,30 +1,30 @@", Lines: long}
+
+	out := stripANSI(detailed(held(d), 200, 200).View())
+	if strings.Contains(out, "line1\n") {
+		t.Error("the whole hunk rendered, want only its tail")
+	}
+	if !strings.Contains(out, "line30") {
+		t.Error("the line the comment is about is missing")
 	}
 }

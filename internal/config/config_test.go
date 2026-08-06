@@ -76,6 +76,33 @@ defaults:
 	}
 }
 
+// The syntax palette stays empty unless it is asked for. A theme already names
+// the Chroma style that matches it, and filling one in here would override
+// every theme with the default's.
+func TestSyntaxThemeIsEmptyUntilItIsSet(t *testing.T) {
+	writeConfig(t, "theme: rose-pine-moon\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if got.SyntaxTheme != "" {
+		t.Errorf("SyntaxTheme = %q, want it left to the theme", got.SyntaxTheme)
+	}
+}
+
+func TestSyntaxThemeIsReadFromTheFile(t *testing.T) {
+	writeConfig(t, "theme: rose-pine-moon\nsyntaxTheme: tokyonight-moon\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if got.SyntaxTheme != "tokyonight-moon" {
+		t.Errorf("SyntaxTheme = %q, want tokyonight-moon", got.SyntaxTheme)
+	}
+}
+
 func TestLoadRejectsInvalidConfigs(t *testing.T) {
 	tests := []struct {
 		name     string

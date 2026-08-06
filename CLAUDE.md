@@ -109,7 +109,7 @@ Scratch, never committed. `docs/` describes only what is true today. Durable con
 
 Package boundaries that matter:
 
-- **`internal/gh` is the only package that touches the network.** It returns domain types, never raw GraphQL structs, so everything above it is testable against a fake.
+- **`internal/gh` is the only package that touches the network.** It returns domain types, never raw API structs, so everything above it is testable against a fake. Two transports, two seams: `graphQLDoer` for everything, `restDoer` for the diff alone, because GraphQL has no field carrying a patch.
 - **`internal/store` owns fetched state and refresh timing.** Views read from it, they never fetch.
 - **`internal/tui/*` packages never import each other sideways.** Shared widgets live in `internal/tui/comp`.
 
@@ -123,7 +123,9 @@ Key bindings live in `internal/tui/keys`, declared once with their help text. Th
 
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
 
-`internal/store` holds only pull request sections today. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
+`internal/store` holds pull request sections, one detail per pull request opened, and one diff per pull request whose Files tab was opened. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
+
+Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
 
 ## Rendering traps
 
@@ -136,3 +138,5 @@ Each of these looks like working code and produces a broken frame.
 - **A pane clips overflow silently.** A row wider than the pane loses its trailing columns mid-cell with no ellipsis, and a width test still passes because the pane fills its line. The row has to fit before the pane sees it.
 - **Glamour output belongs to the width it was rendered at.** It pads every line out to that width, so the viewport has to be handed exactly the same number or soft wrap puts every line onto two. Caching by body alone repaints the previous width's wrap.
 - **A viewport offset is a line, and a row is not.** Once rows are two lines and group headers are one, scroll arithmetic that lands on the row it wants opens the window on that row's second line with its title cut off above. Round the offset up to the next item boundary. A test at an even content height proves nothing: the arithmetic lands on boundaries by accident there.
+- **Soft wrap and a line-number gutter cannot both be on.** One long line of code folds onto a second row, and every line under it is then one further out of step with the number beside it. Turn `SoftWrap` off and clip, and only ever measure a diff at a width where something overflows.
+- **A lexer carries state across lines.** Highlighting a diff line by line comes apart on the first multi-line string. Tokenise the whole file, and tokenise the two sides of the diff separately, or the lexer is reading a file that holds both halves of every change.

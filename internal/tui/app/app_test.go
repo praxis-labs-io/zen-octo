@@ -33,8 +33,11 @@ type fakeSearcher struct {
 	prs         []gh.PullRequest
 	queries     []string
 	opens       []string
+	diffs       []string
 	details     map[string]gh.PullRequestDetail
+	files       map[int][]gh.ChangedFile
 	detailErr   error
+	filesErr    error
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -115,6 +118,45 @@ func (f *fakeSearcher) opened() []string {
 	return slices.Clone(f.opens)
 }
 
+// PullRequestFiles answers with whatever diff the test staged for that number.
+// It is keyed by number rather than id because the diff comes over REST, which
+// addresses a pull request by repository and number.
+func (f *fakeSearcher) PullRequestFiles(_ context.Context, repo string, number, changed int) (gh.FilesResult, error) {
+	f.mu.Lock()
+	f.diffs = append(f.diffs, repo+"#"+strconv.Itoa(number))
+	files, err := f.files[number], f.filesErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.FilesResult{}, err
+	}
+	return gh.FilesResult{Files: files, MoreFiles: max(0, changed-len(files))}, nil
+}
+
+// serveFiles stages one pull request's diff.
+func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.files == nil {
+		f.files = make(map[int][]gh.ChangedFile)
+	}
+	f.files[number] = files
+}
+
+// failFiles makes every diff fetch fail from here on.
+func (f *fakeSearcher) failFiles(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.filesErr = err
+}
+
+// fetched is the pull requests the model asked a diff for, in order.
+func (f *fakeSearcher) fetched() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.diffs)
+}
+
 // querySearcher answers per query, so a test can hold one section's fetch back
 // and let another land first.
 type querySearcher struct {
@@ -131,6 +173,10 @@ func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ in
 
 func (f *querySearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	return gh.DetailResult{Detail: gh.PullRequestDetail{PullRequest: gh.PullRequest{ID: id}}}, nil
+}
+
+func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+	return gh.FilesResult{}, nil
 }
 
 func testConfig() *config.Config {
@@ -933,6 +979,28 @@ func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	t.Fatal("the notice is not on screen")
 }
 
+// Falling back silently reads as "my config is ignored", and a syntax theme
+// nobody notices is one the diff was never going to be styled by.
+func TestAnUnknownSyntaxThemeIsReported(t *testing.T) {
+	cfg := testConfig()
+	cfg.SyntaxTheme = "not-a-chroma-style"
+
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}), tea.WindowSizeMsg{Width: 200, Height: 40})
+
+	if !strings.Contains(stripANSI(render(t, m)), `Unknown syntax theme "not-a-chroma-style"`) {
+		t.Error("an unknown syntax theme falls back with nothing said")
+	}
+}
+
+// The theme names its own, so a config that says nothing gets no warning.
+func TestAThemesOwnSyntaxStyleRaisesNoNotice(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 200, 40)
+
+	if strings.Contains(stripANSI(render(t, m)), "Unknown syntax theme") {
+		t.Error("the default theme names a style Chroma does not ship")
+	}
+}
+
 func TestTheBudgetShowsAtZeroAndNotBeforeItIsKnown(t *testing.T) {
 	spent := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 0}}
 	if out := render(t, loaded(t, spent, 120, 40)); !strings.Contains(out, "◆ 0") {
@@ -1205,4 +1273,152 @@ func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
 	if got := client.opened(); len(got) != 1 {
 		t.Errorf("opened %v, want the one request that was already in flight", got)
 	}
+}
+
+// The diff is a second request and often a large one. A pull request opened to
+// read the conversation must not pay for it.
+func TestTheDiffIsNotFetchedUntilTheFilesTabIsOpened(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	if got := client.fetched(); len(got) != 0 {
+		t.Fatalf("fetched %v before the tab was opened", got)
+	}
+
+	m = press(m, "]", "]", "]")
+	if got := client.fetched(); len(got) != 1 || got[0] != "zen-octo/zen-octo#412" {
+		t.Errorf("fetched %v, want one diff for zen-octo/zen-octo#412", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the diff never reached the screen")
+	}
+}
+
+// Tabbing in and out has to cost one request. The store refuses a second while
+// the first is out, and holds the answer for the rest of the session.
+func TestTabbingBackToFilesDoesNotFetchAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	m = press(m, "]", "]", "]") // to Files
+	m = press(m, "]")           // round to the conversation
+	press(m, "]", "]", "]")     // and back
+
+	if got := client.fetched(); len(got) != 1 {
+		t.Errorf("fetched %v, want one request", got)
+	}
+}
+
+// Reopening a pull request refetches its conversation. The diff has to follow,
+// or a push lands and the Files tab reads the change from before it for the
+// rest of the session, under a header carrying the new counts.
+func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if got := client.fetched(); len(got) != 1 {
+		t.Fatalf("setup: fetched %v, want one request", got)
+	}
+
+	// Back to the list and in again, which is what a reader does after a push.
+	m = press(m, "esc", "enter", "]", "]", "]")
+
+	if got := client.fetched(); len(got) != 2 {
+		t.Errorf("fetched %v, want the diff asked for again on the reopen", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the diff is not on screen after the reopen")
+	}
+}
+
+// Naming the repository made the right side of the status bar long enough to
+// stop fitting beside the detail screen's help line, and the bar used to drop
+// that side whole rather than clip it, taking the number with it.
+func TestTheDetailStatusBarKeepsTheNumberAtEveryWidth(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	for _, width := range []int{100, 120, 160, 200} {
+		// The number is in the header too, so only the bar's own line answers.
+		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
+		if !strings.Contains(bar, "#412") {
+			t.Errorf("width %d: the status bar lost the pull request number: %q", width, bar)
+		}
+	}
+}
+
+func TestAFailedDiffFetchSaysSoOnTheTab(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.failFiles(errors.New("context deadline exceeded"))
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	m = press(m, "]", "]", "]")
+
+	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
+		t.Error("a failed diff fetch reads as an empty one")
+	}
+}
+
+// Both caches are keyed by pull request. Opening a second one must not paint
+// the first one's diff under it.
+func TestADiffDoesNotFollowTheReaderToTheNextPullRequest(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Fatal("the first diff never landed")
+	}
+
+	m = press(m, "esc", "j", "enter", "]", "]", "]")
+
+	if strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the first pull request's diff is showing on the second")
+	}
+	if got := client.fetched(); len(got) != 2 || got[1] != "zen-octo/zen-octo#408" {
+		t.Errorf("fetched %v, want a second request for #408", got)
+	}
+}
+
+func sampleFiles() []gh.ChangedFile {
+	return []gh.ChangedFile{{
+		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 2, Deletions: 1,
+		Hunks: []gh.Hunk{{
+			Header: "@@ -40,4 +40,5 @@",
+			Lines: []gh.DiffLine{
+				{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\tfor {"},
+				{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+				{Kind: gh.DiffAdded, New: 41, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+			},
+		}},
+	}}
+}
+
+// The number alone says which pull request only if you already know which
+// repository you opened it from, and the tabs past the conversation carry
+// nothing else that answers it.
+func TestTheStatusBarNamesTheRepositoryOnTheDetailScreen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := press(loaded(t, client, 160, 40), "enter")
+
+	last := lastLine(render(t, m))
+	if !strings.Contains(last, "#412 zen-octo/zen-octo") {
+		t.Errorf("status bar = %q, want the number and the repository", strings.TrimSpace(last))
+	}
+
+	// The list names its section instead; a repository there would be wrong as
+	// often as right, since a section can span any number of them.
+	back := lastLine(render(t, press(m, "esc")))
+	if strings.Contains(back, "zen-octo/zen-octo") {
+		t.Errorf("the list's status bar carries a repository: %q", strings.TrimSpace(back))
+	}
+}
+
+func lastLine(frame string) string {
+	lines := strings.Split(stripANSI(frame), "\n")
+	return lines[len(lines)-1]
 }

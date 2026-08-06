@@ -45,6 +45,75 @@ func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error
 	}, nil
 }
 
+// PullRequestFiles answers with one diff whatever is asked for. It covers what
+// the Files tab has to tell apart: nesting deep enough to fold, a rename, a
+// file with no patch, and lines two of the fixture's review threads anchor to.
+func (Mock) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+	return gh.FilesResult{Files: mockFiles(), MoreFiles: 2}, nil
+}
+
+func mockFiles() []gh.ChangedFile {
+	return []gh.ChangedFile{
+		{
+			Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 4, Deletions: 1,
+			Hunks: []gh.Hunk{{
+				Header: "@@ -38,6 +38,9 @@ func New() (*Client, error) {",
+				Lines: []gh.DiffLine{
+					{Kind: gh.DiffContext, Old: 38, New: 38, Content: "\t\tresp, err := c.do(req)"},
+					{Kind: gh.DiffContext, Old: 39, New: 39, Content: "\t\tif err == nil {"},
+					{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\t\t\treturn resp, nil"},
+					{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+					{Kind: gh.DiffAdded, New: 41, Content: "\t\t// A retry that never gives up is a hang with a progress bar."},
+					{Kind: gh.DiffAdded, New: 42, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+					{Kind: gh.DiffAdded, New: 43, Content: "\t\ttime.Sleep(delay)"},
+					{Kind: gh.DiffContext, Old: 42, New: 44, Content: "\t}"},
+				},
+			}},
+		},
+		{
+			Path: "internal/gh/search.go", Status: gh.FileModified, Additions: 1, Deletions: 1,
+			Hunks: []gh.Hunk{{
+				Header: "@@ -116,3 +116,3 @@ func total(res searchResponse) int {",
+				Lines: []gh.DiffLine{
+					{Kind: gh.DiffContext, Old: 116, New: 116, Content: "func total(res searchResponse) int {"},
+					{Kind: gh.DiffRemoved, Old: 117, Content: "\treturn res.Search.IssueCount + res.Search.More"},
+					{Kind: gh.DiffAdded, New: 117, Content: "\treturn res.Search.IssueCount"},
+					{Kind: gh.DiffContext, Old: 118, New: 118, Content: "}"},
+				},
+			}},
+		},
+		{
+			Path: "internal/store/store.go", Status: gh.FileModified, Additions: 0, Deletions: 1,
+			Hunks: []gh.Hunk{{
+				Header: "@@ -86,4 +86,3 @@ func (s *Store) Begin(i int) bool {",
+				Lines: []gh.DiffLine{
+					{Kind: gh.DiffContext, Old: 86, New: 86, Content: "// Begin marks one section in flight."},
+					{Kind: gh.DiffContext, Old: 87, New: 87, Content: "// It refuses a section that already has"},
+					{Kind: gh.DiffRemoved, Old: 88, Content: "// a request out, which is what refuces the"},
+					{Kind: gh.DiffContext, Old: 89, New: 88, Content: "// duplicate."},
+				},
+			}},
+		},
+		{
+			Path: "internal/tui/prview/files.go", PreviousPath: "internal/tui/prview/diff.go",
+			Status: gh.FileRenamed, Additions: 2, Deletions: 0,
+			Hunks: []gh.Hunk{{
+				Header: "@@ -1,3 +1,5 @@",
+				Lines: []gh.DiffLine{
+					{Kind: gh.DiffContext, Old: 1, New: 1, Content: "package prview"},
+					{Kind: gh.DiffContext, Old: 2, New: 2, Content: ""},
+					{Kind: gh.DiffAdded, New: 3, Content: "// tabWidth is what a tab expands to."},
+					{Kind: gh.DiffAdded, New: 4, Content: "const tabWidth = 4"},
+				},
+			}},
+		},
+		{
+			Path: "docs/screenshot.png", Status: gh.FileModified, Additions: 0, Deletions: 0,
+			Omitted: "binary, or too large for GitHub to return a diff",
+		},
+	}
+}
+
 // mockDetail covers what the conversation has to tell apart: a description with
 // every markdown element the renderer styles, comments, both review verdicts, a
 // resolved thread beside two open ones, and a rollup that is neither all green
@@ -102,7 +171,16 @@ func mockDetail() gh.PullRequestDetail {
 		},
 
 		Threads: []gh.ReviewThread{
-			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42,
+			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				Hunk: &gh.Hunk{
+					Header: "@@ -38,4 +38,5 @@ func New() (*Client, error) {",
+					Lines: []gh.DiffLine{
+						{Kind: gh.DiffContext, Old: 40, New: 40, Content: "\t\t\treturn resp, nil"},
+						{Kind: gh.DiffRemoved, Old: 41, Content: "\t\ttime.Sleep(delay)"},
+						{Kind: gh.DiffAdded, New: 41, Content: "\t\t// A retry that never gives up is a hang with a progress bar."},
+						{Kind: gh.DiffAdded, New: 42, Content: "\t\tdelay = min(delay*2, fetchTimeout)"},
+					},
+				},
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
 						Body: "This backs off forever. Needs a ceiling."},
@@ -110,13 +188,15 @@ func mockDetail() gh.PullRequestDetail {
 						Body: "Capped at 30s, matching `fetchTimeout`."},
 				}},
 
-			{ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, IsOutdated: true,
+			{ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, Side: gh.SideRight,
+				IsOutdated: true,
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
 						Body: "Worth pulling this sum out into a named helper."},
 				}},
 
-			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, IsResolved: true,
+			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
+				IsResolved: true,
 				Comments: []gh.Comment{
 					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour), Body: "Typo: refuces."},
 					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(5 * time.Hour), Body: "Fixed."},

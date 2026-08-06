@@ -65,7 +65,7 @@ const twoPRsBody = `{
 func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 	doer := &fakeDoer{body: twoPRsBody}
 
-	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open author:@me", 20)
+	res, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open author:@me", 20)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
@@ -113,7 +113,7 @@ func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 func TestSearchPullRequestsReportsWhatTheCallCost(t *testing.T) {
 	doer := &fakeDoer{body: twoPRsBody}
 
-	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	res, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open", 20)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
@@ -134,7 +134,7 @@ func TestSearchPullRequestsSkipsNonPullRequestNodes(t *testing.T) {
 	// them as empty nodes.
 	doer := &fakeDoer{body: `{"search": {"nodes": [{}, {"id": "PR_1", "number": 7}, {}]}}`}
 
-	res, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	res, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open", 20)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
@@ -150,7 +150,7 @@ func TestSearchPullRequestsSkipsNonPullRequestNodes(t *testing.T) {
 func TestSearchPullRequestsPassesQueryAndLimit(t *testing.T) {
 	doer := &fakeDoer{body: `{"search": {"nodes": []}}`}
 
-	if _, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open author:@me", 5); err != nil {
+	if _, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open author:@me", 5); err != nil {
 		t.Fatalf("SearchPullRequests() error = %v, want nil", err)
 	}
 
@@ -173,7 +173,7 @@ func TestSearchPullRequestsNamesTheMissingScope(t *testing.T) {
 		Headers:    headers,
 	}}
 
-	_, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	_, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open", 20)
 	if err == nil {
 		t.Fatal("SearchPullRequests() error = nil, want an error")
 	}
@@ -213,7 +213,7 @@ func TestScopeErrorPluralizes(t *testing.T) {
 func TestSearchPullRequestsLeavesOtherErrorsAlone(t *testing.T) {
 	doer := &fakeDoer{err: &api.HTTPError{StatusCode: 500, Message: "server blew up"}}
 
-	_, err := newWithDoer(doer).SearchPullRequests(context.Background(), "is:open", 20)
+	_, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open", 20)
 	if err == nil {
 		t.Fatal("SearchPullRequests() error = nil, want an error")
 	}
