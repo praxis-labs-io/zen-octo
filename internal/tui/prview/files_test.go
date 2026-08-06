@@ -994,3 +994,38 @@ func strayOrder(frame string) []int {
 	}
 	return out
 }
+
+// One tick chain serves every tab. Answering only for the tab in front of the
+// reader ended it the moment they tabbed away from a diff still in flight, and
+// coming back found a glyph that never moved again for the whole request.
+func TestTheDiffSpinnerSurvivesLeavingTheTab(t *testing.T) {
+	m := detailed(held(sampleDetail()), 120, 20)
+	m.SetFiles(store.Files{Status: store.StatusLoading})
+
+	next := m.Init()
+	if next == nil {
+		t.Fatal("Init started no spinner")
+	}
+
+	// Out to Files, which is where the diff is being waited on, then back to
+	// the conversation while it is still coming.
+	m = press(m, "]", "]", "]", "[", "[", "[")
+
+	// A tick command holds one timer and delivers once, so each has to be
+	// called exactly once.
+	m, next = m.Update(next())
+	if next == nil {
+		t.Fatal("the chain ended while the diff was still in flight")
+	}
+
+	m = press(m, "]", "]", "]")
+	before := stripANSI(m.View())
+
+	m, next = m.Update(next())
+	if next == nil {
+		t.Fatal("the chain ended after returning to the Files tab")
+	}
+	if stripANSI(m.View()) == before {
+		t.Error("the glyph is frozen while the diff is still coming")
+	}
+}

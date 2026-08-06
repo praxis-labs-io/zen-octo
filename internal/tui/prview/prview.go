@@ -149,6 +149,12 @@ type Model struct {
 	shown   string
 	shownAt int
 
+	// filesAsked is whether this screen has asked for the diff yet. The diff
+	// costs a second request, so it waits for the tab; it is asked for once
+	// here rather than once per cached diff, which is what makes a reopen after
+	// a push fetch the change rather than the one before it.
+	filesAsked bool
+
 	// expanded unfolds every <details> block on the screen at once. It is one
 	// bool because the conversation has no cursor to hang a per-block state on;
 	// that lands with the ticket that gives it one.
@@ -258,13 +264,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 // waiting is the one state the spinner belongs in: nothing to read yet. A
-// refetch behind content already on screen spins over nothing, and each tab
-// waits on its own request.
+// refetch behind content already on screen spins over nothing.
+//
+// It answers for both requests rather than the tab's own, because the tick
+// chain is one and the answer is what keeps it alive. Reading only the tab in
+// front of the user killed the chain the moment they left the Files tab
+// mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
-	if m.tab == tabFiles {
-		return !m.files.Loaded && m.files.Status == store.StatusLoading
-	}
-	return !m.detail.Loaded && m.detail.Status == store.StatusLoading
+	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
+		(!m.files.Loaded && m.files.Status == store.StatusLoading)
 }
 
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -401,9 +409,15 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	m.layout()
 	m.view.SetYOffset(m.offsets[m.tab])
 
-	if m.tab != tabFiles || m.files.Loaded || m.files.Status == store.StatusLoading {
+	// Asked once per screen rather than once per cached diff. The screen is new
+	// on every open, so a pull request reopened after a push fetches its diff
+	// again instead of reading the one from before the push for the rest of the
+	// session, and revisiting the tab on this screen still costs nothing.
+	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
 		return nil
 	}
+	m.filesAsked = true
+
 	id := m.pr.ID
 	return func() tea.Msg { return NeedFilesMsg{ID: id} }
 }

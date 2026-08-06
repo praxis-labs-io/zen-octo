@@ -1312,6 +1312,29 @@ func TestTabbingBackToFilesDoesNotFetchAgain(t *testing.T) {
 	}
 }
 
+// Reopening a pull request refetches its conversation. The diff has to follow,
+// or a push lands and the Files tab reads the change from before it for the
+// rest of the session, under a header carrying the new counts.
+func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if got := client.fetched(); len(got) != 1 {
+		t.Fatalf("setup: fetched %v, want one request", got)
+	}
+
+	// Back to the list and in again, which is what a reader does after a push.
+	m = press(m, "esc", "enter", "]", "]", "]")
+
+	if got := client.fetched(); len(got) != 2 {
+		t.Errorf("fetched %v, want the diff asked for again on the reopen", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the diff is not on screen after the reopen")
+	}
+}
+
 func TestAFailedDiffFetchSaysSoOnTheTab(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.failFiles(errors.New("context deadline exceeded"))

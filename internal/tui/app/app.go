@@ -246,10 +246,9 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	// Init arms this screen's own spinner chain, and the screen is new on every
 	// open. Arming it with the fetch instead would leave it frozen on a reopen
 	// while the first request is still out: BeginDetail refuses that one, and
-	// the old chain's ticks carry a tag the new spinner drops.
-	if !m.store.Detail(pr.ID).Loaded {
-		cmds = append(cmds, m.detail.Init())
-	}
+	// the old chain's ticks carry a tag the new spinner drops. It costs a tick
+	// where there is nothing to wait for, which is what ends the chain anyway.
+	cmds = append(cmds, m.detail.Init())
 
 	m.detail.SetDetail(m.store.Detail(pr.ID))
 	m.detail.SetFiles(m.store.Files(pr.ID))
