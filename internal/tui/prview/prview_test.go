@@ -88,12 +88,12 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	m := screen(160, 24)
 
 	active := fgSeq(theme.RosePineMoon.Primary)
-	if top := firstLine(m.View()); !strings.Contains(top, active+"mConversation") {
+	if top := paneTop(m.View()); !strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation is not the current tab on open")
 	}
 
 	next := press(m, "]")
-	top := firstLine(next.View())
+	top := paneTop(next.View())
 	if !strings.Contains(top, active+"mCommits") {
 		t.Error("] did not move to the Commits tab")
 	}
@@ -105,7 +105,7 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	}
 
 	// Four tabs, so [ from the first wraps round to the last.
-	if !strings.Contains(firstLine(press(m, "[").View()), active+"mFiles") {
+	if !strings.Contains(paneTop(press(m, "[").View()), active+"mFiles") {
 		t.Error("[ from the first tab did not wrap to the last")
 	}
 }
@@ -343,6 +343,17 @@ func TestTheBranchLineCarriesNothingElse(t *testing.T) {
 
 func firstLine(s string) string { return strings.Split(s, "\n")[0] }
 
+// paneTop is the border the panes open with. The screen leads with a header
+// line naming the pull request, so it is no longer the first line of the frame.
+func paneTop(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, "╭") {
+			return line
+		}
+	}
+	return ""
+}
+
 // stripANSI drops SGR sequences so a test can reason about the text alone.
 func stripANSI(s string) string {
 	var b strings.Builder
@@ -358,12 +369,12 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// conversationBorder reads the SGR foreground the frame opens with, which is
-// the conversation pane's top-left corner.
+// conversationBorder reads the SGR foreground the pane border opens with, which
+// is the conversation pane's top-left corner.
 func conversationBorder(t *testing.T, frame string) string {
 	t.Helper()
 
-	line := firstLine(frame)
+	line := paneTop(frame)
 	end := strings.Index(line, "m")
 	if !strings.HasPrefix(line, "\x1b[") || end < 0 {
 		t.Fatalf("frame does not open with a styled border: %q", line)
@@ -927,7 +938,7 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 }
 
 // paneRight is the column the conversation pane's own right border sits in,
-// read off the frame's top border.
+// read off the pane's top border.
 //
 // Scanning a content line for the first │ finds a card's border instead, and
 // every assertion built on that only ever looks at the gutter, where there is
@@ -936,7 +947,7 @@ func paneRight(t *testing.T, frame string) int {
 	t.Helper()
 
 	// Rune index, not byte: the border runes are three bytes each.
-	for i, r := range []rune(stripANSI(strings.Split(frame, "\n")[0])) {
+	for i, r := range []rune(stripANSI(paneTop(frame))) {
 		if r == '╮' {
 			return i
 		}
@@ -1468,7 +1479,14 @@ func railRaw(t *testing.T, frame string) []string {
 	right := paneRight(t, frame)
 	var rows []string
 
-	for _, line := range strings.Split(frame, "\n") {
+	// The screen leads with a header line above the panes, which owns no rail
+	// column of its own.
+	lines := strings.Split(frame, "\n")
+	for len(lines) > 0 && !strings.Contains(lines[0], "╭") {
+		lines = lines[1:]
+	}
+
+	for _, line := range lines {
 		visible, i := 0, 0
 		for i < len(line) && visible <= right {
 			if strings.HasPrefix(line[i:], "\x1b[") {
@@ -1592,5 +1610,81 @@ func TestALongThreadHunkIsCutToItsTail(t *testing.T) {
 	}
 	if !strings.Contains(out, "line30") {
 		t.Error("the line the comment is about is missing")
+	}
+}
+
+// A diff with nothing on screen naming what it belongs to is a diff you have to
+// leave to identify. The header is above the panes, so every tab keeps it.
+func TestTheHeaderNamesThePullRequestOnEveryTab(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 40)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	for i, tab := range []string{"Conversation", "Commits", "Checks", "Files"} {
+		head := stripANSI(firstLine(m.View()))
+
+		for _, want := range []string{"Open", "#412", "Fix the auth retry backoff loop", "@drucial"} {
+			if !strings.Contains(head, want) {
+				t.Errorf("%s: the header does not carry %q: %q", tab, want, head)
+			}
+		}
+		if i == 0 && !strings.Contains(m.View(), fgSeq(theme.RosePineMoon.Success)) {
+			t.Error("the state is not marked in its own color")
+		}
+		m = press(m, "]")
+	}
+}
+
+// It comes off the list row, so it is on screen before the detail query
+// answers.
+func TestTheHeaderPaintsBeforeTheDetailLands(t *testing.T) {
+	head := stripANSI(firstLine(screen(200, 40).View()))
+
+	if !strings.Contains(head, "#412") || !strings.Contains(head, "@drucial") {
+		t.Errorf("the header waits on the query: %q", head)
+	}
+}
+
+// The title is the one part with no fixed width, so it is what gives way.
+func TestALongTitleInTheHeaderClipsRatherThanPushingTheAuthorOff(t *testing.T) {
+	pr := samplePR()
+	pr.Title = strings.Repeat("a very long title ", 20)
+
+	m := sized(pr, 120, 40)
+	head := stripANSI(firstLine(m.View()))
+
+	if lipgloss.Width(head) != 120 {
+		t.Errorf("the header is %d wide, want 120", lipgloss.Width(head))
+	}
+	if !strings.HasSuffix(strings.TrimRight(head, " "), "@drucial") {
+		t.Errorf("the title pushed the author off the line: %q", head)
+	}
+}
+
+// A deleted account has no login, and the title takes the space back rather
+// than the line ending in a gap.
+func TestTheHeaderWithNoAuthorLeavesNoGap(t *testing.T) {
+	pr := samplePR()
+	pr.Author = gh.Actor{}
+
+	head := stripANSI(firstLine(sized(pr, 200, 40).View()))
+	if strings.Contains(head, "@") {
+		t.Errorf("the header carries an empty handle: %q", head)
+	}
+	if lipgloss.Width(head) != 200 {
+		t.Errorf("the header is %d wide, want 200", lipgloss.Width(head))
+	}
+}
+
+// On a frame with no room for the panes as well, the panes take the line: a
+// header over a pane with no content names something that is not on screen.
+func TestAShortFrameKeepsThePanesRatherThanTheHeader(t *testing.T) {
+	for _, height := range []int{1, 2, 3} {
+		frame := screen(120, height).View()
+		if got := len(strings.Split(frame, "\n")); got > height {
+			t.Errorf("height %d: frame is %d lines", height, got)
+		}
+		if strings.Contains(stripANSI(frame), "#412") {
+			t.Errorf("height %d: the header took a line the panes needed", height)
+		}
 	}
 }
