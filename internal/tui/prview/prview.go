@@ -59,17 +59,22 @@ const railGutter = 1
 // The diff is exempt: code wants every column it can have.
 const contentMeasure = 90
 
-// treeWidth is the file column on the Files tab. Wide enough for a name after
-// two levels of nesting, which is where most of a repository sits.
-const treeWidth = 30
+// treeWidth is the file column at its full width: enough for a name after two
+// levels of nesting, which is where most of a repository sits. It is the one
+// column that shrinks rather than holding its size, because it is the only
+// navigation the tab has and hiding it costs more than narrowing it.
+const treeWidth = 40
+
+// treeMin is as narrow as the column goes before it hides instead.
+const treeMin = 24
 
 // treeMinFrame is the width below which the tree hides. Under it the diff is
 // down to a gutter and a fragment, and the file headings in the diff itself
 // still carry navigation.
 const treeMinFrame = 70
 
-// diffMeasure is the floor the diff keeps before the rail is asked to step
-// aside. Below it a hunk stops reading as code.
+// diffMeasure is the width the diff keeps before the tree gives any up. Below
+// it a hunk stops reading as code.
 const diffMeasure = 80
 
 // contentLead is the blank line every pane opens with. The diff records where
@@ -126,9 +131,10 @@ type Model struct {
 	cursor    int
 	collapsed map[string]bool
 
-	// diffAt is the line each file's block starts on inside the diff body. It
-	// is what lets a tree selection scroll to a file rather than search for it.
-	diffAt map[string]int
+	// spans is where each file's block sits inside the diff body, in the order
+	// the tree has them. The tree scrolls the diff by it and follows the diff
+	// back by it.
+	spans []fileSpan
 
 	// expanded unfolds every <details> block on the screen at once. It is one
 	// bool because the conversation has no cursor to hang a per-block state on;
@@ -168,19 +174,33 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		pr:          pr,
 		focus:       paneMain,
 		collapsed:   make(map[string]bool),
-		diffAt:      make(map[string]int),
 		offsets:     make([]int, len(tabs)),
 		railOn:      rail.On,
 		railUserSet: rail.Set,
 	}
 }
 
-// SetFiles takes what the store holds for this pull request's diff.
+// SetFiles takes what the store holds for this pull request's diff. A cursor
+// still at the top goes to the first file rather than the directory above it,
+// which is what the diff beside it is already showing.
 func (m *Model) SetFiles(f store.Files) {
 	m.files = f
 	m.syncRows()
+
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
+	if m.cursor == 0 {
+		m.cursor = m.firstFile()
+	}
 	m.syncContent()
+}
+
+func (m Model) firstFile() int {
+	for i, r := range m.rows {
+		if r.file != nil {
+			return i
+		}
+	}
+	return 0
 }
 
 // SetDetail takes what the store holds for this pull request. A detail that has
@@ -232,6 +252,7 @@ func (m Model) waiting() bool {
 
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
+	before := m.view.YOffset()
 
 	switch {
 	case key.Matches(keyMsg, k.Back):
@@ -295,6 +316,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 
+	// Whatever the key did to the diff, the file column follows it. Gated on
+	// the diff having actually moved: a key that only changes focus must not
+	// pull the cursor off the row the reader left it on.
+	if m.view.YOffset() != before {
+		m.trackDiff()
+	}
 	return m, nil
 }
 
@@ -420,8 +447,9 @@ func (m *Model) layout() {
 
 	mainWidth := m.width
 	if m.treeVisible() {
-		mainWidth -= treeWidth
-		m.tree = m.tree.Size(treeWidth, m.height)
+		column := m.treeColumn()
+		mainWidth -= column
+		m.tree = m.tree.Size(column, m.height)
 		m.treeView.SetWidth(m.tree.InnerWidth())
 		m.treeView.SetHeight(m.tree.InnerHeight())
 	}
@@ -441,10 +469,11 @@ func (m *Model) layout() {
 // railVisible decides whether the rail is on screen. Width decides until the
 // user overrides it, and even then the conversation keeps a floor.
 //
-// The Files tab raises that floor: the tree is already taking a column, and a
-// diff squeezed between the two stops reading as code before either does.
+// The Files tab does without it. Everything the rail carries is about the pull
+// request rather than the change, the tree already wants a column, and a diff
+// between the two is a gutter and a fragment.
 func (m Model) railVisible() bool {
-	if m.tab == tabFiles && m.width < treeWidth+railWidth+diffMeasure {
+	if m.tab == tabFiles {
 		return false
 	}
 	if m.railUserSet {
@@ -458,6 +487,13 @@ func (m Model) railVisible() bool {
 // headings inside the diff.
 func (m Model) treeVisible() bool {
 	return m.tab == tabFiles && m.width >= treeMinFrame
+}
+
+// treeColumn is what the file column gets. It takes its full width where the
+// diff can still be read at its measure and gives the rest back below that,
+// down to a floor.
+func (m Model) treeColumn() int {
+	return min(treeWidth, max(treeMin, m.width-diffMeasure))
 }
 
 // PullRequest is what the screen is showing.

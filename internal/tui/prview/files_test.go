@@ -214,8 +214,9 @@ func TestFoldingAFileTakesItsDiffWithIt(t *testing.T) {
 		t.Fatal("the first file's hunk is not on screen to fold")
 	}
 
-	// The tree opens on docs/, then screenshot.png, internal/, gh/, client.go.
-	m = press(m, "j", "j", "j", "j", "o")
+	// The tree opens on the first file, so g first: docs/, screenshot.png,
+	// internal/, gh/, client.go.
+	m = press(m, "g", "j", "j", "j", "j", "o")
 	if strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
 		t.Error("folding the file left its hunk on screen")
 	}
@@ -225,7 +226,7 @@ func TestFoldingAFileTakesItsDiffWithIt(t *testing.T) {
 }
 
 func TestFoldingADirectoryTakesItsFilesOutOfTheTree(t *testing.T) {
-	m := press(onFiles(200, 50), "1", "j", "j", "o")
+	m := press(onFiles(200, 50), "1", "g", "j", "j", "o")
 
 	out := stripANSI(m.View())
 	if strings.Contains(out, "▾ internal/ ") {
@@ -291,18 +292,18 @@ func selectedRow(frame string) string {
 	return ""
 }
 
-// The rail and the tree both want a column, and a diff between them stops
-// reading as code well before either of them stops reading.
-func TestTheRailStepsAsideForTheTreeOnANarrowFrame(t *testing.T) {
+// The rail is about the pull request rather than the change, the tree wants a
+// column, and a diff between the two is a gutter and a fragment.
+func TestTheRailIsOffOnTheFilesTabAtEveryWidth(t *testing.T) {
 	tests := []struct {
 		width int
-		rail  bool
 		tree  bool
 	}{
-		{width: 160, rail: true, tree: true},
-		{width: 130, rail: false, tree: true},
-		{width: 80, rail: false, tree: true},
-		{width: 60, rail: false, tree: false},
+		{width: 220, tree: true},
+		{width: 160, tree: true},
+		{width: 120, tree: true},
+		{width: 80, tree: true},
+		{width: 60, tree: false},
 	}
 
 	for _, tt := range tests {
@@ -310,13 +311,30 @@ func TestTheRailStepsAsideForTheTreeOnANarrowFrame(t *testing.T) {
 		m.SetFiles(loadedFiles(sampleFiles(), 0))
 		out := stripANSI(press(m, "]", "]", "]").View())
 
-		if got := strings.Contains(out, "Details"); got != tt.rail {
-			t.Errorf("width %d: rail on screen = %v, want %v", tt.width, got, tt.rail)
+		if strings.Contains(out, "Details") {
+			t.Errorf("width %d: the rail is on screen", tt.width)
 		}
 		// The tree pane is titled by what it holds; the diff beside it carries
 		// the same paths in its own file headings.
 		if got := strings.Contains(out, "4 files"); got != tt.tree {
 			t.Errorf("width %d: tree on screen = %v, want %v", tt.width, got, tt.tree)
+		}
+	}
+}
+
+// The column is the only navigation the tab has, so it narrows rather than
+// disappearing once the diff has taken its measure.
+func TestTheFileColumnNarrowsBeforeItHides(t *testing.T) {
+	widths := map[int]int{220: 40, 120: 40, 100: 24, 80: 24}
+
+	for frame, want := range widths {
+		m := detailed(held(sampleDetail()), frame, 40)
+		m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+		top := stripANSI(firstLine(press(m, "]", "]", "]").View()))
+		got := lipgloss.Width(top[:strings.Index(top, "╮")]) + 1
+		if got != want {
+			t.Errorf("frame %d: file column is %d wide, want %d", frame, got, want)
 		}
 	}
 }
@@ -365,17 +383,62 @@ func TestTheFrameFillsItsSizeExactlyOnTheFilesTab(t *testing.T) {
 // The panes are numbered by where they sit, so the digits have to follow what
 // is on screen rather than what each pane holds.
 func TestThePanesAreNumberedLeftToRight(t *testing.T) {
-	out := stripANSI(onFiles(200, 40).View())
+	top := stripANSI(firstLine(onFiles(200, 40).View()))
 
-	tree := strings.Index(out, "[1]")
-	diff := strings.Index(out, "[2]")
-	rail := strings.Index(out, "[3]")
+	tree := strings.Index(top, "[1]")
+	diff := strings.Index(top, "[2]")
 
-	if tree < 0 || diff < 0 || rail < 0 {
-		t.Fatalf("want three numbered panes, got %q", firstLine(out))
+	if tree < 0 || diff < 0 {
+		t.Fatalf("want two numbered panes, got %q", top)
 	}
-	if tree > diff || diff > rail {
+	if tree > diff {
 		t.Error("the pane numbers do not run left to right")
+	}
+	if strings.Contains(top, "[3]") {
+		t.Error("a third pane is numbered on a tab with two")
+	}
+}
+
+// The column answers "which file am I in". A diff scrolled three files past its
+// cursor answers it wrongly rather than not at all.
+func TestTheFileColumnFollowsTheDiffAsItScrolls(t *testing.T) {
+	m := press(onFiles(200, 20), "2")
+
+	// Scrolling a line at a time, the cursor should walk the files in the same
+	// order the diff has them.
+	want := []string{"screenshot.png", "client.go", "store.go", "files.go"}
+	at := 0
+
+	for range 60 {
+		on := stripANSI(selectedRow(m.View()))
+		switch {
+		case strings.Contains(on, want[at]):
+		case at+1 < len(want) && strings.Contains(on, want[at+1]):
+			at++
+		default:
+			t.Fatalf("the cursor jumped to %q, want %q or the file after it",
+				strings.TrimSpace(on), want[at])
+		}
+		m = press(m, "j")
+	}
+
+	if at == 0 {
+		t.Error("the cursor never left the first file while the diff scrolled away")
+	}
+	if at < 2 {
+		t.Errorf("the cursor reached %q, want it to walk further down the diff", want[at])
+	}
+}
+
+// A key that only changes focus must not pull the cursor off the row the
+// reader left it on.
+func TestFocusingTheDiffLeavesTheCursorWhereItWas(t *testing.T) {
+	m := press(onFiles(200, 40), "1", "g")
+	before := stripANSI(selectedRow(m.View()))
+
+	if got := stripANSI(selectedRow(press(m, "2").View())); got != before {
+		t.Errorf("focusing the diff moved the cursor to %q, want it left on %q",
+			strings.TrimSpace(got), strings.TrimSpace(before))
 	}
 }
 

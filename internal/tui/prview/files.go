@@ -31,6 +31,14 @@ type anchor struct {
 	line int
 }
 
+// fileSpan is where one file's block sits in the diff body. It is what lets the
+// tree scroll to a file and the cursor follow the diff back.
+type fileSpan struct {
+	key   string
+	start int
+	end   int
+}
+
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
 // failed refetch; the root raises a toast for that.
 func (m *Model) filesBody() string {
@@ -51,7 +59,7 @@ func (m *Model) diff() string {
 	}
 
 	width := m.bodyWidth()
-	m.diffAt = make(map[string]int, len(m.rows))
+	m.spans = m.spans[:0]
 
 	blocks := make([]string, 0, len(m.rows))
 	at := 0
@@ -59,13 +67,15 @@ func (m *Model) diff() string {
 		if r.file == nil {
 			continue
 		}
-		m.diffAt[r.key] = at
 
 		block := m.fileBlock(*r.file, r.folded, width)
 		blocks = append(blocks, block)
+
+		lines := strings.Count(block, "\n") + 1
+		m.spans = append(m.spans, fileSpan{key: r.key, start: at, end: at + lines})
 		// The join puts a blank line after every block but the last, and the
-		// next block starts on the line after that.
-		at += strings.Count(block, "\n") + 2
+		// next one starts on the line after that.
+		at += lines + 1
 	}
 
 	if n := m.files.MoreFiles; n > 0 {
@@ -415,16 +425,60 @@ func (m *Model) moveCursor(delta int) {
 	}
 	m.cursor = min(max(m.cursor+delta, 0), len(m.rows)-1)
 
-	height := m.treeView.Height()
-	switch offset := m.treeView.YOffset(); {
-	case m.cursor < offset:
-		m.treeView.SetYOffset(m.cursor)
-	case m.cursor >= offset+height:
-		m.treeView.SetYOffset(m.cursor - height + 1)
-	}
-
+	m.showCursorRow()
 	m.syncContent()
 	m.showCursorFile()
+}
+
+// showCursorRow keeps the cursor inside the tree's own window.
+func (m *Model) showCursorRow() {
+	at := m.cursor + contentLead
+	height := m.treeView.Height()
+
+	switch offset := m.treeView.YOffset(); {
+	case at < offset:
+		m.treeView.SetYOffset(at)
+	case at >= offset+height:
+		m.treeView.SetYOffset(at - height + 1)
+	}
+}
+
+// trackDiff points the file column at whatever the diff has scrolled to. The
+// column answers "which file am I in", and a diff scrolled three files past its
+// cursor answers it wrongly rather than not at all.
+//
+// The answer is the file filling most of the window rather than the one under
+// its top line. One long file with a review thread hanging off it otherwise
+// keeps the cursor for a whole screen of the files after it.
+func (m *Model) trackDiff() {
+	if m.tab != tabFiles || m.focus != paneMain || len(m.spans) == 0 {
+		return
+	}
+
+	top := max(0, m.view.YOffset()-contentLead)
+	bottom := top + m.view.Height()
+
+	best, seen := "", 0
+	for _, s := range m.spans {
+		if covered := min(s.end, bottom) - max(s.start, top); covered > seen {
+			best, seen = s.key, covered
+		}
+	}
+
+	at := m.cursor
+	for i, r := range m.rows {
+		if r.key == best {
+			at = i
+			break
+		}
+	}
+
+	if at == m.cursor {
+		return
+	}
+	m.cursor = at
+	m.showCursorRow()
+	m.syncContent()
 }
 
 // showCursorFile scrolls the diff to whatever the tree is pointing at. A
@@ -434,9 +488,11 @@ func (m *Model) showCursorFile() {
 		return
 	}
 	for _, r := range m.rows[m.cursor:] {
-		if at, ok := m.diffAt[r.key]; ok {
-			m.view.SetYOffset(contentLead + at)
-			return
+		for _, s := range m.spans {
+			if s.key == r.key {
+				m.view.SetYOffset(contentLead + s.start)
+				return
+			}
 		}
 	}
 }
