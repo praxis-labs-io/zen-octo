@@ -476,6 +476,14 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	m.view.SetYOffset(m.offsets[m.tab])
 	m.showSideCursor()
 
+	// Commits opens with an empty diff pane, so the column is the only thing on
+	// the tab there is anything to do with. Every other tab opens on content
+	// worth reading, and leaves focus on the pane holding it.
+	if m.tab == tabCommits && m.sideVisible() {
+		m.focus = paneSide
+		m.syncContent()
+	}
+
 	// Asked once per screen rather than once per cached diff. The screen is new
 	// on every open, so a pull request reopened after a push fetches its diff
 	// again instead of reading the one from before the push for the rest of the

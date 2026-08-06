@@ -436,6 +436,30 @@ func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
 	}
 }
 
+// The diff pane opens on the Commits tab with nothing in it. The column is the
+// only thing on the tab a key does anything to, so it takes focus rather than
+// making the reader ask for it first.
+func TestTheCommitsTabOpensWithTheColumnFocused(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	// j moves the cursor when the column has focus, and scrolls the pane beside
+	// it when it does not. What the next enter asks for is the tell.
+	_, cmd := enter(press(detailed(held(d), 160, 24), "]", "j"))
+	if cmd == nil {
+		t.Fatal("enter asked for no diff at all")
+	}
+
+	msg, ok := cmd().(prview.NeedCommitMsg)
+	if !ok {
+		t.Fatalf("enter yielded %T, want a request for a commit's diff", cmd())
+	}
+	if msg.SHA != d.Commits[1].SHA {
+		t.Errorf("enter asked for %q, want the second commit: j never reached the column",
+			msg.SHA)
+	}
+}
+
 func TestBraceWalksTheFilesInACommitDiff(t *testing.T) {
 	m, _ := enter(onCommits(160, 12))
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
