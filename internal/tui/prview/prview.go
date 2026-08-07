@@ -28,6 +28,16 @@ type BackMsg struct{}
 // request starts there.
 type NeedFilesMsg struct{ ID string }
 
+// RefreshMsg asks the root to refetch this pull request. The detail feeds three
+// of the four tabs, so it is always wanted; the other two fields name the diff
+// the tab in front of the reader is showing, and are empty on the tabs that
+// show none.
+type RefreshMsg struct {
+	ID    string
+	Files bool
+	SHA   string
+}
+
 // RailPreference is what the user last asked of the details rail. The root
 // carries it from one pull request to the next, so hiding the rail stays hidden
 // instead of having to be redone on every open.
@@ -323,6 +333,9 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Back):
 		return m, func() tea.Msg { return BackMsg{} }
 
+	case key.Matches(keyMsg, k.Refresh):
+		return m, m.refresh()
+
 	case key.Matches(keyMsg, k.NextTab):
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
@@ -410,6 +423,24 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.trackDiff()
 	}
 	return m, m.armCommit()
+}
+
+// refresh names what is stale to the reader. The Conversation and Checks tabs
+// read the detail, so they ask for nothing beyond it; the other two are each
+// showing a diff the detail does not carry.
+//
+// The commit is the one on the pane rather than the one under the cursor. They
+// differ only inside the settle window, and there the pane is still showing the
+// old one, which is what the reader is asking to have refetched.
+func (m Model) refresh() tea.Cmd {
+	msg := RefreshMsg{ID: m.pr.ID}
+	switch m.tab {
+	case tabFiles:
+		msg.Files = true
+	case tabCommits:
+		msg.SHA = m.commit.sha
+	}
+	return func() tea.Msg { return msg }
 }
 
 // move is a row in the left column and a line everywhere else. The column is

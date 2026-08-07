@@ -1614,6 +1614,271 @@ func TestWalkingBackOntoAFailedCommitRetriesIt(t *testing.T) {
 	}
 }
 
+// refreshing presses r and stops before the responses land, so a test can see
+// the frame the reader gets while the requests are out. The pending fetches
+// come back with it, to be delivered when the test is ready.
+func refreshing(m tea.Model) (tea.Model, tea.Cmd) {
+	m, cmd := m.Update(keyMsg("r"))
+	for _, msg := range immediate(cmd) {
+		m, cmd = m.Update(msg)
+	}
+	return m, cmd
+}
+
+// Backing out to the list to refresh and opening again is three keys to answer
+// "has anything happened since". The detail screen refetches in place.
+func TestRefreshingTheDetailRefetchesTheConversation(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	client.serveDetail("PR_412", "Caps the backoff at 60s.")
+	m = press(m, "r")
+
+	if got := client.opened(); len(got) != 2 {
+		t.Errorf("opened %v, want the refresh to have refetched", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "Caps the backoff at 60s.") {
+		t.Error("the refreshed conversation never reached the screen")
+	}
+}
+
+// The conversation and the checks read the detail alone. A diff is a second
+// request and the most expensive one on the screen; a refresh must not spend it
+// on a tab that is not showing one.
+func TestRefreshingTheConversationAsksForNoDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+
+	m := press(loaded(t, client, 160, 40), "enter", "r")
+
+	if got := client.fetched(); len(got) != 0 {
+		t.Errorf("fetched %v, want no diff for a refresh on the conversation", got)
+	}
+	if got := client.fetchedCommits(); len(got) != 0 {
+		t.Errorf("fetched commits %v, want none", got)
+	}
+
+	// The Checks tab reads the same response, so it asks for nothing extra either.
+	press(m, "]", "]", "r")
+	if got := client.fetched(); len(got) != 0 {
+		t.Errorf("fetched %v, want no diff for a refresh on the checks", got)
+	}
+}
+
+// A push lands and the Files tab is showing the change from before it. The
+// detail carries the new counts but not the diff, so the diff has to go too.
+func TestRefreshingOnTheFilesTabRefetchesTheDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if got := client.fetched(); len(got) != 1 {
+		t.Fatalf("setup: fetched %v, want one request", got)
+	}
+
+	m = press(m, "r")
+
+	if got := client.fetched(); len(got) != 2 {
+		t.Errorf("fetched %v, want the diff asked for again", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the diff left the screen over the refresh")
+	}
+}
+
+// A commit's diff is cached by sha and nothing else asks for one twice, so the
+// refresh is the only way to see an amended commit.
+func TestRefreshingOnTheCommitsTabRefetchesTheCommitOnThePane(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]"), "a3f91c2d5e")
+	if got := client.fetchedCommits(); len(got) != 1 {
+		t.Fatalf("setup: fetched %v, want one request", got)
+	}
+
+	m = press(m, "r")
+
+	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@a3f91c2d5e"}
+	if got := client.fetchedCommits(); !slices.Equal(got, want) {
+		t.Errorf("fetched commits %v, want %v", got, want)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the commit diff left the screen over the refresh")
+	}
+}
+
+// The screen keeps what it has through the refresh. Clearing it would take the
+// conversation away from the reader for as long as the request is out, which is
+// the whole reason the detail screen does not spin over content.
+func TestARefreshKeepsTheConversationOnScreen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	waiting, pending := refreshing(m)
+
+	out := stripANSI(render(t, waiting))
+	if !strings.Contains(out, "Caps the backoff at 30s.") {
+		t.Error("the conversation went away while the refresh was out")
+	}
+	if strings.Contains(out, "Loading the conversation") {
+		t.Error("the screen spun over content it was already showing")
+	}
+	settle(waiting, immediate(pending)...)
+}
+
+// Nothing moves on the screen during a refresh, so the bar is the only place
+// anything can say r did something.
+func TestARefreshSpinsInTheStatusBar(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	waiting, pending := refreshing(m)
+
+	if !strings.Contains(lastLine(render(t, waiting)), "Refreshing") {
+		t.Errorf("status bar = %q, want the refresh on it", strings.TrimSpace(lastLine(render(t, waiting))))
+	}
+
+	done := settle(waiting, immediate(pending)...)
+	if strings.Contains(lastLine(render(t, done)), "Refreshing") {
+		t.Error("the bar is still spinning after the refresh landed")
+	}
+}
+
+// A refresh usually comes back with the same conversation, so the toast is the
+// only sign it happened.
+func TestTheDetailRefreshToastNamesThePullRequest(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter", "r")
+
+	if !strings.Contains(lastLine(render(t, m)), "Refreshed #412") {
+		t.Errorf("status bar = %q, want the refresh reported", strings.TrimSpace(lastLine(render(t, m))))
+	}
+}
+
+// One press is one toast. Reporting the detail the moment it lands would call
+// the refresh done while its diff was still out.
+func TestTheDetailRefreshToastWaitsForTheDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	waiting, pending := refreshing(m)
+
+	answers := responses(pending)
+	if len(answers) != 2 {
+		t.Fatalf("the refresh started %d requests, want the detail and the diff", len(answers))
+	}
+
+	half := settle(waiting, answers[0])
+	if strings.Contains(lastLine(render(t, half)), "Refreshed") {
+		t.Error("the refresh reported itself with a request still out")
+	}
+
+	done := settle(half, answers[1])
+	if !strings.Contains(lastLine(render(t, done)), "Refreshed #412") {
+		t.Errorf("status bar = %q, want the refresh reported once both landed",
+			strings.TrimSpace(lastLine(render(t, done))))
+	}
+}
+
+// The summary is the one toast a refresh raises. The per-request failures the
+// reopen path uses would report the same failure twice beside it, and with at
+// most two requests out, naming which leg failed is what says whether the thing
+// in front of the reader is the stale one.
+func TestADetailRefreshReportsItselfOnce(t *testing.T) {
+	boom := errors.New("context deadline exceeded")
+
+	tests := []struct {
+		name string
+		fail func(*fakeSearcher)
+		want string
+	}{
+		{"both back", func(*fakeSearcher) {}, "Refreshed #412"},
+		{"both failed", func(f *fakeSearcher) { f.failDetails(boom); f.failFiles(boom) }, "Refresh failed"},
+		{"diff failed", func(f *fakeSearcher) { f.failFiles(boom) }, "Refreshed #412, the diff failed"},
+		{"detail failed", func(f *fakeSearcher) { f.failDetails(boom) }, "Refreshed the diff, #412 failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeSearcher{prs: samplePRs()}
+			client.serveDetail("PR_412", "Caps the backoff at 30s.")
+			client.serveFiles(412, sampleFiles())
+
+			m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+			tt.fail(client)
+			m = press(m, "r")
+
+			bar := lastLine(render(t, m))
+			if !strings.Contains(bar, tt.want) {
+				t.Errorf("status bar = %q, want %q", strings.TrimSpace(bar), tt.want)
+			}
+			if strings.Contains(bar, "Could not refresh") {
+				t.Errorf("status bar = %q, want the summary rather than a per-request failure",
+					strings.TrimSpace(bar))
+			}
+		})
+	}
+}
+
+// Every Begin refuses a request already out, so leaning on r costs one round
+// trip rather than one per press.
+func TestRefreshingTwiceWhileTheFirstIsOutCostsOneRequest(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	waiting, pending := refreshing(m)
+	again, _ := refreshing(waiting)
+
+	settle(again, immediate(pending)...)
+	if got := client.opened(); len(got) != 2 {
+		t.Errorf("opened %v, want the open and one refresh", got)
+	}
+}
+
+// A diff that failed has nothing worth keeping, so the refresh puts the pane
+// back into its loading state and the retry lands on it.
+func TestRefreshingRetriesADiffThatFailed(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.failFiles(errors.New("context deadline exceeded"))
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
+	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
+		t.Fatal("setup: the diff did not fail")
+	}
+
+	client.failFiles(nil)
+	client.serveFiles(412, sampleFiles())
+	m = press(m, "r")
+
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the retried diff never reached the pane")
+	}
+}
+
+// Every settle path drops a response for a screen the reader has left, so a
+// refresh abandoned by esc never settles. Without clearing it the bar spins
+// over the list with nothing coming.
+func TestLeavingTheDetailStopsTheRefreshSpinner(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	waiting, _ := refreshing(m)
+
+	if got := lastLine(render(t, press(waiting, "esc"))); strings.Contains(got, "Refreshing") {
+		t.Errorf("the list's status bar = %q, want no refresh left running on it", strings.TrimSpace(got))
+	}
+}
+
 // Naming the repository made the right side of the status bar long enough to
 // stop fitting beside the detail screen's help line, and the bar used to drop
 // that side whole rather than clip it, taking the number with it.

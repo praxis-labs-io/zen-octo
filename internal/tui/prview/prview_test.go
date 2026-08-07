@@ -552,6 +552,59 @@ func TestTheConversationEndsOnABlankLine(t *testing.T) {
 	}
 }
 
+// refreshed presses r and returns what it asked the root for.
+func refreshed(t *testing.T, m prview.Model) prview.RefreshMsg {
+	t.Helper()
+
+	_, cmd := key(m, "r")
+	if cmd == nil {
+		t.Fatal("r asked for nothing")
+	}
+	msg, ok := cmd().(prview.RefreshMsg)
+	if !ok {
+		t.Fatalf("r produced %T, want a RefreshMsg", msg)
+	}
+	return msg
+}
+
+// The detail feeds three of the four tabs, so it always goes. The diff beside
+// it is a second request, and asking for one the tab is not showing spends it
+// on something nobody is looking at.
+func TestRefreshAsksForTheDiffTheTabIsShowing(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	onCommit := press(detailed(held(d), 160, 40), "]")
+	onCommit.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	tests := []struct {
+		name string
+		m    prview.Model
+		want prview.RefreshMsg
+	}{
+		{"conversation", detailed(held(d), 160, 40), prview.RefreshMsg{ID: "PR_412"}},
+		{"commits", onCommit, prview.RefreshMsg{ID: "PR_412", SHA: "a3f91c2d5e"}},
+		{"checks", press(detailed(held(d), 160, 40), "]", "]"), prview.RefreshMsg{ID: "PR_412"}},
+		{"files", press(detailed(held(d), 160, 40), "]", "]", "]"), prview.RefreshMsg{ID: "PR_412", Files: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := refreshed(t, tt.m); got != tt.want {
+				t.Errorf("r asked for %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The Commits tab opens with nothing on the pane and a wait armed for the
+// commit under the cursor. A refresh in that window has no diff to refetch.
+func TestRefreshOnCommitsAsksForNothingBeforeADiffIsOnThePane(t *testing.T) {
+	if got := refreshed(t, onCommits(160, 40)); got.SHA != "" {
+		t.Errorf("r asked for %q, want no commit while the pane is still empty", got.SHA)
+	}
+}
+
 func TestTheRailTakesTheDetailOnceItLands(t *testing.T) {
 	out := stripANSI(detailed(held(sampleDetail()), 200, 40).View())
 

@@ -127,9 +127,46 @@ type Model struct {
 	// every section configured: store.Begin refuses one already in flight.
 	refreshing []int
 
+	// detailRefreshing is the same for the detail screen, and refreshSpin is the
+	// glyph that stands in for the body spinner the detail screen deliberately
+	// does not run over content already on it.
+	detailRefreshing detailRefresh
+	refreshSpin      comp.Spinner
+
 	width  int
 	height int
 }
+
+// detailRefresh is the requests one r on the detail screen started, so the
+// toast waits for the last of them rather than for whichever answers first.
+//
+// The legs are held apart rather than counted. A refresh does not always start
+// all three, and a response to something else that happened to be out would
+// otherwise take the slot of one that never came back.
+type detailRefresh struct {
+	id  string
+	sha string
+
+	detail bool
+	files  bool
+	commit bool
+
+	// What failed, which is what the toast names. A count cannot: with at most
+	// two out, "one failed" leaves the reader guessing which.
+	failedDetail bool
+	failedDiff   bool
+}
+
+func (r detailRefresh) running() bool { return r.detail || r.files || r.commit }
+
+// refreshLeg names the request a response answers.
+type refreshLeg int
+
+const (
+	legDetail refreshLeg = iota
+	legFiles
+	legCommit
+)
 
 // New builds the root model over the configured PR sections.
 func New(cfg *config.Config, client GitHub) Model {
@@ -153,6 +190,8 @@ func New(cfg *config.Config, client GitHub) Model {
 		list:   list.New(th),
 		status: comp.NewStatusBar(th),
 		help:   h,
+
+		refreshSpin: comp.NewSpinner(th),
 	}
 	// Init fetches every section, and a command runs off the update loop where
 	// it cannot mark anything, so the store is put in that state here.
@@ -252,6 +291,7 @@ func stillLoading(sections []store.Section, indices []int) bool {
 func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail = prview.New(m.theme, pr, m.detail.Rail(), m.syntax)
 	m.screen = screenDetail
+	m.detailRefreshing = detailRefresh{}
 
 	var cmds []tea.Cmd
 	if m.store.BeginDetail(pr.ID) {
@@ -268,6 +308,96 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail.SetFiles(m.store.Files(pr.ID))
 	m.resize()
 	return m, tea.Batch(cmds...)
+}
+
+// refreshDetail refetches the pull request on screen. The detail feeds the
+// conversation, the commit column and the checks, so it always goes; the diff
+// the reader is actually looking at goes with it, because the detail carries
+// neither.
+//
+// The screen keeps what it has throughout. Every Begin refuses only a request
+// already out, so a second r while the first is still running starts nothing
+// and the count stays true.
+func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
+	pr := m.detail.PullRequest()
+	if m.screen != screenDetail || pr.ID != msg.ID {
+		return m, nil
+	}
+
+	var cmds []tea.Cmd
+	started := detailRefresh{id: msg.ID}
+	if m.store.BeginDetail(msg.ID) {
+		started.detail = true
+		cmds = append(cmds, m.fetchDetail(msg.ID, pr.HeadRefName))
+	}
+	if msg.Files && m.store.BeginFiles(msg.ID) {
+		started.files = true
+		// A diff already on the pane stays exactly as it is. Pushing the store's
+		// loading state through would throw away its rendered blocks and buy a
+		// re-highlight for a frame that reads the same. One that failed has
+		// nothing worth keeping, so it takes the loading state and spins.
+		if held := m.store.Files(msg.ID); !held.Loaded {
+			m.detail.SetFiles(held)
+		}
+		cmds = append(cmds, m.fetchFiles(msg.ID, pr.Repository, pr.Number, pr.ChangedFiles))
+	}
+	if msg.SHA != "" && m.store.BeginCommitFiles(msg.SHA) {
+		started.commit, started.sha = true, msg.SHA
+		if held := m.store.CommitFiles(msg.SHA); !held.Loaded {
+			m.detail.SetCommitFiles(msg.SHA, held)
+		}
+		cmds = append(cmds, m.fetchCommitFiles(pr.Repository, msg.SHA))
+	}
+	// Everything this refresh would have asked for is already on its way.
+	if !started.running() {
+		return m, nil
+	}
+
+	m.detailRefreshing = started
+	// The screen's own chain, for a diff that failed and has no content to hold
+	// the pane; and the bar's, which is the only thing on screen saying r did
+	// anything at all when the content stays put.
+	return m, tea.Batch(append(cmds, m.detail.Init(), m.refreshSpin.Tick())...)
+}
+
+// claim takes a response the refresh in flight was waiting on and answers
+// whether the caller should stay quiet. The summary is the one toast a refresh
+// raises: the per-request error beside it would report the same failure twice.
+func (m *Model) claim(leg refreshLeg, key string, err error) (tea.Cmd, bool) {
+	r := &m.detailRefreshing
+	switch {
+	case leg == legDetail && r.detail && key == r.id:
+		r.detail, r.failedDetail = false, err != nil
+	case leg == legFiles && r.files && key == r.id:
+		r.files, r.failedDiff = false, r.failedDiff || err != nil
+	case leg == legCommit && r.commit && key == r.sha:
+		r.commit, r.failedDiff = false, r.failedDiff || err != nil
+	default:
+		return nil, false
+	}
+
+	if r.running() {
+		return nil, true
+	}
+
+	kind, text := detailRefreshSummary(*r, m.detail.PullRequest().Number)
+	*r = detailRefresh{}
+	return m.toasts.Show(kind, text), true
+}
+
+// detailRefreshSummary names what came back.
+func detailRefreshSummary(r detailRefresh, number int) (comp.ToastKind, string) {
+	pr := "#" + strconv.Itoa(number)
+	switch {
+	case !r.failedDetail && !r.failedDiff:
+		return comp.ToastSuccess, "Refreshed " + pr
+	case r.failedDetail && r.failedDiff:
+		return comp.ToastError, "Refresh failed"
+	case r.failedDiff:
+		return comp.ToastError, "Refreshed " + pr + ", the diff failed"
+	default:
+		return comp.ToastError, "Refreshed the diff, " + pr + " failed"
+	}
 }
 
 // needFiles answers the screen asking for a diff it does not have. The screen
@@ -308,6 +438,9 @@ func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
 	}
 
 	m.detail.SetFiles(held)
+	if cmd, claimed := m.claim(legFiles, id, err); claimed {
+		return m, cmd
+	}
 	if err != nil && held.Loaded {
 		return m, m.toasts.Show(comp.ToastError, "Could not refresh the diff for #"+strconv.Itoa(m.detail.PullRequest().Number))
 	}
@@ -361,6 +494,9 @@ func (m Model) commitFilesSettled(sha string, err error) (tea.Model, tea.Cmd) {
 	}
 
 	m.detail.SetCommitFiles(sha, held)
+	if cmd, claimed := m.claim(legCommit, sha, err); claimed {
+		return m, cmd
+	}
 	if err != nil && held.Loaded {
 		return m, m.toasts.Show(comp.ToastError, "Could not refresh the diff for "+short(sha))
 	}
@@ -404,6 +540,9 @@ func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 	}
 
 	armed := m.detail.SetDetail(held)
+	if cmd, claimed := m.claim(legDetail, id, err); claimed {
+		return m, tea.Batch(armed, cmd)
+	}
 	if err != nil && held.Loaded {
 		return m, tea.Batch(armed,
 			m.toasts.Show(comp.ToastError, "Could not refresh #"+strconv.Itoa(m.detail.PullRequest().Number)))
@@ -439,7 +578,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var listCmd, detailCmd tea.Cmd
 		m.list, listCmd = m.list.Update(msg)
 		m.detail, detailCmd = m.detail.Update(msg)
-		return m, tea.Batch(listCmd, detailCmd)
+		spinCmd := m.refreshSpin.Advance(msg, m.detailRefreshing.running())
+		return m, tea.Batch(listCmd, detailCmd, spinCmd)
 
 	case comp.ToastExpiredMsg:
 		m.toasts.Expire(msg)
@@ -475,6 +615,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.NeedCommitMsg:
 		return m.needCommit(msg.SHA)
 
+	case prview.RefreshMsg:
+		return m.refreshDetail(msg)
+
 	case list.OpenMsg:
 		return m.open(msg.PR)
 
@@ -483,6 +626,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prview.BackMsg:
 		m.screen = screenList
+		// A refresh left behind never settles: every settle path drops a response
+		// for a screen that is gone. Without this the bar spins over the list
+		// with nothing coming.
+		m.detailRefreshing = detailRefresh{}
 		m.resize()
 		return m, nil
 	}
@@ -602,6 +749,12 @@ func (m Model) noticeLine() string {
 func (m Model) statusLeft() string {
 	if !m.toasts.Empty() {
 		return m.toasts.Render(m.theme)
+	}
+	// A refresh on the detail screen leaves the content where it is, so the bar
+	// is the only place anything can say it is happening. The hints give way for
+	// the duration, the same as they do for a toast.
+	if m.detailRefreshing.running() {
+		return m.refreshSpin.Render("Refreshing")
 	}
 	switch m.screen {
 	case screenDetail:
