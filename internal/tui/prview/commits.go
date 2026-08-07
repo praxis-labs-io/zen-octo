@@ -2,6 +2,7 @@ package prview
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -20,17 +21,26 @@ import (
 // multiply, and a column that lands mid-row cuts a sha off above the window.
 const commitRowHeight = 2
 
+// commitSettleDelay is how long the cursor has to sit still before its commit
+// is asked for. The diff is a request of its own, and walking a long branch a
+// keystroke at a time would spend one per commit passed through.
+const commitSettleDelay = 150 * time.Millisecond
+
 // commits is the Commits tab: what the column holds, where its cursor is, and
-// the diff of whichever commit was last selected.
+// the diff of the commit the cursor last settled on.
 //
-// sha is empty until the first selection. The diff is a request of its own, so
-// it waits to be asked for rather than following the cursor.
+// sha is what the pane is painting and pending is what has been asked for. They
+// differ for the one hop it takes the root to answer, which is where the
+// distinction earns its place: a diff already cached comes back inside that hop,
+// and a pane cleared to meet it flashes a spinner over a diff that was never
+// going to be waited for.
 type commits struct {
-	cursor int
-	sha    string
-	files  store.Files
-	rows   []row
-	diff   diffBody
+	cursor  int
+	sha     string
+	pending string
+	files   store.Files
+	rows    []row
+	diff    diffBody
 }
 
 // NeedCommitMsg asks the root for a commit's diff. Same shape as the pull
@@ -38,17 +48,50 @@ type commits struct {
 // a message and the request starts there.
 type NeedCommitMsg struct{ SHA string }
 
-// SetCommitFiles takes what the store holds for a commit's diff. It drops
-// anything that is not the commit on screen: the cursor can have moved on and
-// a second commit been asked for while the first was still out.
+// CommitSettleMsg is a cursor that stopped moving. It carries the sha rather
+// than a sequence number because the sha is already the identity: one fired for
+// a commit the cursor has since walked off is told from the current one by
+// comparing against the cursor, with no counter to keep in step.
+type CommitSettleMsg struct{ SHA string }
+
+// SetCommitFiles takes what the store holds for a commit's diff, and is what
+// puts a newly asked-for commit on the pane. Anything that is neither the commit
+// showing nor the one asked for is dropped: the cursor can have moved on and a
+// third been asked for while the first was still out.
+//
+// The store answers a commit that is out as well as one that is held, so a real
+// fetch arrives loading and spins, and a cached one arrives ready and paints.
+// Nothing here has to know which it was.
 func (m *Model) SetCommitFiles(sha string, f store.Files) {
-	if sha != m.commit.sha {
-		return
+	// Cleared on any answer, not just one that takes the pane. A retry of the
+	// commit already showing asks for a sha that never becomes a take, and
+	// leaving it pending would swallow every retry after it.
+	if sha == m.commit.pending {
+		m.commit.pending = ""
 	}
+
+	took := sha != m.commit.sha
+	if took {
+		// A diff takes the pane only while the column still points at it. An
+		// answer for a commit the reader has walked back off would paint under
+		// the wrong row, with nothing armed to put it right.
+		if under, ok := m.underCursor(); !ok || under != sha {
+			return
+		}
+		m.commit.sha = sha
+	}
+
 	m.commit.files = f
 	m.commit.diff.blocks = nil
 	m.commit.rows = flatten(buildTree(f.Files), nil, 0, nil)
 	m.syncContent()
+
+	// After the content, because the viewport clamps an offset to what it holds,
+	// and only for the tab that owns it: one viewport serves all four, so a
+	// commit landing while the reader is elsewhere would throw away their place.
+	if took && m.tab == tabCommits {
+		m.view.GotoTop()
+	}
 }
 
 // syncCommits keeps the cursor inside a commit list that has just arrived or
@@ -57,32 +100,63 @@ func (m *Model) syncCommits() {
 	m.commit.cursor = min(m.commit.cursor, max(0, len(m.detail.Detail.Commits)-1))
 }
 
-// selectCommit asks for the diff of the commit under the cursor. A commit
-// already on screen costs nothing: the answer is the one being read.
-func (m *Model) selectCommit() tea.Cmd {
-	list := m.detail.Detail.Commits
-	if m.commit.cursor >= len(list) {
-		return nil
+// wanted is the commit the pane should be showing and whether it is worth
+// asking for. Both ends of the wait read it, so the question is answered once:
+// arming and settling that disagree spend a request the tab no longer wants.
+//
+// The tab is as much of the answer as the cursor is. A wait armed on the way
+// through the Commits tab runs out wherever the reader has got to by then.
+func (m Model) wanted() (string, bool) {
+	sha, ok := m.underCursor()
+	if m.tab != tabCommits || !ok {
+		return "", false
 	}
-
-	sha := list[m.commit.cursor].SHA
-	if sha == "" {
-		return nil
-	}
-	// A fetch that failed is the exception: this key is the only way to ask
-	// again, and without it the pane keeps its error until the screen is closed.
+	// The commit already painted is worth asking for again only when its last
+	// answer was a failure. That is the whole of the retry: no key selects a
+	// commit any more, so nothing else would ever ask twice.
 	if sha == m.commit.sha && m.commit.files.Status != store.StatusFailed {
+		return sha, false
+	}
+	return sha, true
+}
+
+// armCommit starts the wait for the commit under the cursor.
+func (m Model) armCommit() tea.Cmd {
+	sha, want := m.wanted()
+	if !want {
+		return nil
+	}
+	return tea.Tick(commitSettleDelay, func(time.Time) tea.Msg {
+		return CommitSettleMsg{SHA: sha}
+	})
+}
+
+// settleCommit asks for the diff of a wait that ran out, and drops one the
+// reader has moved past. Every keypress arms its own, so walking five commits
+// sets five timers and only the last still names where the cursor ended up.
+//
+// Nothing on the pane moves here. The commit before this one holds it until the
+// store answers, which is one hop away and is the only thing that knows whether
+// there is a wait to show.
+func (m *Model) settleCommit(msg CommitSettleMsg) tea.Cmd {
+	sha, want := m.wanted()
+	// One already asked for is on its way, and the root answers it either way.
+	if !want || sha != msg.SHA || sha == m.commit.pending {
 		return nil
 	}
 
-	m.commit.sha = sha
-	m.commit.files = store.Files{}
-	m.commit.rows = nil
-	m.commit.diff.blocks = nil
-	m.view.GotoTop()
-	m.syncContent()
-
+	m.commit.pending = sha
 	return func() tea.Msg { return NeedCommitMsg{SHA: sha} }
+}
+
+// underCursor is the sha the column is pointing at, and whether it is pointing
+// at anything. A commit with no sha is one the query returned empty.
+func (m Model) underCursor() (string, bool) {
+	list := m.detail.Detail.Commits
+	if m.commit.cursor >= len(list) || list[m.commit.cursor].SHA == "" {
+		return "", false
+	}
+	return list[m.commit.cursor].SHA, true
 }
 
 // commitTitle counts what the column holds, or names it before the detail query
@@ -176,15 +250,20 @@ func (m Model) padTo(line string, width int, base lipgloss.Style) string {
 	return line
 }
 
-// commitBody is the selected commit's diff, through the same renderer the Files
-// tab uses, under a card naming the commit it belongs to. Nothing selected yet
-// says which key selects one.
+// commitBody is the diff of the commit the cursor settled on, through the same
+// renderer the Files tab uses, under a card naming the commit it belongs to.
 func (m *Model) commitBody() string {
 	switch {
 	case m.commit.sha == "":
-		// Named off the binding rather than written out, so a rebind moves the
-		// prompt with it.
-		return m.faint().Render("Press " + m.Keys().Select.Help().Key + " to show a commit's diff.")
+		if _, ok := m.underCursor(); !ok {
+			// No commits to point at. The column says so, and a second line
+			// under it saying the same is noise.
+			return ""
+		}
+		// The settle window and the hop after it. A diff is coming, so this
+		// spins rather than sitting blank: an empty pane beside a full column
+		// reads as a rendering fault.
+		return m.spinner.Render("Loading the diff")
 	case m.commit.files.Loaded:
 		card := m.commitCard(m.bodyWidth())
 		if card == "" {
@@ -247,7 +326,8 @@ func (m Model) selected() (gh.Commit, bool) {
 }
 
 // moveCommit walks the column and keeps the cursor inside its own window. The
-// diff does not follow: it is a request, and it waits to be asked for.
+// diff follows once the cursor stops; arming that is the caller's, because this
+// runs on a resize as well as on a key.
 func (m *Model) moveCommit(delta int) {
 	list := m.detail.Detail.Commits
 	if len(list) == 0 {

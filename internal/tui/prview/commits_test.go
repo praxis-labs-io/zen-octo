@@ -43,8 +43,27 @@ func onCommits(width, height int) prview.Model {
 	return press(detailed(held(d), width, height), "]")
 }
 
-func enter(m prview.Model) (prview.Model, tea.Cmd) {
-	return m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+// settled stands in for a cursor that has stopped moving. It skips the wait
+// itself, which tea.Tick spends in a sleep; the tests that have to prove the
+// wait was armed at all use armed instead.
+func settled(m prview.Model, sha string) (prview.Model, tea.Cmd) {
+	return m.Update(prview.CommitSettleMsg{SHA: sha})
+}
+
+// armed runs the wait a key produced, the way the runtime would, and returns
+// what it carried. It blocks for commitSettleDelay, which is the price of
+// driving the arming gate through a key rather than stepping around it.
+func armed(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("the key armed no wait at all")
+	}
+	return cmd()
+}
+
+// key drives one keypress and hands back whatever it armed.
+func key(m prview.Model, k string) (prview.Model, tea.Cmd) {
+	return m.Update(tea.KeyPressMsg{Code: rune(k[0]), Text: k})
 }
 
 // commitDiff is a commit's diff the way the store hands one over.
@@ -135,44 +154,219 @@ func marked(frame, fg string) bool {
 	return regexp.MustCompile(regexp.QuoteMeta(fg) + `(;[0-9;]+)?m●`).MatchString(frame)
 }
 
-func TestSelectingACommitAsksForItsDiff(t *testing.T) {
-	m := onCommits(160, 24)
-	m = press(m, "1", "j")
+func TestTheCursorStoppingAsksForTheCommitsDiff(t *testing.T) {
+	m := press(onCommits(160, 24), "1", "j")
 
-	_, cmd := enter(m)
+	_, cmd := settled(m, "7b20ef4a11")
 	if cmd == nil {
-		t.Fatal("enter produced no command, want a request for the diff")
+		t.Fatal("the cursor settling produced no command, want a request for the diff")
 	}
 
 	msg, ok := cmd().(prview.NeedCommitMsg)
 	if !ok {
-		t.Fatalf("enter produced %T, want a NeedCommitMsg", cmd())
+		t.Fatalf("the cursor settling produced %T, want a NeedCommitMsg", cmd())
 	}
 	if msg.SHA != "7b20ef4a11" {
 		t.Errorf("asked for %q, want the commit under the cursor", msg.SHA)
 	}
 }
 
-func TestSelectingTheCommitAlreadyShowingAsksAgainForNothing(t *testing.T) {
-	m, _ := enter(onCommits(160, 24))
+func TestSettlingOnTheCommitAlreadyShowingAsksAgainForNothing(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
-	if _, cmd := enter(m); cmd != nil {
-		t.Error("enter on the commit already showing asked for it a second time")
+	if _, cmd := settled(m, "a3f91c2d5e"); cmd != nil {
+		t.Error("the commit already showing was asked for a second time")
 	}
 }
 
-func TestMovingTheCursorAsksForNothing(t *testing.T) {
-	m := press(onCommits(160, 24), "1", "j", "j", "k")
-	if m.View() == "" {
-		t.Fatal("the screen rendered nothing")
+// The pane holds the commit it is showing until the store answers with the next
+// one. A cached diff answers inside a frame, and clearing the pane to meet it
+// puts a spinner on screen over a wait that never happened.
+func TestAskingForACommitLeavesTheOneOnScreenAlone(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	m, _ = settled(press(m, "j"), "7b20ef4a11")
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "Loading the diff") {
+		t.Error("the pane spun before the store had been asked")
 	}
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}); cmd != nil {
-		t.Error("moving the cursor asked for a diff")
+	if !strings.Contains(out, "internal/gh/client.go") {
+		t.Error("the pane dropped the diff it was showing")
+	}
+}
+
+// A commit that really is being fetched still spins. The store answers a request
+// that is out as well as one it holds, and the loading state it sends is what
+// the pane takes.
+func TestACommitBeingFetchedSpins(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", store.Files{Status: store.StatusLoading})
+
+	if !strings.Contains(stripANSI(m.View()), "Loading the diff") {
+		t.Error("a commit with its request still out does not say so")
+	}
+}
+
+// Every keypress arms a wait of its own, so walking three commits sets three of
+// them. Only the one still naming the commit under the cursor may fetch: the
+// rest are a branch the reader passed through on the way here.
+func TestOnlyTheCommitTheCursorStoppedOnIsAskedFor(t *testing.T) {
+	m := press(onCommits(160, 24), "1", "j", "j", "k")
+
+	for _, stale := range []string{"a3f91c2d5e", "c1d8a04bb9"} {
+		if _, cmd := settled(m, stale); cmd != nil {
+			t.Errorf("a wait armed on %q fetched after the cursor moved off it", stale)
+		}
+	}
+
+	if _, cmd := settled(m, "7b20ef4a11"); cmd == nil {
+		t.Error("the commit the cursor stopped on was never asked for")
+	}
+}
+
+// The cursor moving arms a wait naming the commit it landed on. Driven through
+// the key and its command rather than by handing the model the message, which
+// is the only way the arming gate is exercised at all.
+func TestMovingTheCursorArmsTheWaitForThatCommit(t *testing.T) {
+	m, cmd := key(press(onCommits(160, 24), "1"), "j")
+
+	msg, ok := armed(t, cmd).(prview.CommitSettleMsg)
+	if !ok {
+		t.Fatalf("the key armed %T, want a CommitSettleMsg", armed(t, cmd))
+	}
+	if msg.SHA != "7b20ef4a11" {
+		t.Errorf("the wait names %q, want the commit the cursor landed on", msg.SHA)
+	}
+	if _, cmd := settled(m, msg.SHA); cmd == nil {
+		t.Error("the wait it armed asked for nothing")
+	}
+}
+
+// A wait armed on the way through the Commits tab runs out wherever the reader
+// got to. Tabbing on within the settle window is one keypress at ordinary key
+// repeat, and fetching then spends the request the whole debounce exists to save.
+func TestAWaitThatRunsOutOnAnotherTabAsksForNothing(t *testing.T) {
+	m := press(onCommits(160, 24), "1", "j")
+	m = press(m, "]")
+
+	if _, cmd := settled(m, "7b20ef4a11"); cmd != nil {
+		t.Error("a wait that ran out after the reader left the tab fetched anyway")
+	}
+}
+
+// A failed diff has no key that selects it any more, so the wait has to arm on
+// the commit already showing. On a one-commit branch there is nowhere to walk
+// to and back, and without this the error stays until the screen is closed.
+func TestAFailedCommitArmsARetryWithNowhereToWalk(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()[:1]
+
+	m := press(detailed(held(d), 160, 24), "]", "1")
+	m, _ = settled(m, "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", store.Files{Status: store.StatusFailed, Err: errors.New("no such host")})
+
+	m, cmd := key(m, "j")
+	msg, ok := armed(t, cmd).(prview.CommitSettleMsg)
+	if !ok || msg.SHA != "a3f91c2d5e" {
+		t.Fatalf("the key armed %v, want a retry of the failed commit", armed(t, cmd))
+	}
+	if _, cmd := settled(m, msg.SHA); cmd == nil {
+		t.Error("the retry asked for nothing")
+	}
+}
+
+// The tab can be opened before the detail query answers. The commits arrive
+// with nothing armed to fetch the first one, so the arriving detail arms it.
+func TestCommitsArrivingAfterTheTabArmTheirOwnFetch(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	m := press(detailed(store.Detail{Status: store.StatusLoading}, 160, 24), "]")
+	cmd := m.SetDetail(held(d))
+
+	msg, ok := armed(t, cmd).(prview.CommitSettleMsg)
+	if !ok || msg.SHA != "a3f91c2d5e" {
+		t.Fatalf("the arriving detail armed %v, want the first commit", armed(t, cmd))
+	}
+}
+
+// Nothing painted yet is a wait, not an empty pane. A column full of commits
+// beside a blank pane reads as a rendering fault rather than as a diff coming.
+func TestThePaneSpinsThroughTheSettleWindow(t *testing.T) {
+	out := stripANSI(onCommits(160, 24).View())
+
+	if !strings.Contains(out, "Loading the diff") {
+		t.Error("the pane sits blank while the wait runs")
+	}
+}
+
+// One viewport serves all four tabs. A commit answering after the reader has
+// tabbed on still takes the pane, but it must not scroll it: the offset it
+// would reset belongs to whatever they are reading now.
+func TestACommitLandingOffTabKeepsTheReadersPlace(t *testing.T) {
+	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
+	m = press(m, "[")
+	m = press(m, "j", "j", "j", "j", "j", "j")
+
+	before := m.View()
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	if m.View() != before {
+		t.Error("a commit landing off the tab moved the pane the reader was on")
+	}
+}
+
+// A retry asks for the commit already showing, so the answer never takes the
+// pane. Clearing pending only on a take would latch it there and swallow every
+// retry after the first.
+func TestASecondRetryOfAFailedCommitStillAsks(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()[:1]
+	failed := store.Files{Status: store.StatusFailed, Err: errors.New("no such host")}
+
+	m := press(detailed(held(d), 160, 24), "]", "1")
+	m, _ = settled(m, "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", failed)
+
+	m, cmd := settled(m, "a3f91c2d5e")
+	if cmd == nil {
+		t.Fatal("the first retry asked for nothing")
+	}
+	m.SetCommitFiles("a3f91c2d5e", store.Files{Status: store.StatusLoading})
+	m.SetCommitFiles("a3f91c2d5e", failed)
+
+	if _, cmd := settled(m, "a3f91c2d5e"); cmd == nil {
+		t.Error("the second retry was swallowed: pending latched on the first")
+	}
+}
+
+// A diff answering for a commit the reader has walked back off must not paint:
+// the card would name one commit while the column highlights another.
+func TestADiffThatLandsAfterTheCursorWalksBackIsDropped(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	// Down to the second, ask for it, then back up before it answers.
+	m, _ = settled(press(m, "j"), "7b20ef4a11")
+	m = press(m, "k")
+	m.SetCommitFiles("7b20ef4a11", commitDiff(sampleFiles()))
+
+	// The full sha is the tell: the card spells it out, the column has room
+	// only for the short one.
+	out := stripANSI(m.View())
+	if strings.Contains(out, "7b20ef4a11") {
+		t.Error("the card names a commit the column is not pointing at")
+	}
+	if !strings.Contains(out, "a3f91c2d5e") {
+		t.Error("the pane lost the commit the cursor is actually on")
 	}
 }
 
 func TestTheCommitDiffRendersThroughTheFilesViewer(t *testing.T) {
-	m, _ := enter(onCommits(160, 24))
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	out := stripANSI(m.View())
@@ -187,7 +381,7 @@ func TestTheCommitDiffRendersThroughTheFilesViewer(t *testing.T) {
 // A diff for a commit the cursor has moved on from must not land on the screen:
 // the reader asked for a different one and is waiting on it.
 func TestADiffForAnotherCommitIsDropped(t *testing.T) {
-	m, _ := enter(onCommits(160, 24))
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("7b20ef4a11", commitDiff(sampleFiles()))
 
 	if strings.Contains(stripANSI(m.View()), "internal/gh/client.go") {
@@ -209,7 +403,7 @@ func TestTheCommitDiffStatesReadAsThemselves(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m, _ := enter(onCommits(160, 24))
+			m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 			m.SetCommitFiles("a3f91c2d5e", c.held)
 
 			if out := stripANSI(m.View()); !strings.Contains(out, c.want) {
@@ -219,10 +413,31 @@ func TestTheCommitDiffStatesReadAsThemselves(t *testing.T) {
 	}
 }
 
-func TestNothingSelectedSaysWhichKeySelects(t *testing.T) {
-	out := stripANSI(onCommits(160, 24).View())
-	if !strings.Contains(out, "Press enter to show a commit's diff.") {
-		t.Error("the diff pane does not say how to fill it")
+// The tab opens on content the way Files does, so landing on it asks for the
+// commit the cursor is already pointing at.
+func TestTheCommitsTabAsksForItsFirstDiffOnTheWayIn(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	m, _ := settled(press(detailed(held(d), 160, 24), "]"), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	if !strings.Contains(stripANSI(m.View()), "internal/gh/client.go") {
+		t.Error("the tab opened without asking for the first commit's diff")
+	}
+}
+
+// A pull request with no commits has nothing to point at. The column says so,
+// and the pane beside it stays empty rather than saying it twice.
+func TestAnEmptyCommitListLeavesThePaneEmpty(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 160, 24), "]")
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "No commits.") {
+		t.Error("the column does not say the branch is empty")
+	}
+	if strings.Contains(out, "diff") {
+		t.Error("the pane beside an empty column has something to say about a diff")
 	}
 }
 
@@ -287,7 +502,7 @@ func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
 // them: a comment about the final diff under a line it was never about reads as
 // a comment about that line.
 func TestACommitDiffCarriesNoReviewThreads(t *testing.T) {
-	m, _ := enter(onCommits(160, 40))
+	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	out := stripANSI(m.View())
@@ -305,7 +520,7 @@ func TestTheSelectedCommitIsNamedAboveItsDiff(t *testing.T) {
 	d.Commits = sampleCommits()
 	d.Commits[0].Body = "The retry loop had no ceiling, so a dead endpoint backed off forever."
 
-	m, _ := enter(press(detailed(held(d), 160, 40), "]"))
+	m, _ := settled(press(detailed(held(d), 160, 40), "]"), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 	out := stripANSI(m.View())
 
@@ -330,7 +545,7 @@ func TestTheSelectedCommitIsNamedAboveItsDiff(t *testing.T) {
 // A commit written with no body is its headline alone. The card still carries
 // the sha and the author, which is what the column could not fit.
 func TestTheCardHoldsUpWithNoMessageBody(t *testing.T) {
-	m, _ := enter(onCommits(160, 40))
+	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	out := stripANSI(m.View())
@@ -436,32 +651,30 @@ func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
 	}
 }
 
-// The diff pane opens on the Commits tab with nothing in it. The column is the
-// only thing on the tab a key does anything to, so it takes focus rather than
-// making the reader ask for it first.
+// The column drives the diff beside it, so it takes focus on the way in rather
+// than making the reader ask for it first.
 func TestTheCommitsTabOpensWithTheColumnFocused(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
 
 	// j moves the cursor when the column has focus, and scrolls the pane beside
-	// it when it does not. What the next enter asks for is the tell.
-	_, cmd := enter(press(detailed(held(d), 160, 24), "]", "j"))
+	// it when it does not. Which commit settles is the tell.
+	_, cmd := settled(press(detailed(held(d), 160, 24), "]", "j"), d.Commits[1].SHA)
 	if cmd == nil {
-		t.Fatal("enter asked for no diff at all")
+		t.Fatal("no diff was asked for, so j never reached the column")
 	}
 
 	msg, ok := cmd().(prview.NeedCommitMsg)
 	if !ok {
-		t.Fatalf("enter yielded %T, want a request for a commit's diff", cmd())
+		t.Fatalf("settling yielded %T, want a request for a commit's diff", cmd())
 	}
 	if msg.SHA != d.Commits[1].SHA {
-		t.Errorf("enter asked for %q, want the second commit: j never reached the column",
-			msg.SHA)
+		t.Errorf("asked for %q, want the second commit", msg.SHA)
 	}
 }
 
 func TestBraceWalksTheFilesInACommitDiff(t *testing.T) {
-	m, _ := enter(onCommits(160, 12))
+	m, _ := settled(onCommits(160, 12), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	// The first } lands on the first file, since the pane opens on the blank
@@ -543,7 +756,7 @@ func TestTheFrameFillsItsSizeExactlyOnTheCommitsTab(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
-			m, _ := enter(onCommits(size.width, size.height))
+			m, _ := settled(onCommits(size.width, size.height), "a3f91c2d5e")
 			m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 			lines := strings.Split(m.View(), "\n")

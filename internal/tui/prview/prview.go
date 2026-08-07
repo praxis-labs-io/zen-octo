@@ -238,7 +238,11 @@ func (m Model) firstFile() int {
 // SetDetail carries the review threads the diff hangs off its lines, so a
 // block rendered before they landed is stale. It carries the commits and the
 // head commit's checks too, so both columns beside it come with it.
-func (m *Model) SetDetail(d store.Detail) {
+//
+// It arms the commit wait, because this is where a cold Commits tab first has
+// a commit to point at. Opening the tab while the detail is still out arms
+// nothing, and without this the column would fill beside a pane that never did.
+func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.detail = d
 	m.diff.blocks = nil
 	if d.Loaded {
@@ -247,6 +251,7 @@ func (m *Model) SetDetail(d store.Detail) {
 	m.syncCommits()
 	m.syncChecks()
 	m.syncContent()
+	return m.armCommit()
 }
 
 func newViewport() viewport.Model {
@@ -264,6 +269,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case CommitSettleMsg:
+		return m, m.settleCommit(msg)
 
 	case spinner.TickMsg:
 		cmd := m.spinner.Advance(msg, m.waiting())
@@ -284,7 +292,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		waitingFor(m.files) || waitingFor(m.commit.files)
+		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank()
+}
+
+// commitBlank is a commit to show with nothing on the pane yet: the settle
+// window and the hop after it. The glyph is on screen through both, so the tick
+// chain has to stay alive through both or it freezes on its first frame.
+func (m Model) commitBlank() bool {
+	if m.tab != tabCommits || m.commit.sha != "" {
+		return false
+	}
+	_, ok := m.underCursor()
+	return ok
 }
 
 func waitingFor(f store.Files) bool {
@@ -308,11 +327,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
-
-	// Selecting is a Commits tab idea. Nothing else on the screen has anything
-	// to fetch on a keypress.
-	case key.Matches(keyMsg, k.Select) && m.tab == tabCommits:
-		return m, m.selectCommit()
 
 	// A file belongs to whichever tab is showing a diff. The spans outlive a
 	// tab switch, so without the guard the conversation scrolls to wherever the
@@ -395,7 +409,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if follow && m.view.YOffset() != before {
 		m.trackDiff()
 	}
-	return m, nil
+	return m, m.armCommit()
 }
 
 // move is a row in the left column and a line everywhere else. The column is
@@ -500,8 +514,11 @@ func (m *Model) showSideCursor() {
 // changeTab moves the strip and takes the scroll position with it. The offset
 // is restored after the content, because SetYOffset clamps to what is there.
 //
-// Opening Files for the first time asks the root for the diff: the fetch is the
-// root's to make, and the tab is the only thing that says it is wanted.
+// Both diff tabs open on content rather than on an empty pane. Files asks the
+// root outright; Commits arms the same wait a cursor move does, so landing on
+// the tab loads whatever the cursor is already pointing at. The fetch is the
+// root's to make either way, and the tab is the only thing that says it is
+// wanted.
 func (m *Model) changeTab(delta int) tea.Cmd {
 	m.offsets[m.tab] = m.view.YOffset()
 	m.tab = (m.tab + delta + len(tabs)) % len(tabs)
@@ -526,7 +543,7 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	// again instead of reading the one from before the push for the rest of the
 	// session, and revisiting the tab on this screen still costs nothing.
 	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
-		return nil
+		return m.armCommit()
 	}
 	m.filesAsked = true
 
