@@ -502,16 +502,7 @@ func (m *Model) moveCursor(delta int) {
 
 // showCursorRow keeps the cursor inside the tree's own window. The column opens
 // with no blank line, so a row is its own offset.
-func (m *Model) showCursorRow() {
-	height := m.sideView.Height()
-
-	switch offset := m.sideView.YOffset(); {
-	case m.cursor < offset:
-		m.sideView.SetYOffset(m.cursor)
-	case m.cursor >= offset+height:
-		m.sideView.SetYOffset(m.cursor - height + 1)
-	}
-}
+func (m *Model) showCursorRow() { showRow(&m.sideView, m.cursor) }
 
 // trackDiff points the file column at whatever the diff has scrolled to. The
 // column answers "which file am I in", and a diff scrolled three files past its
