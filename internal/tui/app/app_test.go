@@ -20,6 +20,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/tui/app"
 	"github.com/zen-octo/zen-octo/internal/tui/list"
+	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -357,6 +358,13 @@ func press(m tea.Model, keys ...string) tea.Model {
 		m = settle(m, keyMsg(k))
 	}
 	return m
+}
+
+// settleOn stands in for a cursor that has stopped on a commit. The screen arms
+// a wait longer than immediate gives any command, so the message it would have
+// carried is delivered by hand.
+func settleOn(m tea.Model, sha string) tea.Model {
+	return settle(m, prview.CommitSettleMsg{SHA: sha})
 }
 
 func keyMsg(k string) tea.KeyPressMsg {
@@ -1402,9 +1410,10 @@ func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 	}
 }
 
-// A commit's diff is its own request, so the cursor walks the column for free
-// and the key is what pays for one.
-func TestACommitsDiffIsFetchedOnSelectionAndOnlyThen(t *testing.T) {
+// A commit's diff is its own request, so the cursor passing over one costs
+// nothing and stopping on it is what pays. Walking a long branch a keystroke at
+// a time would otherwise spend a request per commit gone by.
+func TestOnlyTheCommitTheCursorStopsOnIsFetched(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
 		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
@@ -1415,10 +1424,16 @@ func TestACommitsDiffIsFetchedOnSelectionAndOnlyThen(t *testing.T) {
 	// Open, on to Commits, into the column, down a row.
 	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "j")
 	if got := client.fetchedCommits(); len(got) != 0 {
-		t.Fatalf("fetched %v before anything was selected", got)
+		t.Fatalf("fetched %v before the cursor stopped anywhere", got)
 	}
 
-	m = press(m, "enter")
+	// Landing on the tab armed a wait naming the first commit, and j left it.
+	m = settleOn(m, "a3f91c2d5e")
+	if got := client.fetchedCommits(); len(got) != 0 {
+		t.Fatalf("fetched %v for a commit the cursor walked past", got)
+	}
+
+	m = settleOn(m, "7b20ef4a11")
 	want := "zen-octo/zen-octo@7b20ef4a11"
 	if got := client.fetchedCommits(); len(got) != 1 || got[0] != want {
 		t.Errorf("fetched %v, want one request for %q", got, want)
@@ -1427,10 +1442,30 @@ func TestACommitsDiffIsFetchedOnSelectionAndOnlyThen(t *testing.T) {
 		t.Error("the commit's diff never reached the screen")
 	}
 
-	// Selecting the same commit again is answered by what is already on screen.
-	if press(m, "enter"); len(client.fetchedCommits()) != 1 {
-		t.Errorf("fetched %v, want the second selection to cost nothing",
+	// Settling again on the commit already showing is answered by the screen.
+	if settleOn(m, "7b20ef4a11"); len(client.fetchedCommits()) != 1 {
+		t.Errorf("fetched %v, want the second settle to cost nothing",
 			client.fetchedCommits())
+	}
+}
+
+// Landing on the tab is a cursor stopping like any other, so the commit it
+// opens on loads without a keypress. Files opens on content and this is the
+// same idea.
+func TestTheCommitsTabFetchesWhatItOpensOn(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+	})
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]"), "a3f91c2d5e")
+
+	if got := client.fetchedCommits(); len(got) != 1 {
+		t.Fatalf("fetched %v, want the commit the tab opened on", got)
+	}
+	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
+		t.Error("the tab opened without its diff")
 	}
 }
 
@@ -1446,7 +1481,9 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	client.serveCommit("7b20ef4a11", sampleFiles())
 
 	// The first, the second, then back to the first.
-	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "enter", "j", "enter", "k", "enter")
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
+	m = settleOn(press(m, "j"), "7b20ef4a11")
+	m = settleOn(press(m, "k"), "a3f91c2d5e")
 
 	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@7b20ef4a11"}
 	if got := client.fetchedCommits(); !slices.Equal(got, want) {
@@ -1457,10 +1494,10 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	}
 }
 
-// Selecting a commit resets the pane to idle, and a spinner over an idle pane
-// stops ticking. Reselecting one whose request is still out has to put the pane
-// back into its loading state or the glyph sits there frozen.
-func TestReselectingACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
+// Settling on a commit resets the pane to idle, and a spinner over an idle pane
+// stops ticking. Coming back to one whose request is still out has to put the
+// pane back into its loading state or the glyph sits there frozen.
+func TestReturningToACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
 		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
@@ -1469,13 +1506,15 @@ func TestReselectingACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 	client.holdCommits()
 
 	// The first, on to the second, then back before either answers.
-	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "enter", "j", "enter", "k", "enter")
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
+	m = settleOn(press(m, "j"), "7b20ef4a11")
+	m = settleOn(press(m, "k"), "a3f91c2d5e")
 
 	if !strings.Contains(stripANSI(render(t, m)), "Loading the diff") {
 		t.Fatal("the pane dropped out of its loading state with the request still out")
 	}
 	if got := client.fetchedCommits(); len(got) != 2 {
-		t.Errorf("fetched %v, want the reselection to ride the request already out", got)
+		t.Errorf("fetched %v, want the return to ride the request already out", got)
 	}
 
 	// The glyph is the tell. A pane the reselection left reading idle renders
@@ -1511,30 +1550,35 @@ func TestAFailedCommitDiffSaysSoOnTheTab(t *testing.T) {
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
 	client.failCommits(errors.New("context deadline exceeded"))
 
-	m := press(loaded(t, client, 160, 40), "enter", "]", "enter")
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]"), "a3f91c2d5e")
 
 	if !strings.Contains(stripANSI(render(t, m)), "Could not load the diff") {
 		t.Error("a failed commit diff reads as an empty one")
 	}
 }
 
-// A failed fetch leaves the sha latched, and the key that selected it is the
-// only way to ask again.
-func TestSelectingAFailedCommitAgainRetriesIt(t *testing.T) {
+// A failed fetch leaves its error on the pane. With no key left to ask again,
+// walking off the commit and back is the retry, and it has to be one or the
+// error sits there for as long as the screen is open.
+func TestWalkingBackOntoAFailedCommitRetriesIt(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the count"},
+	})
 	client.failCommits(errors.New("context deadline exceeded"))
 
-	m := press(loaded(t, client, 160, 40), "enter", "]", "enter")
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
 	if got := client.fetchedCommits(); len(got) != 1 {
 		t.Fatalf("fetched %v, want the first request", got)
 	}
 
 	client.failCommits(nil)
 	client.serveCommit("a3f91c2d5e", sampleFiles())
-	m = press(m, "enter")
+	m = settleOn(press(m, "j"), "7b20ef4a11")
+	m = settleOn(press(m, "k"), "a3f91c2d5e")
 
-	if got := client.fetchedCommits(); len(got) != 2 {
+	if got := client.fetchedCommits(); len(got) != 3 {
 		t.Errorf("fetched %v, want the failed commit asked for again", got)
 	}
 	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {

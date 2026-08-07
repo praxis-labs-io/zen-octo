@@ -265,6 +265,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case CommitSettleMsg:
+		return m, m.settleCommit(msg)
+
 	case spinner.TickMsg:
 		cmd := m.spinner.Advance(msg, m.waiting())
 		// The body is built into the viewport rather than in View, so a new
@@ -308,11 +311,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
-
-	// Selecting is a Commits tab idea. Nothing else on the screen has anything
-	// to fetch on a keypress.
-	case key.Matches(keyMsg, k.Select) && m.tab == tabCommits:
-		return m, m.selectCommit()
 
 	// A file belongs to whichever tab is showing a diff. The spans outlive a
 	// tab switch, so without the guard the conversation scrolls to wherever the
@@ -395,7 +393,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if follow && m.view.YOffset() != before {
 		m.trackDiff()
 	}
-	return m, nil
+	return m, m.armCommit()
 }
 
 // move is a row in the left column and a line everywhere else. The column is
@@ -500,8 +498,11 @@ func (m *Model) showSideCursor() {
 // changeTab moves the strip and takes the scroll position with it. The offset
 // is restored after the content, because SetYOffset clamps to what is there.
 //
-// Opening Files for the first time asks the root for the diff: the fetch is the
-// root's to make, and the tab is the only thing that says it is wanted.
+// Both diff tabs open on content rather than on an empty pane. Files asks the
+// root outright; Commits arms the same wait a cursor move does, so landing on
+// the tab loads whatever the cursor is already pointing at. The fetch is the
+// root's to make either way, and the tab is the only thing that says it is
+// wanted.
 func (m *Model) changeTab(delta int) tea.Cmd {
 	m.offsets[m.tab] = m.view.YOffset()
 	m.tab = (m.tab + delta + len(tabs)) % len(tabs)
@@ -526,7 +527,7 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	// again instead of reading the one from before the push for the rest of the
 	// session, and revisiting the tab on this screen still costs nothing.
 	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
-		return nil
+		return m.armCommit()
 	}
 	m.filesAsked = true
 

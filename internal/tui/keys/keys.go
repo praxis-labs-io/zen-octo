@@ -47,7 +47,6 @@ type DetailMap struct {
 	PrevTab      key.Binding
 	NextFile     key.Binding
 	PrevFile     key.Binding
-	Select       key.Binding
 	PaneLeft     key.Binding
 	PaneRight    key.Binding
 	FocusPane    key.Binding
@@ -92,7 +91,6 @@ var (
 		PrevTab:      key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
 		NextFile:     key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next file")),
 		PrevFile:     key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev file")),
-		Select:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "show diff")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
@@ -129,7 +127,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
-		{k.Select, k.FocusPane, k.ToggleRail, k.Expand},
+		{k.FocusPane, k.ToggleRail, k.Expand},
 		{k.PaneLeft, k.PaneRight, k.Back},
 		{Global.Help, Global.Quit},
 	}

@@ -85,7 +85,7 @@ func TestTheFrameFillsItsSizeExactly(t *testing.T) {
 }
 
 func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
-	m := screen(160, 24)
+	m := detailed(held(sampleDetail()), 160, 24)
 
 	active := fgSeq(theme.RosePineMoon.Primary)
 	if top := firstLine(m.View()); !strings.Contains(top, active+"mConversation") {
@@ -100,7 +100,7 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	if strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation still reads as current after switching")
 	}
-	if !strings.Contains(next.View(), "to show a commit's diff") {
+	if !strings.Contains(stripANSI(next.View()), "No commits.") {
 		t.Error("the body did not follow the tab")
 	}
 
