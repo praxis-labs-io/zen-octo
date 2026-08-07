@@ -46,25 +46,18 @@ type blockKey struct {
 	folded bool
 }
 
-// blockState is everything outside a single file that its block is rendered
-// against. A change to any of it retires the whole cache.
-type blockState struct {
-	width    int
-	expanded bool
-}
-
 // diffBody is one rendered diff: where each file's block sits inside it, and
 // the blocks themselves. Each tab that shows a diff keeps one, because the
 // render is the same over different files.
 //
 // The blocks are cached because moving a cursor one row repaints the diff, and
 // rendering a block tokenises the whole file: without this a single keystroke
-// costs the diff twice over. at is what the cache was built against; anything
-// else invalidates the lot.
+// costs the diff twice over. at is the width the cache was built against;
+// anything else invalidates the lot.
 type diffBody struct {
 	spans  []fileSpan
 	blocks map[blockKey]string
-	at     blockState
+	at     int
 
 	// threads is whether review threads hang off these lines. They are written
 	// against the pull request's head, and the same line number in an older
@@ -98,8 +91,8 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	width := m.bodyWidth()
 	d.spans = d.spans[:0]
 
-	if state := (blockState{width: width, expanded: m.expanded}); d.blocks == nil || d.at != state {
-		d.blocks, d.at = make(map[blockKey]string, len(rows)), state
+	if d.blocks == nil || d.at != width {
+		d.blocks, d.at = make(map[blockKey]string, len(rows)), width
 	}
 
 	blocks := make([]string, 0, len(rows))
@@ -375,7 +368,7 @@ func (m *Model) threadsAt(threads map[anchor][]gh.ReviewThread, placed map[int]b
 	for _, key := range anchorsOf(l) {
 		for _, t := range threads[key] {
 			placed[thumbprint(t)] = true
-			out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
+			out = append(out, indent(m.thread(t, width-threadIndent, false, focusKey{}), threadIndent))
 		}
 	}
 	return out
@@ -404,7 +397,7 @@ func (m *Model) strayThreads(path string, placed map[int]bool, width int) []stri
 		if t.Path != path || t.Line == 0 || placed[thumbprint(t)] {
 			continue
 		}
-		out = append(out, indent(m.thread(t, width-threadIndent, false), threadIndent))
+		out = append(out, indent(m.thread(t, width-threadIndent, false, focusKey{}), threadIndent))
 	}
 	return out
 }

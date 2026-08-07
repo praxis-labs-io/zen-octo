@@ -29,29 +29,63 @@ const glyphCheck = "●"
 //
 // The branch is not here. It is the second line of the header, and the rail has
 // no room to spend saying it twice.
-func railBody(th theme.Theme, d gh.PullRequestDetail, width int) string {
+//
+// It records the ring as it goes. The four sections a later milestone acts on
+// are walkable; the rest state a fact and there is nothing to do to them.
+func (m *Model) railBody(width int) string {
+	th := m.theme
+	d := m.railDetail()
 	pr := d.PullRequest
-	var blocks []string
+
+	m.railRing.reset()
 
 	icon, _ := comp.PRStateIcon(th, pr)
 	label, c := comp.PRStateLabel(th, pr)
 
-	blocks = append(blocks,
-		railSection(th, "State", entry(icon+" "+label, c)),
-		railSection(th, "Author", authorEntry(th, pr.Author)),
-		railSection(th, "Reviewers", orMany(th, reviewerEntries(th, d.Reviewers, width))...),
-		railSection(th, "Assignees", orMany(th, actorEntries(th, d.Assignees))...),
-		railSection(th, "Labels", orMany(th, labelEntries(d.Labels))...),
-		railSection(th, "Changes", changeEntry(th, pr)),
-		// Checks runs to any length, so it goes below everything of a fixed
-		// size. The two rows under it are what you read just before merging,
-		// which is the other reason they sit at the bottom.
-		railSection(th, "Checks", orMany(th, checkEntries(th, d.Rollup, width))...),
-		railSection(th, "Base", baseEntry(th, pr.BaseRefName, d.BehindBy)),
-		railSection(th, "Merge", mergeEntry(th, d.Merge)),
-	)
+	at := 0
+	var blocks []string
+
+	// section lays a heading over its rows, marks whichever holds the focus,
+	// and steps the line counter past the blank the join puts underneath.
+	section := func(title string, kind focusKind, rows []string) {
+		for i := range rows {
+			key := focusKey{kind: kind, index: i}
+			if kind != focusNone {
+				m.railRing.add(key, at+1+i, 1)
+			}
+			rows[i] = m.railMark(key) + rows[i]
+		}
+		blocks = append(blocks, railSection(th, title, rows...))
+		at += len(rows) + 2
+	}
+
+	section("State", focusNone, []string{entry(icon+" "+label, c)})
+	section("Author", focusNone, []string{authorEntry(th, pr.Author)})
+	section("Reviewers", focusReviewer, orMany(th, reviewerEntries(th, d.Reviewers, width)))
+	section("Assignees", focusAssignee, orMany(th, actorEntries(th, d.Assignees)))
+	section("Labels", focusLabel, orMany(th, labelEntries(d.Labels)))
+	section("Changes", focusNone, []string{changeEntry(th, pr)})
+	// Checks runs to any length, so it goes below everything of a fixed size.
+	// The two rows under it are what you read just before merging, which is the
+	// other reason they sit at the bottom.
+	section("Checks", focusCheck, orMany(th, checkEntries(th, d.Rollup, width)))
+	section("Base", focusNone, []string{baseEntry(th, pr.BaseRefName, d.BehindBy)})
+	section("Merge", focusNone, []string{mergeEntry(th, d.Merge)})
 
 	return strings.Join(blocks, "\n\n")
+}
+
+// railMark is the cell every row opens with: a marker on the focused one and a
+// blank on the rest. It stands in for the row's leading space rather than
+// adding to it, so nothing shifts sideways when focus lands.
+//
+// The rows carry their own colors, and a reviewer's state and a label's own
+// hex are the whole point of them. Focus takes the one cell they do not use.
+func (m Model) railMark(key focusKey) string {
+	if !m.railRing.focused(key) {
+		return " "
+	}
+	return lipgloss.NewStyle().Foreground(m.theme.Secondary).Render("›")
 }
 
 // changeEntry is the churn and the file count on one row, the count marked with
@@ -63,7 +97,7 @@ func changeEntry(th theme.Theme, pr gh.PullRequest) string {
 	files := lipgloss.NewStyle().Foreground(th.Faint).
 		Render(strconv.Itoa(pr.ChangedFiles) + " " + glyphFile)
 
-	return " " + churn + "  " + files
+	return churn + "  " + files
 }
 
 // checkEntries is every check on the head commit, each marked with its own
@@ -75,7 +109,7 @@ func checkEntries(th theme.Theme, r gh.CheckRollup, width int) []string {
 	out := make([]string, 0, len(r.Checks))
 	for _, check := range r.Checks {
 		_, c := comp.CheckStateIcon(th, check.State)
-		out = append(out, lipgloss.NewStyle().Foreground(c).Render(" "+glyphCheck)+
+		out = append(out, lipgloss.NewStyle().Foreground(c).Render(glyphCheck)+
 			faint.Render(" "+fit(th, checkName(check), width)))
 	}
 	return out
@@ -97,7 +131,7 @@ func reviewerEntries(th theme.Theme, reviewers []gh.Reviewer, width int) []strin
 	out := make([]string, 0, len(reviewers))
 	for _, r := range reviewers {
 		out = append(out,
-			lipgloss.NewStyle().Foreground(comp.ReviewerColor(th, r)).Render(" "+glyphCheck)+
+			lipgloss.NewStyle().Foreground(comp.ReviewerColor(th, r)).Render(glyphCheck)+
 				lipgloss.NewStyle().Foreground(th.Actor).Render(" "+fit(th, comp.Handle(r.Actor.Login), width)))
 	}
 	return out
@@ -143,8 +177,10 @@ func railSection(th theme.Theme, title string, entries ...string) string {
 	return head + "\n" + strings.Join(entries, "\n")
 }
 
+// entry is one row's text. The cell to its left belongs to the focus marker,
+// which is why nothing here opens with a space of its own.
 func entry(text string, c color.Color) string {
-	return lipgloss.NewStyle().Foreground(c).Render(" " + text)
+	return lipgloss.NewStyle().Foreground(c).Render(text)
 }
 
 // authorEntry names who raised it. The login is empty once the account is

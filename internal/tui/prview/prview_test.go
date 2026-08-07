@@ -642,10 +642,8 @@ func TestTheRailNamesEveryCheck(t *testing.T) {
 		t.Error("the rail still carries the counts as well as the names")
 	}
 
-	// Every mark is the same shape, so the color is the whole of the meaning. A
-	// row's mark is indented and the heading's is not, which is what tells the
-	// rollup color apart from a check's.
-	frame := detailed(held(sampleDetail()), 200, 44).View()
+	// Every mark is the same shape, so the color is the whole of the meaning.
+	marks := railMarks(t, detailed(held(sampleDetail()), 200, 44).View())
 	for _, want := range []struct {
 		state string
 		color color.Color
@@ -654,7 +652,7 @@ func TestTheRailNamesEveryCheck(t *testing.T) {
 		{state: "running", color: theme.RosePineMoon.Warning},
 		{state: "skipped", color: theme.RosePineMoon.Faint},
 	} {
-		if !strings.Contains(frame, fgSeq(want.color)+"m ●") {
+		if !marks[fgSeq(want.color)] {
 			t.Errorf("no %s check is marked in its own color", want.state)
 		}
 	}
@@ -990,11 +988,20 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 		t.Error("the folded table is on screen anyway")
 	}
 
-	open := stripANSI(press(m, "o").View())
-	if !strings.Contains(open, "did a thing") {
+	// The key acts on the focused card, so tab has to pick one first.
+	if strings.Contains(stripANSI(press(m, "o").View()), "did a thing") {
+		t.Error("o opened a fold with no card focused")
+	}
+
+	// Pressed in sequence rather than from the same starting model each time.
+	// What is unfolded is a map, which every copy of the model shares.
+	m = press(m, "tab", "o")
+	if !strings.Contains(stripANSI(m.View()), "did a thing") {
 		t.Error("o did not open the fold")
 	}
-	if !strings.Contains(stripANSI(press(m, "o", "o").View()), "▸ ENG-9547 Marketing") {
+
+	m = press(m, "o")
+	if !strings.Contains(stripANSI(m.View()), "▸ ENG-9547 Marketing") {
 		t.Error("o a second time did not fold it back")
 	}
 }
@@ -1514,22 +1521,47 @@ func markSGR(t *testing.T, frame, text string) string {
 	t.Helper()
 
 	for _, raw := range railRaw(t, frame) {
-		if strings.Trim(stripANSI(raw), "│╭╮╰╯─ ") != text {
+		if strings.Trim(stripANSI(raw), "│╭╮╰╯›─ ") != text {
 			continue
 		}
-		at := strings.Index(raw, "m ●")
-		if at < 0 {
+		seq, ok := rowMark(raw)
+		if !ok {
 			t.Fatalf("rail row %q carries no mark", text)
 		}
-		start := strings.LastIndex(raw[:at], "\x1b[")
-		if start < 0 {
-			t.Fatalf("rail row %q has an unstyled mark", text)
-		}
-		return raw[start+2 : at]
+		return seq
 	}
 
 	t.Fatalf("no rail row reading %q", text)
 	return ""
+}
+
+// railMarks is the color of every marked row in the details column. Scoped to
+// the rail: the conversation paints the same glyph on its event lines, and a
+// frame-wide search answers with one of those instead.
+func railMarks(t *testing.T, frame string) map[string]bool {
+	t.Helper()
+
+	out := map[string]bool{}
+	for _, raw := range railRaw(t, frame) {
+		if seq, ok := rowMark(raw); ok {
+			out[seq] = true
+		}
+	}
+	return out
+}
+
+// rowMark is the SGR a row's mark is painted in. The cell before it belongs to
+// the focus marker, so the glyph opens its own styled run.
+func rowMark(raw string) (string, bool) {
+	at := strings.Index(raw, "m●")
+	if at < 0 {
+		return "", false
+	}
+	start := strings.LastIndex(raw[:at], "\x1b[")
+	if start < 0 {
+		return "", false
+	}
+	return raw[start+2 : at], true
 }
 
 // railRaw is the details column with its styling left on, cut where railRows
