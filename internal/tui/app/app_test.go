@@ -1828,6 +1828,57 @@ func TestADetailRefreshReportsItselfOnce(t *testing.T) {
 	}
 }
 
+// The Conversation and Checks tabs ask for no diff, so a refresh that failed
+// there failed whole. Reading the failure flags alone made the toast name a
+// request this press never sent.
+func TestARefreshWithNoDiffOutNeverBlamesTheDiff(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	client.failDetails(errors.New("context deadline exceeded"))
+	m = press(m, "r")
+
+	bar := lastLine(render(t, m))
+	if strings.Contains(bar, "diff") {
+		t.Errorf("status bar = %q, want no diff named by a refresh that asked for none",
+			strings.TrimSpace(bar))
+	}
+	if !strings.Contains(bar, "Refresh failed") {
+		t.Errorf("status bar = %q, want the failure reported", strings.TrimSpace(bar))
+	}
+}
+
+// A second r asks for whatever the first did not. Replacing the record rather
+// than merging into it dropped the leg the first press was still waiting on,
+// and its response then reported nothing at all.
+func TestASecondRefreshJoinsTheOneStillRunning(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+
+	// A commit already read, so the second r has a diff leg to start while the
+	// first press's detail is still out.
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]"), "a3f91c2d5e")
+	m = press(m, "[")
+
+	client.failDetails(errors.New("context deadline exceeded"))
+	waiting, pending := refreshing(m)
+	again, alsoPending := refreshing(press(waiting, "]"))
+
+	done := settle(settle(again, immediate(alsoPending)...), immediate(pending)...)
+
+	bar := lastLine(render(t, done))
+	if !strings.Contains(bar, "Refreshed the diff, #412 failed") {
+		t.Errorf("status bar = %q, want both legs reported together", strings.TrimSpace(bar))
+	}
+	if strings.Contains(bar, "Could not refresh") {
+		t.Errorf("status bar = %q, want the summary rather than a per-request failure",
+			strings.TrimSpace(bar))
+	}
+}
+
 // Every Begin refuses a request already out, so leaning on r costs one round
 // trip rather than one per press.
 func TestRefreshingTwiceWhileTheFirstIsOutCostsOneRequest(t *testing.T) {

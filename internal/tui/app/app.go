@@ -144,20 +144,36 @@ type Model struct {
 // all three, and a response to something else that happened to be out would
 // otherwise take the slot of one that never came back.
 type detailRefresh struct {
-	id  string
-	sha string
-
-	detail bool
-	files  bool
-	commit bool
-
-	// What failed, which is what the toast names. A count cannot: with at most
-	// two out, "one failed" leaves the reader guessing which.
-	failedDetail bool
-	failedDiff   bool
+	detail leg
+	files  leg
+	commit leg
 }
 
-func (r detailRefresh) running() bool { return r.detail || r.files || r.commit }
+// leg is one request a refresh started. The key is what a response has to name
+// to belong to it, and an empty one is a leg this refresh never started: the
+// toast reports what it asked for, so a leg that never ran cannot be the one it
+// says failed.
+type leg struct {
+	key    string
+	done   bool
+	failed bool
+}
+
+func (l leg) started() bool { return l.key != "" }
+func (l leg) running() bool { return l.started() && !l.done }
+
+// claim takes a response and reports whether this leg was waiting on it.
+func (l *leg) claim(key string, err error) bool {
+	if !l.running() || key != l.key {
+		return false
+	}
+	l.done, l.failed = true, err != nil
+	return true
+}
+
+func (r detailRefresh) running() bool {
+	return r.detail.running() || r.files.running() || r.commit.running()
+}
 
 // refreshLeg names the request a response answers.
 type refreshLeg int
@@ -316,8 +332,10 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 // neither.
 //
 // The screen keeps what it has throughout. Every Begin refuses only a request
-// already out, so a second r while the first is still running starts nothing
-// and the count stays true.
+// already out, so a second r while the first is still running asks for whatever
+// the first did not, and joins it: the legs merge into the one record rather
+// than replacing it, or the earlier press loses the leg it is still waiting on
+// and never reports at all.
 func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	pr := m.detail.PullRequest()
 	if m.screen != screenDetail || pr.ID != msg.ID {
@@ -325,13 +343,13 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmds []tea.Cmd
-	started := detailRefresh{id: msg.ID}
+	started := m.detailRefreshing
 	if m.store.BeginDetail(msg.ID) {
-		started.detail = true
+		started.detail = leg{key: msg.ID}
 		cmds = append(cmds, m.fetchDetail(msg.ID, pr.HeadRefName))
 	}
 	if msg.Files && m.store.BeginFiles(msg.ID) {
-		started.files = true
+		started.files = leg{key: msg.ID}
 		// A diff already on the pane stays exactly as it is. Pushing the store's
 		// loading state through would throw away its rendered blocks and buy a
 		// re-highlight for a frame that reads the same. One that failed has
@@ -342,7 +360,7 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.fetchFiles(msg.ID, pr.Repository, pr.Number, pr.ChangedFiles))
 	}
 	if msg.SHA != "" && m.store.BeginCommitFiles(msg.SHA) {
-		started.commit, started.sha = true, msg.SHA
+		started.commit = leg{key: msg.SHA}
 		if held := m.store.CommitFiles(msg.SHA); !held.Loaded {
 			m.detail.SetCommitFiles(msg.SHA, held)
 		}
@@ -363,16 +381,19 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 // claim takes a response the refresh in flight was waiting on and answers
 // whether the caller should stay quiet. The summary is the one toast a refresh
 // raises: the per-request error beside it would report the same failure twice.
-func (m *Model) claim(leg refreshLeg, key string, err error) (tea.Cmd, bool) {
+func (m *Model) claim(which refreshLeg, key string, err error) (tea.Cmd, bool) {
 	r := &m.detailRefreshing
-	switch {
-	case leg == legDetail && r.detail && key == r.id:
-		r.detail, r.failedDetail = false, err != nil
-	case leg == legFiles && r.files && key == r.id:
-		r.files, r.failedDiff = false, r.failedDiff || err != nil
-	case leg == legCommit && r.commit && key == r.sha:
-		r.commit, r.failedDiff = false, r.failedDiff || err != nil
-	default:
+
+	var took bool
+	switch which {
+	case legDetail:
+		took = r.detail.claim(key, err)
+	case legFiles:
+		took = r.files.claim(key, err)
+	case legCommit:
+		took = r.commit.claim(key, err)
+	}
+	if !took {
 		return nil, false
 	}
 
@@ -385,18 +406,37 @@ func (m *Model) claim(leg refreshLeg, key string, err error) (tea.Cmd, bool) {
 	return m.toasts.Show(kind, text), true
 }
 
-// detailRefreshSummary names what came back.
+// detailRefreshSummary names what came back, and only what the refresh asked
+// for: a leg that never ran is not the one that failed. The diff is named
+// rather than counted, because with two requests out "one failed" leaves the
+// reader guessing whether the thing in front of them is the stale one.
 func detailRefreshSummary(r detailRefresh, number int) (comp.ToastKind, string) {
-	pr := "#" + strconv.Itoa(number)
+	var landed, failed []string
+	for _, l := range []struct {
+		leg  leg
+		name string
+	}{
+		{r.detail, "#" + strconv.Itoa(number)},
+		{r.files, "the diff"},
+		{r.commit, "the diff"},
+	} {
+		switch {
+		case !l.leg.started():
+		case l.leg.failed:
+			failed = append(failed, l.name)
+		default:
+			landed = append(landed, l.name)
+		}
+	}
+
 	switch {
-	case !r.failedDetail && !r.failedDiff:
-		return comp.ToastSuccess, "Refreshed " + pr
-	case r.failedDetail && r.failedDiff:
+	case len(failed) == 0:
+		return comp.ToastSuccess, "Refreshed " + strings.Join(landed, " and ")
+	case len(landed) == 0:
 		return comp.ToastError, "Refresh failed"
-	case r.failedDiff:
-		return comp.ToastError, "Refreshed " + pr + ", the diff failed"
 	default:
-		return comp.ToastError, "Refreshed the diff, " + pr + " failed"
+		return comp.ToastError, "Refreshed " + strings.Join(landed, " and ") +
+			", " + strings.Join(failed, " and ") + " failed"
 	}
 }
 
