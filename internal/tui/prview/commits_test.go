@@ -156,9 +156,40 @@ func TestTheCursorStoppingAsksForTheCommitsDiff(t *testing.T) {
 
 func TestSettlingOnTheCommitAlreadyShowingAsksAgainForNothing(t *testing.T) {
 	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	if _, cmd := settled(m, "a3f91c2d5e"); cmd != nil {
 		t.Error("the commit already showing was asked for a second time")
+	}
+}
+
+// The pane holds the commit it is showing until the store answers with the next
+// one. A cached diff answers inside a frame, and clearing the pane to meet it
+// puts a spinner on screen over a wait that never happened.
+func TestAskingForACommitLeavesTheOneOnScreenAlone(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+
+	m, _ = settled(press(m, "j"), "7b20ef4a11")
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "Loading the diff") {
+		t.Error("the pane spun before the store had been asked")
+	}
+	if !strings.Contains(out, "internal/gh/client.go") {
+		t.Error("the pane dropped the diff it was showing")
+	}
+}
+
+// A commit that really is being fetched still spins. The store answers a request
+// that is out as well as one it holds, and the loading state it sends is what
+// the pane takes.
+func TestACommitBeingFetchedSpins(t *testing.T) {
+	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", store.Files{Status: store.StatusLoading})
+
+	if !strings.Contains(stripANSI(m.View()), "Loading the diff") {
+		t.Error("a commit with its request still out does not say so")
 	}
 }
 

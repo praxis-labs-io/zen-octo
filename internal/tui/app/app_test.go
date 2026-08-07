@@ -1494,6 +1494,34 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	}
 }
 
+// A commit already read comes back from the store in the hop it takes the root
+// to answer. The pane used to clear itself on the way there, and the frame in
+// between is the whole of the complaint: a spinner over a diff nobody waited for.
+func TestWalkingBackToACachedCommitNeverSpins(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveCommits("PR_412", []gh.Commit{
+		{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the count"},
+	})
+	client.serveCommit("a3f91c2d5e", sampleFiles())
+	client.serveCommit("7b20ef4a11", sampleFiles())
+
+	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
+	m = settleOn(press(m, "j"), "7b20ef4a11")
+
+	// One hop at a time on the way back. settleOn runs the queue to the end and
+	// would render straight past the frame this is about.
+	m = press(m, "k")
+	m, _ = m.Update(prview.CommitSettleMsg{SHA: "a3f91c2d5e"})
+
+	if strings.Contains(stripANSI(render(t, m)), "Loading the diff") {
+		t.Error("the pane spun on the way to a diff the store already held")
+	}
+	if got := client.fetchedCommits(); len(got) != 2 {
+		t.Errorf("fetched %v, want the cached commit answered without a request", got)
+	}
+}
+
 // Settling on a commit resets the pane to idle, and a spinner over an idle pane
 // stops ticking. Coming back to one whose request is still out has to put the
 // pane back into its loading state or the glyph sits there frozen.

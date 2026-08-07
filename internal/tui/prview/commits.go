@@ -29,13 +29,18 @@ const commitSettleDelay = 150 * time.Millisecond
 // commits is the Commits tab: what the column holds, where its cursor is, and
 // the diff of the commit the cursor last settled on.
 //
-// sha is empty until the first one lands.
+// sha is what the pane is painting and pending is what has been asked for. They
+// differ for the one hop it takes the root to answer, which is where the
+// distinction earns its place: a diff already cached comes back inside that hop,
+// and a pane cleared to meet it flashes a spinner over a diff that was never
+// going to be waited for.
 type commits struct {
-	cursor int
-	sha    string
-	files  store.Files
-	rows   []row
-	diff   diffBody
+	cursor  int
+	sha     string
+	pending string
+	files   store.Files
+	rows    []row
+	diff    diffBody
 }
 
 // NeedCommitMsg asks the root for a commit's diff. Same shape as the pull
@@ -49,17 +54,33 @@ type NeedCommitMsg struct{ SHA string }
 // comparing against the cursor, with no counter to keep in step.
 type CommitSettleMsg struct{ SHA string }
 
-// SetCommitFiles takes what the store holds for a commit's diff. It drops
-// anything that is not the commit on screen: the cursor can have moved on and
-// a second commit been asked for while the first was still out.
+// SetCommitFiles takes what the store holds for a commit's diff, and is what
+// puts a newly asked-for commit on the pane. Anything that is neither the commit
+// showing nor the one asked for is dropped: the cursor can have moved on and a
+// third been asked for while the first was still out.
+//
+// The store answers a commit that is out as well as one that is held, so a real
+// fetch arrives loading and spins, and a cached one arrives ready and paints.
+// Nothing here has to know which it was.
 func (m *Model) SetCommitFiles(sha string, f store.Files) {
-	if sha != m.commit.sha {
+	if sha != m.commit.sha && sha != m.commit.pending {
 		return
 	}
+
+	took := sha != m.commit.sha
+	if took {
+		m.commit.sha, m.commit.pending = sha, ""
+	}
+
 	m.commit.files = f
 	m.commit.diff.blocks = nil
 	m.commit.rows = flatten(buildTree(f.Files), nil, 0, nil)
 	m.syncContent()
+
+	// After the content, because the viewport clamps an offset to what it holds.
+	if took {
+		m.view.GotoTop()
+	}
 }
 
 // syncCommits keeps the cursor inside a commit list that has just arrived or
@@ -103,9 +124,18 @@ func (m Model) underCursor() (string, bool) {
 
 // selectCommit asks for the diff of the commit under the cursor. A commit
 // already on screen costs nothing: the answer is the one being read.
+//
+// Nothing on the pane moves here. The commit before this one holds it until the
+// store answers, which is one hop away and is the only thing that knows whether
+// there is a wait to show.
 func (m *Model) selectCommit() tea.Cmd {
 	sha, ok := m.underCursor()
 	if !ok {
+		return nil
+	}
+	// One already asked for is on its way, and a failure clears pending on the
+	// way past, so a retry is not caught here.
+	if sha == m.commit.pending {
 		return nil
 	}
 	// A fetch that failed is the exception: without it the pane keeps its error
@@ -114,12 +144,7 @@ func (m *Model) selectCommit() tea.Cmd {
 		return nil
 	}
 
-	m.commit.sha = sha
-	m.commit.files = store.Files{}
-	m.commit.rows = nil
-	m.commit.diff.blocks = nil
-	m.view.GotoTop()
-	m.syncContent()
+	m.commit.pending = sha
 
 	return func() tea.Msg { return NeedCommitMsg{SHA: sha} }
 }
