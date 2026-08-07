@@ -87,6 +87,21 @@ query PullRequestDetail($id: ID!, $head: String!) {
         }
       }
 
+      commits(last: 100) {
+        totalCount
+        nodes {
+          commit {
+            oid
+            abbreviatedOid
+            messageHeadline
+            messageBody
+            committedDate
+            author { name user { login } }
+            statusCheckRollup { state }
+          }
+        }
+      }
+
       timelineItems(last: 100, itemTypes: [
         MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT,
         READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, HEAD_REF_FORCE_PUSHED_EVENT
@@ -226,6 +241,24 @@ type pullRequestResponse struct {
 			}
 		}
 
+		Commits struct {
+			TotalCount int
+			Nodes      []struct {
+				Commit struct {
+					OID             string
+					AbbreviatedOID  string
+					MessageHeadline string
+					MessageBody     string
+					CommittedDate   time.Time
+					Author          *struct {
+						Name string
+						User actorNode
+					}
+					StatusCheckRollup *struct{ State string }
+				}
+			}
+		}
+
 		TimelineItems struct {
 			Nodes []struct {
 				Typename  string `json:"__typename"`
@@ -305,6 +338,8 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		Merge:        mergeState(n.Mergeable, n.MergeStateStatus),
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
+		MoreCommits:  max(0, n.Commits.TotalCount-len(n.Commits.Nodes)),
+		Commits:      commits(resp),
 	}
 
 	for _, l := range n.Labels.Nodes {
@@ -350,7 +385,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.BehindBy = ref.Compare.BehindBy
 	}
 
-	detail.Timeline = timeline(resp)
+	detail.Timeline = timeline(resp, detail.Commits)
 	detail.Rollup = rollup(resp)
 	// The embedded row's Checks is the same rollup the search result carries, so
 	// a screen reading either one sees the same answer.
@@ -444,12 +479,55 @@ func teamHandle(org, slug string) string {
 	return org + "/" + slug
 }
 
-// timeline folds comments, reviews and events into one list in the order they
-// happened. GitHub returns them in three connections; the conversation reads
-// top to bottom.
-func timeline(n pullRequestResponse) []TimelineItem {
+// commits is the branch's last hundred, oldest first, which is the order the
+// connection returns them in and the order the tab reads them. The query asks
+// from the newest end: a long branch is read from its head, and the commits
+// that fall off are the ones already merged into it.
+func commits(n pullRequestResponse) []Commit {
+	out := make([]Commit, 0, len(n.Node.Commits.Nodes))
+	for _, node := range n.Node.Commits.Nodes {
+		c := node.Commit
+		commit := Commit{
+			SHA:         c.OID,
+			Short:       c.AbbreviatedOID,
+			Headline:    c.MessageHeadline,
+			Body:        c.MessageBody,
+			CommittedAt: c.CommittedDate,
+		}
+		// A commit written from an email GitHub cannot match has no account
+		// behind it, and the name git recorded is then all there is.
+		if c.Author != nil {
+			commit.Author, commit.AuthorName = login(c.Author.User), c.Author.Name
+		}
+		if r := c.StatusCheckRollup; r != nil {
+			commit.Checks = CheckState(r.State)
+		}
+		out = append(out, commit)
+	}
+	return out
+}
+
+// timeline folds comments, reviews, commits and events into one list in the
+// order they happened. GitHub returns them in four connections; the
+// conversation reads top to bottom.
+//
+// Commits are placed by committedDate. GitHub's own timeline uses the push,
+// and pushedDate comes back null from the API for all but the newest commits,
+// so a rebased branch sorts its commits to when they were written rather than
+// when they arrived.
+func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 	items := make([]TimelineItem, 0,
-		len(n.Node.Comments.Nodes)+len(n.Node.Reviews.Nodes)+len(n.Node.TimelineItems.Nodes))
+		len(n.Node.Comments.Nodes)+len(n.Node.Reviews.Nodes)+
+			len(made)+len(n.Node.TimelineItems.Nodes))
+
+	for _, c := range made {
+		items = append(items, TimelineItem{
+			Kind:      TimelineCommit,
+			Actor:     c.Author,
+			CreatedAt: c.CommittedAt,
+			Commit:    &c,
+		})
+	}
 
 	for _, c := range n.Node.Comments.Nodes {
 		items = append(items, TimelineItem{

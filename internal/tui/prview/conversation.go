@@ -52,7 +52,8 @@ func (m *Model) entries() string {
 	// Whatever is left after the walk goes at the end rather than nowhere.
 	shown := make(map[int]bool, len(d.Threads))
 
-	for _, item := range d.Timeline {
+	for at := 0; at < len(d.Timeline); at++ {
+		item := d.Timeline[at]
 		switch item.Kind {
 		case gh.TimelineComment:
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
@@ -60,6 +61,15 @@ func (m *Model) entries() string {
 
 		case gh.TimelineReview:
 			blocks = append(blocks, m.review(item, d.Threads, shown, width))
+
+		case gh.TimelineCommit:
+			// A push arrives as one item per commit. They fold back into the one
+			// line here rather than in the gh package, because how many rows a
+			// run is worth is a rendering question and the Commits tab wants
+			// them apart.
+			run := commitRun(d.Timeline[at:])
+			blocks = append(blocks, m.pushed(run))
+			at += len(run) - 1
 
 		default:
 			// An event this build has no words for renders to nothing, and an
@@ -219,6 +229,70 @@ func (m *Model) event(item gh.TimelineItem) string {
 		return ""
 	}
 	return wrap(m.faint().Render("● ")+m.said(item.Actor, label, m.theme.Faint, item), m.bodyWidth())
+}
+
+// commitRun is the commits that landed together, from the head of a timeline.
+func commitRun(items []gh.TimelineItem) []gh.TimelineItem {
+	for i, item := range items {
+		if item.Kind != gh.TimelineCommit {
+			return items[:i]
+		}
+	}
+	return items
+}
+
+// pushed is a run of commits that landed together: a line saying how many and
+// who, then the run itself, one commit to a row. A lone commit names its sha
+// and headline on the line and has no rows under it.
+//
+// The rows are what makes the branch readable from the conversation. A long
+// rebase is a long block, which is the honest shape of a long rebase; the
+// alternative hides work that happened between two comments.
+//
+// A run written by one person names them. A mixed one drops the login rather
+// than crediting the wrong author, and said carries the line without it.
+func (m *Model) pushed(run []gh.TimelineItem) string {
+	last := run[len(run)-1]
+
+	verb := "pushed " + comp.Plural(len(run), "commit")
+	if c := last.Commit; len(run) == 1 && c != nil {
+		verb = "pushed " + c.Short + " " + c.Headline
+	}
+
+	actor := last.Actor
+	for _, item := range run {
+		if item.Actor != actor {
+			actor = gh.Actor{}
+			break
+		}
+	}
+
+	lines := []string{wrap(m.faint().Render("● ")+m.said(actor, verb, m.theme.Faint, last), m.bodyWidth())}
+	if len(run) == 1 {
+		return lines[0]
+	}
+
+	for _, item := range run {
+		if item.Commit != nil {
+			lines = append(lines, m.pushedRow(*item.Commit))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// pushedRow is one commit under a push. It is set in past the marker above it,
+// and clips rather than wrapping: a headline folded onto a second row reads as
+// two commits.
+func (m *Model) pushedRow(c gh.Commit) string {
+	const indent = "    "
+
+	sha := lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(c.Short)
+	line := indent + sha + m.faint().Render("  "+c.Headline)
+
+	if width := m.bodyWidth(); lipgloss.Width(line) > width {
+		return comp.Clip(line, width, m.faint())
+	}
+	return line
 }
 
 var eventLabels = map[gh.TimelineKind]string{

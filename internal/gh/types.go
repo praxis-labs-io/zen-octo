@@ -59,6 +59,7 @@ type TimelineKind string
 const (
 	TimelineComment        TimelineKind = "COMMENT"
 	TimelineReview         TimelineKind = "REVIEW"
+	TimelineCommit         TimelineKind = "COMMIT"
 	TimelineMerged         TimelineKind = "MERGED"
 	TimelineClosed         TimelineKind = "CLOSED"
 	TimelineReopened       TimelineKind = "REOPENED"
@@ -120,8 +121,9 @@ type ReviewThread struct {
 	Comments   []Comment
 }
 
-// TimelineItem is one entry in the conversation. Body is empty on an event, and
-// Review is set only when Kind is TimelineReview.
+// TimelineItem is one entry in the conversation. Body is empty on an event,
+// Review is set only when Kind is TimelineReview, and Commit only when Kind is
+// TimelineCommit.
 type TimelineItem struct {
 	Kind      TimelineKind
 	ID        string
@@ -129,6 +131,25 @@ type TimelineItem struct {
 	CreatedAt time.Time
 	Body      string
 	Review    ReviewState
+	Commit    *Commit
+}
+
+// Commit is one commit behind the pull request. Author is the GitHub account
+// behind it, empty when the commit email is linked to none; AuthorName is what
+// git recorded, which is then all there is to name them by.
+//
+// Checks is the rollup on this commit alone, not the pull request's. Only the
+// head commit's is current, and the ones under it are what the branch looked
+// like at the time.
+type Commit struct {
+	SHA         string
+	Short       string
+	Headline    string
+	Body        string
+	Author      Actor
+	AuthorName  string
+	CommittedAt time.Time
+	Checks      CheckState
 }
 
 // MergeState is whether the pull request can be merged, and what is in the way
@@ -201,6 +222,7 @@ type PullRequestDetail struct {
 
 	Timeline []TimelineItem
 	Threads  []ReviewThread
+	Commits  []Commit
 	Rollup   CheckRollup
 
 	Merge MergeState
@@ -209,10 +231,12 @@ type PullRequestDetail struct {
 	// up to date.
 	BehindBy int
 
-	// MoreComments and MoreThreads are what the first page did not reach. A
-	// dropped comment that reads as no comment is the failure worth a field.
+	// MoreComments, MoreThreads and MoreCommits are what the first page did not
+	// reach. A dropped comment that reads as no comment is the failure worth a
+	// field.
 	MoreComments int
 	MoreThreads  int
+	MoreCommits  int
 }
 
 // FileStatus is what happened to a file in the pull request.
@@ -276,6 +300,11 @@ type FilesResult struct {
 	// MoreFiles is what the first page did not reach, the same way MoreComments
 	// and MoreThreads report their own overflow.
 	MoreFiles int
+
+	// Truncated says the page came back full with no total to measure it
+	// against. A commit response carries no changed-file count, so this is all
+	// there is to say that GitHub is holding more.
+	Truncated bool
 }
 
 // DetailResult is one detail response: what it returned and what it cost.

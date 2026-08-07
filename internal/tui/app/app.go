@@ -34,6 +34,7 @@ type GitHub interface {
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
 	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
+	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 }
 
 type sectionFetchedMsg struct {
@@ -68,6 +69,19 @@ type filesFetchedMsg struct {
 
 type filesFailedMsg struct {
 	id  string
+	err error
+}
+
+// A commit's diff is a request of its own, made when someone selects the commit
+// on the Commits tab. It names its commit rather than its pull request: the
+// same commit is the same diff wherever it is opened from.
+type commitFilesFetchedMsg struct {
+	sha string
+	res gh.FilesResult
+}
+
+type commitFilesFailedMsg struct {
+	sha string
 	err error
 }
 
@@ -300,6 +314,68 @@ func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// needCommit answers the screen asking for a commit's diff, the same way
+// needFiles answers it asking for the pull request's.
+func (m Model) needCommit(sha string) (tea.Model, tea.Cmd) {
+	if m.screen != screenDetail {
+		return m, nil
+	}
+
+	// A commit's diff is the same wherever it is read, so one already held is
+	// pushed rather than fetched again. One already in flight is pushed too:
+	// selecting resets the pane to idle, and a spinner over an idle pane stops
+	// ticking and sits there until the first response happens to land.
+	if held := m.store.CommitFiles(sha); held.Loaded || held.Status == store.StatusLoading {
+		m.detail.SetCommitFiles(sha, held)
+		return m, m.detail.Init()
+	}
+
+	if !m.store.BeginCommitFiles(sha) {
+		return m, nil
+	}
+	m.detail.SetCommitFiles(sha, m.store.CommitFiles(sha))
+	return m, tea.Batch(m.fetchCommitFiles(m.detail.PullRequest().Repository, sha), m.detail.Init())
+}
+
+func (m Model) fetchCommitFiles(repo, sha string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.CommitFiles(ctx, repo, sha)
+		if err != nil {
+			return commitFilesFailedMsg{sha: sha, err: err}
+		}
+		return commitFilesFetchedMsg{sha: sha, res: res}
+	}
+}
+
+// commitFilesSettled pushes a commit's diff into the screen. The screen drops
+// it unless that commit is still the one selected, so a response arriving after
+// the cursor moved on lands nowhere.
+func (m Model) commitFilesSettled(sha string, err error) (tea.Model, tea.Cmd) {
+	held := m.store.CommitFiles(sha)
+	if m.screen != screenDetail {
+		return m, nil
+	}
+
+	m.detail.SetCommitFiles(sha, held)
+	if err != nil && held.Loaded {
+		return m, m.toasts.Show(comp.ToastError, "Could not refresh the diff for "+short(sha))
+	}
+	return m, nil
+}
+
+// short is a sha cut to what GitHub prints. A toast has no room for forty
+// characters and nobody reads them anyway.
+func short(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 // fetchDetail carries the head branch as well as the id: the query asks how far
 // behind the base the branch has fallen, and it needs the name to do it.
 func (m Model) fetchDetail(id, headRef string) tea.Cmd {
@@ -384,8 +460,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.store.FilesFailed(msg.id, msg.err)
 		return m.filesSettled(msg.id, msg.err)
 
+	case commitFilesFetchedMsg:
+		m.store.CommitFilesApplied(msg.sha, msg.res)
+		return m.commitFilesSettled(msg.sha, nil)
+
+	case commitFilesFailedMsg:
+		m.store.CommitFilesFailed(msg.sha, msg.err)
+		return m.commitFilesSettled(msg.sha, msg.err)
+
 	case prview.NeedFilesMsg:
 		return m.needFiles(msg.ID)
+
+	case prview.NeedCommitMsg:
+		return m.needCommit(msg.SHA)
 
 	case list.OpenMsg:
 		return m.open(msg.PR)

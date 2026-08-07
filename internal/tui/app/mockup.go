@@ -52,6 +52,13 @@ func (Mock) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesRes
 	return gh.FilesResult{Files: mockFiles(), MoreFiles: 2}, nil
 }
 
+// CommitFiles answers with the first file of the same diff whatever commit is
+// asked for. One file is enough to judge the Commits tab's two panes against
+// each other, which is what the fixture is for.
+func (Mock) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
+	return gh.FilesResult{Files: mockFiles()[:1]}, nil
+}
+
 func mockFiles() []gh.ChangedFile {
 	return []gh.ChangedFile{
 		{
@@ -118,6 +125,37 @@ func mockFiles() []gh.ChangedFile {
 // every markdown element the renderer styles, comments, both review verdicts, a
 // resolved thread beside two open ones, and a rollup that is neither all green
 // nor all red.
+// mockCommits is the branch behind the fixture, oldest first. It covers what
+// the column has to tell apart: the three check states, and an author GitHub
+// has no account for.
+func mockCommits() []gh.Commit {
+	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+
+	return []gh.Commit{
+		{SHA: "a3f91c2d5e8b4770c1e2f6a9d3045bb812e7c440", Short: "a3f91c2",
+			Headline: "Cap the retry backoff at the fetch timeout",
+			Body: "The loop doubled the delay with no ceiling, so a dead endpoint\n" +
+				"backed off past the point anything was waiting for it.",
+			Author: gh.Actor{Login: "drucial"}, CommittedAt: ago(19 * time.Hour), Checks: gh.CheckStateSuccess},
+		{SHA: "7b20ef4a11", Short: "7b20ef4", Headline: "Drop the phantom count from the search total",
+			Author: gh.Actor{Login: "drucial"}, CommittedAt: ago(18 * time.Hour), Checks: gh.CheckStateSuccess},
+		{SHA: "c1d8a04bb9", Short: "c1d8a04", Headline: "Fix the typo in the Begin comment",
+			AuthorName: "Drew White", CommittedAt: ago(17 * time.Hour), Checks: gh.CheckStatePending},
+		{SHA: "9e4c77f320", Short: "9e4c77f", Headline: "Rebase onto main and hold the ceiling as a constant",
+			Author: gh.Actor{Login: "drucial"}, CommittedAt: ago(150 * time.Minute), Checks: gh.CheckStateFailure},
+	}
+}
+
+// commitItem is how a commit reads on the timeline.
+func commitItem(c gh.Commit) gh.TimelineItem {
+	return gh.TimelineItem{
+		Kind:      gh.TimelineCommit,
+		Actor:     c.Author,
+		CreatedAt: c.CommittedAt,
+		Commit:    &c,
+	}
+}
+
 func mockDetail() gh.PullRequestDetail {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
@@ -151,6 +189,8 @@ func mockDetail() gh.PullRequestDetail {
 		Merge:    gh.MergeBlocked,
 		BehindBy: 4,
 
+		Commits: mockCommits(),
+
 		Timeline: []gh.TimelineItem{
 			{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(20 * time.Hour),
 				Body: "Coverage held at 84.2%. No new uncovered branches in `internal/gh`."},
@@ -159,7 +199,15 @@ func mockDetail() gh.PullRequestDetail {
 				CreatedAt: ago(6 * time.Hour), Review: gh.ReviewStateChangesRequested,
 				Body: "Close. Two things on the retry path, then this is good to go."},
 
+			// A run of three and a lone one, so the fold and the single line
+			// both show at a glance.
+			commitItem(mockCommits()[0]),
+			commitItem(mockCommits()[1]),
+			commitItem(mockCommits()[2]),
+
 			{Kind: gh.TimelineForcePushed, Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(3 * time.Hour)},
+
+			commitItem(mockCommits()[3]),
 
 			{Kind: gh.TimelineComment, Actor: gh.Actor{}, CreatedAt: ago(2 * time.Hour),
 				Body: "Rebased onto main. The ceiling is a constant now."},

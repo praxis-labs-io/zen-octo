@@ -50,12 +50,13 @@ type Detail struct {
 	Loaded bool
 }
 
-// Files is one pull request's diff, keyed by the same id as its Detail. It is
-// held apart because it costs a second request the detail screen only makes
-// when someone opens the Files tab.
+// Files is one diff: a pull request's, keyed by the same id as its Detail, or
+// one commit's, keyed by its sha. Both are held apart from the detail because
+// each costs a request of its own, made only when someone asks to see it.
 type Files struct {
 	Files     []gh.ChangedFile
 	MoreFiles int
+	Truncated bool
 	Status    Status
 	Err       error
 
@@ -70,6 +71,7 @@ type Store struct {
 	sections []Section
 	details  map[string]Detail
 	files    map[string]Files
+	commits  map[string]Files
 	rate     gh.RateLimit
 }
 
@@ -83,6 +85,7 @@ func New(sections []config.Section) Store {
 		sections: held,
 		details:  make(map[string]Detail),
 		files:    make(map[string]Files),
+		commits:  make(map[string]Files),
 	}
 }
 
@@ -198,47 +201,77 @@ func (s Store) Files(id string) Files { return s.files[id] }
 
 // BeginFiles marks a diff in flight and reports whether it started. It refuses
 // one already on its way, so tabbing in and out of Files costs one request.
-func (s *Store) BeginFiles(id string) bool {
-	held := s.files[id]
-	if id == "" || held.Status == StatusLoading {
-		return false
-	}
-	held.Status = StatusLoading
-	s.putFiles(id, held)
-	return true
-}
+func (s *Store) BeginFiles(id string) bool { return beginDiff(&s.files, id) }
 
 // FilesApplied stores a pull request's diff. No budget to fold: the REST API
 // bills against a separate allowance the GraphQL response knows nothing about.
-func (s *Store) FilesApplied(id string, res gh.FilesResult) {
-	if id == "" {
+func (s *Store) FilesApplied(id string, res gh.FilesResult) { diffApplied(&s.files, id, res) }
+
+// FilesFailed puts a diff into its error state, keeping whatever it already
+// held. A refetch that fails must not empty a diff that was reading fine.
+func (s *Store) FilesFailed(id string, err error) { diffFailed(&s.files, id, err) }
+
+// CommitFiles is the diff held for one commit, keyed by its sha rather than by
+// the pull request. A commit belongs to whichever pull requests carry it, and
+// its diff is the same either way.
+func (s Store) CommitFiles(sha string) Files { return s.commits[sha] }
+
+// BeginCommitFiles marks a commit's diff in flight and reports whether it
+// started.
+func (s *Store) BeginCommitFiles(sha string) bool { return beginDiff(&s.commits, sha) }
+
+// CommitFilesApplied stores a commit's diff.
+func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
+	diffApplied(&s.commits, sha, res)
+}
+
+// CommitFilesFailed puts a commit's diff into its error state, keeping whatever
+// it already held.
+func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, sha, err) }
+
+// The three below are the diff lifecycle, shared by the pull request's own and
+// by each commit's. They take the map by pointer so a Store built without New
+// can still be written to: a nil map panics on write, and it would do it inside
+// Update.
+
+func beginDiff(held *map[string]Files, key string) bool {
+	at := (*held)[key]
+	if key == "" || at.Status == StatusLoading {
+		return false
+	}
+	at.Status = StatusLoading
+	putDiff(held, key, at)
+	return true
+}
+
+func diffApplied(held *map[string]Files, key string, res gh.FilesResult) {
+	if key == "" {
 		return
 	}
-	s.putFiles(id, Files{
+	putDiff(held, key, Files{
 		Files:     res.Files,
 		MoreFiles: res.MoreFiles,
+		Truncated: res.Truncated,
 		Status:    StatusReady,
 		Loaded:    true,
 	})
 }
 
-// FilesFailed puts a diff into its error state, keeping whatever it already
-// held. A refetch that fails must not empty a diff that was reading fine.
-func (s *Store) FilesFailed(id string, err error) {
-	held, ok := s.files[id]
-	if id == "" || !ok {
+func diffFailed(held *map[string]Files, key string, err error) {
+	at, ok := (*held)[key]
+	if key == "" || !ok {
 		return
 	}
-	held.Status = StatusFailed
-	held.Err = err
-	s.putFiles(id, held)
+	at.Status = StatusFailed
+	at.Err = err
+	putDiff(held, key, at)
 }
 
-func (s *Store) putFiles(id string, f Files) {
-	if s.files == nil {
-		s.files = make(map[string]Files)
+func putDiff(held *map[string]Files, key string, f Files) {
+	if *held == nil {
+		*held = make(map[string]Files)
 	}
-	s.files[id] = f
+	(*held)[key] = f
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever

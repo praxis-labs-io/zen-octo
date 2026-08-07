@@ -148,6 +148,79 @@ func TestAFullPageOfFilesReportsNoOverflow(t *testing.T) {
 	}
 }
 
+// commitBody is the commit endpoint's answer: the same file nodes wrapped in an
+// object rather than returned as a bare array.
+const commitBody = `{
+  "sha": "a3f91c2d5e",
+  "files": [
+    {
+      "filename": "internal/gh/files.go",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "patch": "@@ -1,2 +1,3 @@\n package gh\n+\n const filesPage = 100"
+    }
+  ]
+}`
+
+func TestACommitDiffAsksTheCommitEndpointAndParsesItsFiles(t *testing.T) {
+	rest := &fakeREST{body: commitBody}
+	res, err := newWithDoer(nil, rest).
+		CommitFiles(context.Background(), "zen-octo/zen-octo", "a3f91c2d5e")
+	if err != nil {
+		t.Fatalf("CommitFiles: %v", err)
+	}
+
+	want := "repos/zen-octo/zen-octo/commits/a3f91c2d5e?per_page=100"
+	if rest.gotMethod != http.MethodGet || rest.gotPath != want {
+		t.Errorf("asked %s %q, want GET %q", rest.gotMethod, rest.gotPath, want)
+	}
+
+	if len(res.Files) != 1 {
+		t.Fatalf("files = %d, want 1", len(res.Files))
+	}
+	if got := res.Files[0].Path; got != "internal/gh/files.go" {
+		t.Errorf("path = %q", got)
+	}
+	if len(res.Files[0].Hunks) != 1 {
+		t.Errorf("hunks = %d, want the patch parsed", len(res.Files[0].Hunks))
+	}
+	if res.Truncated {
+		t.Error("a single-file commit reads as truncated")
+	}
+}
+
+// The commit endpoint carries no changed-file total, so a full page is the only
+// sign GitHub is holding more.
+func TestAFullPageOfCommitFilesReadsAsTruncated(t *testing.T) {
+	nodes := make([]string, filesPage)
+	for i := range nodes {
+		nodes[i] = `{"filename": "a.go", "status": "modified", "additions": 1, "deletions": 0,
+		  "patch": "@@ -1 +1 @@\n-a\n+b"}`
+	}
+	body := `{"files": [` + strings.Join(nodes, ",") + `]}`
+
+	res, err := newWithDoer(nil, &fakeREST{body: body}).
+		CommitFiles(context.Background(), "zen-octo/zen-octo", "a3f91c2")
+	if err != nil {
+		t.Fatalf("CommitFiles: %v", err)
+	}
+	if !res.Truncated {
+		t.Error("a full page does not report that there is more")
+	}
+}
+
+func TestACommitDiffForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
+	rest := &fakeREST{body: commitBody}
+	if _, err := newWithDoer(nil, rest).
+		CommitFiles(context.Background(), "zen-octo", "a3f91c2"); err == nil {
+		t.Fatal("want an error for a repo with no owner")
+	}
+	if rest.gotPath != "" {
+		t.Errorf("requested %q, want no request at all", rest.gotPath)
+	}
+}
+
 func TestARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: filesBody}
 	_, err := newWithDoer(nil, rest).PullRequestFiles(context.Background(), "zen-octo", 17, 1)

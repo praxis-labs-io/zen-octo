@@ -100,7 +100,7 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	if strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation still reads as current after switching")
 	}
-	if !strings.Contains(next.View(), "Commits land with their own ticket.") {
+	if !strings.Contains(next.View(), "to show a commit's diff") {
 		t.Error("the body did not follow the tab")
 	}
 
@@ -530,6 +530,25 @@ func TestScrollPositionSurvivesATabSwitch(t *testing.T) {
 
 	if after := footerOf(t, press(m, "]", "[").View()); after != before {
 		t.Errorf("position = %q after leaving and coming back, want %q", after, before)
+	}
+}
+
+// The pane opens on a blank line and closes on one. Scrolled to the end, the
+// last line of a comment would otherwise sit against the bottom border and read
+// as clipped.
+func TestTheConversationEndsOnABlankLine(t *testing.T) {
+	// Narrow enough that the rail is off, so every column belongs to the one
+	// pane and a blank row is really blank.
+	m := press(detailed(held(sampleDetail()), 100, 12), "G")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("the frame is %d lines", len(lines))
+	}
+
+	last := lines[len(lines)-2]
+	if strings.TrimSpace(strings.Trim(last, "│")) != "" {
+		t.Errorf("the pane ends on %q, want a blank line above the border", last)
 	}
 }
 

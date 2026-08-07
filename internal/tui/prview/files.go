@@ -53,71 +53,107 @@ type blockState struct {
 	expanded bool
 }
 
+// diffBody is one rendered diff: where each file's block sits inside it, and
+// the blocks themselves. Each tab that shows a diff keeps one, because the
+// render is the same over different files.
+//
+// The blocks are cached because moving a cursor one row repaints the diff, and
+// rendering a block tokenises the whole file: without this a single keystroke
+// costs the diff twice over. at is what the cache was built against; anything
+// else invalidates the lot.
+type diffBody struct {
+	spans  []fileSpan
+	blocks map[blockKey]string
+	at     blockState
+
+	// threads is whether review threads hang off these lines. They are written
+	// against the pull request's head, and the same line number in an older
+	// commit is different code, so a commit's diff carries none.
+	threads bool
+
+	// lead is what sits above the first block. The spans are what a jump lands
+	// on, and they have to clear whatever the tab put in front of them.
+	lead int
+}
+
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
 // failed refetch; the root raises a toast for that.
 func (m *Model) filesBody() string {
 	switch {
 	case m.files.Loaded:
-		return m.diff()
+		return m.renderDiff(m.rows, m.files, &m.diff)
 	case m.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.files.Err.Error())
 	}
 	return m.spinner.Render("Loading the diff")
 }
 
-// diff renders every file the tree has on screen, and records where each one
-// starts so selecting it in the tree can scroll to it.
-func (m *Model) diff() string {
-	if len(m.files.Files) == 0 {
+// renderDiff renders every file in a set of rows, and records where each one
+// starts so a column beside it can scroll to it.
+func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
+	if len(res.Files) == 0 {
 		return m.faint().Render("No files changed.")
 	}
 
 	width := m.bodyWidth()
-	m.spans = m.spans[:0]
+	d.spans = d.spans[:0]
 
-	if state := (blockState{width: width, expanded: m.expanded}); m.blocks == nil || m.blocksAt != state {
-		m.blocks, m.blocksAt = make(map[blockKey]string, len(m.rows)), state
+	if state := (blockState{width: width, expanded: m.expanded}); d.blocks == nil || d.at != state {
+		d.blocks, d.at = make(map[blockKey]string, len(rows)), state
 	}
 
-	blocks := make([]string, 0, len(m.rows))
-	at := 0
-	for _, r := range m.rows {
+	blocks := make([]string, 0, len(rows))
+	at := d.lead
+	for _, r := range rows {
 		if r.file == nil {
 			continue
 		}
 
 		bk := blockKey{key: r.key, folded: r.folded}
-		block, ok := m.blocks[bk]
+		block, ok := d.blocks[bk]
 		if !ok {
-			block = m.fileBlock(*r.file, r.folded, width)
-			m.blocks[bk] = block
+			block = m.fileBlock(*r.file, r.folded, width, d.threads)
+			d.blocks[bk] = block
 		}
 		blocks = append(blocks, block)
 
 		lines := strings.Count(block, "\n") + 1
-		m.spans = append(m.spans, fileSpan{key: r.key, start: at, end: at + lines})
+		d.spans = append(d.spans, fileSpan{key: r.key, start: at, end: at + lines})
 		// The join puts a blank line after every block but the last, and the
 		// next one starts on the line after that.
 		at += lines + 1
 	}
 
-	if n := m.files.MoreFiles; n > 0 {
-		blocks = append(blocks, wrap(m.faint().Render(comp.Plural(n, "more file")+" on GitHub"), width))
+	if note := overflow(res); note != "" {
+		blocks = append(blocks, wrap(m.faint().Render(note), width))
 	}
 	return strings.Join(blocks, "\n\n")
+}
+
+// overflow says what the response did not reach. A pull request's diff is
+// measured against the file count it carries, and a commit's has no count to
+// measure against, so that one says there is more without saying how much.
+func overflow(res store.Files) string {
+	switch {
+	case res.MoreFiles > 0:
+		return comp.Plural(res.MoreFiles, "more file") + " on GitHub"
+	case res.Truncated:
+		return "More files on GitHub"
+	}
+	return ""
 }
 
 // fileBlock is one file in a box of its own: the path and the churn in a
 // heading, ruled off from the hunks and the review threads anchored inside
 // them. A folded one collapses to the heading line without the box, the same
 // way a resolved thread does in the conversation.
-func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
+func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool) string {
 	if folded {
 		return m.fileHead(f, true, width)
 	}
 
 	inner := max(1, width-2)
-	body := m.fileBody(f, inner)
+	body := m.fileBody(f, inner, threads)
 	lines := strings.Count(body, "\n") + 1
 
 	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
@@ -127,13 +163,17 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int) string {
 // fileBody is everything under a file's heading, already the full inner width
 // so a changed line's background runs to the border. The pane pads with plain
 // spaces, which would leave a hole at the end of every one.
-func (m *Model) fileBody(f gh.ChangedFile, width int) string {
+func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) string {
 	if f.Omitted != "" {
 		return " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
 	}
 
-	threads := m.threadsIn(f.Path)
-	placed := make(map[int]bool, len(threads))
+	// A nil map answers nothing, so the lines below need no guard of their own.
+	var anchored map[anchor][]gh.ReviewThread
+	if threads {
+		anchored = m.threadsIn(f.Path)
+	}
+	placed := make(map[int]bool, len(anchored))
 
 	tokens := m.lineTokens(f)
 	gutter := max(gutterMin, len(strconv.Itoa(widest(f))))
@@ -145,11 +185,14 @@ func (m *Model) fileBody(f gh.ChangedFile, width int) string {
 		for _, l := range h.Lines {
 			lines = append(lines, m.diffLine(l, tokens[seen], gutter, width))
 			seen++
-			lines = append(lines, m.threadsAt(threads, placed, l, width)...)
+			lines = append(lines, m.threadsAt(anchored, placed, l, width)...)
 		}
 	}
 
-	return strings.Join(append(lines, m.strayThreads(f.Path, placed, width)...), "\n")
+	if threads {
+		lines = append(lines, m.strayThreads(f.Path, placed, width)...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff
@@ -435,8 +478,7 @@ func (m *Model) treeBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// treeTitle names the column by what it holds, since the tab strip beside it
-// already says which tab this is.
+// treeTitle names the file column by what it holds.
 func (m Model) treeTitle() string {
 	if !m.files.Loaded {
 		return "Files"
@@ -461,13 +503,13 @@ func (m *Model) moveCursor(delta int) {
 // showCursorRow keeps the cursor inside the tree's own window. The column opens
 // with no blank line, so a row is its own offset.
 func (m *Model) showCursorRow() {
-	height := m.treeView.Height()
+	height := m.sideView.Height()
 
-	switch offset := m.treeView.YOffset(); {
+	switch offset := m.sideView.YOffset(); {
 	case m.cursor < offset:
-		m.treeView.SetYOffset(m.cursor)
+		m.sideView.SetYOffset(m.cursor)
 	case m.cursor >= offset+height:
-		m.treeView.SetYOffset(m.cursor - height + 1)
+		m.sideView.SetYOffset(m.cursor - height + 1)
 	}
 }
 
@@ -479,7 +521,7 @@ func (m *Model) showCursorRow() {
 // its top line. One long file with a review thread hanging off it otherwise
 // keeps the cursor for a whole screen of the files after it.
 func (m *Model) trackDiff() {
-	if m.tab != tabFiles || m.focus != paneMain || len(m.spans) == 0 {
+	if m.tab != tabFiles || m.focus != paneMain || len(m.diff.spans) == 0 {
 		return
 	}
 
@@ -487,7 +529,7 @@ func (m *Model) trackDiff() {
 	bottom := top + m.view.Height()
 
 	best, seen := "", 0
-	for _, s := range m.spans {
+	for _, s := range m.diff.spans {
 		if covered := min(s.end, bottom) - max(s.start, top); covered > seen {
 			best, seen = s.key, covered
 		}
@@ -497,9 +539,9 @@ func (m *Model) trackDiff() {
 	// the answer is the last file, whatever share of the window it got.
 	switch {
 	case m.view.AtTop():
-		best = m.spans[0].key
+		best = m.diff.spans[0].key
 	case m.view.AtBottom():
-		best = m.spans[len(m.spans)-1].key
+		best = m.diff.spans[len(m.diff.spans)-1].key
 	}
 
 	at := m.cursor
@@ -526,7 +568,7 @@ func (m Model) cursorSpan() int {
 		return -1
 	}
 	for _, r := range m.rows[m.cursor:] {
-		for i, s := range m.spans {
+		for i, s := range m.diff.spans {
 			if s.key == r.key {
 				return i
 			}
@@ -538,7 +580,7 @@ func (m Model) cursorSpan() int {
 // showCursorFile scrolls the diff to whatever the tree is pointing at.
 func (m *Model) showCursorFile() {
 	if at := m.cursorSpan(); at >= 0 {
-		m.view.SetYOffset(contentLead + m.spans[at].start)
+		m.view.SetYOffset(contentLead + m.diff.spans[at].start)
 	}
 }
 
@@ -558,9 +600,9 @@ func (m *Model) jumpFile(delta int) {
 	if delta < 0 || (m.cursor < len(m.rows) && m.rows[m.cursor].file != nil) {
 		next = at + delta
 	}
-	next = min(max(next, 0), len(m.spans)-1)
+	next = min(max(next, 0), len(m.diff.spans)-1)
 
-	key := m.spans[next].key
+	key := m.diff.spans[next].key
 	for i, r := range m.rows {
 		if r.key == key {
 			m.cursor = i
