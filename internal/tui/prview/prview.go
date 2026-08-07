@@ -238,7 +238,11 @@ func (m Model) firstFile() int {
 // SetDetail carries the review threads the diff hangs off its lines, so a
 // block rendered before they landed is stale. It carries the commits and the
 // head commit's checks too, so both columns beside it come with it.
-func (m *Model) SetDetail(d store.Detail) {
+//
+// It arms the commit wait, because this is where a cold Commits tab first has
+// a commit to point at. Opening the tab while the detail is still out arms
+// nothing, and without this the column would fill beside a pane that never did.
+func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.detail = d
 	m.diff.blocks = nil
 	if d.Loaded {
@@ -247,6 +251,7 @@ func (m *Model) SetDetail(d store.Detail) {
 	m.syncCommits()
 	m.syncChecks()
 	m.syncContent()
+	return m.armCommit()
 }
 
 func newViewport() viewport.Model {
@@ -287,7 +292,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		waitingFor(m.files) || waitingFor(m.commit.files)
+		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank()
+}
+
+// commitBlank is a commit to show with nothing on the pane yet: the settle
+// window and the hop after it. The glyph is on screen through both, so the tick
+// chain has to stay alive through both or it freezes on its first frame.
+func (m Model) commitBlank() bool {
+	if m.tab != tabCommits || m.commit.sha != "" {
+		return false
+	}
+	_, ok := m.underCursor()
+	return ok
 }
 
 func waitingFor(f store.Files) bool {

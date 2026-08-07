@@ -264,7 +264,7 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	// where there is nothing to wait for, which is what ends the chain anyway.
 	cmds = append(cmds, m.detail.Init())
 
-	m.detail.SetDetail(m.store.Detail(pr.ID))
+	cmds = append(cmds, m.detail.SetDetail(m.store.Detail(pr.ID)))
 	m.detail.SetFiles(m.store.Files(pr.ID))
 	m.resize()
 	return m, tea.Batch(cmds...)
@@ -403,11 +403,12 @@ func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.detail.SetDetail(held)
+	armed := m.detail.SetDetail(held)
 	if err != nil && held.Loaded {
-		return m, m.toasts.Show(comp.ToastError, "Could not refresh #"+strconv.Itoa(m.detail.PullRequest().Number))
+		return m, tea.Batch(armed,
+			m.toasts.Show(comp.ToastError, "Could not refresh #"+strconv.Itoa(m.detail.PullRequest().Number)))
 	}
-	return m, nil
+	return m, armed
 }
 
 // Update applies every message. Nothing else mutates the model.
