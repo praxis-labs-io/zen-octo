@@ -52,6 +52,7 @@ type DetailMap struct {
 	FocusPane    key.Binding
 	ToggleRail   key.Binding
 	Expand       key.Binding
+	Refresh      key.Binding
 	Back         key.Binding
 }
 
@@ -96,6 +97,7 @@ var (
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
 		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
+		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	}
 )
@@ -116,7 +118,9 @@ func (k ListMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// ShortHelp is the one line the status bar carries.
+// ShortHelp is the one line the status bar carries. Refresh is in the overlay
+// only: a seventh hint pushes the line past the pull request number on the
+// right at 100 columns, and the number is what says which one is on screen.
 func (k DetailMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Down, k.NextTab, k.Expand, k.ToggleRail, k.Back, Global.Help}
 }
@@ -128,7 +132,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
 		{k.FocusPane, k.ToggleRail, k.Expand},
-		{k.PaneLeft, k.PaneRight, k.Back},
+		{k.PaneLeft, k.PaneRight, k.Refresh, k.Back},
 		{Global.Help, Global.Quit},
 	}
 }
