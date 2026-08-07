@@ -92,14 +92,15 @@ const (
 	paneRail
 )
 
-// tabCommits and tabFiles have bodies of their own. The tabs are a slice rather
-// than an enum, so the ones that do are named.
+// The tabs are a slice rather than an enum, so the three with a body of their
+// own are named. The conversation is index zero and the fallthrough.
 const (
 	tabCommits = 1
+	tabChecks  = 2
 	tabFiles   = 3
 )
 
-// tabs on the detail screen. Checks lands with its own ticket.
+// tabs on the detail screen.
 var tabs = []comp.Tab{
 	{Label: "Conversation"},
 	{Label: "Commits"},
@@ -144,6 +145,10 @@ type Model struct {
 	// commit is the Commits tab: what the column has on screen, where its
 	// cursor is, and the diff of the commit that was last selected.
 	commit commits
+
+	// check is the Checks tab: the head commit's rollup grouped by workflow,
+	// and which of them the column is on.
+	check checks
 
 	// shown is the body the main viewport already holds, and shownAt the width
 	// it was measured at.
@@ -231,8 +236,8 @@ func (m Model) firstFile() int {
 // loaded replaces the row, so the header and the rail stop showing the thinner
 // version search returned.
 // SetDetail carries the review threads the diff hangs off its lines, so a
-// block rendered before they landed is stale. It carries the commits too, so
-// the column beside the Commits tab comes with it.
+// block rendered before they landed is stale. It carries the commits and the
+// head commit's checks too, so both columns beside it come with it.
 func (m *Model) SetDetail(d store.Detail) {
 	m.detail = d
 	m.diff.blocks = nil
@@ -240,6 +245,7 @@ func (m *Model) SetDetail(d store.Detail) {
 		m.pr = d.Detail.PullRequest
 	}
 	m.syncCommits()
+	m.syncChecks()
 	m.syncContent()
 }
 
@@ -395,7 +401,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 // move is a row in the left column and a line everywhere else. The column is
 // the only pane with something to point at.
 func (m *Model) move(delta int) {
-	if m.focus == paneSide {
+	if m.sideDriving() {
 		m.moveSide(delta)
 		return
 	}
@@ -410,28 +416,39 @@ func (m *Model) move(delta int) {
 // reports whether it took the key. In the column they move the cursor: a column
 // scrolled away from its own cursor answers nothing.
 func (m *Model) jumped(rows int) bool {
-	if m.focus != paneSide {
+	if !m.sideDriving() {
 		return false
 	}
 	m.moveSide(rows)
 	return true
 }
 
-// moveSide walks whichever column the tab has: files on one, commits on the
-// other.
+// sideDriving is whether the movement keys belong to the column. A column with
+// nothing in it has no cursor to walk, and taking the keys anyway leaves the
+// pane beside it unscrollable: the tab opens on the column, and a detail that
+// failed to load puts its error there with no way to reach the end of it.
+func (m Model) sideDriving() bool { return m.focus == paneSide && m.sideRows() > 0 }
+
+// moveSide walks whichever column the tab has: commits, workflows, or files.
 func (m *Model) moveSide(delta int) {
-	if m.tab == tabCommits {
+	switch m.tab {
+	case tabCommits:
 		m.moveCommit(delta)
-		return
+	case tabChecks:
+		m.moveCheck(delta)
+	default:
+		m.moveCursor(delta)
 	}
-	m.moveCursor(delta)
 }
 
 // sideRows is how far the column runs, which is what the keys that go to one
 // end of it move by.
 func (m Model) sideRows() int {
-	if m.tab == tabCommits {
+	switch m.tab {
+	case tabCommits:
 		return len(m.detail.Detail.Commits)
+	case tabChecks:
+		return len(m.check.groups)
 	}
 	return len(m.rows)
 }
@@ -446,19 +463,38 @@ func (m Model) sidePage() int {
 	return m.sideView.Height()
 }
 
+// showRow keeps a one-line row inside a column's own window. Both one-line
+// columns share it: two copies of the same window arithmetic drift, and the one
+// that drifts opens on a row cut off above the window.
+func showRow(v *viewport.Model, cursor int) {
+	// Called before the first layout as well as after one, and a window of no
+	// rows would put the cursor one row past itself.
+	height := max(1, v.Height())
+
+	switch offset := v.YOffset(); {
+	case cursor < offset:
+		v.SetYOffset(cursor)
+	case cursor >= offset+height:
+		v.SetYOffset(cursor - height + 1)
+	}
+}
+
 // showSideCursor puts the column's own cursor back inside its window. One
-// viewport serves both columns and their rows are different heights, so an
-// offset left behind by the other tab opens this one mid-row.
+// viewport serves all three columns and their rows are not the same height, so
+// an offset left behind by another tab opens this one mid-row.
 func (m *Model) showSideCursor() {
 	if m.sideRows() == 0 {
 		m.sideView.SetYOffset(0)
 		return
 	}
-	if m.tab == tabCommits {
+	switch m.tab {
+	case tabCommits:
 		m.moveCommit(0)
-		return
+	case tabChecks:
+		showRow(&m.sideView, m.check.cursor)
+	default:
+		m.showCursorRow()
 	}
-	m.showCursorRow()
 }
 
 // changeTab moves the strip and takes the scroll position with it. The offset
@@ -477,9 +513,10 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 	m.showSideCursor()
 
 	// Commits opens with an empty diff pane, so the column is the only thing on
-	// the tab there is anything to do with. Every other tab opens on content
-	// worth reading, and leaves focus on the pane holding it.
-	if m.tab == tabCommits && m.sideVisible() {
+	// the tab there is anything to do with. Checks opens on a full pane, but
+	// every key a reader presses there is picking a workflow. The other two open
+	// on content worth reading and leave focus on the pane holding it.
+	if (m.tab == tabCommits || m.tab == tabChecks) && m.sideVisible() {
 		m.focus = paneSide
 		m.syncContent()
 	}
@@ -543,10 +580,10 @@ func (m Model) paneVisible(p pane) bool {
 // scroll is the viewport the movement keys drive. Focus decides, which is what
 // the help text promises and what the pane borders show.
 func (m *Model) scroll() *viewport.Model {
-	switch m.focus {
-	case paneSide:
+	switch {
+	case m.sideDriving():
 		return &m.sideView
-	case paneRail:
+	case m.focus == paneRail:
 		return &m.railView
 	}
 	return &m.view
@@ -595,10 +632,9 @@ func (m *Model) layout() {
 // railVisible decides whether the rail is on screen. Width decides until the
 // user overrides it, and even then the conversation keeps a floor.
 //
-// The tabs with a column of their own do without it. Everything the rail
-// carries is about the pull request rather than the change, the column beside
-// the diff already takes one, and a diff between the two is a gutter and a
-// fragment.
+// The rail belongs to the conversation. Everything it carries is about the
+// pull request rather than about what a tab is showing, and the three tabs with
+// a column already spend that side of the frame on one.
 func (m Model) railVisible() bool {
 	if !m.railTab() {
 		return false
@@ -610,21 +646,27 @@ func (m Model) railVisible() bool {
 }
 
 // railTab is whether this tab has a rail at all, at any width.
-func (m Model) railTab() bool { return m.tab != tabFiles && m.tab != tabCommits }
+func (m Model) railTab() bool { return !m.sideVisibleTab() }
 
-// sideVisible decides whether the left column is on screen. Both columns share
-// the floor: below it the main pane is too narrow for its own tab strip, and
-// the frame renders wider than the terminal it was given.
-//
-// Files falls back to the file headings inside the diff. Commits has no
-// fallback, so a frame that narrow shows the diff it was last given and nothing
-// to change it with. The card above the diff still names the commit.
-func (m Model) sideVisible() bool {
+// sideVisibleTab is whether this tab has a column, before width has a say.
+func (m Model) sideVisibleTab() bool {
 	switch m.tab {
-	case tabCommits, tabFiles:
-		return m.width >= treeMinFrame
+	case tabCommits, tabChecks, tabFiles:
+		return true
 	}
 	return false
+}
+
+// sideVisible decides whether the left column is on screen. All three columns
+// share the floor: below it the main pane is too narrow for its own tab strip,
+// and the frame renders wider than the terminal it was given.
+//
+// Files falls back to the file headings inside the diff, and Checks to every
+// workflow's card at once. Commits has no fallback, so a frame that narrow
+// shows the diff it was last given and nothing to change it with. The card
+// above the diff still names the commit.
+func (m Model) sideVisible() bool {
+	return m.sideVisibleTab() && m.width >= treeMinFrame
 }
 
 // sideColumn is what the left column gets. It takes its full width where the
@@ -690,10 +732,13 @@ func (m *Model) syncContent() {
 
 // bodyWidth is the measure the conversation is set to. Prose stops being
 // readable somewhere past this, and a wide terminal would otherwise run a
-// comment the whole way across the screen. Code is not prose, so the diff takes
-// the pane.
+// comment the whole way across the screen.
+//
+// The tabs with a column take the pane instead. None of them holds prose: a
+// line of code, a matrix job name and a commit's diff all run long, and capping
+// them clips a name while the pane beside it sits empty.
 func (m Model) bodyWidth() int {
-	if m.tab == tabFiles || m.tab == tabCommits {
+	if m.sideVisibleTab() {
 		return m.main.InnerWidth()
 	}
 	return min(m.main.InnerWidth(), contentMeasure)
@@ -767,23 +812,27 @@ func scrollFooter(v viewport.Model) string {
 	return strconv.Itoa(min(v.YOffset()+v.Height(), total)) + "/" + strconv.Itoa(total)
 }
 
-// tabBody renders whichever tab is current.
+// tabBody renders whichever tab is current. The conversation is the
+// fallthrough: it is the tab a screen opens on.
 func (m *Model) tabBody() string {
 	switch m.tab {
-	case 0:
-		return m.conversation() + "\n" + m.conversationBody()
 	case tabCommits:
 		return m.commitBody()
+	case tabChecks:
+		return m.checkBody()
 	case tabFiles:
 		return m.filesBody()
 	}
-	return m.faint().Render(tabs[m.tab].Label + " lands with its own ticket.")
+	return m.conversation() + "\n" + m.conversationBody()
 }
 
 // sideBody renders whichever column the tab has.
 func (m *Model) sideBody(width int) string {
-	if m.tab == tabCommits {
+	switch m.tab {
+	case tabCommits:
 		return m.commitColumn(width)
+	case tabChecks:
+		return m.checkColumn(width)
 	}
 	return m.treeBody(width)
 }
@@ -791,8 +840,11 @@ func (m *Model) sideBody(width int) string {
 // sideTitle names the column by what it holds, since the tab strip beside it
 // already says which tab this is.
 func (m Model) sideTitle() string {
-	if m.tab == tabCommits {
+	switch m.tab {
+	case tabCommits:
 		return m.commitTitle()
+	case tabChecks:
+		return m.checkTitle()
 	}
 	return m.treeTitle()
 }
