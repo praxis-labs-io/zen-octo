@@ -844,10 +844,16 @@ func (m Model) helpBody() string {
 // space of padding either side.
 const modalChrome = 4
 
-// refitHelp re-columns the bindings to whatever the frame can carry. The help
-// bubble sizes its columns from their contents and never wraps, so a set that
-// is one column too wide gets sheared by the overlay rather than reflowed, and
-// the modal loses its right border.
+// helpColumns is the widest the overlay gets, whatever the frame could carry.
+// Every binding laid out in one row of columns runs most of the way across a
+// wide terminal, and a list that wide is read by sweeping the eye sideways.
+// Taller and narrower is read by going down it once.
+const helpColumns = 3
+
+// refitHelp re-columns the bindings to whatever the frame can carry, up to
+// helpColumns. The help bubble sizes its columns from their contents and never
+// wraps, so a set that is one column too wide gets sheared by the overlay
+// rather than reflowed, and the modal loses its right border.
 func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 	var flat []key.Binding
 	widest := 0
@@ -866,7 +872,7 @@ func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 	// The help bubble puts a gap between columns; budget for it so the last
 	// column is not the one that overflows.
 	const columnGap = 4
-	columns := max(1, width/(widest+columnGap))
+	columns := max(1, min(helpColumns, width/(widest+columnGap)))
 	if columns >= len(groups) {
 		return groups
 	}
