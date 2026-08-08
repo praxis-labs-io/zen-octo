@@ -130,10 +130,11 @@ func (k ListMap) FullHelp() [][]key.Binding {
 // only: a seventh hint pushes the line past the pull request number on the
 // right at 100 columns, and the number is what says which one is on screen.
 //
-// Expand went to the overlay with it. It acts on the focused card, so the ring
-// is the hint that has to be on the bar for either of them to be reachable.
+// FocusNext is in the overlay for a different reason. The bar is the same line
+// on every tab, and the ring is only on the one without a column; hinting it
+// beside a pane where it does nothing is worse than not hinting it at all.
 func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.FocusNext, k.NextTab, k.ToggleRail, k.Back, Global.Help}
+	return []key.Binding{k.Down, k.NextTab, k.Expand, k.ToggleRail, k.Back, Global.Help}
 }
 
 // FullHelp is the overlay.

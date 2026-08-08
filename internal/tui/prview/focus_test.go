@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -133,6 +134,155 @@ func TestTabPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
 	m := press(detailed(held(d), 200, 20), "tab")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("focus landed on %q, want the description with its heading on screen", got)
+	}
+}
+
+// A review thread renders in the conversation and again inside the diff, and
+// unfolding it is a fact about the thread rather than about the tab. The diff
+// caches its file blocks, so the fold has to reach through that too.
+func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
+	d := sampleDetail()
+	d.Threads[0].Comments[0].Body = "Look.\n\n<details>\n<summary>What it does</summary>\n\nIt retries forever.\n\n</details>\n"
+
+	m := detailed(held(d), 200, 60)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	// The Files tab renders the thread against the line it hangs off.
+	onFiles := press(m, "]", "]", "]")
+	if !strings.Contains(stripANSI(onFiles.View()), "▸ What it does") {
+		t.Fatal("the diff is not showing the thread's fold")
+	}
+
+	// Unfold it in the conversation: the fourth card is that thread.
+	m = press(m, "tab", "tab", "tab", "tab", "o")
+	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
+		t.Fatal("o did not unfold the thread in the conversation")
+	}
+
+	if !strings.Contains(stripANSI(press(m, "]", "]", "]").View()), "It retries forever") {
+		t.Error("the diff still shows the thread folded")
+	}
+}
+
+// The note on an empty Checks section is not a row to stop on: there is
+// nothing to do to a check that is not there. Sharing the first check's key
+// would leave focus parked here to light up whatever arrived in its place.
+func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
+	d := sampleDetail()
+	d.Rollup = gh.CheckRollup{}
+
+	m := press(detailed(held(d), 200, 44), "l")
+	if got := markedRailRow(t, press(m, "tab").View()); strings.Contains(got, "None yet") {
+		t.Error("tab stopped on the empty checks note")
+	}
+
+	seen := map[string]bool{}
+	for i := range 14 {
+		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("tab ", i+1))...).View())] = true
+	}
+	if seen["None yet"] {
+		t.Error("the ring walks the empty checks note")
+	}
+}
+
+// A row with no state dot has two more cells for its name than one with a dot.
+// Reserving for a mark that is not there clips a name that would have fitted.
+func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
+	d := sampleDetail()
+	d.Assignees = []gh.Actor{{Login: strings.Repeat("a", 31)}}
+
+	rows := railRows(t, detailed(held(d), 200, 44).View())
+	for i, row := range rows {
+		if row != "Assignees" {
+			continue
+		}
+		if got := rows[i+1]; strings.HasSuffix(got, "…") {
+			t.Errorf("assignee row = %q, want the name whole", got)
+		}
+		return
+	}
+	t.Fatalf("no Assignees section in the rail: %q", rows)
+}
+
+// A card filling the whole window is the one the reader is looking at. Scanning
+// for the first card to begin below the top skips straight past it.
+func TestTabTakesTheCardFillingTheWindow(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
+
+	// Scrolled into the middle of the description, which is taller than the pane.
+	m := press(detailed(held(d), 200, 20), strings.Fields(strings.Repeat("j ", 12))...)
+
+	got := focusedCard(t, press(m, "tab").View())
+	if !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("tab focused %q, want the card the window is full of", got)
+	}
+}
+
+// The ring's lines sit one below the viewport's, and converting between them
+// has to be reversible. Clamping one way and not the other moves the page.
+func TestTabAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 24)
+
+	row := func(frame string) string {
+		return strings.TrimSpace(strings.Trim(stripANSI(strings.Split(frame, "\n")[1]), "│ "))
+	}
+	if got := row(m.View()); got != "" {
+		t.Fatalf("the pane opens on %q, want its blank line", got)
+	}
+	if got := row(press(m, "tab").View()); got != "" {
+		t.Errorf("after tab the pane opens on %q, want it not to have moved", got)
+	}
+}
+
+// Focus scrolled out of the window is nothing the reader can see, so esc means
+// the screen rather than the highlight they cannot find.
+func TestEscBacksOutWhenTheFocusIsOffScreen(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 16), "tab", "G")
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Fatal("the focused card is still on screen, so this proves nothing")
+	}
+
+	_, cmd := m.Update(escape())
+	if cmd == nil {
+		t.Fatal("esc was swallowed by a focus off the screen")
+	}
+	if _, ok := cmd().(prview.BackMsg); !ok {
+		t.Errorf("esc sent %T, want a BackMsg", cmd())
+	}
+}
+
+// Nor does o act on it. Unfolding a card out of sight moves the page back to
+// somewhere the reader already left.
+func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
+	d := sampleDetail()
+	d.Body = "Look.\n\n<details>\n<summary>Hidden</summary>\n\nThe secret.\n\n</details>\n"
+
+	m := press(detailed(held(d), 200, 16), "tab", "G")
+
+	before := stripANSI(m.View())
+	if before != stripANSI(press(m, "o").View()) {
+		t.Error("o acted on a card off the screen")
+	}
+}
+
+// One pane answers the keys, so one pane paints. Two lit at once says both do.
+func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 44), "tab")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("focus started on %q, want the description", got)
+	}
+
+	rail := press(m, "l", "tab")
+	if got := focusedCard(t, rail.View()); got != "" {
+		t.Errorf("card %q is lit while the rail holds the keys", got)
+	}
+	if markedRailRow(t, rail.View()) == "" {
+		t.Fatal("the rail row is not painted at all")
+	}
+
+	if got := markedRailRow(t, press(rail, "h").View()); got != "" {
+		t.Errorf("rail row %q is lit while the conversation holds the keys", got)
 	}
 }
 

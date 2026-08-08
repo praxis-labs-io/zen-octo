@@ -206,10 +206,14 @@ func (m Model) card(head, content string, width int, key focusKey) string {
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
 }
 
-// lit is whether a block holds the conversation's focus. The Files tab renders
-// review threads too, and the focus there belongs to a ring that tab does not
-// walk: a card lit on a pane the key does nothing to is a lie about the key.
-func (m Model) lit(key focusKey) bool { return m.railTab() && m.convRing.focused(key) }
+// lit is whether a block holds the conversation's focus. A card is only lit on
+// the pane the keys are going to, which is neither the Files tab, where the
+// same threads render under a ring tab does not walk, nor the conversation
+// while the rail has focus. A card lit on a pane the key does nothing to is a
+// lie about the key, and two panes lit at once is the same lie twice.
+func (m Model) lit(key focusKey) bool {
+	return m.railTab() && m.focus == paneMain && m.convRing.focused(key)
+}
 
 // cardWidth is what is left for text once the box has taken its sides and its
 // gutter.

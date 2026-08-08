@@ -19,9 +19,9 @@ const glyphFile = "" // nf-cod-file
 // it is in: a column of one shape reads down faster than a column of four.
 const glyphCheck = "●"
 
-// railNameRoom is what a marked row leaves a name: the gutter, the mark and the
-// space after it on the left, and one column short of the border on the right.
-const railNameRoom = 4
+// markLead is the state dot and the space after it. Only the rows carrying one
+// spend it, which is why the room a name gets is not a constant.
+const markLead = 2
 
 // railBody renders the details column: what is happening to the pull request,
 // then who is on it, then what it touches.
@@ -95,8 +95,11 @@ type railEntry struct {
 // row carries a background, and it has to be set on each cell: every styled run
 // ends in a reset that clears the background with it, so a joined row wrapped in
 // the background afterwards paints only its first cell.
+//
+// Only the pane the keys are going to paints its selection, the same rule the
+// conversation's cards hold to. Both lit at once says the keys go to both.
 func (m Model) railBase(selected bool) lipgloss.Style {
-	if selected {
+	if selected && m.focus == paneRail {
 		return lipgloss.NewStyle().Background(m.theme.SelectedBackground)
 	}
 	return lipgloss.NewStyle()
@@ -155,13 +158,15 @@ func (m Model) changeRow(pr gh.PullRequest, width int) []railEntry {
 // read down than a column of one.
 func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 	// The one section with no add row. A check is something a workflow runs,
-	// not something to put on the pull request, so the note stands alone.
+	// not something to put on the pull request, so the note stands alone and
+	// the ring walks past it: there is nothing to do to a check that is not
+	// there. It carries no key for the same reason it needs none. Sharing the
+	// first check's would leave focus parked here to light up whichever check
+	// arrived in its place.
 	if len(r.Checks) == 0 {
-		key := focusKey{kind: focusCheck}
-		base := m.railBase(m.railRing.focused(key))
+		base := m.railBase(false)
 		return []railEntry{{
 			line: m.railLine(base, base.Foreground(m.theme.Faint).Render("None yet"), width),
-			key:  key,
 		}}
 	}
 
@@ -174,7 +179,7 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 		faint := base.Foreground(m.theme.Faint)
 		out = append(out, railEntry{
 			line: m.railLine(base, base.Foreground(c).Render(glyphCheck)+faint.Render(" ")+
-				m.fit(faint, checkName(check), width), width),
+				m.fit(faint, checkName(check), railNameRoom(width, markLead)), width),
 			key: key,
 		})
 	}
@@ -202,28 +207,30 @@ func (m Model) reviewerRows(reviewers []gh.Reviewer, width int) []railEntry {
 			line: m.railLine(base,
 				base.Foreground(comp.ReviewerColor(m.theme, r)).Render(glyphCheck)+
 					base.Render(" ")+
-					m.fit(base.Foreground(m.theme.Actor), comp.Handle(r.Actor.Login), width), width),
+					m.fit(base.Foreground(m.theme.Actor), comp.Handle(r.Actor.Login), railNameRoom(width, markLead)), width),
 			key: key,
 		})
 	}
 	return append(out, m.addRow(focusAddReviewer, "Add reviewer", width))
 }
 
-// fit renders a name and clips it to what is left of a marked row. A bot login
+// railNameRoom is what a row leaves a name: its gutter, whatever leads the name
+// on that row, and one column short of the border on the right. A row with no
+// state dot has those two cells to spend on the name.
+func railNameRoom(width, lead int) int {
+	return max(1, width-railGutter-lead-1)
+}
+
+// fit renders a name and clips it to the room the row actually has. A bot login
 // runs past the rail as readily as a workflow name does, and the rail is a
 // column: wrapping turns one row into two that read as two.
 //
 // It renders before it clips, the way the file column does. Clipping the plain
 // text and styling the result puts the ellipsis inside the run, and the cursor
-// line stops at it.
-func (m Model) fit(style lipgloss.Style, name string, width int) string {
-	room := max(1, width-railNameRoom)
-
-	out := style.Render(name)
-	if lipgloss.Width(out) > room {
-		return comp.Clip(out, room, style.Foreground(m.theme.Faint))
-	}
-	return out
+// line stops at it. The mark keeps the row's own style so the background
+// carries through it.
+func (m Model) fit(style lipgloss.Style, name string, room int) string {
+	return clipTo(style.Render(name), room, style.Foreground(m.theme.Faint))
 }
 
 func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
@@ -233,7 +240,7 @@ func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
-				m.fit(base.Foreground(m.theme.Actor), comp.Handle(a.Login), width), width),
+				m.fit(base.Foreground(m.theme.Actor), comp.Handle(a.Login), railNameRoom(width, 0)), width),
 			key: key,
 		})
 	}
@@ -253,7 +260,7 @@ func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
-				m.fit(base.Foreground(lipgloss.Color("#"+l.Color)), l.Name, width), width),
+				m.fit(base.Foreground(lipgloss.Color("#"+l.Color)), l.Name, railNameRoom(width, 0)), width),
 			key: key,
 		})
 	}

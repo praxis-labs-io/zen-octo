@@ -180,8 +180,13 @@ type Model struct {
 	railRing ring
 
 	// expanded is which cards have their <details> blocks unfolded, keyed the
-	// same way the ring keys what it points at.
+	// same way the ring keys what it points at. A review thread renders on the
+	// Files tab as well as in the conversation, so both read this.
+	//
+	// folds counts the toggles, which is what tells the diff's block cache that
+	// a thread inside one of its files renders differently now.
 	expanded map[focusKey]bool
+	folds    int
 
 	// offsets parks the scroll position of each tab. One viewport serves all
 	// four, and without this switching to a short tab clamps the offset to zero
@@ -622,7 +627,7 @@ func (m *Model) stepFocus(delta int) {
 		return
 	}
 
-	top := max(0, vp.YOffset()-contentLead)
+	top := bodyTop(vp)
 	if !r.step(delta, top, vp.Height()) {
 		return
 	}
@@ -631,21 +636,36 @@ func (m *Model) stepFocus(delta int) {
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
 }
 
-// clearFocus lets go of whatever a ring on screen is holding, and reports
-// whether there was anything to let go of. Both rings, because focus survives a
-// move to the other pane and esc should not have to be pressed once per ring.
+// bodyTop is the viewport's offset in the lines the ring recorded, which sit
+// one below it: every pane opens with a blank the items do not count.
 //
-// The tabs with a column show no ring at all. Clearing one the reader cannot
-// see would swallow the key that leaves the screen.
+// It is not clamped at zero. Clamping on the way in while contentLead goes back
+// on the way out moves the page a line at the top of a scrollable pane, on a
+// keypress that was meant to leave it alone.
+func bodyTop(vp *viewport.Model) int { return vp.YOffset() - contentLead }
+
+// clearFocus lets go of a focus the reader can see, and reports whether there
+// was one. Both rings, because focus survives a move to the other pane and esc
+// should not have to be pressed once per ring.
+//
+// A focus that is not on the screen is not one to let go of. Swallowing esc for
+// a highlight nowhere on the frame reads as a key that does nothing, and the
+// tabs with a column show no ring at all.
 func (m *Model) clearFocus() bool {
 	if !m.railTab() {
 		return false
 	}
 
-	cleared := m.convRing.clear()
-	if m.railRing.clear() {
-		cleared = true
+	cleared := false
+	for _, r := range []struct {
+		ring *ring
+		vp   *viewport.Model
+	}{{&m.convRing, &m.view}, {&m.railRing, &m.railView}} {
+		if r.ring.live(bodyTop(r.vp), r.vp.Height()) && r.ring.clear() {
+			cleared = true
+		}
 	}
+
 	if cleared {
 		m.syncContent()
 	}
@@ -655,16 +675,26 @@ func (m *Model) clearFocus() bool {
 // toggleExpanded unfolds the <details> blocks in the focused card. There is
 // nothing to unfold with no card focused, which is what tab is one key away
 // for. Rail rows hold no prose and answer to it with nothing.
+//
+// A card scrolled off the screen is not the one the reader means, any more than
+// it is the one tab lands on. Acting on it would unfold something out of sight
+// and drag the page back to it.
 func (m *Model) toggleExpanded() {
 	r, vp := m.focusRing()
 	if r == nil || !r.on.kind.prose() {
 		return
 	}
+
+	top := bodyTop(vp)
+	if !r.live(top, vp.Height()) {
+		return
+	}
+
 	m.expanded[r.on] = !m.expanded[r.on]
+	m.folds++
 
 	// Unfolding pushes everything under it down. Without this the card that
 	// just grew opens below the window it was read in.
-	top := max(0, vp.YOffset()-contentLead)
 	m.syncContent()
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
 }

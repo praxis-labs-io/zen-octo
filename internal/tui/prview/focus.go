@@ -37,9 +37,14 @@ func (k focusKind) prose() bool {
 	return false
 }
 
-// focusKey names one focusable thing: what it is and which one. Focus is held
-// by key rather than by position, so a refetch that adds a comment above the
-// focused one leaves the focus where the reader put it.
+// focusKey names one focusable thing: what it is and which one.
+//
+// Which one is a place in the slice it came from, and for a comment or a review
+// that slice is the timeline. Appending to it is safe, which is the common case
+// and the only one a refresh usually produces. Reordering it is not: a rebase
+// re-sorts commits into the list by date, and focus and whatever the reader
+// unfolded then name the card that took the index. Comments carry no id of
+// their own until ZNO-28 adds one, which is what a stable key needs.
 type focusKey struct {
 	kind  focusKind
 	index int
@@ -59,7 +64,8 @@ func (it focusItem) covers(top, height int) bool {
 }
 
 // ring is the focus order of one pane. The items are rebuilt on every render;
-// on survives it, because it names a thing rather than a slot.
+// on survives it, because it names what it points at rather than where that
+// landed on the screen.
 type ring struct {
 	items []focusItem
 
@@ -98,6 +104,16 @@ func (r ring) index() int {
 	return -1
 }
 
+// live is whether the focus is on the screen. Scrolled out of the window it is
+// nothing the reader can see, so it is nothing for a key to act on either. This
+// is the rule step re-anchors by, and every key that reads the focus holds to
+// it: one that acted on a card off screen would move the page under a reader
+// who had already left it.
+func (r ring) live(top, height int) bool {
+	at := r.index()
+	return at >= 0 && r.items[at].covers(top, height)
+}
+
 // clear drops the focus, and reports whether there was one to drop. The screen
 // reads that answer to decide whether esc backs out or only lets go.
 func (r *ring) clear() bool {
@@ -129,20 +145,24 @@ func (r *ring) step(delta, top, height int) bool {
 	return true
 }
 
-// anchor is where focus lands when there is none to move: the first item that
-// begins inside the window going forward, the last that ends inside it going
-// back. A window between two items falls to whichever end it is nearer.
+// anchor is where focus lands when there is none to move: the first item on the
+// screen going forward, the last going back. A window between two items falls to
+// whichever end it is nearer.
+//
+// On the screen means any part of it, not all of it. A card taller than the
+// window is the one the reader is looking at, and a scan for the first item to
+// begin below the top skips straight past it to the next one.
 func (r ring) anchor(delta, top, height int) int {
 	if delta < 0 {
 		for i := len(r.items) - 1; i >= 0; i-- {
-			if r.items[i].start+r.items[i].lines <= top+height {
+			if r.items[i].covers(top, height) {
 				return i
 			}
 		}
 		return 0
 	}
 	for i, it := range r.items {
-		if it.start >= top {
+		if it.covers(top, height) {
 			return i
 		}
 	}
