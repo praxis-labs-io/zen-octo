@@ -175,21 +175,24 @@ func ptr[T any](v T) *T { return &v }
 func mockDetail() gh.PullRequestDetail {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
-	// mine and theirs are the two permission shapes worth having in a fixture.
-	// The viewer owns this repository, so it can delete anyone's comment and
-	// edit only its own, which is the case a screen keyed off authorship alone
-	// would get wrong.
-	mine := func(kind gh.CommentKind, id string, at time.Time, body string) gh.Comment {
-		return gh.Comment{
-			Kind: kind, ID: id, Author: gh.Actor{Login: mockViewer}, CreatedAt: at, Body: body,
-			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
-		}
-	}
-	theirs := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
+	// The viewer has write access here, so it may edit, delete and react to
+	// every comment on the page. Authorship is the only thing that differs
+	// between mine and theirs, which is the pair a screen keyed off "did I
+	// write this" would collapse.
+	perms := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
 		return gh.Comment{
 			Kind: kind, ID: id, Author: gh.Actor{Login: who}, CreatedAt: at, Body: body,
-			CanDelete: true, CanReact: true,
+			ViewerDidAuthor: who == mockViewer,
+			CanEdit:         true,
+			CanDelete:       true,
+			CanReact:        true,
 		}
+	}
+	mine := func(kind gh.CommentKind, id string, at time.Time, body string) gh.Comment {
+		return perms(kind, id, mockViewer, at, body)
+	}
+	theirs := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
+		return perms(kind, id, who, at, body)
 	}
 
 	return gh.PullRequestDetail{
@@ -245,10 +248,10 @@ func mockDetail() gh.PullRequestDetail {
 			commitItem(mockCommits()[3]),
 
 			// A deleted account, so the conversation has one comment with no name
-			// on it and no permissions to go with it.
+			// on it. Write access still reaches it.
 			{Kind: gh.TimelineComment, Actor: gh.Actor{}, CreatedAt: ago(2 * time.Hour),
-				Comment: &gh.Comment{Kind: gh.CommentIssue, ID: "IC_2", CreatedAt: ago(2 * time.Hour),
-					Body: "Rebased onto main. The ceiling is a constant now.", CanDelete: true}},
+				Comment: ptr(perms(gh.CommentIssue, "IC_2", "", ago(2*time.Hour),
+					"Rebased onto main. The ceiling is a constant now."))},
 
 			{Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"},
 				CreatedAt: ago(90 * time.Minute), Review: gh.ReviewStateApproved,
