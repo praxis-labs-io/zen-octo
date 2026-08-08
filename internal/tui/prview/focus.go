@@ -12,10 +12,19 @@ const (
 	focusComment
 	focusReview
 	focusThread
+	focusState
 	focusReviewer
 	focusAssignee
 	focusLabel
 	focusCheck
+	focusMerge
+
+	// The add rows sit under what they add to rather than among it. Each opens
+	// a picker, so an action key reads the kind and knows it has a control
+	// rather than a reviewer, an assignee or a label.
+	focusAddReviewer
+	focusAddAssignee
+	focusAddLabel
 )
 
 // prose is whether this kind renders a markdown body, which is the only thing
@@ -141,8 +150,13 @@ func (r ring) anchor(delta, top, height int) int {
 }
 
 // show is the offset that brings the focused item onto a window of the given
-// height, moving no further than it has to. An item taller than the window pins
-// to its top: the alternative opens on its last line with its heading above.
+// height. An item already on screen whole leaves the page where it is, because
+// the highlight is signal enough and scrolling under a reader who can already
+// see the thing is worse than not scrolling.
+//
+// Anything else goes to the top row rather than the shortest distance onto the
+// screen. The shortest distance lands a card at the foot of the window, and
+// what a card is worth reading for is the replies under it.
 func (r ring) show(top, height int) int {
 	at := r.index()
 	if at < 0 || height <= 0 {
@@ -150,11 +164,8 @@ func (r ring) show(top, height int) int {
 	}
 
 	it := r.items[at]
-	switch {
-	case it.start < top:
-		return it.start
-	case it.start+it.lines > top+height:
-		return max(it.start, it.start+it.lines-height)
+	if it.start >= top && it.start+it.lines <= top+height {
+		return top
 	}
-	return top
+	return it.start
 }

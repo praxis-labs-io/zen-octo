@@ -131,16 +131,25 @@ func TestTheRailCarriesEverySectionEmptyOrNot(t *testing.T) {
 
 	// No reviewer and no label are both facts worth reading, and a section that
 	// disappears when it is empty reads as one that was never fetched.
+	//
+	// The three sections with an add row say it with that instead. A row
+	// reading "None yet" above one offering to add something says it twice.
 	rows := railRows(t, screen(200, 40).View())
-	for _, heading := range []string{"Reviewers", "Assignees", "Labels"} {
+	empty := map[string]string{
+		"Reviewers": "+ Add reviewer",
+		"Assignees": "+ Add assignee",
+		"Labels":    "+ Add label",
+		"Checks":    "None yet",
+	}
+	for heading, want := range empty {
 		found := false
 		for i, row := range rows {
 			if row != heading {
 				continue
 			}
 			found = true
-			if got := rows[i+1]; got != "None yet" {
-				t.Errorf("%s = %q, want it to say it is empty", heading, got)
+			if got := rows[i+1]; got != want {
+				t.Errorf("%s = %q, want %q", heading, got, want)
 			}
 		}
 		if !found {

@@ -92,9 +92,9 @@ func TestTabReanchorsToWhatIsOnScreen(t *testing.T) {
 	}
 }
 
-// A card below the fold is scrolled to whole. Landing on its second line puts
-// its heading above the window, which is the line saying whose card it is.
-func TestTabScrollsToACardAndLandsItWhole(t *testing.T) {
+// A card scrolled to goes to the top of the window. Landed at the foot of it,
+// the replies the card is worth reading for are all below the fold.
+func TestTabScrollsACardToTheTopOfTheWindow(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 16)
 
 	if strings.Contains(stripANSI(m.View()), cardThread) {
@@ -102,9 +102,37 @@ func TestTabScrollsToACardAndLandsItWhole(t *testing.T) {
 	}
 
 	// Four presses reach the thread card, which is well below the fold.
-	got := focusedCard(t, press(m, "tab", "tab", "tab", "tab").View())
+	got, at := focusedCardAt(t, press(m, "tab", "tab", "tab", "tab").View())
 	if !strings.HasPrefix(got, cardThread) {
-		t.Errorf("focus landed on %q, want %q with its heading on screen", got, cardThread)
+		t.Fatalf("focus landed on %q, want the thread card whole", got)
+	}
+	// Line zero is the pane's own border, so line one is the top of the window.
+	if at != 1 {
+		t.Errorf("the card's border landed on frame line %d, want line 1", at)
+	}
+}
+
+// A card already on screen whole leaves the page alone. The highlight says
+// where focus is, and scrolling under a reader who can see it is worse.
+func TestTabDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 60)
+
+	before := stripANSI(m.View())
+	after := stripANSI(press(m, "tab", "tab").View())
+	if before != after {
+		t.Error("the page moved to focus a card that was already on screen whole")
+	}
+}
+
+// A card taller than the window pins to its top. Bottom-aligning it opens on
+// the end of a comment with the line saying whose it is above the window.
+func TestTabPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
+
+	m := press(detailed(held(d), 200, 20), "tab")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("focus landed on %q, want the description with its heading on screen", got)
 	}
 }
 
@@ -159,21 +187,50 @@ func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
 }
 
 // The rail is walked by the same key. Its rows have no border to take the
-// accent and carry colors of their own, so the marker cell says it instead.
+// accent, so the row itself is painted, the way the file column paints its own.
 func TestTabWalksTheRailRows(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
-	marked := markedRailRow(t, press(m, "tab").View())
-	if marked != "@nkr" {
-		t.Errorf("tab marked %q, want the first reviewer", marked)
+	// The state row leads: it is the first thing in the column and the first
+	// thing there is anything to do to.
+	if got := markedRailRow(t, press(m, "tab").View()); !strings.Contains(got, "Open") {
+		t.Errorf("tab marked %q, want the state row", got)
 	}
-	if got := markedRailRow(t, press(m, "tab", "tab").View()); got != "@octobot" {
-		t.Errorf("a second tab marked %q, want the next reviewer", got)
+	if got := markedRailRow(t, press(m, "tab", "tab").View()); got != "@nkr" {
+		t.Errorf("a second tab marked %q, want the first reviewer", got)
 	}
 
 	// Nothing in the conversation is lit while the focus is in the rail.
 	if got := focusedCard(t, press(m, "tab").View()); got != "" {
 		t.Errorf("card %q is lit while the rail holds the focus", got)
+	}
+}
+
+// The add row closes the Reviewers section rather than sitting under the
+// section heading or at the end of the column.
+func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
+	rows := railRows(t, detailed(held(sampleDetail()), 200, 44).View())
+
+	at := -1
+	for i, row := range rows {
+		if row == "Reviewers" {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatalf("no Reviewers section in the rail: %q", rows)
+	}
+
+	// Three reviewers in the fixture, then the row that adds a fourth.
+	if got := rows[at+4]; got != "+ Add reviewer" {
+		t.Errorf("the row after the reviewers is %q, want the add row", got)
+	}
+
+	// Five tabs: the state, three reviewers, then the add row.
+	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	if got := markedRailRow(t, press(m, "tab", "tab", "tab", "tab", "tab").View()); got != "+ Add reviewer" {
+		t.Errorf("the fifth tab marked %q, want the add row", got)
 	}
 }
 
@@ -183,17 +240,30 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
 	seen := map[string]bool{}
-	for i := range 12 {
+	for i := range 16 {
 		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("tab ", i+1))...).View())] = true
 	}
 
-	for _, want := range []string{"@nkr", "@drucial", "bug", "Rails Unit Tests / test"} {
-		if !seen[want] {
+	// The state row leads with a glyph, so it is read by what it says.
+	reached := func(text string) bool {
+		for row := range seen {
+			if strings.Contains(row, text) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, want := range []string{
+		"Open", "@nkr", "@drucial", "bug", "Rails Unit Tests / test", "Blocked",
+		"+ Add reviewer", "+ Add assignee", "+ Add label",
+	} {
+		if !reached(want) {
 			t.Errorf("tab never reached the %q row", want)
 		}
 	}
-	for _, skip := range []string{"Blocked", "4 commits behind main"} {
-		if seen[skip] {
+	for _, skip := range []string{"behind main", "+42"} {
+		if reached(skip) {
 			t.Errorf("tab stopped on %q, which there is nothing to do to", skip)
 		}
 	}
@@ -235,6 +305,16 @@ func escape() tea.KeyPressMsg {
 func focusedCard(t *testing.T, frame string) string {
 	t.Helper()
 
+	head, _ := focusedCardAt(t, frame)
+	return head
+}
+
+// focusedCardAt is the same, with the frame line the card's top border landed
+// on. Line zero is the pane's own top border, so a card at the top of the
+// window sits on line one.
+func focusedCardAt(t *testing.T, frame string) (string, int) {
+	t.Helper()
+
 	accent := fgSeq(theme.RosePineMoon.Secondary)
 	lines := strings.Split(frame, "\n")
 
@@ -248,9 +328,9 @@ func focusedCard(t *testing.T, frame string) string {
 		if start < 0 || !strings.HasPrefix(line[start+2:], accent) {
 			continue
 		}
-		return cardHeading(stripANSI(lines[i+1]), stripANSI(line))
+		return cardHeading(stripANSI(lines[i+1]), stripANSI(line)), i
 	}
-	return ""
+	return "", -1
 }
 
 // cardHeading is the heading row read out of the card whose top border is on
@@ -272,15 +352,15 @@ func cardHeading(row, border string) string {
 	return strings.TrimSpace(inner)
 }
 
-// markedRailRow is the text of the rail row carrying the focus marker.
+// markedRailRow is the text of the rail row painted as the cursor line.
 func markedRailRow(t *testing.T, frame string) string {
 	t.Helper()
 
 	for _, raw := range railRaw(t, frame) {
-		if !strings.Contains(raw, "m›") {
+		if !strings.Contains(raw, bgSeq(theme.RosePineMoon.SelectedBackground)) {
 			continue
 		}
-		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│●› "))
+		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│● "))
 	}
 	return ""
 }

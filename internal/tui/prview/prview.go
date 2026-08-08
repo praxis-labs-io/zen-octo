@@ -65,9 +65,11 @@ const railMinFrame = 120
 // conversation narrower than this is not worth the trade.
 const railMinForced = columnWidth + 40
 
-// railGutter is the space between the rail's borders and what it holds, on both
-// sides. Text against a border reads as a rendering fault rather than as a
-// column.
+// railGutter is the space between the rail's left border and what it holds.
+// Text against a border reads as a rendering fault rather than as a column.
+//
+// The right side is railNameRoom's business: a row runs the full width so the
+// cursor line reaches the border, and it is the name that stops short.
 const railGutter = 1
 
 // contentMeasure caps the conversation and centres it. Text set the full width
@@ -856,10 +858,11 @@ func (m *Model) syncContent() {
 		}
 	}
 	if inner := m.rail.InnerWidth(); m.railVisible() && inner > railGutter*2 {
-		// The rail opens with a blank line and sits in from both borders, the
-		// same as the conversation beside it.
-		body := indent(m.railBody(inner-railGutter*2), railGutter)
-		m.railView.SetContent("\n" + body)
+		// The rail opens with a blank line, the same as the conversation beside
+		// it. Its own gutter is the rows', not this pane's: a selected row is a
+		// background, and an indent added out here would leave the cursor line
+		// starting one column in from the border.
+		m.railView.SetContent("\n" + m.railBody(inner))
 	} else {
 		// A rail off the screen holds nothing to point at, and rows left in the
 		// ring would be walked by a tab pressed after it came back.
