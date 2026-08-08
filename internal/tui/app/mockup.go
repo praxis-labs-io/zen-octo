@@ -14,6 +14,18 @@ import (
 // can be judged at a real terminal width without a network or an account.
 type Mock struct{}
 
+// mockViewer authors the pull request and half the conversation, so the fixture
+// has both sides of "is this mine" in it.
+const mockViewer = "drucial"
+
+// Viewer answers with the account the rest of the fixture is written around.
+func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
+	return gh.ViewerResult{
+		Viewer:    gh.Actor{Login: mockViewer},
+		RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4822},
+	}, nil
+}
+
 // SearchPullRequests answers from the fixtures, keyed by the query so the tabs
 // carry counts that differ.
 func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {
@@ -156,8 +168,29 @@ func commitItem(c gh.Commit) gh.TimelineItem {
 	}
 }
 
+// ptr is for the fixture's timeline items, which hold a comment by pointer
+// while the threads around them hold theirs by value.
+func ptr[T any](v T) *T { return &v }
+
 func mockDetail() gh.PullRequestDetail {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+
+	// mine and theirs are the two permission shapes worth having in a fixture.
+	// The viewer owns this repository, so it can delete anyone's comment and
+	// edit only its own, which is the case a screen keyed off authorship alone
+	// would get wrong.
+	mine := func(kind gh.CommentKind, id string, at time.Time, body string) gh.Comment {
+		return gh.Comment{
+			Kind: kind, ID: id, Author: gh.Actor{Login: mockViewer}, CreatedAt: at, Body: body,
+			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+		}
+	}
+	theirs := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
+		return gh.Comment{
+			Kind: kind, ID: id, Author: gh.Actor{Login: who}, CreatedAt: at, Body: body,
+			CanDelete: true, CanReact: true,
+		}
+	}
 
 	return gh.PullRequestDetail{
 		Body: mockBody,
@@ -193,11 +226,13 @@ func mockDetail() gh.PullRequestDetail {
 
 		Timeline: []gh.TimelineItem{
 			{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(20 * time.Hour),
-				Body: "Coverage held at 84.2%. No new uncovered branches in `internal/gh`."},
+				Comment: ptr(theirs(gh.CommentIssue, "IC_1", "octobot", ago(20*time.Hour),
+					"Coverage held at 84.2%. No new uncovered branches in `internal/gh`."))},
 
-			{Kind: gh.TimelineReview, ID: "REV_1", Actor: gh.Actor{Login: "nkr"},
+			{Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"},
 				CreatedAt: ago(6 * time.Hour), Review: gh.ReviewStateChangesRequested,
-				Body: "Close. Two things on the retry path, then this is good to go."},
+				Comment: ptr(theirs(gh.CommentReview, "REV_1", "nkr", ago(6*time.Hour),
+					"Close. Two things on the retry path, then this is good to go."))},
 
 			// A run of three and a lone one, so the fold and the single line
 			// both show at a glance.
@@ -209,17 +244,22 @@ func mockDetail() gh.PullRequestDetail {
 
 			commitItem(mockCommits()[3]),
 
+			// A deleted account, so the conversation has one comment with no name
+			// on it and no permissions to go with it.
 			{Kind: gh.TimelineComment, Actor: gh.Actor{}, CreatedAt: ago(2 * time.Hour),
-				Body: "Rebased onto main. The ceiling is a constant now."},
+				Comment: &gh.Comment{Kind: gh.CommentIssue, ID: "IC_2", CreatedAt: ago(2 * time.Hour),
+					Body: "Rebased onto main. The ceiling is a constant now.", CanDelete: true}},
 
-			{Kind: gh.TimelineReview, ID: "REV_2", Actor: gh.Actor{Login: "nkr"},
-				CreatedAt: ago(90 * time.Minute), Review: gh.ReviewStateApproved},
+			{Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"},
+				CreatedAt: ago(90 * time.Minute), Review: gh.ReviewStateApproved,
+				Comment: ptr(theirs(gh.CommentReview, "REV_2", "nkr", ago(90*time.Minute), ""))},
 
 			{Kind: gh.TimelineReadyForReview, Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour)},
 		},
 
 		Threads: []gh.ReviewThread{
-			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+			{ID: "RT_1", ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				CanReply: true, CanResolve: true,
 				Hunk: &gh.Hunk{
 					Header: "@@ -38,4 +38,5 @@ func New() (*Client, error) {",
 					Lines: []gh.DiffLine{
@@ -230,25 +270,27 @@ func mockDetail() gh.PullRequestDetail {
 					},
 				},
 				Comments: []gh.Comment{
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
-						Body: "This backs off forever. Needs a ceiling."},
-					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(5 * time.Hour),
-						Body: "Capped at 30s, matching `fetchTimeout`."},
+					theirs(gh.CommentThread, "RC_1", "nkr", ago(6*time.Hour),
+						"This backs off forever. Needs a ceiling."),
+					mine(gh.CommentThread, "RC_2", ago(5*time.Hour),
+						"Capped at 30s, matching `fetchTimeout`."),
 				}},
 
-			{ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, Side: gh.SideRight,
+			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, Side: gh.SideRight,
 				IsOutdated: true,
+				CanReply:   true, CanResolve: true,
 				Comments: []gh.Comment{
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour),
-						Body: "Worth pulling this sum out into a named helper."},
+					theirs(gh.CommentThread, "RC_3", "nkr", ago(6*time.Hour),
+						"Worth pulling this sum out into a named helper."),
 				}},
 
-			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
+			{ID: "RT_3", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
 				IsResolved: true,
+				CanReply:   true, CanUnresolve: true,
 				Comments: []gh.Comment{
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(6 * time.Hour), Body: "Typo: refuces."},
-					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(5 * time.Hour), Body: "Fixed."},
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(4 * time.Hour), Body: "Thanks."},
+					theirs(gh.CommentThread, "RC_4", "nkr", ago(6*time.Hour), "Typo: refuces."),
+					mine(gh.CommentThread, "RC_5", ago(5*time.Hour), "Fixed."),
+					theirs(gh.CommentThread, "RC_6", "nkr", ago(4*time.Hour), "Thanks."),
 				}},
 		},
 

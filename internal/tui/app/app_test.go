@@ -27,8 +27,11 @@ import (
 // fakeSearcher answers every section with the same rows. Sections fetch
 // concurrently, so it locks: the -race detector is the point of the suite.
 type fakeSearcher struct {
-	rate gh.RateLimit
-	err  error
+	rate   gh.RateLimit
+	viewer gh.ViewerResult
+	err    error
+
+	viewerErr error
 
 	mu          sync.Mutex
 	prs         []gh.PullRequest
@@ -46,6 +49,13 @@ type fakeSearcher struct {
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
+}
+
+func (f *fakeSearcher) Viewer(context.Context) (gh.ViewerResult, error) {
+	if f.viewerErr != nil {
+		return gh.ViewerResult{}, f.viewerErr
+	}
+	return f.viewer, nil
 }
 
 func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error) {
@@ -226,6 +236,10 @@ func (f *fakeSearcher) fetchedCommits() []string {
 type querySearcher struct {
 	results map[string]gh.SearchResult
 	errs    map[string]error
+}
+
+func (f *querySearcher) Viewer(context.Context) (gh.ViewerResult, error) {
+	return gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}, nil
 }
 
 func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {
@@ -806,18 +820,20 @@ func TestTheRefreshToastCountsOnlyTheSectionsItStarted(t *testing.T) {
 	var m tea.Model = app.New(testConfig(), client)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// Both startup fetches, held rather than delivered.
+	// Every startup fetch, held rather than delivered: the viewer first, then
+	// one per section, in the order Init batches them.
 	initial := responses(m.Init())
-	if len(initial) != 2 {
-		t.Fatalf("setup: startup produced %d responses, want one per section", len(initial))
+	if len(initial) != 3 {
+		t.Fatalf("setup: startup produced %d responses, want the viewer and one per section", len(initial))
 	}
+	sections := initial[1:]
 
 	// One section home, the other still out, and then r: only the settled one
 	// can be refetched.
-	m, _ = m.Update(initial[0])
+	m, _ = m.Update(sections[0])
 	m, cmd := m.Update(list.RefreshMsg{})
 
-	m = settle(m, initial[1])
+	m = settle(m, sections[1])
 	m = settle(m, responses(cmd)...)
 
 	if out := render(t, m); !strings.Contains(out, "Refreshed 1 section") {
@@ -1073,6 +1089,41 @@ func TestAThemesOwnSyntaxStyleRaisesNoNotice(t *testing.T) {
 
 	if strings.Contains(stripANSI(render(t, m)), "Unknown syntax theme") {
 		t.Error("the default theme names a style Chroma does not ship")
+	}
+}
+
+// The login is asked for at startup, alongside the sections rather than after
+// them. Nothing renders it yet, and the budget its response carries is the one
+// place it reaches the frame: every section here fails, so the number on screen
+// can only have come from the viewer.
+func TestTheViewerIsAskedForAtStartup(t *testing.T) {
+	client := &fakeSearcher{
+		err: errors.New("every section is down"),
+		viewer: gh.ViewerResult{
+			Viewer:    gh.Actor{Login: "drucial"},
+			RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4999},
+		},
+	}
+
+	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "4999") {
+		t.Errorf("view = %q, want the budget the viewer response carried", out)
+	}
+}
+
+// A login that cannot be read degrades rather than fails. Nothing on the screen
+// depends on it yet, and a toast here would be the only one at startup, for the
+// one failure with no visible effect.
+func TestAViewerThatCannotBeReadChangesNothingOnScreen(t *testing.T) {
+	rate := gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4820}
+
+	broken := &fakeSearcher{prs: samplePRs(), rate: rate, viewerErr: errors.New("boom")}
+	fine := &fakeSearcher{
+		prs: samplePRs(), rate: rate,
+		viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}},
+	}
+
+	if got, want := render(t, loaded(t, broken, 120, 40)), render(t, loaded(t, fine, 120, 40)); got != want {
+		t.Errorf("a failed viewer lookup changed the frame:\n%q\nwant\n%q", got, want)
 	}
 }
 

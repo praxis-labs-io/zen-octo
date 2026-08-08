@@ -77,7 +77,7 @@ func (m *Model) entries() string {
 		case gh.TimelineComment:
 			key := focusKey{kind: focusComment, index: i}
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
-			push(m.card(head, m.body(item.Body, m.cardWidth(width), "No comment.", key), width, key), key)
+			push(m.card(head, m.body(item.Said().Body, m.cardWidth(width), "No comment.", key), width, key), key)
 
 		case gh.TimelineReview:
 			// The review records its own card and every thread hung off it, so
@@ -126,8 +126,9 @@ func (m *Model) review(item gh.TimelineItem, index int, threads []gh.ReviewThrea
 	label, c := comp.ReviewStateLabel(m.theme, item.Review)
 	head := m.said(item.Actor, label, c, item)
 
+	written := item.Said()
 	key := focusKey{kind: focusReview, index: index}
-	block := m.card(head, m.body(item.Body, m.cardWidth(width), "No comment.", key), width, key)
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key)
 
 	used := strings.Count(block, "\n") + 1
 	m.convRing.add(key, at, used)
@@ -139,7 +140,7 @@ func (m *Model) review(item gh.TimelineItem, index int, threads []gh.ReviewThrea
 
 	var owned []hung
 	for i, thread := range threads {
-		if thread.ReviewID != item.ID || thread.ReviewID == "" {
+		if thread.ReviewID != written.ID || thread.ReviewID == "" {
 			continue
 		}
 		shown[i] = true

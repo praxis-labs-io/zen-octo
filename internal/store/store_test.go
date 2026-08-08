@@ -271,6 +271,28 @@ func TestADetailResponseMovesTheBudget(t *testing.T) {
 	}
 }
 
+// The login is asked for once and then read all session. It moves the budget
+// like every other response, because the point it costs comes off the same one.
+func TestTheViewerIsHeldAndMovesTheBudget(t *testing.T) {
+	s := store.New(configured())
+
+	if got := s.Viewer().Login; got != "" {
+		t.Errorf("a store that has not asked yet reads as %q, want empty", got)
+	}
+
+	s.ViewerApplied(gh.ViewerResult{
+		Viewer:    gh.Actor{Login: "drucial"},
+		RateLimit: gh.RateLimit{Limit: 5000, Remaining: 4999, ResetAt: time.Now().Add(time.Hour)},
+	})
+
+	if got := s.Viewer().Login; got != "drucial" {
+		t.Errorf("Viewer().Login = %q, want drucial", got)
+	}
+	if got := s.Rate().Remaining; got != 4999 {
+		t.Errorf("remaining = %d, want 4999", got)
+	}
+}
+
 // An empty id is a caller bug, not a map entry nothing can reach.
 func TestAnEmptyIDIsIgnored(t *testing.T) {
 	s := store.New(configured())

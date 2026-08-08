@@ -103,6 +103,25 @@ func TestLiveDetailAndFiles(t *testing.T) {
 		t.Errorf("detail is for %q, want %q", detail.Detail.ID, pr.ID)
 	}
 
+	// Every comment and thread the account can reach carries an id. Nothing on
+	// the real schema answers a comment without one, so an empty id here is a
+	// field the query asked for under a name GitHub does not use.
+	for _, item := range detail.Detail.Timeline {
+		if item.Comment != nil && item.Said().ID == "" {
+			t.Errorf("a %s carries a comment with no id", item.Kind)
+		}
+	}
+	for _, thread := range detail.Detail.Threads {
+		if thread.ID == "" {
+			t.Errorf("a thread on %s came back with no id", thread.Path)
+		}
+		for _, c := range thread.Comments {
+			if c.ID == "" {
+				t.Errorf("a comment on %s came back with no id", thread.Path)
+			}
+		}
+	}
+
 	files, err := client.PullRequestFiles(ctx, pr.Repository, pr.Number, pr.ChangedFiles)
 	if err != nil {
 		t.Fatalf("PullRequestFiles() error = %v", err)
@@ -136,5 +155,35 @@ func TestLiveDetailAndFiles(t *testing.T) {
 	}
 	if len(commitFiles.Files) == 0 {
 		t.Errorf("%s changed no files, which no commit does", commits[0].Short)
+	}
+}
+
+// TestLiveViewer is the same schema check over the one query that has no
+// variables. A token that authenticates always has an account behind it, so an
+// empty login here is the query being wrong rather than the account being odd.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveViewer(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := client.Viewer(ctx)
+	if err != nil {
+		t.Fatalf("Viewer() error = %v", err)
+	}
+	if res.Viewer.Login == "" {
+		t.Error("Viewer.Login is empty, want the account behind the token")
+	}
+	if res.RateLimit.Remaining == 0 {
+		t.Error("RateLimit.Remaining is 0, want the live budget")
 	}
 }

@@ -781,8 +781,7 @@ func TestARunOfPushesNamesEveryCommitUnderIt(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = run
 	d.Timeline = []gh.TimelineItem{
-		{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "nkr"},
-			CreatedAt: time.Now().Add(-20 * time.Hour), Body: "Looks close."},
+		commented("nkr", time.Now().Add(-20*time.Hour), "Looks close."),
 		commitItem(run[0]),
 		commitItem(run[1]),
 	}

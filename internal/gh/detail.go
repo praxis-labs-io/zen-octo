@@ -55,19 +55,42 @@ query PullRequestDetail($id: ID!, $head: String!) {
 
       comments(first: 100) {
         totalCount
-        nodes { author { login } createdAt body }
+        nodes {
+          id
+          author { login }
+          createdAt
+          body
+          viewerDidAuthor
+          viewerCanUpdate
+          viewerCanDelete
+          viewerCanReact
+        }
       }
 
       reviews(first: 100) {
         totalCount
-        nodes { id state body submittedAt author { login } }
+        nodes {
+          id
+          state
+          body
+          submittedAt
+          author { login }
+          viewerDidAuthor
+          viewerCanUpdate
+          viewerCanDelete
+          viewerCanReact
+        }
       }
 
       reviewThreads(first: 100) {
         totalCount
         nodes {
+          id
           isResolved
           isOutdated
+          viewerCanReply
+          viewerCanResolve
+          viewerCanUnresolve
           path
           line
           startLine
@@ -77,10 +100,15 @@ query PullRequestDetail($id: ID!, $head: String!) {
           comments(first: 50) {
             totalCount
             nodes {
+              id
               author { login }
               createdAt
               body
               diffHunk
+              viewerDidAuthor
+              viewerCanUpdate
+              viewerCanDelete
+              viewerCanReact
               pullRequestReview { id }
             }
           }
@@ -147,6 +175,37 @@ query PullRequestDetail($id: ID!, $head: String!) {
 // because a deleted account comes back as null rather than a blank login.
 type actorNode *struct{ Login string }
 
+// commentNode is what an issue comment, a review comment and a review body all
+// answer with. It is embedded rather than repeated three times: encoding/json
+// promotes the fields of an embedded struct, so the shape on the wire is flat,
+// and one mapper then guarantees the three arrive as the same domain type.
+//
+// The timestamp is not in here. A comment carries createdAt and a review
+// carries submittedAt, and the review's is the one the conversation sorts by.
+type commentNode struct {
+	ID              string
+	Author          actorNode
+	Body            string
+	ViewerDidAuthor bool
+	ViewerCanUpdate bool
+	ViewerCanDelete bool
+	ViewerCanReact  bool
+}
+
+func (n commentNode) comment(kind CommentKind, at time.Time) Comment {
+	return Comment{
+		Kind:            kind,
+		ID:              n.ID,
+		Author:          login(n.Author),
+		CreatedAt:       at,
+		Body:            n.Body,
+		ViewerDidAuthor: n.ViewerDidAuthor,
+		CanEdit:         n.ViewerCanUpdate,
+		CanDelete:       n.ViewerCanDelete,
+		CanReact:        n.ViewerCanReact,
+	}
+}
+
 type pullRequestResponse struct {
 	RateLimit struct {
 		Limit     int
@@ -200,40 +259,40 @@ type pullRequestResponse struct {
 		Comments struct {
 			TotalCount int
 			Nodes      []struct {
-				Author    actorNode
+				commentNode
 				CreatedAt time.Time
-				Body      string
 			}
 		}
 
 		Reviews struct {
 			TotalCount int
 			Nodes      []struct {
-				ID          string
+				commentNode
 				State       string
-				Body        string
 				SubmittedAt time.Time
-				Author      actorNode
 			}
 		}
 
 		ReviewThreads struct {
 			TotalCount int
 			Nodes      []struct {
-				IsResolved        bool
-				IsOutdated        bool
-				Path              string
-				Line              int
-				StartLine         int
-				OriginalLine      int
-				OriginalStartLine int
-				DiffSide          string
-				Comments          struct {
+				ID                 string
+				IsResolved         bool
+				IsOutdated         bool
+				ViewerCanReply     bool
+				ViewerCanResolve   bool
+				ViewerCanUnresolve bool
+				Path               string
+				Line               int
+				StartLine          int
+				OriginalLine       int
+				OriginalStartLine  int
+				DiffSide           string
+				Comments           struct {
 					TotalCount int
 					Nodes      []struct {
-						Author            actorNode
+						commentNode
 						CreatedAt         time.Time
-						Body              string
 						DiffHunk          string
 						PullRequestReview *struct{ ID string }
 					}
@@ -354,12 +413,16 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		// GitHub nulls line and startLine once a thread goes outdated, so the
 		// original pair is what is left to anchor it by.
 		thread := ReviewThread{
-			Path:       t.Path,
-			Line:       cmp.Or(t.Line, t.OriginalLine),
-			StartLine:  cmp.Or(t.StartLine, t.OriginalStartLine),
-			Side:       DiffSide(cmp.Or(t.DiffSide, string(SideRight))),
-			IsResolved: t.IsResolved,
-			IsOutdated: t.IsOutdated,
+			ID:           t.ID,
+			Path:         t.Path,
+			Line:         cmp.Or(t.Line, t.OriginalLine),
+			StartLine:    cmp.Or(t.StartLine, t.OriginalStartLine),
+			Side:         DiffSide(cmp.Or(t.DiffSide, string(SideRight))),
+			IsResolved:   t.IsResolved,
+			IsOutdated:   t.IsOutdated,
+			CanReply:     t.ViewerCanReply,
+			CanResolve:   t.ViewerCanResolve,
+			CanUnresolve: t.ViewerCanUnresolve,
 		}
 		for _, c := range t.Comments.Nodes {
 			if thread.ReviewID == "" && c.PullRequestReview != nil {
@@ -372,11 +435,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 					thread.Hunk = &parsed[0]
 				}
 			}
-			thread.Comments = append(thread.Comments, Comment{
-				Author:    login(c.Author),
-				CreatedAt: c.CreatedAt,
-				Body:      c.Body,
-			})
+			thread.Comments = append(thread.Comments, c.comment(CommentThread, c.CreatedAt))
 		}
 		detail.Threads = append(detail.Threads, thread)
 	}
@@ -530,11 +589,12 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 	}
 
 	for _, c := range n.Node.Comments.Nodes {
+		comment := c.comment(CommentIssue, c.CreatedAt)
 		items = append(items, TimelineItem{
 			Kind:      TimelineComment,
-			Actor:     login(c.Author),
-			CreatedAt: c.CreatedAt,
-			Body:      c.Body,
+			Actor:     comment.Author,
+			CreatedAt: comment.CreatedAt,
+			Comment:   &comment,
 		})
 	}
 
@@ -544,12 +604,12 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 		if ReviewState(r.State) == ReviewStatePending {
 			continue
 		}
+		comment := r.comment(CommentReview, r.SubmittedAt)
 		items = append(items, TimelineItem{
 			Kind:      TimelineReview,
-			ID:        r.ID,
-			Actor:     login(r.Author),
-			CreatedAt: r.SubmittedAt,
-			Body:      r.Body,
+			Actor:     comment.Author,
+			CreatedAt: comment.CreatedAt,
+			Comment:   &comment,
 			Review:    ReviewState(r.State),
 		})
 	}
