@@ -1018,23 +1018,27 @@ const helpColumns = 3
 // rather than reflowed, and the modal loses its right border.
 func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 	var flat []key.Binding
-	widest := 0
+	widestKey, widestDesc := 0, 0
 	for _, group := range groups {
 		for _, b := range group {
 			flat = append(flat, b)
-			if w := len(b.Help().Key) + len(b.Help().Desc) + 1; w > widest {
-				widest = w
-			}
+			widestKey = max(widestKey, len(b.Help().Key))
+			widestDesc = max(widestDesc, len(b.Help().Desc))
 		}
 	}
 	if len(flat) == 0 {
 		return groups
 	}
 
+	// A column is as wide as its widest key plus its widest description, and
+	// the two sit on different rows as often as not. Measuring the widest
+	// single binding instead reads a column narrower than it renders, and the
+	// overlay then runs past the frame and loses its own right border.
+	//
 	// The help bubble puts a gap between columns; budget for it so the last
 	// column is not the one that overflows.
 	const columnGap = 4
-	columns := max(1, min(helpColumns, width/(widest+columnGap)))
+	columns := max(1, min(helpColumns, width/(widestKey+widestDesc+1+columnGap)))
 	if columns >= len(groups) {
 		return groups
 	}

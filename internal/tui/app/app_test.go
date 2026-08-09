@@ -2246,3 +2246,46 @@ func TestCtrlCStillQuitsFromTheComposer(t *testing.T) {
 		t.Errorf("ctrl+c sent %T, want a quit", msg)
 	}
 }
+
+// The help overlay stays inside the frame. It is sized from an estimate of how
+// wide a column of bindings renders, and an estimate that reads narrow puts the
+// modal's right border off the screen: the frame is still the right width, so
+// nothing catches it but this.
+func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
+	sizes := []struct{ width, height int }{
+		{width: 200, height: 50},
+		{width: 120, height: 40},
+		{width: 100, height: 30},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+	}
+
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			client := &fakeSearcher{prs: samplePRs()}
+			client.serveDetail("PR_412", "Caps the backoff at 30s.")
+			m := press(loaded(t, client, size.width, size.height), "enter", "?")
+
+			lines := strings.Split(render(t, m), "\n")
+			if len(lines) != size.height {
+				t.Fatalf("frame is %d lines, want %d", len(lines), size.height)
+			}
+			for i, line := range lines {
+				if w := lipgloss.Width(line); w > size.width {
+					t.Errorf("line %d is %d cells wide, want no more than %d", i, w, size.width)
+				}
+			}
+
+			// The corner is the tell. A modal one column too wide loses it, and
+			// every row under it loses its right border with it.
+			out := stripANSI(render(t, m))
+			at := strings.Index(out, "╭─Keys")
+			if at < 0 {
+				t.Fatal("the help overlay is not on the frame")
+			}
+			if head := out[at : strings.Index(out[at:], "\n")+at]; !strings.Contains(head, "╮") {
+				t.Errorf("the overlay's top border has no right corner: %q", head)
+			}
+		})
+	}
+}
