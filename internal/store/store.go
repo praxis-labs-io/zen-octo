@@ -227,17 +227,20 @@ func (s *Store) PendingComment(id string, c gh.Comment) string {
 // PendingApplied swaps the placeholder for what GitHub recorded. The real
 // comment goes onto the held timeline, so it survives everything the
 // placeholder was standing in for.
+//
+// No budget to fold: a mutation cannot report the rate limit, so the write's
+// cost shows up on the next fetch.
 func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	if !s.dropPending(id, key) {
 		return
 	}
 
 	held, ok := s.details[id]
-	if ok {
-		held.Detail.Timeline = append(held.Detail.Timeline, timelineComment(res.Comment))
-		s.put(id, held)
+	if !ok {
+		return
 	}
-	s.adopt(res.RateLimit)
+	held.Detail.Timeline = append(held.Detail.Timeline, timelineComment(res.Comment))
+	s.put(id, held)
 }
 
 // PendingReverted takes the placeholder back off the screen. The caller owns

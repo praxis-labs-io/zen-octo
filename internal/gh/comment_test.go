@@ -9,7 +9,6 @@ import (
 )
 
 const postedBody = `{
-  "rateLimit": {"limit": 5000, "cost": 1, "remaining": 4870, "resetAt": "2026-08-09T18:00:00Z"},
   "addComment": {
     "commentEdge": {
       "node": {
@@ -53,10 +52,6 @@ func TestAPostedCommentComesBackAsTheReadPathWouldHaveIt(t *testing.T) {
 	if res.Comment.Pending {
 		t.Error("a comment GitHub confirmed came back marked pending")
 	}
-
-	if res.RateLimit.Remaining != 4870 {
-		t.Errorf("Remaining = %d, want the mutation's own answer", res.RateLimit.Remaining)
-	}
 }
 
 // The subject and the body are the whole input. Sending the body as part of the
@@ -85,11 +80,16 @@ func TestTheMutationAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	for _, want := range []string{
 		"id", "createdAt", "body", "author { login }",
 		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
-		"rateLimit",
 	} {
 		if !strings.Contains(addCommentMutation, want) {
 			t.Errorf("the mutation does not ask for %q", want)
 		}
+	}
+
+	// rateLimit is a field on Query. A mutation selecting it is rejected whole,
+	// and the unit tests above decode canned JSON that never notices.
+	if strings.Contains(addCommentMutation, "rateLimit") {
+		t.Error("the mutation asks for rateLimit, which does not exist on Mutation")
 	}
 }
 

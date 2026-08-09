@@ -10,9 +10,11 @@ import (
 // pull request among them. It asks the new comment back rather than just its
 // id: the caller is holding a placeholder it has to replace, and the fields
 // below are what the read path already renders one from.
+// It asks for no rateLimit. That field is on Query and nowhere else, and a
+// mutation selecting it is rejected whole, so a write's cost is invisible until
+// the next fetch corrects the budget.
 const addCommentMutation = `
 mutation AddComment($subjectId: ID!, $body: String!) {
-  rateLimit { limit cost remaining resetAt }
   addComment(input: {subjectId: $subjectId, body: $body}) {
     commentEdge {
       node {
@@ -30,13 +32,6 @@ mutation AddComment($subjectId: ID!, $body: String!) {
 }`
 
 type addCommentResponse struct {
-	RateLimit struct {
-		Limit     int
-		Cost      int
-		Remaining int
-		ResetAt   time.Time
-	}
-
 	AddComment struct {
 		CommentEdge struct {
 			Node struct {
@@ -67,13 +62,5 @@ func (c *Client) AddComment(ctx context.Context, subjectID, body string) (Commen
 		return CommentResult{}, fmt.Errorf("posting a comment: GitHub returned no comment")
 	}
 
-	return CommentResult{
-		Comment: node.comment(CommentIssue, node.CreatedAt),
-		RateLimit: RateLimit{
-			Limit:     resp.RateLimit.Limit,
-			Cost:      resp.RateLimit.Cost,
-			Remaining: resp.RateLimit.Remaining,
-			ResetAt:   resp.RateLimit.ResetAt,
-		},
-	}, nil
+	return CommentResult{Comment: node.comment(CommentIssue, node.CreatedAt)}, nil
 }

@@ -42,7 +42,6 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 			CanDelete:       true,
 			CanReact:        true,
 		},
-		RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4817},
 	}, nil
 }
 

@@ -401,9 +401,12 @@ type ViewerResult struct {
 // CommentResult is one comment written, as GitHub recorded it. The comment
 // comes back rather than just its id: a write is the cheapest place to learn
 // what the server made of it, and the caller has a placeholder to replace.
+//
+// It carries no RateLimit, unlike every result beside it. rateLimit is a field
+// on Query and a mutation cannot select it, so a write's cost stays invisible
+// until the next fetch reports a budget that has already moved.
 type CommentResult struct {
-	Comment   Comment
-	RateLimit RateLimit
+	Comment Comment
 }
 
 // SearchResult is one search response: what it matched and what it cost.

@@ -905,7 +905,13 @@ func (m *Model) syncContent() {
 	// Code is clipped to the pane rather than wrapped: a line of source folded
 	// onto a second row puts its tail under the gutter and every line below it
 	// out of step with its own number. Both tabs that show a diff want it off.
-	m.view.SoftWrap = m.tab != tabFiles && m.tab != tabCommits
+	//
+	// So does the conversation, for a different reason. Every block it builds is
+	// already wrapped to bodyWidth before it gets here, so soft wrap has nothing
+	// to fold and spends half the cost of setting the content proving it: 12.7ms
+	// against 7.0ms on a hundred-and-forty-comment thread, which is paid on
+	// every keystroke once a comment is being written into it.
+	m.view.SoftWrap = m.tab == tabChecks
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens

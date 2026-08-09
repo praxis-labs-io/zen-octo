@@ -526,8 +526,7 @@ func TestAPostedCommentReplacesItsPlaceholder(t *testing.T) {
 	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
 
 	s.PendingApplied("PR_1", key, gh.CommentResult{
-		Comment:   gh.Comment{Kind: gh.CommentIssue, ID: "IC_REAL", Body: "mine"},
-		RateLimit: gh.RateLimit{Limit: 5000, Remaining: 4000, ResetAt: time.Now().Add(time.Hour)},
+		Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_REAL", Body: "mine"},
 	})
 
 	d := s.Detail("PR_1")
@@ -541,9 +540,6 @@ func TestAPostedCommentReplacesItsPlaceholder(t *testing.T) {
 	}
 	if last.ID != "IC_REAL" {
 		t.Errorf("ID = %q, want the node id GitHub gave it", last.ID)
-	}
-	if s.Rate().Remaining != 4000 {
-		t.Errorf("Remaining = %d, want the mutation's own answer", s.Rate().Remaining)
 	}
 }
 
