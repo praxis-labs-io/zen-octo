@@ -2183,8 +2183,10 @@ func TestAFailedPostTakesTheCardBackAndKeepsTheWords(t *testing.T) {
 	if n := strings.Count(out, "ship it"); n != 1 {
 		t.Errorf("%q appears %d times, want it only in the composer:\n%s", "ship it", n, out)
 	}
-	if !strings.Contains(out, "Leave a comment") && !strings.Contains(out, "Comment on #412") {
-		t.Error("the composer did not reopen on the failed comment")
+	// The box takes the keyboard back with the words, so the reader is looking
+	// at the comment they have to do something about.
+	if !strings.Contains(out, "ctrl+e editor") {
+		t.Error("the box did not take the keyboard back with the failed comment")
 	}
 	if !strings.Contains(out, "502 Bad Gateway") {
 		t.Error("the bar does not say why the comment did not post")

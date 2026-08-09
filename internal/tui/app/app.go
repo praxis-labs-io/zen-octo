@@ -425,6 +425,7 @@ func stillLoading(sections []store.Section, indices []int) bool {
 func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail = prview.New(m.theme, pr, m.detail.Rail(), m.syntax)
 	m.detail.SetChords(m.chords)
+	m.detail.SetViewer(m.store.Viewer())
 	m.screen = screenDetail
 	m.detailRefreshing = detailRefresh{}
 

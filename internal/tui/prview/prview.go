@@ -207,9 +207,16 @@ type Model struct {
 	// down.
 	offsets []int
 
-	// compose is the pane a comment is written in. It is closed on open and
-	// takes no height until it is not.
+	// compose is the box a comment is written in: the last card in the
+	// conversation, always on the page.
+	//
+	// who is the account it will be from, for its heading. The root knows it and
+	// the screen does not, so it is handed over rather than fetched.
 	compose composer
+	who     gh.Actor
+
+	// conv is the conversation above the box, kept while it is being written in.
+	conv convCache
 
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
@@ -286,6 +293,7 @@ func (m Model) firstFile() int {
 func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.detail = d
 	m.diff.blocks = nil
+	m.conv.ok = false
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
@@ -357,9 +365,9 @@ func waitingFor(f store.Files) bool {
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
-	// The composer takes the keyboard while it is open. Every letter in it is a
-	// letter, so nothing below this line gets a look.
-	if m.compose.open {
+	// The box takes the keyboard while it is being written in. Every letter is a
+	// letter then, so nothing below this line gets a look.
+	if m.compose.typing {
 		return m.composeKey(keyMsg)
 	}
 
@@ -386,9 +394,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// there. The three tabs with a column each anchor their own kind of comment
 	// and none of them is this one.
 	case key.Matches(keyMsg, k.Comment) && m.railTab():
-		cmd := m.compose.show()
-		m.reflow()
-		return m, cmd
+		return m.writeComment()
+
+	// The box is a card like any other, so the ring reaches it and enter is what
+	// steps into it, the same key that presses the button once inside.
+	case key.Matches(keyMsg, k.Activate) && m.convRing.on.kind == focusCompose:
+		return m.writeComment()
 
 	case key.Matches(keyMsg, k.FocusNext):
 		m.stepFocus(1)
@@ -728,6 +739,7 @@ func (m *Model) toggleExpanded() {
 
 	m.expanded[r.on] = !m.expanded[r.on]
 	m.folds++
+	m.conv.ok = false
 
 	// Unfolding pushes everything under it down. Without this the card that
 	// just grew opens below the window it was read in.
@@ -802,12 +814,10 @@ func (m *Model) SetSize(width, height int) {
 }
 
 // layout sizes the panes for the current frame, tab, and rail state.
-//
-// The composer belongs to the conversation, not to the screen. It is as wide as
-// the conversation pane and takes its height off that pane alone: a comment
-// being written is nothing to do with the rail, and shortening the rail for one
-// would be the screen rearranging itself around a box in the column beside it.
 func (m *Model) layout() {
+	// Every block is measured against a width, so none of them survive one.
+	m.conv.ok = false
+
 	// Focus follows the panes: a tab switch or a resize can take the one that
 	// had it off the screen.
 	if !m.paneVisible(m.focus) {
@@ -829,8 +839,7 @@ func (m *Model) layout() {
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.compose.setSize(mainWidth, m.height)
-	m.main = m.main.Size(mainWidth, max(0, m.height-m.compose.height(m.height)))
+	m.main = m.main.Size(mainWidth, m.height)
 	m.view.SetWidth(m.main.InnerWidth())
 	m.view.SetHeight(m.main.InnerHeight())
 	m.syncContent()
@@ -991,20 +1000,12 @@ func (m Model) View() string {
 
 	// The tab strip goes on the main pane rather than on the column beside it:
 	// the strip is wider than the column and would clip to a fragment there.
-	conversation := m.main.
+	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
-		Render(m.view.View())
-
-	// The composer sits under the conversation and inside its column, which is
-	// where the thing it writes will appear.
-	if box := m.compose.view(m.theme, m.composeTitle()); box != "" {
-		conversation = joinColumn(conversation, box)
-	}
-
-	panes := []string{conversation}
+		Render(m.view.View())}
 
 	if m.sideVisible() {
 		column := m.side.
@@ -1026,25 +1027,6 @@ func (m Model) View() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-}
-
-// joinColumn stacks two panes in one column. A pane with no room for content
-// renders nothing at all, and joining that empty string would still cost the
-// line it was denied.
-func joinColumn(top, bottom string) string {
-	switch {
-	case top == "":
-		return bottom
-	case bottom == "":
-		return top
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
-}
-
-// composeTitle names what is being written and where it lands. A text box at
-// the foot of the screen with no title says neither.
-func (m Model) composeTitle() string {
-	return "Comment on #" + strconv.Itoa(m.pr.Number)
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

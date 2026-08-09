@@ -52,33 +52,54 @@ func composing(width, height int) prview.Model {
 	return press(detailed(held(sampleDetail()), width, height), "c")
 }
 
-func TestCOpensTheComposer(t *testing.T) {
-	before := stripANSI(detailed(held(sampleDetail()), 200, 40).View())
-	if strings.Contains(before, "Leave a comment") {
-		t.Fatal("the composer is open before c is pressed")
-	}
+// The box is part of the conversation, not something summoned. It is on the
+// page before any key is pressed, which is how anyone finds out it is there.
+func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
+	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
-	out := stripANSI(composing(200, 40).View())
 	if !strings.Contains(out, "Leave a comment") {
-		t.Error("c did not open the composer")
+		t.Errorf("no comment box in the conversation:\n%s", out)
 	}
-	if !strings.Contains(out, "Comment on #412") {
-		t.Errorf("the composer does not say what it is writing on:\n%s", out)
+	if !strings.Contains(out, "write a comment") {
+		t.Error("the box has no heading saying what it is for")
+	}
+	if !strings.Contains(out, "enter to write") {
+		t.Error("the box does not say how to start writing in it")
 	}
 }
 
-// The composer takes its height off the panes rather than adding it to the
-// frame. A screen that grows past the height it was handed writes over the
-// status bar.
+// It renders through the same card the comments above it render through, so
+// one being written sits among the ones already made rather than beside them.
+func TestTheCommentBoxRendersAsACard(t *testing.T) {
+	lines := strings.Split(stripANSI(detailed(held(sampleDetail()), 200, 60).View()), "\n")
+
+	column := func(want string) int {
+		for i, line := range lines {
+			if strings.Contains(line, want) && i > 0 {
+				return strings.Index(lines[i-1], "╭")
+			}
+		}
+		return -1
+	}
+
+	box, comment := column("write a comment"), column("octobot · commented")
+	if box < 0 || comment < 0 {
+		t.Fatalf("could not find both cards: box %d, comment %d", box, comment)
+	}
+	if box != comment {
+		t.Errorf("the box opens at column %d and a comment card at %d", box, comment)
+	}
+}
+
+// The box is content inside the pane, so it can no more overflow the frame than
+// a comment can. The short sizes are here because it is the tallest block the
+// conversation builds.
 func TestTheFrameStillFillsItsSizeWithTheComposerOpen(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 40},
 		{width: 160, height: 24},
 		{width: 100, height: 20},
 		{width: 60, height: 12},
-
-		// Shorter than the composer wants. It gives way rather than pushing the
-		// panes past the bottom of the frame.
 		{width: 100, height: 8},
 		{width: 100, height: 6},
 		{width: 100, height: 4},
@@ -118,18 +139,22 @@ func TestTheComposerTakesTheKeysTheScreenWouldHaveAnswered(t *testing.T) {
 	}
 }
 
-// esc is the same reflex here as everywhere else on this screen. Losing three
-// paragraphs to it once is enough to stop anyone using the pane.
-func TestEscapeKeepsTheDraftAndCBringsItBack(t *testing.T) {
-	m := typed(composing(200, 40), "half written")
-	m = press(m, "esc")
+// esc hands the keyboard back and keeps every word. The box stays where it is:
+// it is part of the conversation, not something that was opened over it.
+func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
+	m := press(typed(composing(200, 60), "half written"), "esc")
 
-	if got := stripANSI(m.View()); strings.Contains(got, "half written") {
-		t.Fatal("esc left the composer open")
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "half written") {
+		t.Error("esc took the words away")
+	}
+	if !strings.Contains(out, "enter to write") {
+		t.Error("the box does not say the keyboard went back to the screen")
 	}
 
-	if got := stripANSI(press(m, "c").View()); !strings.Contains(got, "half written") {
-		t.Errorf("c did not bring the draft back:\n%s", got)
+	// And a letter is a key again rather than a letter.
+	if got := stripANSI(press(m, "j").View()); strings.Contains(got, "half writtenj") {
+		t.Error("the box is still taking letters after esc")
 	}
 }
 
@@ -265,10 +290,10 @@ func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
 	}
 
 	// Nothing but the button's own padding and the gutter between the label and
-	// the border it sits against.
-	tail := lines[at][strings.Index(lines[at], "Post")+len("Post"):]
-	if strings.TrimLeft(tail, " ") != "│" {
-		t.Errorf("the button is followed by %q, want it against the right border", tail)
+	// the card's border.
+	tail := strings.TrimLeft(lines[at][strings.Index(lines[at], "Post")+len("Post"):], " ")
+	if !strings.HasPrefix(tail, "│") {
+		t.Errorf("the button is followed by %q, want the card's border next", tail)
 	}
 }
 
@@ -354,119 +379,83 @@ func TestCtrlEHandsTheBufferOff(t *testing.T) {
 	}
 }
 
-// The composer belongs to the conversation, not to the screen. It takes its
-// height off the conversation pane alone: a comment being written has nothing
-// to do with the rail, and shortening the rail for one is the screen
-// rearranging itself around a box in the column beside it.
-func TestTheComposerTakesItsHeightFromTheConversationAlone(t *testing.T) {
-	closed := detailed(held(sampleDetail()), 200, 40)
-	open := press(closed, "c")
+// The box costs the screen no layout at all. It is a block in the conversation,
+// so writing in it leaves the rail and the pane borders exactly where they were.
+func TestWritingACommentDoesNotMoveTheLayout(t *testing.T) {
+	resting := detailed(held(sampleDetail()), 200, 40)
+	writing := typed(press(resting, "c"), "ship it")
 
-	before, after := railRows(t, closed.View()), railRows(t, open.View())
-	if len(before) != len(after) {
-		t.Errorf("the rail is %d rows with the composer open and %d without", len(after), len(before))
+	if before, after := railRows(t, resting.View()), railRows(t, writing.View()); len(before) != len(after) {
+		t.Errorf("the rail is %d rows while a comment is being written and %d otherwise", len(after), len(before))
 	}
 
-	// Both columns still reach the foot of the frame.
-	last := strings.Split(stripANSI(open.View()), "\n")
-	if got := last[len(last)-1]; strings.Count(got, "╯") != 2 {
-		t.Errorf("the last line closes %d panes, want the composer and the rail: %q",
-			strings.Count(got, "╯"), got)
+	// The top border only. The one at the foot carries the scroll counter, and
+	// that legitimately moves: c scrolls the page down to the box.
+	top := func(m prview.Model) string {
+		return strings.Split(stripANSI(m.View()), "\n")[0]
 	}
-}
-
-// It is also no wider than the conversation. Spanning the frame would put it
-// under the rail, which is not where the comment is going to appear.
-func TestTheComposerIsAsWideAsTheConversation(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 40), "c")
-
-	lines := strings.Split(stripANSI(m.View()), "\n")
-	title, foot := -1, -1
-	for i, line := range lines {
-		if strings.Contains(line, "Comment on #") {
-			title = i
-		}
-		if strings.Contains(line, "Conversation - Commits") {
-			foot = i
-		}
-	}
-	if title < 0 || foot < 0 {
-		t.Fatalf("could not find both panes:\n%s", strings.Join(lines, "\n"))
-	}
-
-	// The conversation's top border and the composer's each close at the same
-	// column, which is where the rail begins. Measured in cells: a box rune is
-	// three bytes and a tab strip is one per character, so the byte offsets
-	// differ on lines that close at the same place.
-	closesAt := func(line string) int {
-		return lipgloss.Width(line[:strings.Index(line, "╮")])
-	}
-	if a, b := closesAt(lines[foot]), closesAt(lines[title]); a != b {
-		t.Errorf("the composer closes at column %d and the conversation at %d", b, a)
+	if top(resting) != top(writing) {
+		t.Errorf("the panes moved:\n%s\nwant\n%s", top(writing), top(resting))
 	}
 }
 
-// A reader at the foot of the conversation is the one about to write, so the
-// box opening under them pushes the text up rather than cutting off the end of
-// what they just read.
-func TestOpeningTheComposerAtTheFootPushesTheTextUp(t *testing.T) {
+// The box is the last card, so on a long thread it starts below the fold. c
+// brings it onto the screen rather than leaving the reader to scroll for it.
+func TestCBringsTheBoxOntoTheScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
 
-	// The rail is hidden at this width, so a row is the conversation alone.
-	m := press(detailed(held(d), 100, 30), "G")
-	tail := lastCard(t, m.View())
-	if tail == "" {
-		t.Fatal("nothing on screen at the foot of the conversation")
+	m := detailed(held(d), 100, 30)
+	if strings.Contains(stripANSI(m.View()), "Leave a comment") {
+		t.Fatal("the box is already on screen, so this proves nothing")
 	}
 
-	if got := lastCard(t, press(m, "c").View()); got != tail {
-		t.Errorf("the foot of the conversation is now %q, want %q still on screen", got, tail)
+	if !strings.Contains(stripANSI(press(m, "c").View()), "Leave a comment") {
+		t.Error("c did not bring the box onto the screen")
 	}
 }
 
-// Anywhere else the page stays exactly where it is. The window loses lines from
-// the bottom, which are lines the reader had already scrolled past; moving the
-// page under someone reading the middle of a thread is the one thing this
-// screen must not do.
-func TestOpeningTheComposerMidThreadLeavesThePageAlone(t *testing.T) {
+// Typing rebuilds the page and the box is the last thing on it, so the page has
+// to hold at the foot or the box being written in scrolls away under the words.
+func TestTheBoxStaysOnScreenWhileItIsWrittenIn(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
 
-	m := press(detailed(held(d), 100, 30), "j", "j", "j", "j", "j")
-	top := firstBodyLine(t, m.View())
+	m := typed(press(detailed(held(d), 100, 30), "c"), "still here")
 
-	if got := firstBodyLine(t, press(m, "c").View()); got != top {
-		t.Errorf("the page moved to %q, want %q where it was", got, top)
+	if got := stripANSI(m.View()); !strings.Contains(got, "still here") {
+		t.Errorf("the box scrolled away while it was being written in:\n%s", got)
 	}
 }
 
-// lastCard is the heading of the final card the conversation is showing, which
-// is what tells whether the foot of the thread is still on screen.
-func lastCard(t *testing.T, frame string) string {
-	t.Helper()
+// The page above the box is kept while it is being written in, which is what
+// makes a keystroke cheap. A refetch landing mid-sentence has to drop it, or
+// the reader carries on typing over a conversation that has moved on.
+func TestARefetchWhileTypingStillReachesTheScreen(t *testing.T) {
+	m := typed(composing(200, 60), "half written")
 
-	var last string
-	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		if strings.Contains(line, " · ") && strings.Contains(line, "│") {
-			last = strings.Trim(line, "│ ")
-		}
-		if strings.Contains(line, "Comment on #") {
-			break
-		}
+	next := sampleDetail()
+	next.Timeline = append(next.Timeline, commented("nkr", time.Now(), "something new arrived"))
+	m.SetDetail(held(next))
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "something new arrived") {
+		t.Errorf("the refetch never reached the screen:\n%s", out)
 	}
-	return last
+	if !strings.Contains(out, "half written") {
+		t.Error("the refetch took the words out of the box")
+	}
 }
 
-// firstBodyLine is the first line of content the conversation pane is showing,
-// which is where the page sits.
-func firstBodyLine(t *testing.T, frame string) string {
-	t.Helper()
-
-	for _, line := range strings.Split(stripANSI(frame), "\n")[1:] {
-		if text := strings.Trim(line, "│╭╮╰╯─ "); text != "" {
-			return text
-		}
+// Focus moving onto the box unlights whichever card had it. The kept page holds
+// the highlight, so it has to be dropped when the box takes the keyboard.
+func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 60), "tab")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("tab focused %q, want the description", got)
 	}
-	return ""
+
+	if got := focusedCard(t, press(m, "c").View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("c left the accent on %q, want it on the box", got)
+	}
 }
