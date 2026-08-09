@@ -293,6 +293,16 @@ func (m Model) post() (Model, tea.Cmd) {
 
 	id := m.pr.ID
 	m.compose.sent()
+
+	// Focus goes with the comment. The box is empty and no longer taking keys,
+	// so an accent left on it says the keyboard is somewhere it is not.
+	//
+	// It does not move onto the comment that just landed, tempting as that is:
+	// that card is the placeholder, keyed by an id minted here, and the moment
+	// GitHub confirms it the id becomes a real one and the highlight would
+	// vanish on its own a few hundred milliseconds later.
+	m.convRing.clear()
+	m.conv.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostCommentMsg{ID: id, Body: body} }
 }

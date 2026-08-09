@@ -459,3 +459,21 @@ func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
 		t.Errorf("c left the accent on %q, want it on the box", got)
 	}
 }
+
+// Posting finishes the action, so nothing is left selected. An accent on an
+// empty box says the keyboard is somewhere it is not.
+func TestPostingLetsGoOfTheBox(t *testing.T) {
+	m := typed(composing(200, 60), "ship it")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardCompose) {
+		t.Fatalf("the box is not focused before posting, it is %q", got)
+	}
+
+	m, _ = chord(m)
+
+	if got := focusedCard(t, m.View()); got != "" {
+		t.Errorf("posting left %q focused, want nothing", got)
+	}
+	if !strings.Contains(stripANSI(m.View()), "enter to write") {
+		t.Error("the box does not say the keyboard went back to the screen")
+	}
+}
