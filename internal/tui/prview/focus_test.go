@@ -57,11 +57,10 @@ func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
 		}
 	}
 
-	// The fifth is the resolved thread, which is one line with no border to
-	// take the accent, so the text carries it instead.
-	fifth := tabbed(m, 5).View()
-	if !strings.Contains(fifth, fgSeq(theme.RosePineMoon.Secondary)+"m✓ internal/store/store.go:88") {
-		t.Error("the resolved thread is not marked when focus reaches it")
+	// The fifth is the resolved thread. It is a card like the rest, closed
+	// rather than absent, so it takes the accent on its border the same way.
+	if got := focusedCard(t, tabbed(m, 5).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
+		t.Errorf("the fifth tab focused %q, want the resolved thread", got)
 	}
 
 	// The sixth and seventh are the threads no review owns, which render at the
@@ -136,13 +135,31 @@ func TestTabScrollsACardToTheTopOfTheWindow(t *testing.T) {
 // A card already on screen whole leaves the page alone. The highlight says
 // where focus is, and scrolling under a reader who can see it is worse.
 func TestTabDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
+	// Tall enough that the first two cards are both on screen whole, which is
+	// the precondition the rule is about.
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	before := stripANSI(m.View())
-	after := stripANSI(press(m, "tab", "tab").View())
+	// The line a fixed block sits on, rather than the whole frame: focus paints
+	// a border and writes a hint into it, so the frames differ without the page
+	// having moved at all.
+	before := lineOf(t, m.View(), cardDescription)
+	after := lineOf(t, press(m, "tab", "tab").View(), cardDescription)
 	if before != after {
-		t.Error("the page moved to focus a card that was already on screen whole")
+		t.Errorf("the description moved from line %d to %d to focus a card already on screen whole", before, after)
 	}
+}
+
+// lineOf is the frame line a string landed on.
+func lineOf(t *testing.T, frame, want string) int {
+	t.Helper()
+
+	for i, line := range strings.Split(stripANSI(frame), "\n") {
+		if strings.Contains(line, want) {
+			return i
+		}
+	}
+	t.Fatalf("%q is not on the frame", want)
+	return -1
 }
 
 // A card taller than the window pins to its top. Bottom-aligning it opens on

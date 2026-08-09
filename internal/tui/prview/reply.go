@@ -37,9 +37,16 @@ type replier struct {
 	drafts map[string]string
 }
 
+// replyRows is the writing the box shows at once. Half the compose card's,
+// because a reply is an answer rather than an opening argument, and the box sits
+// inside a card that is already carrying the discussion above it. $EDITOR is
+// there for the ones that need more.
+const replyRows = 4
+
 func newReplier(th theme.Theme) replier {
 	c := newComposer(th)
 	c.area.Placeholder = "Leave a reply"
+	c.area.SetHeight(replyRows)
 	return replier{composer: c}
 }
 
@@ -132,12 +139,18 @@ func (m *Model) replyBox(t gh.ReviewThread, width int) string {
 		return ""
 	}
 
-	inner := m.cardWidth(width)
+	inner := m.cardWidth(width) - gutterWidth
 	m.reply.setWidth(inner)
 
+	// A rule above it, because the box is the one block in the card that is not
+	// something somebody said, and without a line it reads as another comment
+	// with an empty body.
+	rule := m.faint().Render(strings.Repeat("─", max(1, inner)))
 	head := m.said(m.who, "write a reply", m.theme.Faint, gh.TimelineItem{})
-	return wrap(head, inner) + "\n\n" +
-		m.reply.area.View() + "\n" +
+
+	return rule + "\n\n" +
+		wrap(head, inner) + "\n\n" +
+		m.reply.area.View() + "\n\n" +
 		m.reply.button(m.theme, inner, m.lit(m.replyFocus()))
 }
 
@@ -185,16 +198,28 @@ func (m Model) stepWithin(delta int) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// focusedThread is the thread the ring is on, unresolved and on the screen. A
-// resolved one renders as a single line with no comments under it, so there is
-// nothing inside it to step through.
+// threadOpen is whether a thread is showing its comments. Everything unresolved
+// is; a resolved one is closed until o opens it, and while it is closed there is
+// nothing inside it to step through, quote, or hang a box off.
+func (m Model) threadOpen(t gh.ReviewThread) bool {
+	return !t.IsResolved || m.expanded[threadKey(t)]
+}
+
+// focusedThread is the open thread the ring is on, on the screen.
 func (m Model) focusedThread() (gh.ReviewThread, bool) {
+	t, ok := m.threadOnRing()
+	return t, ok && m.threadOpen(t)
+}
+
+// threadOnRing is the thread the ring is on whether it is open or not, which is
+// what o needs: closed is the state it exists to change.
+func (m Model) threadOnRing() (gh.ReviewThread, bool) {
 	on := m.convRing.on
 	if !m.answerable() || on.kind != focusThread {
 		return gh.ReviewThread{}, false
 	}
 	for _, t := range m.detail.Detail.Threads {
-		if t.ID == on.id && !t.IsResolved {
+		if t.ID == on.id {
 			return t, true
 		}
 	}
@@ -264,12 +289,11 @@ func (m Model) startReply(quote bool) (Model, tea.Cmd) {
 		return m.openReply(t, c, quote)
 	}
 
-	// No thread under it, so the answer is a comment on the pull request and the
-	// box for that is the one at the foot of the page.
-	if body, ok := m.replyBody(); ok {
-		if !quote {
-			body = ""
-		}
+	// No thread under it, so there is nothing to reply to and r says so by doing
+	// nothing. A quote is a different matter: it carries the words it answers, so
+	// it stands on its own as a comment on the pull request, which is what the
+	// browser's quote reply produces too.
+	if body, ok := m.replyBody(); ok && quote {
 		return m.openCompose(body)
 	}
 	return m, nil

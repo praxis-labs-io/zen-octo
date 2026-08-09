@@ -827,14 +827,22 @@ func (m *Model) toggleExpanded() {
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
 }
 
-// foldTarget is what o unfolds. A thread card holds several comments and the
-// fold is per comment, on both tabs that draw one, so the sub-cursor picks which
-// rather than the whole card folding at once.
+// foldTarget is what o unfolds.
+//
+// A resolved thread answers with the whole card: closed is its resting state and
+// opening it is the only thing o could usefully mean there. Anywhere else a
+// thread card holds several comments and the fold is per comment, on both tabs
+// that draw one, so the sub-cursor picks which.
 func (m Model) foldTarget() focusKey {
-	if t, ok := m.focusedThread(); ok {
-		if within := m.within(t); within != "" {
-			return focusKey{kind: focusThreadComment, id: within}
-		}
+	t, ok := m.threadOnRing()
+	if !ok {
+		return m.convRing.on
+	}
+	if t.IsResolved {
+		return threadKey(t)
+	}
+	if within := m.within(t); within != "" {
+		return focusKey{kind: focusThreadComment, id: within}
 	}
 	return m.convRing.on
 }

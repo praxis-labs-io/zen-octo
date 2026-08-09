@@ -271,6 +271,191 @@ func TestOpeningTheBoxKeepsTheThreadInView(t *testing.T) {
 	}
 }
 
+// GitHub has no reply for a loose comment, so r says so by doing nothing rather
+// than opening the box c already opens.
+func TestReplyIsInertOnSomethingWithNoThread(t *testing.T) {
+	for _, at := range []struct {
+		name string
+		tabs int
+	}{
+		{"the description", 1},
+		{"a top-level comment", 2},
+		{"a review's own words", 3},
+	} {
+		t.Run(at.name, func(t *testing.T) {
+			m := onThread(t, at.tabs)
+			if after := press(m, "r").View(); after != m.View() {
+				t.Errorf("r opened something on %s:\n%s", at.name, stripANSI(after))
+			}
+		})
+	}
+}
+
+// The bar says which comment the keys have. Once a box is open the keys are all
+// going into it, so a bar left on a comment claims they act somewhere they do
+// not, and two bars on one card read as two selections.
+func TestOpeningTheBoxTakesTheBarOffTheComment(t *testing.T) {
+	before := barred(onThread(t, tabThread).View())
+	if len(before) == 0 {
+		t.Fatal("no bar on the focused thread to begin with")
+	}
+
+	after := barred(replying(t, tabThread, "r").View())
+	for _, line := range after {
+		if strings.HasPrefix(line, "octobot · said") || strings.HasPrefix(line, "nkr · said") {
+			t.Errorf("a comment still carries the bar with the box open: %q", after)
+			break
+		}
+	}
+	if len(after) == 0 {
+		t.Error("the box itself lost the bar too, so nothing says where the keys are")
+	}
+}
+
+// The Files tab has no ring, so no bar can ever draw there and the two columns
+// it would need are nothing but a wider indent.
+func TestTheFilesTabReservesNoRoomForABarItCannotDraw(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 60)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	frame := press(m, "]", "]", "]").View()
+	line := strings.Split(stripANSI(frame), "\n")[lineOf(t, frame, "This backs off forever.")]
+
+	// The comment sits one gutter in from its own card's border, the way it does
+	// in the conversation when nothing is focused. Three would mean the bar's two
+	// columns are still being held for a bar that cannot draw here.
+	//
+	// Counted in runes. A box-drawing character is three bytes, so byte offsets
+	// report a gutter three times the width the reader sees.
+	runes := []rune(line)
+	text := sliceIndex(runes, []rune("This backs off forever."))
+	card := lastRune(runes[:text], '│')
+	if gap := text - card - 1; gap != cardGutterCols {
+		t.Errorf("the comment sits %d columns in from its border, want %d: %q", gap, cardGutterCols, line)
+	}
+}
+
+// cardGutterCols is the space a card puts between its border and its content.
+const cardGutterCols = 1
+
+func sliceIndex(hay, needle []rune) int {
+	for i := 0; i+len(needle) <= len(hay); i++ {
+		if string(hay[i:i+len(needle)]) == string(needle) {
+			return i
+		}
+	}
+	return -1
+}
+
+func lastRune(hay []rune, want rune) int {
+	for i := len(hay) - 1; i >= 0; i-- {
+		if hay[i] == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// Resolved threads are closed, not absent. GitHub hides them for the same
+// reason, and a bare line was the one block on the page with no border to take
+// the accent.
+func TestAResolvedThreadIsACardThatOpens(t *testing.T) {
+	// The fifth tab is the resolved thread.
+	closed := onThread(t, 5)
+
+	if got := focusedCard(t, closed.View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
+		t.Fatalf("the fifth tab focused %q, want the resolved thread's card", got)
+	}
+	out := stripANSI(closed.View())
+	if !strings.Contains(out, "▸ 2 comments") {
+		t.Errorf("the closed card does not say what is behind it:\n%s", out)
+	}
+	if strings.Contains(out, "Typo.") {
+		t.Error("the resolved thread is showing its comments while closed")
+	}
+
+	open := press(closed, "o")
+	if out := stripANSI(open.View()); !strings.Contains(out, "Typo.") {
+		t.Errorf("o did not open the resolved thread:\n%s", out)
+	}
+
+	// And once open it answers like any other thread.
+	if out := stripANSI(press(open, "r").View()); !strings.Contains(out, "write a reply") {
+		t.Errorf("r did not open a box on an opened resolved thread:\n%s", out)
+	}
+
+	if out := stripANSI(press(open, "o").View()); strings.Contains(out, "Typo.") {
+		t.Error("o did not close it again")
+	}
+}
+
+// A folded block was the other bare line on a page made of cards.
+func TestAFoldedBlockIsABox(t *testing.T) {
+	d := sampleDetail()
+	d.Body = "The problem.\n\n<details>\n<summary>What it does</summary>\n\nIt retries forever.\n\n</details>\n"
+
+	frame := detailed(held(d), 200, 60).View()
+	out := stripANSI(frame)
+
+	lines := strings.Split(out, "\n")
+	at := lineOf(t, frame, "▸ What it does")
+
+	// A border above it and another below, nested inside the card holding the
+	// body it came out of.
+	if !strings.Contains(lines[at-1], "╭") {
+		t.Errorf("the folded block has no lid:\n%s", out)
+	}
+	if !strings.Contains(lines[at+1], "╰") {
+		t.Errorf("the folded block has no floor:\n%s", out)
+	}
+}
+
+// The keys a card answers to ride in its bottom border, and only the ones that
+// do anything to it. A key named on a card it is inert on is the lie the line
+// exists to prevent.
+func TestAFocusedCardNamesItsKeysInTheBorder(t *testing.T) {
+	if out := stripANSI(onThread(t, tabThread).View()); !strings.Contains(out, "J/K in thread · r reply · R quote") {
+		t.Errorf("the thread card names none of its keys:\n%s", out)
+	}
+
+	// One comment, so there is nothing to step between.
+	single := stripANSI(onThread(t, tabOther).View())
+	if strings.Contains(single, "J/K in thread") {
+		t.Error("a one-comment thread offers a key that would do nothing")
+	}
+	if !strings.Contains(single, "r reply · R quote") {
+		t.Errorf("a one-comment thread does not name reply:\n%s", single)
+	}
+
+	// No reply permitted, so neither key is named.
+	if locked := stripANSI(onThread(t, tabLocked).View()); strings.Contains(locked, "r reply") {
+		t.Error("a thread that takes no reply still offers r")
+	}
+
+	// A closed thread offers the one key that changes that.
+	if closed := stripANSI(onThread(t, 5).View()); !strings.Contains(closed, "o open") {
+		t.Errorf("the closed thread does not name the key that opens it:\n%s", closed)
+	}
+
+	// A block with no thread gets the quote and not the reply.
+	comment := stripANSI(onThread(t, 2).View())
+	if !strings.Contains(comment, "R quote") || strings.Contains(comment, "r reply") {
+		t.Errorf("a loose comment names the wrong keys:\n%s", comment)
+	}
+}
+
+// Hints are for the card the keys are going to. On every card at once they are
+// wallpaper.
+func TestAnUnfocusedCardNamesNothing(t *testing.T) {
+	resting := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
+
+	for _, hint := range []string{"R quote", "r reply", "J/K in thread", "o open"} {
+		if strings.Contains(resting, hint) {
+			t.Errorf("%q is on a page with nothing focused", hint)
+		}
+	}
+}
+
 // Plain r leaves the buffer alone. A reader who wanted the quote has a key for
 // it, and one who did not would have to clear five lines before writing.
 func TestReplyDoesNotQuote(t *testing.T) {

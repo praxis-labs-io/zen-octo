@@ -519,8 +519,11 @@ func TestTheConversationCarriesTheDescriptionAndEverythingSaidSince(t *testing.T
 func TestAResolvedThreadCollapsesAndAnOpenOneDoesNot(t *testing.T) {
 	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
-	if !strings.Contains(out, "internal/store/store.go:88 · resolved · 2 comments") {
-		t.Error("the resolved thread is not collapsed to its anchor")
+	if !strings.Contains(out, "✓ internal/store/store.go:88 · resolved") {
+		t.Error("the resolved thread does not name itself as resolved")
+	}
+	if !strings.Contains(out, "▸ 2 comments") {
+		t.Error("the resolved thread does not say what is behind it")
 	}
 	for _, body := range []string{"Typo.", "Fixed."} {
 		if strings.Contains(out, body) {
@@ -964,8 +967,9 @@ func TestThreadsHangOffTheReviewThatOpenedThem(t *testing.T) {
 	if !strings.Contains(out, "│ ╭") {
 		t.Error("the rail does not run past the card's top border")
 	}
-	// A resolved thread is one line, so its elbow has nowhere else to go.
-	if !strings.Contains(out, "╰─✓ internal/store/store.go:88") {
+	// The last thread closes the run, and its elbow meets its heading row the
+	// same way an unresolved one's does.
+	if !strings.Contains(out, "╰─│ ✓ internal/store/store.go:88") {
 		t.Error("the last thread does not close the run")
 	}
 }

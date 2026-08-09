@@ -11,6 +11,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/keys"
 )
 
 // treeGutter is the rail hanging a review's threads off the review that opened
@@ -122,7 +123,7 @@ func (m *Model) entries() string {
 			if written.Pending {
 				head = m.posting(item.Actor, "commented")
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key)), key)
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint()), key)
 
 		case gh.TimelineReview:
 			// A review renders as its own card with every thread it opened hung
@@ -308,7 +309,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key))
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint())
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -377,11 +378,54 @@ func (m Model) branch(block string, last bool) string {
 //
 // A focused card takes its border in the accent, the same signal the panes
 // around it already use for where the keys go.
-func (m Model) card(head, content string, width int, lit bool) string {
+// hints ride in the bottom border, right-aligned, where the scroll counter
+// rides on a pane. They name what this card answers to and nothing else: a key
+// listed on a card it does nothing to is worse than one nobody found.
+func (m Model) card(head, content string, width int, lit bool, hints string) string {
 	pane := comp.NewPane(m.theme).Header(" " + head).Focus(lit)
+	if lit {
+		pane = pane.Footer(hints)
+	}
+
 	body := indent(content, cardGutter)
 	lines := strings.Count(body, "\n") + 1
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
+}
+
+// threadHints is the keys live on a thread card, in the order a reader reaches
+// for them.
+func (m Model) threadHints(t gh.ReviewThread) string {
+	k := keys.Detail
+
+	if !m.threadOpen(t) {
+		return hintLine(k.Expand.Help().Key + " open")
+	}
+
+	var parts []string
+	if len(t.Comments) > 1 {
+		parts = append(parts, k.NextWithin.Help().Key+"/"+k.PrevWithin.Help().Key+" in thread")
+	}
+	if t.CanReply {
+		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
+	}
+	if t.IsResolved {
+		parts = append(parts, k.Expand.Help().Key+" close")
+	}
+	return hintLine(parts...)
+}
+
+// quoteHint is what a block with no thread under it answers to. r is not on it:
+// GitHub has no reply for a loose comment, and a key named on a card it does
+// nothing to is the lie this line exists to avoid.
+func (m Model) quoteHint() string {
+	return hintLine(keys.Detail.QuoteReply.Help().Key + " quote")
+}
+
+func hintLine(parts ...string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ") + " "
 }
 
 // lit is whether a block holds the conversation's focus. A card is only lit on
@@ -410,7 +454,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 	for _, seg := range comp.SplitDetails(text) {
 		rendered := m.md.Render(seg.Text, width)
 		if seg.Summary != "" {
-			rendered = wrap(m.faint().Render("▸ "+seg.Summary+" · "+comp.Plural(seg.Lines, "line")), width)
+			rendered = m.folded(seg.Summary+" · "+comp.Plural(seg.Lines, "line"), width)
 		}
 		// A segment that renders to nothing still costs the blank line the join
 		// puts after it. Bot comments open with a hidden marker often enough
@@ -423,10 +467,24 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 	return strings.Join(out, "\n\n")
 }
 
+// folded is a <details> block nobody has opened, drawn as a closed box rather
+// than a line of text. The line reads as prose that happens to start with an
+// arrow; a box reads as something with a lid on it, which is what it is.
+//
+// The summary is content rather than a title in the border. A border clips, and
+// a bot review puts a whole sentence in a summary: the tail would go over the
+// edge with nothing to say it had.
+func (m Model) folded(summary string, width int) string {
+	pane := comp.NewPane(m.theme)
+	body := indent(wrap(m.faint().Render("▸ "+summary), m.cardWidth(width)), cardGutter)
+	lines := strings.Count(body, "\n") + 1
+	return pane.Size(width, lines+pane.Chrome()).Render(body)
+}
+
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key))
+	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint())
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -562,30 +620,36 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 		anchor += ":" + strconv.Itoa(t.Line)
 	}
 
-	if t.IsResolved {
-		key := threadKey(t)
-
-		// One line has no border to take the accent, so the text carries it.
-		style := m.faint()
-		if m.lit(key) {
-			style = lipgloss.NewStyle().Foreground(m.theme.Secondary)
-		}
-		block := wrap(style.Render("✓ "+anchor+" · resolved · "+
-			comp.Plural(len(t.Comments), "comment")), width)
-		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
-	}
+	key := threadKey(t)
+	lit := m.lit(key) || (reply != "" && m.lit(m.replyFocus()))
 
 	head := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(anchor)
+	if t.IsResolved {
+		head = m.faint().Render("✓ ") + head + m.faint().Render(" · resolved")
+	}
 	if t.IsOutdated {
 		head += m.faint().Render(" · outdated")
 	}
 
-	key := threadKey(t)
-	lit := m.lit(key) || (reply != "" && m.lit(m.replyFocus()))
+	// A resolved thread is closed until somebody asks for it. GitHub hides them
+	// for the same reason: on a heavily reviewed pull request the settled nits
+	// bury the live ones. It keeps its card, though, so it takes the accent the
+	// way every other block does and o has something to open.
+	if !m.threadOpen(t) {
+		body := wrap(m.faint().Render("▸ "+comp.Plural(len(t.Comments), "comment")), m.cardWidth(width))
+		block := m.card(head, body, width, lit, m.threadHints(t))
+		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
+	}
 
 	// Every comment gives up two columns whether it is marked or not, so the
-	// mark can appear and disappear without reflowing the text beside it.
-	inner := m.cardWidth(width) - gutterWidth
+	// mark can appear and disappear without reflowing the text beside it. The
+	// Files tab has no ring, so no bar can ever draw there and the columns would
+	// be nothing but a wider indent.
+	inner := m.cardWidth(width)
+	bars := m.railTab()
+	if bars {
+		inner -= gutterWidth
+	}
 
 	// at is the content line the next block will start on. The join puts one
 	// blank line between blocks, so a block costs its own lines plus that.
@@ -598,33 +662,44 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 		return start
 	}
 
+	gutter := func(block string, marked bool) string {
+		if !bars {
+			return block
+		}
+		return m.gutter(block, marked)
+	}
+
 	if hunk {
 		if code := m.threadHunk(t, inner); code != "" {
-			push(m.gutter(code, false))
+			push(gutter(code, false))
 		}
 	}
 
 	// The sub-cursor is what a quote reply takes and what the bar points at. It
-	// is only drawn on a thread holding the focus and holding more than one
-	// comment: on a single-comment thread the card's own border already says
-	// which words the keys have, and a second mark for the same fact is noise.
+	// is drawn on a thread holding the focus and holding more than one comment:
+	// on a single-comment thread the card's own border already says which words
+	// the keys have, and a second mark for the same fact is noise.
+	//
+	// An open box takes it too. The keys are all going into the box by then, so a
+	// bar left on a comment claims they act there, and two bars on one card read
+	// as two selections.
 	within := ""
-	if lit && len(t.Comments) > 1 {
+	if lit && reply == "" && len(t.Comments) > 1 {
 		within = m.within(t)
 	}
 
 	for _, c := range t.Comments {
 		ck := threadCommentKey(c)
 		block := wrap(m.byline(c), inner) + "\n\n" + m.body(c.Body, inner, "No comment.", ck)
-		push(m.gutter(block, c.ID == within))
+		push(gutter(block, c.ID == within))
 	}
 
 	stops := []focusItem{{focusKey: key}}
 	if reply != "" {
-		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(m.gutter(reply, true))})
+		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(gutter(reply, true))})
 	}
 
-	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit)
+	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(t))
 	for i := range stops {
 		stops[i].start += cardHeadLines
 	}

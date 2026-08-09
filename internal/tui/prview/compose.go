@@ -149,7 +149,7 @@ func (m *Model) composeCard(width int) rendered {
 	m.compose.setWidth(inner)
 
 	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
-	block := m.card(head, body, width, m.lit(key))
+	block := m.card(head, body, width, m.lit(key), "")
 	return rendered{block: block, stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}}}
 }
 
