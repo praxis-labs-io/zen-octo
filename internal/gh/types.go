@@ -409,6 +409,18 @@ type CommentResult struct {
 	Comment Comment
 }
 
+// ThreadResult is one review thread's resolution, as GitHub recorded it. The
+// permissions come back with the state because resolving flips them: the same
+// key unresolves next, and only GitHub knows whether this viewer may.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type ThreadResult struct {
+	ID           string
+	IsResolved   bool
+	CanResolve   bool
+	CanUnresolve bool
+}
+
 // SearchResult is one search response: what it matched and what it cost.
 type SearchResult struct {
 	PullRequests []PullRequest

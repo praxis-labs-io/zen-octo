@@ -418,7 +418,7 @@ func sampleDetail() gh.PullRequestDetail {
 			// Two comments and a reply GitHub will take, so the ring has more
 			// than one stop inside a card and the reply keys have a target.
 			{ID: "RT_1", ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
-				CanReply: true,
+				CanReply: true, CanResolve: true,
 				Hunk: &gh.Hunk{
 					Header: "@@ -40,3 +40,4 @@",
 					Lines: []gh.DiffLine{
@@ -434,7 +434,7 @@ func sampleDetail() gh.PullRequestDetail {
 						CreatedAt: ago(90 * time.Minute), Body: "Seconded, the cap is the fix."},
 				}},
 			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
-				IsResolved: true, CanReply: true,
+				IsResolved: true, CanReply: true, CanUnresolve: true,
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_2", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(2 * time.Hour), Body: "Typo."},
@@ -451,7 +451,7 @@ func sampleDetail() gh.PullRequestDetail {
 			// A second answerable thread, so a draft has somewhere else to not
 			// turn up.
 			{ID: "RT_5", Path: "internal/tui/keys/keys.go", Line: 7, Side: gh.SideRight,
-				CanReply: true,
+				CanReply: true, CanResolve: true,
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_6", Author: gh.Actor{Login: "octobot"},
 						CreatedAt: ago(time.Hour), Body: "Is r free after the move?"},

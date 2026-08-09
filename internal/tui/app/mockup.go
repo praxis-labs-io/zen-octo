@@ -47,6 +47,17 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 	}, nil
 }
 
+// SetThreadResolved hands the toggle straight back, with the permissions the
+// real one flips: a thread just resolved can only be unresolved.
+func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
+	return gh.ThreadResult{
+		ID:           threadID,
+		IsResolved:   resolved,
+		CanResolve:   !resolved,
+		CanUnresolve: resolved,
+	}, nil
+}
+
 // AddReply is AddComment for a review thread. The id counts up so two replies
 // to one thread do not come back sharing a node id, which is the one thing the
 // focus ring cannot survive.

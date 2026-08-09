@@ -395,7 +395,7 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread) string {
 	k := keys.Detail
 
 	if !m.threadOpen(t) {
-		return hintLine(k.Expand.Help().Key + " open")
+		return hintLine(append([]string{k.Expand.Help().Key + " open"}, m.threadActs(t)...)...)
 	}
 
 	var parts []string
@@ -405,10 +405,30 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread) string {
 	if t.CanReply {
 		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
 	}
+	parts = append(parts, m.threadActs(t)...)
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
 	}
 	return hintLine(parts...)
+}
+
+// threadActs is what a thread answers to whether it is open or closed: the
+// resolve toggle, in the direction this viewer may press it, and the jump into
+// the diff when there is somewhere for it to land.
+func (m Model) threadActs(t gh.ReviewThread) []string {
+	k := keys.Detail
+
+	var parts []string
+	switch {
+	case t.IsResolved && t.CanUnresolve:
+		parts = append(parts, k.Resolve.Help().Key+" unresolve")
+	case !t.IsResolved && t.CanResolve:
+		parts = append(parts, k.Resolve.Help().Key+" resolve")
+	}
+	if m.jumpable(t) {
+		parts = append(parts, k.Jump.Help().Key+" in diff")
+	}
+	return parts
 }
 
 // quoteHint is what a block with no thread under it answers to. r is not on it:

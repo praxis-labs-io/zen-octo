@@ -87,6 +87,17 @@ type Pending struct {
 	ThreadID string
 }
 
+// Resolution is a review thread closed or opened here and not yet answered for.
+//
+// It is held beside the fetched detail for the reason Pending is, and it folds
+// differently: there is nothing to add to the page, only a field to overwrite on
+// a thread already on it. Resolved is the state the write is asking for.
+type Resolution struct {
+	Key      string
+	ThreadID string
+	Resolved bool
+}
+
 // Store holds every configured section, every detail opened this session, and
 // the point budget across all of them.
 type Store struct {
@@ -100,8 +111,13 @@ type Store struct {
 	// pending is the writes in flight, by pull request. The counter names them:
 	// a sequence rather than a clock, so the same run of keystrokes produces the
 	// same keys every time.
-	pending map[string][]Pending
-	writes  int
+	//
+	// resolving is the same for the toggle on a review thread, sharing the
+	// counter so a comment and a resolve out at once can never take one key
+	// between them.
+	pending   map[string][]Pending
+	resolving map[string][]Resolution
+	writes    int
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -190,7 +206,8 @@ func (s *Store) Failed(i int, err error) {
 
 // Detail is what is held for a pull request, with whatever is still in flight
 // folded into it: a comment onto the timeline, a reply into the thread it
-// answers. The zero value is one never opened, which reads as idle and unloaded.
+// answers, a resolve over the thread it settles. The zero value is one never
+// opened, which reads as idle and unloaded.
 //
 // The fold happens here rather than at write time so a refetch cannot drop a
 // pending comment. Callers ask for a detail at settle points, not per frame.
@@ -200,8 +217,8 @@ func (s *Store) Failed(i int, err error) {
 // every thread's comments to append to a timeline.
 func (s Store) Detail(id string) Detail {
 	held := s.details[id]
-	waiting := s.pending[id]
-	if len(waiting) == 0 {
+	waiting, settling := s.pending[id], s.resolving[id]
+	if len(waiting) == 0 && len(settling) == 0 {
 		return held
 	}
 
@@ -242,6 +259,27 @@ func (s Store) Detail(id string) Detail {
 		threads[at].Comments = append(slices.Clone(threads[at].Comments), p.Comment)
 	}
 
+	for _, r := range settling {
+		at := threadAt(threads, r.ThreadID)
+		if at < 0 {
+			continue
+		}
+
+		if !freshThreads {
+			threads, freshThreads = slices.Clone(threads), true
+		}
+
+		// The outer clone is the whole of it: a resolve writes a field on the
+		// thread and touches no comment, so the second level a reply needs is
+		// not needed here.
+		//
+		// The state alone, never the permissions. A viewer allowed to resolve
+		// and not to reopen has an inert key on the thread they just closed,
+		// and flipping CanUnresolve locally would offer them a write GitHub
+		// rejects.
+		threads[at].IsResolved = r.Resolved
+	}
+
 	held.Detail.Timeline = timeline
 	held.Detail.Threads = threads
 	return held
@@ -274,6 +312,74 @@ func (s *Store) hold(id, threadID string, c gh.Comment) string {
 	}
 	s.pending[id] = append(s.pending[id], Pending{Key: key, Comment: c, ThreadID: threadID})
 	return key
+}
+
+// PendingResolve holds a thread closed or opened but not yet acknowledged, and
+// returns the key the response reconciles against. Two in flight on one thread
+// fold in order and settle against their own keys, so the last press wins the
+// way the reader expects.
+func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
+	s.writes++
+	key := "pending-" + strconv.Itoa(s.writes)
+
+	if s.resolving == nil {
+		s.resolving = make(map[string][]Resolution)
+	}
+	s.resolving[id] = append(s.resolving[id], Resolution{Key: key, ThreadID: threadID, Resolved: resolved})
+	return key
+}
+
+// ResolveApplied takes GitHub's answer for a thread, permissions and all:
+// resolving flips which of the two the next press needs, and only GitHub knows
+// whether this viewer may.
+func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
+	r, dropped := s.dropResolve(id, key)
+	if !dropped {
+		return
+	}
+
+	held, ok := s.details[id]
+	if !ok {
+		return
+	}
+
+	at := threadAt(held.Detail.Threads, r.ThreadID)
+
+	// A refetch dropped the thread while the write was out. That refetch is the
+	// truer picture, and writing the thread back would be this package
+	// inventing state GitHub did not send.
+	if at < 0 {
+		return
+	}
+
+	// Cloned before the write, because the held slice is inside conversations
+	// already rendered from a detail handed out earlier.
+	threads := slices.Clone(held.Detail.Threads)
+	threads[at].IsResolved = res.IsResolved
+	threads[at].CanResolve = res.CanResolve
+	threads[at].CanUnresolve = res.CanUnresolve
+	held.Detail.Threads = threads
+	s.put(id, held)
+}
+
+// ResolveReverted puts the thread back the way it was fetched. The caller owns
+// saying why.
+func (s *Store) ResolveReverted(id, key string) { s.dropResolve(id, key) }
+
+// dropResolve is dropPending, one map over.
+func (s *Store) dropResolve(id, key string) (Resolution, bool) {
+	settling := s.resolving[id]
+	at := slices.IndexFunc(settling, func(r Resolution) bool { return r.Key == key })
+	if at < 0 {
+		return Resolution{}, false
+	}
+
+	r := settling[at]
+	s.resolving[id] = slices.Delete(settling, at, at+1)
+	if len(s.resolving[id]) == 0 {
+		delete(s.resolving, id)
+	}
+	return r, true
 }
 
 // threadAt is where a thread sits in a detail, or -1.
