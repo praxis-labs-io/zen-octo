@@ -395,12 +395,16 @@ func (m *Model) threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.Di
 	return out
 }
 
-// diffThread renders one thread inline in the diff, under the same key the
+// diffThread renders one thread inline in the diff, under the same keys the
 // conversation gives it, so a <details> block unfolded on one tab is unfolded
 // on the other. Focus is not shared: a card is only lit on the tab with a ring.
+//
+// The stops go nowhere for the same reason, and no reply box comes with it: the
+// box is a card the conversation puts under a thread, and there is no ring here
+// to open one from.
 func (m *Model) diffThread(i, width int) string {
 	t := m.detail.Detail.Threads[i]
-	return indent(m.thread(t, width-threadIndent, false, threadKey(t)), threadIndent)
+	return indent(m.thread(t, width-threadIndent, false).block, threadIndent)
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {

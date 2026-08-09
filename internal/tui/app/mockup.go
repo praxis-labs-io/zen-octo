@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"hash/fnv"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -44,6 +46,32 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 		},
 	}, nil
 }
+
+// AddReply is AddComment for a review thread. The id counts up so two replies
+// to one thread do not come back sharing a node id, which is the one thing the
+// focus ring cannot survive.
+func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error) {
+	n := mockReplies.Add(1)
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind:            gh.CommentThread,
+			ID:              "PRRC_MOCK_" + strconv.FormatInt(n, 10),
+			Author:          gh.Actor{Login: mockViewer},
+			CreatedAt:       time.Now(),
+			Body:            body,
+			ViewerDidAuthor: true,
+			CanEdit:         true,
+			CanDelete:       true,
+			CanReact:        true,
+		},
+	}, nil
+}
+
+// mockReplies numbers the replies this mockup has taken. Atomic because a write
+// leaves on a command goroutine: two replies in flight would otherwise race here
+// and could hand back one id twice, which is the one thing the focus ring cannot
+// survive.
+var mockReplies atomic.Int64
 
 // SearchPullRequests answers from the fixtures, keyed by the query so the tabs
 // carry counts that differ.

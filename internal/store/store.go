@@ -80,6 +80,11 @@ type Files struct {
 type Pending struct {
 	Key     string
 	Comment gh.Comment
+
+	// ThreadID is the review thread a reply hangs off, empty on a top-level
+	// comment. It is what tells Detail which of the two places to fold this
+	// into, and what tells PendingApplied which one GitHub answered for.
+	ThreadID string
 }
 
 // Store holds every configured section, every detail opened this session, and
@@ -184,11 +189,15 @@ func (s *Store) Failed(i int, err error) {
 }
 
 // Detail is what is held for a pull request, with whatever is still in flight
-// folded into its timeline. The zero value is one never opened, which reads as
-// idle and unloaded.
+// folded into it: a comment onto the timeline, a reply into the thread it
+// answers. The zero value is one never opened, which reads as idle and unloaded.
 //
 // The fold happens here rather than at write time so a refetch cannot drop a
 // pending comment. Callers ask for a detail at settle points, not per frame.
+//
+// The clones are lazy because most calls need none. A detail with nothing in
+// flight returns above, and one with only a comment out must not pay for cloning
+// every thread's comments to append to a timeline.
 func (s Store) Detail(id string) Detail {
 	held := s.details[id]
 	waiting := s.pending[id]
@@ -196,15 +205,45 @@ func (s Store) Detail(id string) Detail {
 		return held
 	}
 
-	// A fresh slice, because the held timeline is shared with the map and
-	// appending to it would leave the pending items behind on the next call.
-	timeline := make([]gh.TimelineItem, len(held.Detail.Timeline), len(held.Detail.Timeline)+len(waiting))
-	copy(timeline, held.Detail.Timeline)
+	timeline, threads := held.Detail.Timeline, held.Detail.Threads
+	var freshTimeline, freshThreads bool
+
 	for _, p := range waiting {
-		timeline = append(timeline, timelineComment(p.Comment))
+		if p.ThreadID == "" {
+			// A fresh slice, because the held timeline is shared with the map
+			// and appending to it would leave the pending items behind on the
+			// next call.
+			if !freshTimeline {
+				out := make([]gh.TimelineItem, len(timeline), len(timeline)+len(waiting))
+				copy(out, timeline)
+				timeline, freshTimeline = out, true
+			}
+			timeline = append(timeline, timelineComment(p.Comment))
+			continue
+		}
+
+		at := threadAt(threads, p.ThreadID)
+
+		// A refetch that landed while the reply was out may no longer carry the
+		// thread: it was resolved and hidden, or it fell off the first page.
+		// There is nowhere to hang the reply and nowhere honest to invent, so it
+		// waits out of sight until the mutation answers.
+		if at < 0 {
+			continue
+		}
+
+		if !freshThreads {
+			threads, freshThreads = slices.Clone(threads), true
+		}
+
+		// Cloning the outer slice is not enough. Each thread's comments are
+		// their own slice, still the held one, and appending to it writes into
+		// the detail this call was supposed to leave alone.
+		threads[at].Comments = append(slices.Clone(threads[at].Comments), p.Comment)
 	}
 
 	held.Detail.Timeline = timeline
+	held.Detail.Threads = threads
 	return held
 }
 
@@ -212,6 +251,19 @@ func (s Store) Detail(id string) Detail {
 // the key the response reconciles against. The comment renders from now on; the
 // caller is expected to post it and answer with one of the two calls below.
 func (s *Store) PendingComment(id string, c gh.Comment) string {
+	return s.hold(id, "", c)
+}
+
+// PendingReply is PendingComment for an answer to a review thread. The kind is
+// set here rather than taken from the caller: a reply is a thread comment
+// whatever the screen thinks it is writing, and the kind picks the mutation that
+// edits it later.
+func (s *Store) PendingReply(id, threadID string, c gh.Comment) string {
+	c.Kind = gh.CommentThread
+	return s.hold(id, threadID, c)
+}
+
+func (s *Store) hold(id, threadID string, c gh.Comment) string {
 	s.writes++
 	key := "pending-" + strconv.Itoa(s.writes)
 
@@ -220,8 +272,13 @@ func (s *Store) PendingComment(id string, c gh.Comment) string {
 	if s.pending == nil {
 		s.pending = make(map[string][]Pending)
 	}
-	s.pending[id] = append(s.pending[id], Pending{Key: key, Comment: c})
+	s.pending[id] = append(s.pending[id], Pending{Key: key, Comment: c, ThreadID: threadID})
 	return key
+}
+
+// threadAt is where a thread sits in a detail, or -1.
+func threadAt(threads []gh.ReviewThread, id string) int {
+	return slices.IndexFunc(threads, func(t gh.ReviewThread) bool { return t.ID == id })
 }
 
 // PendingApplied swaps the placeholder for what GitHub recorded. The real
@@ -231,12 +288,18 @@ func (s *Store) PendingComment(id string, c gh.Comment) string {
 // No budget to fold: a mutation cannot report the rate limit, so the write's
 // cost shows up on the next fetch.
 func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
-	if !s.dropPending(id, key) {
+	p, dropped := s.dropPending(id, key)
+	if !dropped {
 		return
 	}
 
 	held, ok := s.details[id]
 	if !ok {
+		return
+	}
+
+	if p.ThreadID != "" {
+		s.replyApplied(id, held, p.ThreadID, res.Comment)
 		return
 	}
 
@@ -251,6 +314,23 @@ func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	s.put(id, held)
 }
 
+// replyApplied puts a confirmed reply into the thread it answers.
+func (s *Store) replyApplied(id string, held Detail, threadID string, c gh.Comment) {
+	at := threadAt(held.Detail.Threads, threadID)
+
+	// A refetch dropped the thread while the reply was out. That refetch is the
+	// truer picture, and writing the thread back to hold one comment would be
+	// this package inventing state GitHub did not send.
+	if at < 0 || hasThreadComment(held.Detail.Threads[at].Comments, c.ID) {
+		return
+	}
+
+	threads := slices.Clone(held.Detail.Threads)
+	threads[at].Comments = append(slices.Clone(threads[at].Comments), c)
+	held.Detail.Threads = threads
+	s.put(id, held)
+}
+
 // hasComment reports whether a timeline already holds a comment with this id.
 func hasComment(timeline []gh.TimelineItem, id string) bool {
 	if id == "" {
@@ -261,25 +341,40 @@ func hasComment(timeline []gh.TimelineItem, id string) bool {
 	})
 }
 
+// hasThreadComment is the guard above, one level down. A refetch that landed
+// while the reply was out already carries it, and the two copies would share a
+// node id, which is the one thing the focus ring cannot survive.
+func hasThreadComment(comments []gh.Comment, id string) bool {
+	if id == "" {
+		return false
+	}
+	return slices.ContainsFunc(comments, func(c gh.Comment) bool { return c.ID == id })
+}
+
 // PendingReverted takes the placeholder back off the screen. The caller owns
 // saying why: the store has no way to tell a rejected write from a lost one.
 func (s *Store) PendingReverted(id, key string) { s.dropPending(id, key) }
 
-// dropPending removes one write and reports whether it was there. A response
-// for a key already gone is one that already settled, and applying it twice
-// would put the comment in the conversation a second time.
-func (s *Store) dropPending(id, key string) bool {
+// dropPending removes one write and returns it, with whether it was there. A
+// response for a key already gone is one that already settled, and applying it
+// twice would put the comment in the conversation a second time.
+//
+// It gives back the write rather than a bare yes: the answer says nothing about
+// which of the two places the comment belongs in, and only the write it settles
+// knows.
+func (s *Store) dropPending(id, key string) (Pending, bool) {
 	waiting := s.pending[id]
 	at := slices.IndexFunc(waiting, func(p Pending) bool { return p.Key == key })
 	if at < 0 {
-		return false
+		return Pending{}, false
 	}
 
+	p := waiting[at]
 	s.pending[id] = slices.Delete(waiting, at, at+1)
 	if len(s.pending[id]) == 0 {
 		delete(s.pending, id)
 	}
-	return true
+	return p, true
 }
 
 // timelineComment is a comment as the conversation reads one. A top-level

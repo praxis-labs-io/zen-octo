@@ -13,7 +13,14 @@ const (
 	focusDescription
 	focusComment
 	focusReview
+
+	// focusThread is the whole thread, which is what a resolved one collapses to
+	// and all there is to point at. An unresolved thread is walked comment by
+	// comment instead: a reply answers one of them, and a quote needs to know
+	// which.
 	focusThread
+	focusThreadComment
+
 	focusState
 	focusReviewer
 	focusAssignee
@@ -32,13 +39,19 @@ const (
 	// the same way it reaches everything above it. Focus on it is not the same
 	// as typing in it: enter starts that, and esc stops it.
 	focusCompose
+
+	// focusReply is the box r opens inside a thread. Unlike the compose card it
+	// exists only while it is open, and tab never walks onto it: the box has the
+	// keyboard from the moment it appears, and tab means the post button then.
+	// It is in the ring so the page can be scrolled to keep it in sight.
+	focusReply
 )
 
 // prose is whether this kind renders a markdown body, which is the only thing
 // a fold key has to work on.
 func (k focusKind) prose() bool {
 	switch k {
-	case focusDescription, focusComment, focusReview, focusThread:
+	case focusDescription, focusComment, focusReview, focusThread, focusThreadComment:
 		return true
 	}
 	return false
@@ -70,6 +83,13 @@ type focusKey struct {
 // other, so they have to build this the same way.
 func threadKey(t gh.ReviewThread) focusKey {
 	return focusKey{kind: focusThread, id: t.ID}
+}
+
+// threadCommentKey is what one comment inside a thread answers to. Built from
+// the comment's own node id and nothing else, for the same reason as above: both
+// tabs render the same comments and a fold has to carry between them.
+func threadCommentKey(c gh.Comment) focusKey {
+	return focusKey{kind: focusThreadComment, id: c.ID}
 }
 
 // focusItem is a key with where it landed. start and lines are in the body the

@@ -415,7 +415,10 @@ func sampleDetail() gh.PullRequestDetail {
 		},
 
 		Threads: []gh.ReviewThread{
+			// Two comments and a reply GitHub will take, so the ring has more
+			// than one stop inside a card and the reply keys have a target.
 			{ID: "RT_1", ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				CanReply: true,
 				Hunk: &gh.Hunk{
 					Header: "@@ -40,3 +40,4 @@",
 					Lines: []gh.DiffLine{
@@ -427,14 +430,31 @@ func sampleDetail() gh.PullRequestDetail {
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(2 * time.Hour), Body: "This backs off forever."},
+					{Kind: gh.CommentThread, ID: "RC_4", Author: gh.Actor{Login: "octobot"},
+						CreatedAt: ago(90 * time.Minute), Body: "Seconded, the cap is the fix."},
 				}},
 			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
-				IsResolved: true,
+				IsResolved: true, CanReply: true,
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_2", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(2 * time.Hour), Body: "Typo."},
 					{Kind: gh.CommentThread, ID: "RC_3", Author: gh.Actor{Login: "drucial"},
 						CreatedAt: ago(time.Hour), Body: "Fixed."},
+				}},
+			// A thread nobody may answer, so the keys have something to be inert
+			// on. Unowned, so it renders at the end of the page.
+			{ID: "RT_4", Path: "internal/tui/app/app.go", Line: 12, Side: gh.SideRight,
+				Comments: []gh.Comment{
+					{Kind: gh.CommentThread, ID: "RC_5", Author: gh.Actor{Login: "nkr"},
+						CreatedAt: ago(time.Hour), Body: "Locked, so no reply."},
+				}},
+			// A second answerable thread, so a draft has somewhere else to not
+			// turn up.
+			{ID: "RT_5", Path: "internal/tui/keys/keys.go", Line: 7, Side: gh.SideRight,
+				CanReply: true,
+				Comments: []gh.Comment{
+					{Kind: gh.CommentThread, ID: "RC_6", Author: gh.Actor{Login: "octobot"},
+						CreatedAt: ago(time.Hour), Body: "Is r free after the move?"},
 				}},
 		},
 	}
@@ -499,8 +519,11 @@ func TestTheConversationCarriesTheDescriptionAndEverythingSaidSince(t *testing.T
 func TestAResolvedThreadCollapsesAndAnOpenOneDoesNot(t *testing.T) {
 	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
-	if !strings.Contains(out, "internal/store/store.go:88 · resolved · 2 comments") {
-		t.Error("the resolved thread is not collapsed to its anchor")
+	if !strings.Contains(out, "✓ internal/store/store.go:88 · resolved") {
+		t.Error("the resolved thread does not name itself as resolved")
+	}
+	if !strings.Contains(out, "▸ 2 comments") {
+		t.Error("the resolved thread does not say what is behind it")
 	}
 	for _, body := range []string{"Typo.", "Fixed."} {
 		if strings.Contains(out, body) {
@@ -587,14 +610,14 @@ func TestTheConversationEndsOnABlankLine(t *testing.T) {
 func refreshed(t *testing.T, m prview.Model) prview.RefreshMsg {
 	t.Helper()
 
-	_, cmd := key(m, "r")
+	_, cmd := key(m, "s")
 	if cmd == nil {
-		t.Fatal("r asked for nothing")
+		t.Fatal("s asked for nothing")
 	}
 	asked := cmd()
 	msg, ok := asked.(prview.RefreshMsg)
 	if !ok {
-		t.Fatalf("r produced %T, want a RefreshMsg", asked)
+		t.Fatalf("s produced %T, want a RefreshMsg", asked)
 	}
 	return msg
 }
@@ -935,7 +958,7 @@ func TestTheNumberLeadsTheTitleInTheAccent(t *testing.T) {
 // A thread belongs to the review that opened it, and nothing else on the screen
 // says so once the review's own box has closed.
 func TestThreadsHangOffTheReviewThatOpenedThem(t *testing.T) {
-	out := stripANSI(detailed(held(sampleDetail()), 200, 40).View())
+	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
 	// The elbow meets the card's heading row, not its top border.
 	if !strings.Contains(out, "├─│ internal/gh/client.go:42") {
@@ -944,8 +967,9 @@ func TestThreadsHangOffTheReviewThatOpenedThem(t *testing.T) {
 	if !strings.Contains(out, "│ ╭") {
 		t.Error("the rail does not run past the card's top border")
 	}
-	// A resolved thread is one line, so its elbow has nowhere else to go.
-	if !strings.Contains(out, "╰─✓ internal/store/store.go:88") {
+	// The last thread closes the run, and its elbow meets its heading row the
+	// same way an unresolved one's does.
+	if !strings.Contains(out, "╰─│ ✓ internal/store/store.go:88") {
 		t.Error("the last thread does not close the run")
 	}
 }

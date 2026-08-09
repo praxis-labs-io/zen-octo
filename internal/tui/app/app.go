@@ -37,6 +37,7 @@ type GitHub interface {
 	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
+	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -113,6 +114,23 @@ type commentFailedMsg struct {
 	key  string
 	body string
 	err  error
+}
+
+// A reply settles the same way and lands somewhere else, so it answers for
+// itself. The thread comes back on the failure because the words go back into
+// the box that was open on it, and by then that box has closed.
+type replyPostedMsg struct {
+	id  string
+	key string
+	res gh.CommentResult
+}
+
+type replyFailedMsg struct {
+	id     string
+	key    string
+	thread string
+	body   string
+	err    error
 }
 
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
@@ -344,6 +362,63 @@ func (m Model) commentFailed(msg commentFailedMsg) (tea.Model, tea.Cmd) {
 
 	shown := m.detail.SetDetail(m.store.Detail(msg.id))
 	restored := m.detail.RestoreDraft(msg.body)
+	m.resize()
+	return m, tea.Batch(shown, restored, toast)
+}
+
+// postReply answers a review thread, putting the reply in the thread before it
+// is sent. Same shape as postComment and a different place on the page: the
+// store hangs the placeholder off the thread rather than the timeline.
+func (m Model) postReply(msg prview.PostReplyMsg) (tea.Model, tea.Cmd) {
+	key := m.store.PendingReply(msg.ID, msg.ThreadID, gh.Comment{
+		Author:    m.store.Viewer(),
+		CreatedAt: time.Now(),
+		Body:      msg.Body,
+	})
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
+	return m, tea.Batch(shown, m.sendReply(msg, key))
+}
+
+func (m Model) sendReply(msg prview.PostReplyMsg, key string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.AddReply(ctx, msg.ThreadID, msg.Body)
+		if err != nil {
+			return replyFailedMsg{id: msg.ID, key: key, thread: msg.ThreadID, body: msg.Body, err: err}
+		}
+		return replyPostedMsg{id: msg.ID, key: key, res: res}
+	}
+}
+
+// replyLanded swaps the placeholder for what GitHub recorded.
+func (m Model) replyLanded(msg replyPostedMsg) (tea.Model, tea.Cmd) {
+	m.store.PendingApplied(msg.id, msg.key, msg.res)
+
+	toast := m.toasts.Show(comp.ToastSuccess, "Replied")
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+}
+
+// replyFailed is the revert branch. The reply comes off the thread and the words
+// go back to the thread they were written for, which is not the same place a
+// failed comment goes: dropping a reply into the box at the foot of the page
+// would file it against the pull request instead.
+func (m Model) replyFailed(msg replyFailedMsg) (tea.Model, tea.Cmd) {
+	m.store.PendingReverted(msg.id, msg.key)
+
+	toast := m.toasts.Show(comp.ToastError, "Could not post the reply: "+msg.err.Error())
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.id))
+	restored := m.detail.RestoreReply(msg.thread, msg.body)
 	m.resize()
 	return m, tea.Batch(shown, restored, toast)
 }
@@ -805,6 +880,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commentFailedMsg:
 		return m.commentFailed(msg)
+
+	case prview.PostReplyMsg:
+		return m.postReply(msg)
+
+	case replyPostedMsg:
+		return m.replyLanded(msg)
+
+	case replyFailedMsg:
+		return m.replyFailed(msg)
 
 	// The terminal answers once, at startup, and only the compose pane cares:
 	// it decides whether ctrl+enter is a key worth naming in its footer.

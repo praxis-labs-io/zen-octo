@@ -627,3 +627,221 @@ func TestACommentARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
 		t.Errorf("timeline = %q, want the comment once", got)
 	}
 }
+
+// replies is the comment bodies on one thread, in order, which is what the
+// thread's card would render.
+func replies(d store.Detail, threadID string) []string {
+	for _, t := range d.Detail.Threads {
+		if t.ID != threadID {
+			continue
+		}
+		out := make([]string, len(t.Comments))
+		for i, c := range t.Comments {
+			out[i] = c.Body
+		}
+		return out
+	}
+	return nil
+}
+
+// threadWith is a detail carrying one review thread and the comments on it.
+//
+// The comments are appended from nil rather than sized exactly, because that is
+// what the gh package does and the difference is the whole of the aliasing test
+// below: a slice with no spare capacity reallocates on every append, which hides
+// a write that would otherwise land in the held detail.
+func threadWith(id string, bodies ...string) gh.DetailResult {
+	var comments []gh.Comment
+	for _, body := range bodies {
+		comments = append(comments, gh.Comment{Kind: gh.CommentThread, ID: "RC_" + body, Body: body})
+	}
+	return gh.DetailResult{Detail: gh.PullRequestDetail{
+		Threads: []gh.ReviewThread{{ID: id, CanReply: true, Comments: comments}},
+	}}
+}
+
+// A reply hangs off the thread it answers, not off the end of the timeline.
+func TestAPendingReplyRendersUnderItsThread(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 2 || got[1] != "answered" {
+		t.Errorf("thread = %q, want the reply on the end of it", got)
+	}
+	if got := bodies(s.Detail("PR_1")); len(got) != 0 {
+		t.Errorf("timeline = %q, want the reply nowhere near it", got)
+	}
+
+	last := s.Detail("PR_1").Detail.Threads[0].Comments[1]
+	if !last.Pending {
+		t.Error("the pending reply is not marked pending")
+	}
+	if last.Kind != gh.CommentThread {
+		t.Errorf("Kind = %q, want a thread comment whatever the caller passed", last.Kind)
+	}
+}
+
+func TestARefetchDoesNotDropAReplyStillInFlight(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked", "somebody else"))
+
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 3 || got[2] != "answered" {
+		t.Errorf("thread = %q, want the reply still on the end", got)
+	}
+}
+
+// The aliasing bug the two clones are there for. Cloning the threads copies the
+// structs, and each one's comments are still the held slice; a thread with spare
+// capacity takes the append in place, into the array every other caller is
+// reading. A detail already handed out then changes under whoever is holding it,
+// which on this screen is a rendered conversation.
+func TestFoldingAReplyDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "one", "two", "three"))
+
+	first := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "mine"})
+	held := s.Detail("PR_1")
+	if got := replies(held, "RT_1"); len(got) != 4 || got[3] != "mine" {
+		t.Fatalf("thread = %q, want the first reply folded in", got)
+	}
+
+	// A second write folds into the same slot on the next read.
+	s.PendingReverted("PR_1", first)
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "somebody else's"})
+	_ = s.Detail("PR_1")
+
+	if got := replies(held, "RT_1"); got[3] != "mine" {
+		t.Errorf("the detail already handed out now reads %q, want it unchanged", got)
+	}
+}
+
+// Reading twice gives the same answer.
+func TestReadingADetailTwiceDoesNotDoubleAPendingReply(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	_ = s.Detail("PR_1")
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 2 {
+		t.Errorf("thread = %q on the second read, want two comments", got)
+	}
+}
+
+// Two replies to one thread are two writes, and the second must not clobber the
+// slice the first was folded into.
+func TestTwoRepliesToOneThreadBothShow(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "first"})
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "second"})
+
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 3 {
+		t.Errorf("thread = %q, want both replies on it", got)
+	}
+}
+
+func TestAPostedReplyReplacesItsPlaceholder(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentThread, ID: "RC_REAL", Body: "answered"},
+	})
+
+	got := s.Detail("PR_1").Detail.Threads[0].Comments
+	if len(got) != 2 {
+		t.Fatalf("thread has %d comments, want the reply once", len(got))
+	}
+	if got[1].ID != "RC_REAL" || got[1].Pending {
+		t.Errorf("comment = %+v, want the id GitHub gave it and no marker", got[1])
+	}
+}
+
+func TestAFailedReplyTakesItsCommentBack(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	s.PendingReverted("PR_1", key)
+
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 1 {
+		t.Errorf("thread = %q, want the reply gone", got)
+	}
+}
+
+// A refetch that landed while the reply was out already carries it. Adding it
+// again gives the thread two comments sharing a node id.
+func TestAReplyARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked", "answered"))
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentThread, ID: "RC_answered", Body: "answered"},
+	})
+
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 2 {
+		t.Errorf("thread = %q, want the reply once", got)
+	}
+}
+
+// The thread went away under the write: resolved and hidden, or off the first
+// page. The refetch is the truer picture, and there is nowhere honest to put it.
+func TestAReplyToAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	s.DetailApplied("PR_1", threadWith("RT_OTHER", "elsewhere"))
+
+	// Nothing to fold it into while it is out, and nowhere to land when it
+	// answers. Neither is a panic.
+	if got := replies(s.Detail("PR_1"), "RT_OTHER"); len(got) != 1 {
+		t.Errorf("thread = %q, want the reply nowhere on it", got)
+	}
+
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentThread, ID: "RC_REAL", Body: "answered"},
+	})
+	if got := replies(s.Detail("PR_1"), "RT_OTHER"); len(got) != 1 {
+		t.Errorf("thread = %q, want the reply discarded with its thread", got)
+	}
+}
+
+// A comment and a reply in flight together settle in different places, and each
+// answer has to find its own.
+func TestACommentAndAReplyInFlightSettleSeparately(t *testing.T) {
+	s := store.New(configured())
+	d := threadWith("RT_1", "asked")
+	d.Detail.Timeline = detailWith("first").Detail.Timeline
+	s.DetailApplied("PR_1", d)
+
+	comment := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "loose"})
+	reply := s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 || got[1] != "loose" {
+		t.Errorf("timeline = %q, want only the comment on it", got)
+	}
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 2 || got[1] != "answered" {
+		t.Errorf("thread = %q, want only the reply on it", got)
+	}
+
+	s.PendingReverted("PR_1", comment)
+	s.PendingApplied("PR_1", reply, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentThread, ID: "RC_REAL", Body: "answered"},
+	})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 1 {
+		t.Errorf("timeline = %q, want the comment taken back", got)
+	}
+	if got := replies(s.Detail("PR_1"), "RT_1"); len(got) != 2 {
+		t.Errorf("thread = %q, want the reply landed", got)
+	}
+}

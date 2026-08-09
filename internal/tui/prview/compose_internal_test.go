@@ -6,9 +6,58 @@ package prview
 // for the test's convenience.
 
 import (
+	"os"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
+	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
+
+// editorFixture is a detail screen with one answerable thread on it.
+func editorFixture(t *testing.T) Model {
+	t.Helper()
+
+	now := time.Now()
+	rev := gh.Comment{Kind: gh.CommentReview, ID: "REV_1", Author: gh.Actor{Login: "nkr"}, CreatedAt: now}
+	d := gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "PR_1", Number: 1, Title: "t", Repository: "o/r"},
+		Body:        "desc",
+		Timeline: []gh.TimelineItem{
+			{Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"}, CreatedAt: now, Comment: &rev},
+		},
+		Threads: []gh.ReviewThread{{
+			ID: "RT_1", ReviewID: "REV_1", Path: "a.go", Line: 1, Side: gh.SideRight, CanReply: true,
+			Comments: []gh.Comment{
+				{Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"}, CreatedAt: now, Body: "one"},
+			},
+		}},
+	}
+
+	syn, _ := comp.NewSyntax(theme.RosePineMoon.Syntax)
+	m := New(theme.RosePineMoon, d.PullRequest, RailPreference{}, syn)
+	m.SetDetail(store.Detail{Detail: d, Status: store.StatusReady, Loaded: true})
+	m.SetSize(200, 60)
+	return m
+}
+
+func pressKeys(m Model, keys ...string) Model {
+	for _, k := range keys {
+		m, _ = m.Update(tea.KeyPressMsg{Code: rune(k[0]), Text: k})
+	}
+	return m
+}
+
+var seqs = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripSeqs(s string) string { return seqs.ReplaceAllString(s, "") }
 
 // The editor is the reader's, in the order every other terminal program reads
 // them, and vi when they have named none.
@@ -40,5 +89,72 @@ func TestTheEditorIsTheOneTheReaderNamed(t *testing.T) {
 				t.Errorf("args = %q, want %q", args, tt.wantArgs)
 			}
 		})
+	}
+}
+
+// The editor's text goes to the box that opened it. editorDoneMsg is unexported,
+// so a black-box test cannot deliver one; the assertion is still on the frame.
+func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
+	tests := []struct {
+		name  string
+		open  []string
+		want  string
+		other string
+	}{
+		{
+			name:  "a reply box",
+			open:  []string{"tab", "tab", "tab", "r"},
+			want:  "write a reply",
+			other: "write a comment",
+		},
+		{
+			name:  "the compose card",
+			open:  []string{"c"},
+			want:  "write a comment",
+			other: "write a reply",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := pressKeys(editorFixture(t), tt.open...)
+			if !m.Composing() {
+				t.Fatal("no box has the keyboard")
+			}
+
+			m, _ = m.Update(editorDoneMsg{body: "written elsewhere\n"})
+			frame := stripSeqs(m.View())
+
+			if !strings.Contains(frame, "written elsewhere") {
+				t.Fatalf("the editor's text is nowhere on the page:\n%s", frame)
+			}
+
+			// The text has to be under the box that opened the editor, which is
+			// the one whose heading comes last before it.
+			at := strings.Index(frame, "written elsewhere")
+			mine := strings.LastIndex(frame[:at], tt.want)
+			theirs := strings.LastIndex(frame[:at], tt.other)
+			if mine < 0 || theirs > mine {
+				t.Errorf("the text landed under %q rather than %q:\n%s", tt.other, tt.want, frame)
+			}
+		})
+	}
+}
+
+// The editor opens on whatever the box already holds, so a draft survives the
+// round trip instead of being replaced by what comes back.
+func TestTheEditorOpensOnTheBoxsOwnWords(t *testing.T) {
+	path, err := draftFile("half an answer")
+	if err != nil {
+		t.Fatalf("draftFile: %v", err)
+	}
+	defer func() { _ = os.Remove(path) }()
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the draft back: %v", err)
+	}
+	if string(out) != "half an answer" {
+		t.Errorf("the editor would open on %q, want the words already in the box", out)
 	}
 }
