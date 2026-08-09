@@ -150,7 +150,8 @@ func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
 	if !strings.Contains(out, "half written") {
 		t.Error("esc took the words away")
 	}
-	if !strings.Contains(out, "c to write") {
+	// The ring is still standing on the box, so enter is what resumes.
+	if !strings.Contains(out, "enter to write") {
 		t.Error("the box does not say the keyboard went back to the screen")
 	}
 
