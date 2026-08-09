@@ -63,7 +63,9 @@ func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
 	if !strings.Contains(out, "write a comment") {
 		t.Error("the box has no heading saying what it is for")
 	}
-	if !strings.Contains(out, "enter to write") {
+	// c is what works from anywhere on the page. enter only works once the ring
+	// is on the box, so naming it here would be a key that does nothing.
+	if !strings.Contains(out, "c to write") {
 		t.Error("the box does not say how to start writing in it")
 	}
 }
@@ -148,7 +150,7 @@ func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
 	if !strings.Contains(out, "half written") {
 		t.Error("esc took the words away")
 	}
-	if !strings.Contains(out, "enter to write") {
+	if !strings.Contains(out, "c to write") {
 		t.Error("the box does not say the keyboard went back to the screen")
 	}
 
@@ -473,7 +475,49 @@ func TestPostingLetsGoOfTheBox(t *testing.T) {
 	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("posting left %q focused, want nothing", got)
 	}
-	if !strings.Contains(stripANSI(m.View()), "enter to write") {
+	if !strings.Contains(stripANSI(m.View()), "c to write") {
 		t.Error("the box does not say the keyboard went back to the screen")
+	}
+}
+
+// The hint names the key that works from where the reader is standing. enter
+// only starts writing once the ring is on the box; anywhere else it is c, and
+// naming the wrong one is a key that does nothing to whoever tries it.
+func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
+	away := detailed(held(sampleDetail()), 200, 60)
+	if got := stripANSI(away.View()); !strings.Contains(got, "c to write") {
+		t.Errorf("with focus elsewhere the box names the wrong key:\n%s", got)
+	}
+
+	// Six tabs walks the ring onto the box without starting to write in it.
+	onIt := press(away, strings.Fields(strings.Repeat("tab ", 6))...)
+	out := stripANSI(onIt.View())
+	if !strings.Contains(out, "enter to write") {
+		t.Errorf("with the ring on the box it does not name enter:\n%s", out)
+	}
+	if strings.Contains(out, "c to write") {
+		t.Error("the box still names c once the ring is on it")
+	}
+}
+
+// A paste is not a keypress. The terminal sends it whole as its own message,
+// and nothing routed it to the box, so pasting a comment in did nothing at all.
+func TestAPastedCommentReachesTheBox(t *testing.T) {
+	m := typed(composing(200, 60), "before ")
+
+	m, _ = m.Update(tea.PasteMsg{Content: "pasted words"})
+
+	if got := stripANSI(m.View()); !strings.Contains(got, "before pasted words") {
+		t.Errorf("the paste never reached the box:\n%s", got)
+	}
+}
+
+// It only goes there while the box has the keyboard. A paste onto a screen that
+// is being read is not text anybody asked for.
+func TestAPasteWhileReadingIsIgnored(t *testing.T) {
+	m, _ := detailed(held(sampleDetail()), 200, 60).Update(tea.PasteMsg{Content: "pasted words"})
+
+	if got := stripANSI(m.View()); strings.Contains(got, "pasted words") {
+		t.Errorf("a paste landed in the box with the keyboard elsewhere:\n%s", got)
 	}
 }

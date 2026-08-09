@@ -331,8 +331,22 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// frame of the glyph only reaches the screen through a resync.
 		m.syncContent()
 		return m, cmd
+
+	default:
+		// A paste is not a keypress. The terminal sends it whole, as its own
+		// message, and the textarea answers two of them: the bracketed paste the
+		// terminal wraps a middle-click or a cmd+v in, and the clipboard read its
+		// own ctrl+v asks for. Neither reaches handleKey, so while the box has
+		// the keyboard anything this screen does not recognise goes to it.
+		if !m.compose.typing {
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.compose.area, cmd = m.compose.area.Update(msg)
+		m.showCompose()
+		return m, cmd
 	}
-	return m, nil
 }
 
 // waiting is the one state the spinner belongs in: nothing to read yet. A

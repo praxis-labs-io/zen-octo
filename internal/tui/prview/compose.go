@@ -142,7 +142,7 @@ func (m *Model) composeCard(width int) string {
 	inner := m.cardWidth(width)
 	m.compose.setWidth(inner)
 
-	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner)
+	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
 	return m.card(head, body, width, key)
 }
 
@@ -154,7 +154,7 @@ func (m *Model) composeCard(width int) string {
 // its cursor line. Focus swaps it for the accent, and an empty buffer greys the
 // label without taking the surface away, so the control does not appear and
 // disappear as you type.
-func (c composer) button(th theme.Theme, width int) string {
+func (c composer) button(th theme.Theme, width int, focused bool) string {
 	style := lipgloss.NewStyle().
 		Padding(0, postPad).
 		Foreground(th.Primary).
@@ -169,23 +169,26 @@ func (c composer) button(th theme.Theme, width int) string {
 		style = style.Foreground(th.Inverted).Background(th.Secondary)
 	}
 
-	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint())
+	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint(focused))
 	button := style.Render(postLabel)
 
 	gap := max(1, width-lipgloss.Width(hint)-lipgloss.Width(button))
 	return hint + strings.Repeat(" ", gap) + button
 }
 
-// hint is the line beside the button. It names the chord only where the
-// terminal can send it: on the rest ctrl+enter arrives as a plain enter, and
-// advertising it would be promising a key that adds a blank line.
+// hint is the line beside the button, and it names the key that works from
+// where the reader is standing. enter starts writing only once the ring is on
+// the box; from anywhere else on the page it is c, and naming the wrong one is
+// a key that does nothing to whoever tries it.
 //
-// It says nothing at all until the box has the keyboard. A card the reader has
-// not stepped onto is one to read past, and a row of key names on it is noise
-// on every other card's behalf.
-func (c composer) hint() string {
+// The chord is named only where the terminal can send it: on the rest
+// ctrl+enter arrives as a plain enter and would add a blank line.
+func (c composer) hint(focused bool) string {
 	if !c.typing {
-		return keys.Detail.Activate.Help().Key + " to write"
+		if focused {
+			return keys.Detail.Activate.Help().Key + " to write"
+		}
+		return keys.Detail.Comment.Help().Key + " to write"
 	}
 
 	post := "tab · enter post"
