@@ -30,7 +30,7 @@ type ListMap struct {
 	NextSection  key.Binding
 	PrevSection  key.Binding
 	Open         key.Binding
-	Refresh      key.Binding
+	Sync         key.Binding
 }
 
 // DetailMap is live on the pull request detail screen. The same movement keys
@@ -63,7 +63,7 @@ type DetailMap struct {
 	FocusPane    key.Binding
 	ToggleRail   key.Binding
 	Expand       key.Binding
-	Refresh      key.Binding
+	Sync         key.Binding
 	Back         key.Binding
 
 	// The compose pane's own. Comment opens it; Post and Editor are live only
@@ -77,6 +77,12 @@ type DetailMap struct {
 	Post     key.Binding
 	Activate key.Binding
 	Editor   key.Binding
+
+	// Reply and QuoteReply answer a review thread, from the comment the ring is
+	// on. They take r and R, which is why syncing moved to s: replying is the
+	// key this screen exists for, and it was behind the one that refetches.
+	Reply      key.Binding
+	QuoteReply key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
@@ -100,7 +106,7 @@ var (
 		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next section")),
 		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev section")),
 		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 	}
 
 	Detail = DetailMap{
@@ -123,19 +129,21 @@ var (
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
 		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
-		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
-		Comment:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
-		Post:     key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
-		Activate: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "press the button")),
-		Editor:   key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
+		Comment:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
+		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
+		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "press the button")),
+		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
+		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
 	}
 )
 
 // ShortHelp is the one line the status bar carries.
 func (k ListMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.Open, k.NextSection, k.Refresh, Global.Help, Global.Quit}
+	return []key.Binding{k.Down, k.Open, k.NextSection, k.Sync, Global.Help, Global.Quit}
 }
 
 // FullHelp is the overlay. Every binding in the map appears here; a test holds
@@ -144,12 +152,12 @@ func (k ListMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
-		{k.NextSection, k.PrevSection, k.Open, k.Refresh},
+		{k.NextSection, k.PrevSection, k.Open, k.Sync},
 		{Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }
 
-// ShortHelp is the one line the status bar carries. Refresh is in the overlay
+// ShortHelp is the one line the status bar carries. Sync is in the overlay
 // only: a seventh hint pushes the line past the pull request number on the
 // right at 100 columns, and the number is what says which one is on screen.
 //
@@ -168,7 +176,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
 		{k.FocusNext, k.FocusPrev, k.Expand, k.ToggleRail},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
-		{k.Comment, k.Post, k.Activate, k.Editor},
-		{k.Refresh, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
+		{k.Comment, k.Reply, k.QuoteReply, k.Post, k.Activate, k.Editor},
+		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

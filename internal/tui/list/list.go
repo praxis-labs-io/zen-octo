@@ -92,7 +92,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.PrevSection):
 		m.changeSection(-1)
 		return m, nil
-	case key.Matches(msg, k.Refresh):
+	case key.Matches(msg, k.Sync):
 		return m, func() tea.Msg { return RefreshMsg{} }
 	}
 

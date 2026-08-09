@@ -43,6 +43,7 @@ type fakeSearcher struct {
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
 	posted      []string
+	replied     []string
 	detailErr   error
 	filesErr    error
 	commitErr   error
@@ -222,6 +223,33 @@ func (f *fakeSearcher) AddComment(_ context.Context, subjectID, body string) (gh
 	}, nil
 }
 
+func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.CommentResult, error) {
+	f.mu.Lock()
+	f.replied = append(f.replied, threadID+": "+body)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.CommentResult{}, err
+	}
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind: gh.CommentThread, ID: "PRRC_POSTED",
+			Author: gh.Actor{Login: "drucial"}, CreatedAt: time.Now(), Body: body,
+			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+		},
+	}, nil
+}
+
+// answered is the replies the model sent, in order.
+func (f *fakeSearcher) answered() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.replied)
+}
+
 // written is the comments the model sent, in order.
 func (f *fakeSearcher) written() []string {
 	f.mu.Lock()
@@ -300,6 +328,10 @@ func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesRes
 }
 
 func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
+	return gh.CommentResult{}, nil
+}
+
+func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
 }
 
@@ -541,7 +573,7 @@ func TestRefreshRefetchesEverySection(t *testing.T) {
 		t.Fatalf("calls = %d after load, want one per section", client.calls())
 	}
 
-	settle(m, keyMsg("r"))
+	settle(m, keyMsg("s"))
 	if client.calls() != 4 {
 		t.Errorf("calls = %d after refresh, want another per section", client.calls())
 	}
@@ -617,7 +649,7 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 		ID: "PR_NEW", Number: 500, Title: "Brand new", Repository: "zen-octo/zen-octo",
 		State: gh.PRStateOpen, UpdatedAt: time.Now(),
 	}}, samplePRs()...))
-	m = settle(m, keyMsg("r"))
+	m = settle(m, keyMsg("s"))
 
 	if got := selectedText(t, m); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want it still on #408 after the refresh", got)
@@ -629,7 +661,7 @@ func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	m := press(loaded(t, client, 120, 40), "j") // now on #408
 
 	client.serve(samplePRs()[:1]) // #408 merged and dropped out of the section
-	m = settle(m, keyMsg("r"))
+	m = settle(m, keyMsg("s"))
 
 	if got := selectedText(t, m); !strings.Contains(got, "#412") {
 		t.Errorf("selection = %q, want it clamped onto the remaining row", got)
@@ -838,7 +870,7 @@ func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 		t.Error("the first load raised a toast, want the rows to speak for themselves")
 	}
 
-	out := render(t, settle(m, keyMsg("r")))
+	out := render(t, settle(m, keyMsg("s")))
 	if !strings.Contains(out, "Refreshed 2 sections") {
 		t.Errorf("view = %q, want the refresh to report what came back", out)
 	}
@@ -900,7 +932,7 @@ func TestARefreshThatFailsSaysSo(t *testing.T) {
 	m := loaded(t, client, 120, 40)
 
 	client.err = errors.New("context deadline exceeded")
-	out := render(t, settle(m, keyMsg("r")))
+	out := render(t, settle(m, keyMsg("s")))
 
 	if !strings.Contains(out, "Refresh failed") {
 		t.Errorf("view = %q, want the toast to report the failure", out)
@@ -1723,7 +1755,7 @@ func TestWalkingBackOntoAFailedCommitRetriesIt(t *testing.T) {
 // the frame the reader gets while the requests are out. The pending fetches
 // come back with it, to be delivered when the test is ready.
 func refreshing(m tea.Model) (tea.Model, tea.Cmd) {
-	m, cmd := m.Update(keyMsg("r"))
+	m, cmd := m.Update(keyMsg("s"))
 	for _, msg := range immediate(cmd) {
 		m, cmd = m.Update(msg)
 	}
@@ -1738,7 +1770,7 @@ func TestRefreshingTheDetailRefetchesTheConversation(t *testing.T) {
 
 	m := press(loaded(t, client, 160, 40), "enter")
 	client.serveDetail("PR_412", "Caps the backoff at 60s.")
-	m = press(m, "r")
+	m = press(m, "s")
 
 	if got := client.opened(); len(got) != 2 {
 		t.Errorf("opened %v, want the refresh to have refetched", got)
@@ -1755,7 +1787,7 @@ func TestRefreshingTheConversationAsksForNoDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
 
-	m := press(loaded(t, client, 160, 40), "enter", "r")
+	m := press(loaded(t, client, 160, 40), "enter", "s")
 
 	if got := client.fetched(); len(got) != 0 {
 		t.Errorf("fetched %v, want no diff for a refresh on the conversation", got)
@@ -1765,7 +1797,7 @@ func TestRefreshingTheConversationAsksForNoDiff(t *testing.T) {
 	}
 
 	// The Checks tab reads the same response, so it asks for nothing extra either.
-	press(m, "]", "]", "r")
+	press(m, "]", "]", "s")
 	if got := client.fetched(); len(got) != 0 {
 		t.Errorf("fetched %v, want no diff for a refresh on the checks", got)
 	}
@@ -1782,7 +1814,7 @@ func TestRefreshingOnTheFilesTabRefetchesTheDiff(t *testing.T) {
 		t.Fatalf("setup: fetched %v, want one request", got)
 	}
 
-	m = press(m, "r")
+	m = press(m, "s")
 
 	if got := client.fetched(); len(got) != 2 {
 		t.Errorf("fetched %v, want the diff asked for again", got)
@@ -1804,7 +1836,7 @@ func TestRefreshingOnTheCommitsTabRefetchesTheCommitOnThePane(t *testing.T) {
 		t.Fatalf("setup: fetched %v, want one request", got)
 	}
 
-	m = press(m, "r")
+	m = press(m, "s")
 
 	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@a3f91c2d5e"}
 	if got := client.fetchedCommits(); !slices.Equal(got, want) {
@@ -1836,7 +1868,7 @@ func TestARefreshKeepsTheConversationOnScreen(t *testing.T) {
 }
 
 // Nothing moves on the screen during a refresh, so the bar is the only place
-// anything can say r did something.
+// anything can say s did something.
 func TestARefreshSpinsInTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -1860,7 +1892,7 @@ func TestTheDetailRefreshToastNamesThePullRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
-	m := press(loaded(t, client, 160, 40), "enter", "r")
+	m := press(loaded(t, client, 160, 40), "enter", "s")
 
 	if !strings.Contains(lastLine(render(t, m)), "Refreshed #412") {
 		t.Errorf("status bar = %q, want the refresh reported", strings.TrimSpace(lastLine(render(t, m))))
@@ -1919,7 +1951,7 @@ func TestADetailRefreshReportsItselfOnce(t *testing.T) {
 
 			m := press(loaded(t, client, 160, 40), "enter", "]", "]", "]")
 			tt.fail(client)
-			m = press(m, "r")
+			m = press(m, "s")
 
 			bar := lastLine(render(t, m))
 			if !strings.Contains(bar, tt.want) {
@@ -1942,7 +1974,7 @@ func TestARefreshWithNoDiffOutNeverBlamesTheDiff(t *testing.T) {
 
 	m := press(loaded(t, client, 160, 40), "enter")
 	client.failDetails(errors.New("context deadline exceeded"))
-	m = press(m, "r")
+	m = press(m, "s")
 
 	bar := lastLine(render(t, m))
 	if strings.Contains(bar, "diff") {
@@ -2013,7 +2045,7 @@ func TestRefreshingRetriesADiffThatFailed(t *testing.T) {
 
 	client.failFiles(nil)
 	client.serveFiles(412, sampleFiles())
-	m = press(m, "r")
+	m = press(m, "s")
 
 	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
 		t.Error("the retried diff never reached the pane")
@@ -2200,7 +2232,7 @@ func TestARefreshDoesNotTakeAwayACommentStillInFlight(t *testing.T) {
 	client.holdPosts()
 
 	m := press(composed(t, client, "ship it"), "ctrl+enter")
-	m = press(m, "r")
+	m = press(m, "s")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "ship it") {
 		t.Errorf("the refresh dropped a comment still on its way:\n%s", out)
@@ -2333,7 +2365,7 @@ func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
 
 	// Wide enough for every binding, so nothing is hidden and nothing is said.
 	roomy := stripANSI(render(t, press(loaded(t, client, 120, 34), "enter", "?")))
-	for _, want := range []string{"comment", "$EDITOR", "quit from anywhere", "refresh"} {
+	for _, want := range []string{"comment", "reply", "quote reply", "$EDITOR", "quit from anywhere", "sync"} {
 		if !strings.Contains(roomy, want) {
 			t.Errorf("a frame with room for the help is missing %q", want)
 		}
@@ -2346,5 +2378,113 @@ func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
 	cramped := stripANSI(render(t, press(loaded(t, client, 60, 20), "enter", "?")))
 	if !strings.Contains(cramped, "more keys than this frame") {
 		t.Errorf("the overlay drops bindings without saying so:\n%s", cramped)
+	}
+}
+
+// serveThread stages a review thread on a pull request, so the reply keys have
+// something to answer.
+func (f *fakeSearcher) serveThread(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Threads = []gh.ReviewThread{{
+		ID: "RT_1", Path: "internal/gh/client.go", Line: 42,
+		Side: gh.SideRight, CanReply: true,
+		Comments: []gh.Comment{{
+			Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"},
+			CreatedAt: time.Now(), Body: "This backs off forever.",
+		}},
+	}}
+	f.details[id] = held
+}
+
+// answering opens the reply box on the staged thread and writes into it. Two
+// tabs, because the ring walks the description and then the thread's one
+// comment; there is no timeline on this fixture.
+func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
+	t.Helper()
+
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveThread("PR_412")
+
+	m := press(loaded(t, client, 160, 40), "enter", "tab", "tab", "r")
+	return write(m, body)
+}
+
+// The reply is in the thread before GitHub has seen it, and it says so.
+func TestAPostedReplyIsInItsThreadBeforeItLands(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(answering(t, client, "capped it"), "ctrl+enter")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "capped it") {
+		t.Errorf("the reply is not on the screen:\n%s", out)
+	}
+	if !strings.Contains(out, "posting") {
+		t.Error("the reply does not say it is still on its way")
+	}
+	if got := client.answered(); len(got) != 1 || got[0] != "RT_1: capped it" {
+		t.Errorf("sent %v, want the reply addressed to the thread", got)
+	}
+	if got := client.written(); len(got) != 0 {
+		t.Errorf("sent %v as a top-level comment, want the reply on the thread alone", got)
+	}
+}
+
+func TestAReplyThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := press(answering(t, client, "capped it"), "ctrl+enter")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "capped it") {
+		t.Errorf("the reply left the screen when it landed:\n%s", out)
+	}
+	if strings.Contains(out, "posting") {
+		t.Error("the reply still says it is on its way")
+	}
+	if !strings.Contains(lastLine(render(t, m)), "Replied") {
+		t.Errorf("status bar = %q, want the reply reported", strings.TrimSpace(lastLine(render(t, m))))
+	}
+}
+
+// The revert branch. The words go back to the thread they were written for, not
+// to the box at the foot of the page, which files against the pull request.
+func TestAFailedReplyGoesBackToItsThread(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
+
+	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	out := stripANSI(render(t, m))
+
+	if strings.Count(out, "capped it") != 1 {
+		t.Errorf("the words are not in exactly one place:\n%s", out)
+	}
+	if !strings.Contains(out, "write a reply") {
+		t.Error("the box did not reopen on the thread")
+	}
+	if strings.Contains(out, "posting") {
+		t.Error("the reply that failed is still on the thread")
+	}
+	if !strings.Contains(lastLine(render(t, m)), "502 Bad Gateway") {
+		t.Errorf("status bar = %q, want the reason on it", strings.TrimSpace(lastLine(render(t, m))))
+	}
+}
+
+// A sync landing while a reply is out must not take it off the thread. The
+// store holds it beside the fetched detail for exactly this.
+func TestASyncDoesNotTakeAwayAReplyStillInFlight(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	m = press(m, "s")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "capped it") {
+		t.Errorf("the sync dropped a reply still on its way:\n%s", out)
 	}
 }

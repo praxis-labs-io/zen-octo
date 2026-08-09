@@ -245,3 +245,41 @@ func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 		t.Logf("unexpected error shape, read it before trusting this test: %v", err)
 	}
 }
+
+// TestLiveTheAddReplyDocumentMatchesTheSchema is the check above, for the reply
+// mutation. Same reasoning, same bad node id, and nothing written either way.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.AddReply(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+	if err == nil {
+		t.Fatal("replying to a thread that does not exist came back as a success")
+	}
+
+	for _, broken := range []string{
+		"doesn't exist on type",
+		"Unknown argument",
+		"Field must have selections",
+		"Parse error",
+	} {
+		if strings.Contains(err.Error(), broken) {
+			t.Fatalf("the document does not match the schema: %v", err)
+		}
+	}
+
+	if !strings.Contains(err.Error(), "Could not resolve to") {
+		t.Logf("unexpected error shape, read it before trusting this test: %v", err)
+	}
+}

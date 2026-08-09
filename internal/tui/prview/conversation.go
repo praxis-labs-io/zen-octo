@@ -27,6 +27,12 @@ const cardGutter = 1
 // comment is about is the last one in it.
 const threadHunkLines = 4
 
+// cardHeadLines is what a card spends above its first line of content: the top
+// border, the heading row, and the rule under it. comp.Pane.Chrome counts those
+// three and the bottom border together, and a caller placing something inside a
+// card needs the two numbers apart.
+const cardHeadLines = 3
+
 // conversationBody is the description and everything said since. It renders
 // markdown, so it belongs on an Update path: m.md caches what it produces.
 //
@@ -40,11 +46,11 @@ func (m *Model) conversationBody() string {
 
 	switch {
 	case m.detail.Loaded:
-		// Everything above the box is fixed while it is being written in, so it
-		// is joined to a fresh box rather than rebuilt around one.
-		if m.conv.ok && m.compose.typing {
-			m.convRing.items = append(m.convRing.items[:0], m.conv.items...)
-			return m.withCompose(m.bodyWidth())
+		// Everything around the box is fixed while it is being written in, so a
+		// freshly rendered box is joined between the two halves rather than the
+		// page being rebuilt around one.
+		if m.conv.ok && m.writing() != nil && m.conv.thread == m.reply.thread {
+			return m.withBox(m.bodyWidth())
 		}
 		return m.entries()
 	case m.detail.Status == store.StatusFailed:
@@ -64,16 +70,40 @@ func (m *Model) entries() string {
 	var blocks []string
 	at := m.convRing.lead
 
-	// push records where a block landed before the join puts a blank line under
-	// it. A key of no kind is a block tab walks past: a merge or a run of
-	// commits is something to read, not something to act on.
-	push := func(block string, key focusKey) {
-		blocks = append(blocks, block)
-		lines := strings.Count(block, "\n") + 1
-		if key.kind != focusNone {
-			m.convRing.add(key, at, lines)
+	// split is the block the box being written in sits inside, and where it
+	// begins. Everything before it is the head and everything after is the tail;
+	// a keystroke rebuilds only what is between them.
+	//
+	// tailFrom is taken once the split block's own stops are recorded, not when
+	// it is marked. Taken early it would leave every block between the box and
+	// the end of the page out of the tail, and hand the split block's own stops
+	// to a tail that gets them a second time from the rebuild.
+	split, splitAt, headItems, tailFrom := -1, 0, 0, 0
+	marking := false
+	mark := func() { split, splitAt, headItems, marking = len(blocks), at, len(m.convRing.items), true }
+
+	// pushStops records where a block landed before the join puts a blank line
+	// under it. The starts come in relative to the block and go out absolute.
+	pushStops := func(v rendered) {
+		blocks = append(blocks, v.block)
+		for _, s := range v.stops {
+			m.convRing.add(s.focusKey, at+s.start, s.lines)
 		}
-		at += lines + 1
+		if marking {
+			tailFrom, marking = len(m.convRing.items), false
+		}
+		at += strings.Count(v.block, "\n") + 2
+	}
+
+	// push is pushStops for the blocks carrying one stop or none. A key of no
+	// kind is a block tab walks past: a merge or a run of commits is something
+	// to read, not something to act on.
+	push := func(block string, key focusKey) {
+		var stops []focusItem
+		if key.kind != focusNone {
+			stops = []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}}
+		}
+		pushStops(rendered{block: block, stops: stops})
 	}
 
 	push(m.description(d, width), focusKey{kind: focusDescription})
@@ -90,14 +120,20 @@ func (m *Model) entries() string {
 			key := focusKey{kind: focusComment, id: written.ID}
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
 			if written.Pending {
-				head = m.posting(item.Actor)
+				head = m.posting(item.Actor, "commented")
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key), key)
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key)), key)
 
 		case gh.TimelineReview:
-			// The review records its own card and every thread hung off it, so
-			// it takes the line it starts on and push takes no key.
-			push(m.review(item, d.Threads, shown, width, at), focusKey{})
+			// A review renders as its own card with every thread it opened hung
+			// underneath, joined into one block. That block is what the box
+			// splits the page at when the thread it is open on is one of them:
+			// the branch gutter runs down the outside of all of them, and
+			// cutting between two would mean splicing it back together.
+			if m.replyUnder(d.Threads, item.Said().ID) {
+				mark()
+			}
+			pushStops(m.review(item, d.Threads, shown, width))
 
 		case gh.TimelineCommit:
 			// A push arrives as one item per commit. They fold back into the one
@@ -119,8 +155,10 @@ func (m *Model) entries() string {
 
 	for i, thread := range d.Threads {
 		if !shown[i] {
-			key := threadKey(thread)
-			push(m.thread(thread, width, true, key), key)
+			if m.reply.thread == thread.ID {
+				mark()
+			}
+			pushStops(m.thread(thread, width, true, m.replyBox(thread, width)))
 		}
 	}
 
@@ -131,80 +169,171 @@ func (m *Model) entries() string {
 		push(wrap(m.faint().Render(comp.Plural(n, "more review thread")+" on GitHub"), width), focusKey{})
 	}
 
-	m.conv = convCache{body: strings.Join(blocks, "\n\n"), items: slices.Clone(m.convRing.items), at: at, ok: true}
-	return m.withCompose(width)
-}
-
-// convCache is the conversation above the comment box.
-//
-// While the box has the keyboard nothing above it can change: the detail is not
-// being refetched, the width is not moving, and focus is on the box. So it is
-// built once and joined to a freshly rendered box on each keystroke. On a
-// hundred-and-forty-comment thread that is the difference between re-bordering
-// a hundred and forty cards per character and re-bordering one: 27ms against
-// 7ms, which is the difference between typing and waiting.
-//
-// It is only ever read while typing, and the four things that can invalidate it
-// all end typing or cannot happen during it. Anything else added here has to
-// clear ok or the page will render a card that has moved on.
-type convCache struct {
-	body  string
-	items []focusItem
-	at    int
-	ok    bool
-}
-
-// withCompose puts the box under whatever the conversation already is. It is
-// the last block, under everything already said, which is where the comment
-// being written is going to appear.
-func (m *Model) withCompose(width int) string {
-	box := m.composeCard(width)
-	m.convRing.add(focusKey{kind: focusCompose}, m.conv.at, strings.Count(box, "\n")+1)
-
-	if m.conv.body == "" {
-		return box
+	// The compose card is the last block, always on the page, and the split when
+	// no reply box took it. A reply open on a thread this page does not render
+	// falls here too: there is no box among the blocks to cut at.
+	if split < 0 {
+		mark()
 	}
-	return m.conv.body + "\n\n" + box
+	pushStops(m.composeCard(width))
+
+	m.conv = convCache{
+		head:      strings.Join(blocks[:split], "\n\n"),
+		tail:      strings.Join(blocks[split+1:], "\n\n"),
+		items:     slices.Clone(m.convRing.items[:headItems]),
+		tailItems: shifted(m.convRing.items[tailFrom:], splitAt+strings.Count(blocks[split], "\n")+2),
+		at:        splitAt,
+		thread:    m.reply.thread,
+		ok:        true,
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
+// convCache is the conversation around the box being written in: everything
+// above it and everything below, each built once.
+//
+// While the box has the keyboard neither half can change: the detail is not
+// being refetched, the width is not moving, and the keys are all going into a
+// textarea. So a keystroke re-renders the one block the box sits in and joins it
+// between two strings it already has. On a hundred-and-forty-comment thread that
+// is the difference between re-bordering a hundred and forty cards per character
+// and re-bordering one: 27ms against 7ms, which is the difference between typing
+// and waiting.
+//
+// tailItems are relative to the tail's own first line, where items are absolute.
+// Absolute would work today, since a box is a fixed height whatever is typed
+// into it, but it would make a silent invariant out of a fact that has to be
+// re-proved every time the box changes shape.
+//
+// It is only ever read while typing, and everything that can invalidate it ends
+// typing or cannot happen during it. Anything else added here has to clear ok,
+// or the page will render a card that has moved on.
+type convCache struct {
+	head      string
+	tail      string
+	items     []focusItem
+	tailItems []focusItem
+
+	// at is the line the middle block starts on.
+	at int
+
+	// thread is the review thread the box is open on, empty for the compose
+	// card. A cache built around one box cannot be joined around another.
+	thread string
+
+	ok bool
+}
+
+// shifted moves a run of ring items to be relative to a line.
+func shifted(items []focusItem, by int) []focusItem {
+	out := slices.Clone(items)
+	for i := range out {
+		out[i].start -= by
+	}
+	return out
+}
+
+// withBox joins a freshly rendered box between the two halves already built, and
+// rebuilds the ring around it.
+func (m *Model) withBox(width int) string {
+	m.convRing.items = append(m.convRing.items[:0], m.conv.items...)
+
+	middle := m.boxBlock(width)
+	for _, s := range middle.stops {
+		m.convRing.add(s.focusKey, m.conv.at+s.start, s.lines)
+	}
+
+	base := m.conv.at + strings.Count(middle.block, "\n") + 2
+	for _, it := range m.conv.tailItems {
+		m.convRing.add(it.focusKey, base+it.start, it.lines)
+	}
+
+	return joinBlocks(m.conv.head, middle.block, m.conv.tail)
+}
+
+// boxBlock re-renders the one block the box sits in. It is found by identity
+// rather than by the place it had, for the same reason the ring is: nothing on
+// this page is addressed by where it landed.
+func (m *Model) boxBlock(width int) rendered {
+	if m.conv.thread == "" {
+		return m.composeCard(width)
+	}
+
+	d := m.detail.Detail
+	for _, item := range d.Timeline {
+		if item.Kind != gh.TimelineReview || !m.replyUnder(d.Threads, item.Said().ID) {
+			continue
+		}
+		return m.review(item, d.Threads, make(map[int]bool, len(d.Threads)), width)
+	}
+
+	for _, t := range d.Threads {
+		if t.ID == m.conv.thread {
+			return m.thread(t, width, true, m.replyBox(t, width))
+		}
+	}
+
+	// The thread went away under an open box. Nothing to draw where it was, and
+	// the halves either side still join.
+	return rendered{}
+}
+
+// replyUnder is whether the box is open on a thread this review opened.
+func (m Model) replyUnder(threads []gh.ReviewThread, reviewID string) bool {
+	if m.reply.thread == "" || reviewID == "" {
+		return false
+	}
+	return slices.ContainsFunc(threads, func(t gh.ReviewThread) bool {
+		return t.ID == m.reply.thread && t.ReviewID == reviewID
+	})
+}
+
+// joinBlocks joins what is there, so an empty half does not cost a blank line.
+func joinBlocks(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
 
 // review is the verdict and body in a box, then the threads it opened, set in
 // under it. The box is what stops a bot review that runs for forty lines
 // reading as loose comments with no telling where it ends.
-func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown map[int]bool, width, at int) string {
+func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown map[int]bool, width int) rendered {
 	label, c := comp.ReviewStateLabel(m.theme, item.Review)
 	head := m.said(item.Actor, label, c, item)
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key)
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key))
 
 	used := strings.Count(block, "\n") + 1
-	m.convRing.add(key, at, used)
+	stops := []focusItem{{focusKey: key, lines: used}}
 
-	type hung struct {
-		block string
-		key   focusKey
-	}
-
-	var owned []hung
+	var owned []rendered
 	for i, thread := range threads {
 		if thread.ReviewID != written.ID || thread.ReviewID == "" {
 			continue
 		}
 		shown[i] = true
-		tk := threadKey(thread)
-		owned = append(owned, hung{m.thread(thread, width-treeGutter, true, tk), tk})
+		inner := width - treeGutter
+		owned = append(owned, m.thread(thread, inner, true, m.replyBox(thread, inner)))
 	}
 
 	for i, t := range owned {
 		lines := strings.Count(t.block, "\n") + 1
 		// The rail opens with a line of its own above the thread's first, so the
 		// thread starts one below where the branch does.
-		m.convRing.add(t.key, at+used+1, lines)
+		for _, s := range t.stops {
+			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + 1 + s.start, lines: s.lines})
+		}
 		used += lines + 1
 		block += "\n" + m.branch(t.block, i == len(owned)-1)
 	}
-	return block
+	return rendered{block: block, stops: stops}
 }
 
 // branch hangs one thread off the review above it. The last closes the run, so
@@ -248,8 +377,8 @@ func (m Model) branch(block string, last bool) string {
 //
 // A focused card takes its border in the accent, the same signal the panes
 // around it already use for where the keys go.
-func (m Model) card(head, content string, width int, key focusKey) string {
-	pane := comp.NewPane(m.theme).Header(" " + head).Focus(m.lit(key))
+func (m Model) card(head, content string, width int, lit bool) string {
+	pane := comp.NewPane(m.theme).Header(" " + head).Focus(lit)
 	body := indent(content, cardGutter)
 	lines := strings.Count(body, "\n") + 1
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
@@ -262,6 +391,12 @@ func (m Model) card(head, content string, width int, key focusKey) string {
 // lie about the key, and two panes lit at once is the same lie twice.
 func (m Model) lit(key focusKey) bool {
 	return m.railTab() && m.focus == paneMain && m.convRing.focused(key)
+}
+
+// litAny is lit for a card holding more than one focusable thing. A thread card
+// takes the accent for whichever of its comments the ring is on.
+func (m Model) litAny(stops []focusItem) bool {
+	return slices.ContainsFunc(stops, func(it focusItem) bool { return m.lit(it.focusKey) })
 }
 
 // cardWidth is what is left for text once the box has taken its sides and its
@@ -297,7 +432,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, key)
+	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key))
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -328,8 +463,8 @@ func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.Timelin
 //
 // The item is empty so said writes no time. There is none to write, and "now"
 // would be a claim about a comment GitHub has not seen.
-func (m *Model) posting(actor gh.Actor) string {
-	return m.said(actor, "commented", m.theme.Faint, gh.TimelineItem{}) +
+func (m *Model) posting(actor gh.Actor, verb string) string {
+	return m.said(actor, verb, m.theme.Faint, gh.TimelineItem{}) +
 		m.faint().Render(" · ") +
 		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
 }
@@ -427,20 +562,23 @@ var eventLabels = map[gh.TimelineKind]string{
 // hunk asks for the code the thread was written against. The conversation
 // wants it: a comment about a line nobody can see is an assertion about
 // nothing. The Files tab does not, because the line is already on the screen.
-func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, key focusKey) string {
+func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) rendered {
 	anchor := t.Path
 	if t.Line > 0 {
 		anchor += ":" + strconv.Itoa(t.Line)
 	}
 
 	if t.IsResolved {
+		key := threadKey(t)
+
 		// One line has no border to take the accent, so the text carries it.
 		style := m.faint()
 		if m.lit(key) {
 			style = lipgloss.NewStyle().Foreground(m.theme.Secondary)
 		}
-		return wrap(style.Render("✓ "+anchor+" · resolved · "+
+		block := wrap(style.Render("✓ "+anchor+" · resolved · "+
 			comp.Plural(len(t.Comments), "comment")), width)
+		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
 	head := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(anchor)
@@ -449,18 +587,92 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, key focusKey) st
 	}
 
 	inner := m.cardWidth(width)
+
+	// at is the content line the next block will start on. The join puts one
+	// blank line between blocks, so a block costs its own lines plus that.
 	var blocks []string
-	if hunk {
-		if code := m.threadHunk(t, inner); code != "" {
-			blocks = append(blocks, code)
-		}
-	}
-	for _, c := range t.Comments {
-		said := m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt})
-		blocks = append(blocks, wrap(said, inner)+"\n\n"+m.body(c.Body, inner, "No comment.", key))
+	at := 0
+	push := func(block string) int {
+		start := at
+		blocks = append(blocks, block)
+		at += strings.Count(block, "\n") + 2
+		return start
 	}
 
-	return m.card(head, strings.Join(blocks, "\n\n"), width, key)
+	if hunk {
+		if code := m.threadHunk(t, inner); code != "" {
+			push(code)
+		}
+	}
+
+	stops := make([]focusItem, 0, len(t.Comments)+1)
+	for _, c := range t.Comments {
+		key := threadCommentKey(c)
+		stops = append(stops, focusItem{
+			focusKey: key,
+			start:    push(wrap(m.byline(c, key), inner) + "\n\n" + m.body(c.Body, inner, "No comment.", key)),
+		})
+	}
+
+	if reply != "" {
+		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(reply)})
+	}
+
+	block := m.card(head, strings.Join(blocks, "\n\n"), width, m.litAny(stops))
+	for i := range stops {
+		stops[i].start += cardHeadLines
+	}
+	return rendered{block: block, stops: tile(block, stops)}
+}
+
+// rendered is one block of the conversation and where each of its own ring
+// stops landed inside it. The starts are relative to the block's first line: a
+// block does not know where it was placed, and every caller that places one
+// does.
+type rendered struct {
+	block string
+	stops []focusItem
+}
+
+// byline is the line above one comment in a thread. A focused one takes the
+// accent on its verb, because a comment inside a card has no border of its own
+// and the card is already lit for the thread as a whole.
+func (m *Model) byline(c gh.Comment, key focusKey) string {
+	if c.Pending {
+		return m.posting(c.Author, "said")
+	}
+
+	verb := m.theme.Faint
+	if m.lit(key) {
+		verb = m.theme.Secondary
+	}
+	return m.said(c.Author, "said", verb, gh.TimelineItem{CreatedAt: c.CreatedAt})
+}
+
+// tile spreads stops over every line of the block they came out of: the first
+// takes everything above it, each one runs to the next, and the last runs to the
+// end.
+//
+// The gaps are not spare. A stop that covered only its own text would leave the
+// card's borders and heading belonging to nothing, and the ring answers two
+// questions off these numbers: whether the focus is still on screen, and where
+// to scroll to bring it back. Both want the first stop to carry the top border,
+// or scrolling to the first comment in a thread cuts the anchor off above it.
+func tile(block string, stops []focusItem) []focusItem {
+	if len(stops) == 0 {
+		return nil
+	}
+
+	total := strings.Count(block, "\n") + 1
+	stops[0].start = 0
+	for i := range stops {
+		end := total
+		if i+1 < len(stops) {
+			end = stops[i+1].start
+		}
+		stops[i].lines = max(1, end-stops[i].start)
+	}
+	return stops
 }
 
 // threadHunk is the tail of the diff the thread hangs off, rendered the same

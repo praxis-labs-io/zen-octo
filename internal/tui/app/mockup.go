@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"hash/fnv"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +45,30 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 		},
 	}, nil
 }
+
+// AddReply is AddComment for a review thread. The id counts up so two replies
+// to one thread do not come back sharing a node id, which is the one thing the
+// focus ring cannot survive.
+func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error) {
+	mockReplies++
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind:            gh.CommentThread,
+			ID:              "PRRC_MOCK_" + strconv.Itoa(mockReplies),
+			Author:          gh.Actor{Login: mockViewer},
+			CreatedAt:       time.Now(),
+			Body:            body,
+			ViewerDidAuthor: true,
+			CanEdit:         true,
+			CanDelete:       true,
+			CanReact:        true,
+		},
+	}, nil
+}
+
+// mockReplies numbers the replies this mockup has taken. The mockup is one
+// process with one screen and no concurrency to speak of.
+var mockReplies int
 
 // SearchPullRequests answers from the fixtures, keyed by the query so the tabs
 // carry counts that differ.

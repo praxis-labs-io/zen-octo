@@ -137,7 +137,7 @@ func (c *composer) setWidth(width int) { c.area.SetWidth(width) }
 // card renders the box the way every other entry in the conversation renders:
 // a heading, a rule, then the content. It is the same component, so a comment
 // being written sits among the comments already made rather than beside them.
-func (m *Model) composeCard(width int) string {
+func (m *Model) composeCard(width int) rendered {
 	key := focusKey{kind: focusCompose}
 
 	// said drops the login when there is none, which is what the heading needs
@@ -149,7 +149,8 @@ func (m *Model) composeCard(width int) string {
 	m.compose.setWidth(inner)
 
 	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
-	return m.card(head, body, width, key)
+	block := m.card(head, body, width, m.lit(key))
+	return rendered{block: block, stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}}}
 }
 
 // button is the post control, on the last row of the card and against its right
@@ -215,15 +216,15 @@ func (c composer) hint(focused bool) string {
 	}, " · ")
 }
 
-// Composing reports whether the box has the keyboard. The root reads it before
+// Composing reports whether a box has the keyboard. The root reads it before
 // its own bindings: q is a letter in there, and the only way out of that is for
 // the root to stand aside.
-func (m Model) Composing() bool { return m.compose.typing }
+func (m Model) Composing() bool { return m.compose.typing || m.reply.typing }
 
-// SetChords says whether the terminal can send ctrl+enter. Only the hint reads
+// SetChords says whether the terminal can send ctrl+enter. Only the hints read
 // it: the binding is live either way, and on a terminal that cannot send the
 // chord the key simply never arrives.
-func (m *Model) SetChords(v bool) { m.compose.chords = v }
+func (m *Model) SetChords(v bool) { m.compose.chords, m.reply.chords = v, v }
 
 // SetViewer names who a comment will be from, for the box's heading.
 //

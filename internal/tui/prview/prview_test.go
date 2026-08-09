@@ -415,7 +415,10 @@ func sampleDetail() gh.PullRequestDetail {
 		},
 
 		Threads: []gh.ReviewThread{
+			// Two comments and a reply GitHub will take, so the ring has more
+			// than one stop inside a card and the reply keys have a target.
 			{ID: "RT_1", ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+				CanReply: true,
 				Hunk: &gh.Hunk{
 					Header: "@@ -40,3 +40,4 @@",
 					Lines: []gh.DiffLine{
@@ -427,14 +430,23 @@ func sampleDetail() gh.PullRequestDetail {
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(2 * time.Hour), Body: "This backs off forever."},
+					{Kind: gh.CommentThread, ID: "RC_4", Author: gh.Actor{Login: "octobot"},
+						CreatedAt: ago(90 * time.Minute), Body: "Seconded, the cap is the fix."},
 				}},
 			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
-				IsResolved: true,
+				IsResolved: true, CanReply: true,
 				Comments: []gh.Comment{
 					{Kind: gh.CommentThread, ID: "RC_2", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(2 * time.Hour), Body: "Typo."},
 					{Kind: gh.CommentThread, ID: "RC_3", Author: gh.Actor{Login: "drucial"},
 						CreatedAt: ago(time.Hour), Body: "Fixed."},
+				}},
+			// A thread nobody may answer, so the keys have something to be inert
+			// on. Unowned, so it renders at the end of the page.
+			{ID: "RT_4", Path: "internal/tui/app/app.go", Line: 12, Side: gh.SideRight,
+				Comments: []gh.Comment{
+					{Kind: gh.CommentThread, ID: "RC_5", Author: gh.Actor{Login: "nkr"},
+						CreatedAt: ago(time.Hour), Body: "Locked, so no reply."},
 				}},
 		},
 	}
@@ -587,7 +599,7 @@ func TestTheConversationEndsOnABlankLine(t *testing.T) {
 func refreshed(t *testing.T, m prview.Model) prview.RefreshMsg {
 	t.Helper()
 
-	_, cmd := key(m, "r")
+	_, cmd := key(m, "s")
 	if cmd == nil {
 		t.Fatal("r asked for nothing")
 	}
@@ -935,7 +947,7 @@ func TestTheNumberLeadsTheTitleInTheAccent(t *testing.T) {
 // A thread belongs to the review that opened it, and nothing else on the screen
 // says so once the review's own box has closed.
 func TestThreadsHangOffTheReviewThatOpenedThem(t *testing.T) {
-	out := stripANSI(detailed(held(sampleDetail()), 200, 40).View())
+	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
 	// The elbow meets the card's heading row, not its top border.
 	if !strings.Contains(out, "├─│ internal/gh/client.go:42") {

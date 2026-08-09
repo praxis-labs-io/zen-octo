@@ -57,7 +57,9 @@ func composing(width, height int) prview.Model {
 // The box is part of the conversation, not something summoned. It is on the
 // page before any key is pressed, which is how anyone finds out it is there.
 func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
-	out := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
+	// G, because the box closes the conversation and this fixture is longer
+	// than the window. Reaching it is the reader's business; being there is not.
+	out := stripANSI(press(detailed(held(sampleDetail()), 200, 60), "G").View())
 
 	if !strings.Contains(out, "Leave a comment") {
 		t.Errorf("no comment box in the conversation:\n%s", out)
@@ -488,12 +490,12 @@ func TestPostingLetsGoOfTheBox(t *testing.T) {
 // naming the wrong one is a key that does nothing to whoever tries it.
 func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
 	away := detailed(held(sampleDetail()), 200, 60)
-	if got := stripANSI(away.View()); !strings.Contains(got, "c to write") {
+	if got := stripANSI(press(away, "G").View()); !strings.Contains(got, "c to write") {
 		t.Errorf("with focus elsewhere the box names the wrong key:\n%s", got)
 	}
 
-	// Six tabs walks the ring onto the box without starting to write in it.
-	onIt := press(away, strings.Fields(strings.Repeat("tab ", 6))...)
+	// Eight tabs walks the ring onto the box without starting to write in it.
+	onIt := press(away, strings.Fields(strings.Repeat("tab ", 8))...)
 	out := stripANSI(onIt.View())
 	if !strings.Contains(out, "enter to write") {
 		t.Errorf("with the ring on the box it does not name enter:\n%s", out)

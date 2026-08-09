@@ -46,6 +46,16 @@ type PostCommentMsg struct {
 	Body string
 }
 
+// PostReplyMsg asks the root to answer a review thread. It carries the pull
+// request as well as the thread: the mutation is addressed to the thread, and
+// everything the root does around it, the placeholder and the toast and the
+// screen it puts them on, is keyed by the pull request.
+type PostReplyMsg struct {
+	ID       string
+	ThreadID string
+	Body     string
+}
+
 // EditorFailedMsg reports an editor that would not run or a file that would not
 // be read. The buffer is untouched and the pane is still open; the root raises
 // the toast, because the screen has nowhere to say it.
@@ -215,6 +225,11 @@ type Model struct {
 	compose composer
 	who     gh.Actor
 
+	// reply is the box r opens inside a review thread. Separate from compose
+	// because the two hold different drafts for different targets, and only one
+	// of them has the keyboard at a time.
+	reply replier
+
 	// conv is the conversation above the box, kept while it is being written in.
 	conv convCache
 
@@ -248,6 +263,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
 		compose:     newComposer(th),
+		reply:       newReplier(th),
 		collapsed:   make(map[string]bool),
 		expanded:    make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
@@ -336,17 +352,41 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// A paste is not a keypress. The terminal sends it whole, as its own
 		// message, and the textarea answers two of them: the bracketed paste the
 		// terminal wraps a middle-click or a cmd+v in, and the clipboard read its
-		// own ctrl+v asks for. Neither reaches handleKey, so while the box has
-		// the keyboard anything this screen does not recognise goes to it.
-		if !m.compose.typing {
+		// own ctrl+v asks for. Neither reaches handleKey, so while a box has the
+		// keyboard anything this screen does not recognise goes to it.
+		box := m.writing()
+		if box == nil {
 			return m, nil
 		}
 
 		var cmd tea.Cmd
-		m.compose.area, cmd = m.compose.area.Update(msg)
-		m.showCompose()
+		box.area, cmd = box.area.Update(msg)
+		m.showBox()
 		return m, cmd
 	}
+}
+
+// writing is the box with the keyboard, or nil when the screen has it. Two boxes
+// can be on the page and only one of them can be typed in.
+func (m *Model) writing() *composer {
+	switch {
+	case m.compose.typing:
+		return &m.compose
+	case m.reply.typing:
+		return &m.reply.composer
+	}
+	return nil
+}
+
+// showBox brings whichever box is being written in back onto the page. They
+// scroll differently: the compose card is the last block and the reply box is
+// somewhere in the middle.
+func (m *Model) showBox() {
+	if m.reply.typing {
+		m.showReply()
+		return
+	}
+	m.showCompose()
 }
 
 // waiting is the one state the spinner belongs in: nothing to read yet. A
@@ -379,10 +419,13 @@ func waitingFor(f store.Files) bool {
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
-	// The box takes the keyboard while it is being written in. Every letter is a
+	// A box takes the keyboard while it is being written in. Every letter is a
 	// letter then, so nothing below this line gets a look.
-	if m.compose.typing {
+	switch {
+	case m.compose.typing:
 		return m.composeKey(keyMsg)
+	case m.reply.typing:
+		return m.replyKey(keyMsg)
 	}
 
 	before := m.view.YOffset()
@@ -401,7 +444,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		return m, func() tea.Msg { return BackMsg{} }
 
-	case key.Matches(keyMsg, k.Refresh):
+	case key.Matches(keyMsg, k.Sync):
 		return m, m.refresh()
 
 	// A top-level comment lands in the conversation, so it is written from
@@ -417,6 +460,14 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// steps into it, the same key that presses the button once inside.
 	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.convRing.on.kind == focusCompose:
 		return m.writeComment()
+
+	// A reply answers the comment the ring is on, so both keys read the focus
+	// and do nothing without one. The gate is inside: whether GitHub will take
+	// a reply is the thread's answer, not this screen's.
+	case key.Matches(keyMsg, k.Reply):
+		return m.startReply(false)
+	case key.Matches(keyMsg, k.QuoteReply):
+		return m.startReply(true)
 
 	case key.Matches(keyMsg, k.FocusNext):
 		m.stepFocus(1)
