@@ -244,6 +244,33 @@ func TestTheBarCostsTheSameSpaceWhenItIsNotDrawn(t *testing.T) {
 	}
 }
 
+// Opening a box must not take the thread off the screen with it. The comments
+// sit above the box, so a scroll that puts the box on the top row leaves the
+// reader answering something they can no longer see.
+func TestOpeningTheBoxKeepsTheThreadInView(t *testing.T) {
+	// Short enough that the card and its box cannot both fit whole, which is
+	// the case the scroll has to get right.
+	m := tabbed(detailed(held(sampleDetail()), 160, 24), tabThread)
+
+	before := stripANSI(m.View())
+	if !strings.Contains(before, "Seconded, the cap is the fix.") {
+		t.Fatal("the thread is not on screen to begin with, so this proves nothing")
+	}
+
+	out := stripANSI(press(m, "r").View())
+	box := strings.Index(out, "write a reply")
+	answered := strings.Index(out, "Seconded, the cap is the fix.")
+
+	switch {
+	case box < 0:
+		t.Fatalf("no box opened:\n%s", out)
+	case answered < 0:
+		t.Errorf("opening the box scrolled the thread off the screen:\n%s", out)
+	case answered > box:
+		t.Errorf("the box opened above the comment it answers:\n%s", out)
+	}
+}
+
 // Plain r leaves the buffer alone. A reader who wanted the quote has a key for
 // it, and one who did not would have to clear five lines before writing.
 func TestReplyDoesNotQuote(t *testing.T) {

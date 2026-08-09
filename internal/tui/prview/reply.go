@@ -289,12 +289,13 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 
 	m.convRing.on = m.replyFocus()
 	m.conv.ok = false
-	m.syncContent()
 
-	// Opening scrolls the way tab does, to the top row, because the reader is
-	// being moved to a place rather than kept at one.
-	top := bodyTop(&m.view)
-	m.view.SetYOffset(contentLead + m.convRing.show(top, m.view.Height()))
+	// Opening scrolls the same shortest way typing does, and for a stronger
+	// reason. Moving the box to the top row takes the thread off the screen with
+	// it: the code, the comments, and the one being answered all sit above the
+	// box, so topping it leaves the reader writing a reply to something they can
+	// no longer see.
+	m.showReply()
 	return m, cmd
 }
 
