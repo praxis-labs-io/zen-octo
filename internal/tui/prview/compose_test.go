@@ -282,3 +282,55 @@ func TestCtrlEHandsTheBufferOff(t *testing.T) {
 		t.Error("ctrl+e did nothing")
 	}
 }
+
+// The composer belongs to the conversation, not to the screen. It takes its
+// height off the conversation pane alone: a comment being written has nothing
+// to do with the rail, and shortening the rail for one is the screen
+// rearranging itself around a box in the column beside it.
+func TestTheComposerTakesItsHeightFromTheConversationAlone(t *testing.T) {
+	closed := detailed(held(sampleDetail()), 200, 40)
+	open := press(closed, "c")
+
+	before, after := railRows(t, closed.View()), railRows(t, open.View())
+	if len(before) != len(after) {
+		t.Errorf("the rail is %d rows with the composer open and %d without", len(after), len(before))
+	}
+
+	// Both columns still reach the foot of the frame.
+	last := strings.Split(stripANSI(open.View()), "\n")
+	if got := last[len(last)-1]; strings.Count(got, "╯") != 2 {
+		t.Errorf("the last line closes %d panes, want the composer and the rail: %q",
+			strings.Count(got, "╯"), got)
+	}
+}
+
+// It is also no wider than the conversation. Spanning the frame would put it
+// under the rail, which is not where the comment is going to appear.
+func TestTheComposerIsAsWideAsTheConversation(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 40), "c")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	title, foot := -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, "Comment on #") {
+			title = i
+		}
+		if strings.Contains(line, "Conversation - Commits") {
+			foot = i
+		}
+	}
+	if title < 0 || foot < 0 {
+		t.Fatalf("could not find both panes:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The conversation's top border and the composer's each close at the same
+	// column, which is where the rail begins. Measured in cells: a box rune is
+	// three bytes and a tab strip is one per character, so the byte offsets
+	// differ on lines that close at the same place.
+	closesAt := func(line string) int {
+		return lipgloss.Width(line[:strings.Index(line, "╮")])
+	}
+	if a, b := closesAt(lines[foot]), closesAt(lines[title]); a != b {
+		t.Errorf("the composer closes at column %d and the conversation at %d", b, a)
+	}
+}

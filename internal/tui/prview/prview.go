@@ -803,9 +803,10 @@ func (m *Model) SetSize(width, height int) {
 
 // layout sizes the panes for the current frame, tab, and rail state.
 //
-// The composer is subtracted first and the panes divide what is left, so a
-// comment being written costs the conversation four lines rather than pushing
-// the frame past the height it was handed.
+// The composer belongs to the conversation, not to the screen. It is as wide as
+// the conversation pane and takes its height off that pane alone: a comment
+// being written is nothing to do with the rail, and shortening the rail for one
+// would be the screen rearranging itself around a box in the column beside it.
 func (m *Model) layout() {
 	// Focus follows the panes: a tab switch or a resize can take the one that
 	// had it off the screen.
@@ -813,25 +814,23 @@ func (m *Model) layout() {
 		m.focus = paneMain
 	}
 
-	m.compose.setSize(m.width, m.height)
-	panes := max(0, m.height-m.compose.height(m.height))
-
 	mainWidth := m.width
 	if m.sideVisible() {
 		column := m.sideColumn()
 		mainWidth -= column
-		m.side = m.side.Size(column, panes)
+		m.side = m.side.Size(column, m.height)
 		m.sideView.SetWidth(m.side.InnerWidth())
 		m.sideView.SetHeight(m.sideHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
-		m.rail = m.rail.Size(columnWidth, panes)
+		m.rail = m.rail.Size(columnWidth, m.height)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, panes)
+	m.compose.setSize(mainWidth, m.height)
+	m.main = m.main.Size(mainWidth, max(0, m.height-m.compose.height(m.height)))
 	m.view.SetWidth(m.main.InnerWidth())
 	m.view.SetHeight(m.main.InnerHeight())
 	m.syncContent()
@@ -986,12 +985,20 @@ func (m Model) View() string {
 
 	// The tab strip goes on the main pane rather than on the column beside it:
 	// the strip is wider than the column and would clip to a fragment there.
-	panes := []string{m.main.
+	conversation := m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
-		Render(m.view.View())}
+		Render(m.view.View())
+
+	// The composer sits under the conversation and inside its column, which is
+	// where the thing it writes will appear.
+	if box := m.compose.view(m.theme, m.composeTitle()); box != "" {
+		conversation = joinColumn(conversation, box)
+	}
+
+	panes := []string{conversation}
 
 	if m.sideVisible() {
 		column := m.side.
@@ -1012,18 +1019,20 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	row := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+}
 
-	pane := m.compose.view(m.theme, m.composeTitle())
+// joinColumn stacks two panes in one column. A pane with no room for content
+// renders nothing at all, and joining that empty string would still cost the
+// line it was denied.
+func joinColumn(top, bottom string) string {
 	switch {
-	case pane == "":
-		return row
-	// A pane with no room for content renders nothing at all, and joining that
-	// empty string would still cost the line it was denied.
-	case row == "":
-		return pane
+	case top == "":
+		return bottom
+	case bottom == "":
+		return top
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, row, pane)
+	return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
 }
 
 // composeTitle names what is being written and where it lands. A text box at

@@ -25,9 +25,14 @@ const composeRows = 3
 // border, but a control the reader can move onto earns a line of its own.
 const composeChrome = 1
 
-// postLabel is the button. The brackets are what make it read as something to
+// postLabel is the button. The padding is what makes it read as something to
 // press rather than a word sitting in the pane.
 const postLabel = " Post "
+
+// composeGutter is the space between the pane's border and what it holds. Text
+// against a border reads as a rendering fault rather than as a box, which is
+// the same reason the rail and every card keep one.
+const composeGutter = 1
 
 // composer is where a comment gets written. It docks under the panes and takes
 // its height off them, so the thread being answered stays on the screen.
@@ -57,7 +62,10 @@ func newComposer(th theme.Theme) composer {
 	area := textarea.New()
 	area.Placeholder = "Leave a comment"
 	area.ShowLineNumbers = false
-	area.Prompt = ""
+
+	// The prompt is the gutter. Indenting the rendered view instead would put
+	// the cursor a column left of the character it is on.
+	area.Prompt = strings.Repeat(" ", composeGutter)
 
 	// The default is four hundred characters, which is a short review comment.
 	area.CharLimit = 0
@@ -161,7 +169,8 @@ func (c composer) view(th theme.Theme, title string) string {
 		button = lipgloss.NewStyle().Foreground(th.Inverted).Background(th.Faint)
 	}
 
-	body := c.area.View() + "\n" + button.Render(postLabel)
+	body := c.area.View() + "\n" +
+		strings.Repeat(" ", composeGutter) + button.Render(postLabel)
 	return c.pane.Title(title).Footer(c.hints()).Focus(true).Render(body)
 }
 
