@@ -81,12 +81,42 @@ type Label struct {
 	Color string
 }
 
-// Comment is one piece of writing in the conversation, whether it stands alone
-// or sits inside a review thread.
+// CommentKind says which of GitHub's three comment types this is. A node id on
+// its own does not name the call that edits it: updateIssueComment,
+// updatePullRequestReviewComment and updatePullRequestReview are three
+// mutations over one domain type.
+type CommentKind string
+
+const (
+	// CommentIssue is a comment standing on its own in the conversation.
+	// GitHub calls it an issue comment on a pull request as well as an issue.
+	CommentIssue CommentKind = "ISSUE"
+
+	// CommentReview is a review's own body, the words above its threads.
+	CommentReview CommentKind = "REVIEW"
+
+	// CommentThread is one comment inside a line-anchored review thread.
+	CommentThread CommentKind = "THREAD"
+)
+
+// Comment is one piece of writing in the conversation, whether it stands alone,
+// heads a review, or sits inside a review thread. One type for all three is what
+// lets one component render them, and what makes issues cheap to add later.
+//
+// ViewerDidAuthor is not CanEdit. A maintainer can edit and delete anyone's
+// comment in their own repository, and only the first of the two says whose
+// writing it is.
 type Comment struct {
+	Kind      CommentKind
+	ID        string
 	Author    Actor
 	CreatedAt time.Time
 	Body      string
+
+	ViewerDidAuthor bool
+	CanEdit         bool
+	CanDelete       bool
+	CanReact        bool
 }
 
 // DiffSide is which half of the diff a line belongs to. A comment on a deleted
@@ -99,9 +129,10 @@ const (
 	SideLeft  DiffSide = "LEFT"
 )
 
-// ReviewThread is a line-anchored discussion. ReviewID names the review its
-// first comment was submitted with, which is how the conversation puts a thread
-// under the review that opened it.
+// ReviewThread is a line-anchored discussion. ID is the thread's own node,
+// which is what a reply or a resolve is addressed to. ReviewID names the review
+// its first comment was submitted with, which is how the conversation puts a
+// thread under the review that opened it.
 //
 // StartLine is zero on a single-line thread. Line is the last line either way,
 // which is where GitHub itself hangs the thread.
@@ -109,7 +140,11 @@ const (
 // Hunk is the few lines of diff the thread was written against, nil when GitHub
 // returned none. Without it a comment on the conversation reads as an assertion
 // about code that is nowhere on the screen.
+//
+// CanResolve and CanUnresolve are separate permissions on one control. Someone
+// can be allowed to close a thread and not to reopen it.
 type ReviewThread struct {
+	ID         string
 	ReviewID   string
 	Path       string
 	Line       int
@@ -117,21 +152,38 @@ type ReviewThread struct {
 	Side       DiffSide
 	IsResolved bool
 	IsOutdated bool
-	Hunk       *Hunk
-	Comments   []Comment
+
+	CanReply     bool
+	CanResolve   bool
+	CanUnresolve bool
+
+	Hunk     *Hunk
+	Comments []Comment
 }
 
-// TimelineItem is one entry in the conversation. Body is empty on an event,
+// TimelineItem is one entry in the conversation. Comment is nil on an event,
 // Review is set only when Kind is TimelineReview, and Commit only when Kind is
 // TimelineCommit.
+//
+// Actor and CreatedAt are on the item rather than read off the comment, because
+// an event has both and no comment, and the list is sorted by the timestamp
+// before anything knows which kind it is looking at.
 type TimelineItem struct {
 	Kind      TimelineKind
-	ID        string
 	Actor     Actor
 	CreatedAt time.Time
-	Body      string
+	Comment   *Comment
 	Review    ReviewState
 	Commit    *Commit
+}
+
+// Said is the comment behind a comment or a review, and the zero Comment on
+// anything else, so a renderer reads a body without a nil check.
+func (i TimelineItem) Said() Comment {
+	if i.Comment == nil {
+		return Comment{}
+	}
+	return *i.Comment
 }
 
 // Commit is one commit behind the pull request. Author is the GitHub account
@@ -321,6 +373,14 @@ type RateLimit struct {
 	Cost      int
 	Remaining int
 	ResetAt   time.Time
+}
+
+// ViewerResult is one viewer response: who the token belongs to and what it
+// cost. The login is what tells your own writing from everyone else's on a
+// screen, before a permission field settles what you can do to it.
+type ViewerResult struct {
+	Viewer    Actor
+	RateLimit RateLimit
 }
 
 // SearchResult is one search response: what it matched and what it cost.

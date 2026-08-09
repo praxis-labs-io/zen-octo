@@ -408,16 +408,14 @@ func sampleDetail() gh.PullRequestDetail {
 		BehindBy: 4,
 
 		Timeline: []gh.TimelineItem{
-			{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"},
-				CreatedAt: ago(3 * time.Hour), Body: "Coverage held at 84.2%."},
-			{Kind: gh.TimelineReview, ID: "REV_1", Actor: gh.Actor{Login: "nkr"},
-				Review: gh.ReviewStateChangesRequested, CreatedAt: ago(2 * time.Hour),
-				Body: "Two things on the retry path."},
+			commented("octobot", ago(3*time.Hour), "Coverage held at 84.2%."),
+			reviewed("REV_1", "nkr", gh.ReviewStateChangesRequested, ago(2*time.Hour),
+				"Two things on the retry path."),
 			{Kind: gh.TimelineForcePushed, Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour)},
 		},
 
 		Threads: []gh.ReviewThread{
-			{ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+			{ID: "RT_1", ReviewID: "REV_1", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
 				Hunk: &gh.Hunk{
 					Header: "@@ -40,3 +40,4 @@",
 					Lines: []gh.DiffLine{
@@ -427,15 +425,39 @@ func sampleDetail() gh.PullRequestDetail {
 					},
 				},
 				Comments: []gh.Comment{
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour),
-						Body: "This backs off forever."},
+					{Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"},
+						CreatedAt: ago(2 * time.Hour), Body: "This backs off forever."},
 				}},
-			{ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
+			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
 				IsResolved: true,
 				Comments: []gh.Comment{
-					{Author: gh.Actor{Login: "nkr"}, CreatedAt: ago(2 * time.Hour), Body: "Typo."},
-					{Author: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour), Body: "Fixed."},
+					{Kind: gh.CommentThread, ID: "RC_2", Author: gh.Actor{Login: "nkr"},
+						CreatedAt: ago(2 * time.Hour), Body: "Typo."},
+					{Kind: gh.CommentThread, ID: "RC_3", Author: gh.Actor{Login: "drucial"},
+						CreatedAt: ago(time.Hour), Body: "Fixed."},
 				}},
+		},
+	}
+}
+
+// commented and reviewed build the two timeline items that carry writing. The
+// ids are here because a comment has one, not because a frame reads it.
+func commented(who string, at time.Time, body string) gh.TimelineItem {
+	return gh.TimelineItem{
+		Kind: gh.TimelineComment, Actor: gh.Actor{Login: who}, CreatedAt: at,
+		Comment: &gh.Comment{
+			Kind: gh.CommentIssue, ID: "IC_" + who, Author: gh.Actor{Login: who},
+			CreatedAt: at, Body: body,
+		},
+	}
+}
+
+func reviewed(id, who string, state gh.ReviewState, at time.Time, body string) gh.TimelineItem {
+	return gh.TimelineItem{
+		Kind: gh.TimelineReview, Actor: gh.Actor{Login: who}, CreatedAt: at, Review: state,
+		Comment: &gh.Comment{
+			Kind: gh.CommentReview, ID: id, Author: gh.Actor{Login: who},
+			CreatedAt: at, Body: body,
 		},
 	}
 }
@@ -1640,9 +1662,9 @@ func TestAnEventWithNoWordsForItLeavesNoGap(t *testing.T) {
 	// Between two comments, so the extra gap is between two cards rather than
 	// at the end, where the pane's own padding would hide it.
 	d.Timeline = []gh.TimelineItem{
-		{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(2 * time.Hour), Body: "First."},
+		commented("octobot", ago(2*time.Hour), "First."),
 		{Kind: "SOMETHING_GITHUB_ADDED_LATER", Actor: gh.Actor{Login: "drucial"}, CreatedAt: ago(time.Hour)},
-		{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "nkr"}, CreatedAt: ago(time.Minute), Body: "Second."},
+		commented("nkr", ago(time.Minute), "Second."),
 	}
 
 	frame := detailed(held(d), 200, 44).View()

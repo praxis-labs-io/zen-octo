@@ -73,6 +73,7 @@ type Store struct {
 	files    map[string]Files
 	commits  map[string]Files
 	rate     gh.RateLimit
+	viewer   gh.Actor
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -94,6 +95,18 @@ func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 
 // Rate is the point budget as of the responses seen so far.
 func (s Store) Rate() gh.RateLimit { return s.rate }
+
+// Viewer is the account the token belongs to. The zero Actor is one not yet
+// answered for, which reads the same as an account with no login.
+func (s Store) Viewer() gh.Actor { return s.viewer }
+
+// ViewerApplied stores the login and folds the response into the budget. There
+// is no Begin or Failed beside it: the login is asked for once at startup, and
+// nothing on the screen waits on it.
+func (s *Store) ViewerApplied(res gh.ViewerResult) {
+	s.viewer = res.Viewer
+	s.adopt(res.RateLimit)
+}
 
 // Loading reports whether any section has a fetch in flight.
 func (s Store) Loading() bool { return Loading(s.sections) }

@@ -43,8 +43,8 @@ func (k focusKind) prose() bool {
 // that slice is the timeline. Appending to it is safe, which is the common case
 // and the only one a refresh usually produces. Reordering it is not: a rebase
 // re-sorts commits into the list by date, and focus and whatever the reader
-// unfolded then name the card that took the index. Comments carry no id of
-// their own until ZNO-28 adds one, which is what a stable key needs.
+// unfolded then name the card that took the index. Comments carry ids now; the
+// rail rows this key also serves do not, which is what a switch has to answer.
 type focusKey struct {
 	kind  focusKind
 	index int

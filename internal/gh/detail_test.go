@@ -2,6 +2,7 @@ package gh
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -39,8 +40,14 @@ const detailBody = `{
     "comments": {
       "totalCount": 14,
       "nodes": [
-        {"author": null, "createdAt": "2026-08-02T09:00:00Z", "body": "From a deleted account."},
-        {"author": {"login": "octobot"}, "createdAt": "2026-08-04T09:00:00Z", "body": "Coverage held."}
+        {"id": "IC_1", "author": null, "createdAt": "2026-08-02T09:00:00Z",
+         "body": "From a deleted account.",
+         "viewerDidAuthor": false, "viewerCanUpdate": false,
+         "viewerCanDelete": true, "viewerCanReact": true},
+        {"id": "IC_2", "author": {"login": "octobot"}, "createdAt": "2026-08-04T09:00:00Z",
+         "body": "Coverage held.",
+         "viewerDidAuthor": false, "viewerCanUpdate": true,
+         "viewerCanDelete": true, "viewerCanReact": true}
       ]
     },
 
@@ -48,31 +55,47 @@ const detailBody = `{
       "totalCount": 3,
       "nodes": [
         {"id": "REV_1", "state": "CHANGES_REQUESTED", "body": "Two things.",
-         "submittedAt": "2026-08-03T09:00:00Z", "author": {"login": "nkr"}},
+         "submittedAt": "2026-08-03T09:00:00Z", "author": {"login": "nkr"},
+         "viewerDidAuthor": false, "viewerCanUpdate": false,
+         "viewerCanDelete": true, "viewerCanReact": true},
         {"id": "REV_2", "state": "APPROVED", "body": "",
-         "submittedAt": "2026-08-05T09:00:00Z", "author": {"login": "nkr"}},
+         "submittedAt": "2026-08-05T09:00:00Z", "author": {"login": "nkr"},
+         "viewerDidAuthor": false, "viewerCanUpdate": false,
+         "viewerCanDelete": true, "viewerCanReact": true},
         {"id": "REV_3", "state": "PENDING", "body": "not sent yet",
-         "submittedAt": null, "author": {"login": "drucial"}}
+         "submittedAt": null, "author": {"login": "drucial"},
+         "viewerDidAuthor": true, "viewerCanUpdate": true,
+         "viewerCanDelete": true, "viewerCanReact": false}
       ]
     },
 
     "reviewThreads": {
       "totalCount": 5,
       "nodes": [
-        {"isResolved": false, "isOutdated": false, "path": "internal/gh/client.go", "line": 42,
+        {"id": "RT_1", "isResolved": false, "isOutdated": false,
+         "viewerCanReply": true, "viewerCanResolve": true, "viewerCanUnresolve": false,
+         "path": "internal/gh/client.go", "line": 42,
          "startLine": 40, "originalLine": 40, "originalStartLine": 38, "diffSide": "RIGHT",
          "comments": {"totalCount": 2, "nodes": [
-           {"author": {"login": "nkr"}, "createdAt": "2026-08-03T09:00:00Z",
+           {"id": "RC_1", "author": {"login": "nkr"}, "createdAt": "2026-08-03T09:00:00Z",
             "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"},
+            "viewerDidAuthor": false, "viewerCanUpdate": false,
+            "viewerCanDelete": true, "viewerCanReact": true,
             "diffHunk": "@@ -39,3 +39,4 @@\n \tfor {\n-\t\ttime.Sleep(delay)\n+\t\tdelay = min(delay*2, fetchTimeout)"},
-           {"author": {"login": "drucial"}, "createdAt": "2026-08-03T10:00:00Z",
-            "body": "Capped.", "pullRequestReview": {"id": "REV_1"}}
+           {"id": "RC_2", "author": {"login": "drucial"}, "createdAt": "2026-08-03T10:00:00Z",
+            "body": "Capped.", "pullRequestReview": {"id": "REV_1"},
+            "viewerDidAuthor": true, "viewerCanUpdate": true,
+            "viewerCanDelete": true, "viewerCanReact": true}
          ]}},
-        {"isResolved": true, "isOutdated": true, "path": "internal/store/store.go", "line": null,
+        {"id": "RT_2", "isResolved": true, "isOutdated": true,
+         "viewerCanReply": true, "viewerCanResolve": false, "viewerCanUnresolve": true,
+         "path": "internal/store/store.go", "line": null,
          "startLine": null, "originalLine": 88, "originalStartLine": 86, "diffSide": "LEFT",
          "comments": {"totalCount": 1, "nodes": [
-           {"author": {"login": "nkr"}, "createdAt": "2026-08-05T09:00:00Z",
-            "body": "Typo.", "pullRequestReview": {"id": "REV_2"}}
+           {"id": "RC_3", "author": {"login": "nkr"}, "createdAt": "2026-08-05T09:00:00Z",
+            "body": "Typo.", "pullRequestReview": {"id": "REV_2"},
+            "viewerDidAuthor": false, "viewerCanUpdate": false,
+            "viewerCanDelete": true, "viewerCanReact": true}
          ]}}
       ]
     },
@@ -209,7 +232,7 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 // it, and it has no timestamp to sort by.
 func TestAnUnsubmittedReviewStaysOut(t *testing.T) {
 	for _, item := range fetchDetail(t).Timeline {
-		if item.ID == "REV_3" {
+		if item.Said().ID == "REV_3" {
 			t.Error("the timeline carries a pending review")
 		}
 	}
@@ -531,6 +554,143 @@ func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)
 		}
+	}
+}
+
+// And again: a permission left out of the query decodes to false, which reads
+// as a comment nobody is allowed to touch. Every key would go quiet with no
+// error to say why.
+func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
+	for _, want := range []string{
+		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
+		"viewerCanReply", "viewerCanResolve", "viewerCanUnresolve",
+	} {
+		if !strings.Contains(pullRequestQuery, want) {
+			t.Errorf("the query does not ask for %q", want)
+		}
+	}
+
+	// One asked for once is asked for on comments alone. Three comment types
+	// carry these, and the count is what says the fragment reached all three.
+	if got := strings.Count(pullRequestQuery, "viewerDidAuthor"); got != 3 {
+		t.Errorf("viewerDidAuthor appears %d times, want 3: issue comments, reviews and thread comments", got)
+	}
+}
+
+// Nothing can be edited, deleted or replied to without a node id, and the id
+// GitHub answers with is the only one there is.
+func TestEveryCommentAndThreadComesBackWithItsID(t *testing.T) {
+	d := fetchDetail(t)
+
+	var ids []string
+	for _, item := range d.Timeline {
+		if item.Comment != nil {
+			ids = append(ids, item.Said().ID)
+		}
+	}
+	want := []string{"IC_1", "REV_1", "IC_2", "REV_2"}
+	if !slices.Equal(ids, want) {
+		t.Errorf("timeline comment ids = %v, want %v", ids, want)
+	}
+
+	for i, thread := range d.Threads {
+		if thread.ID == "" {
+			t.Errorf("Threads[%d] has no id of its own", i)
+		}
+		for j, c := range thread.Comments {
+			if c.ID == "" {
+				t.Errorf("Threads[%d].Comments[%d] has no id", i, j)
+			}
+		}
+	}
+}
+
+// A comment's kind is what names the mutation that edits it. Three GraphQL
+// types answer with a body, and the id alone does not say which one this was.
+func TestEachCommentSaysWhichKindItIs(t *testing.T) {
+	d := fetchDetail(t)
+
+	for _, item := range d.Timeline {
+		var want CommentKind
+		switch item.Kind {
+		case TimelineComment:
+			want = CommentIssue
+		case TimelineReview:
+			want = CommentReview
+		default:
+			if item.Comment != nil {
+				t.Errorf("a %s carries a comment", item.Kind)
+			}
+			continue
+		}
+		if got := item.Said().Kind; got != want {
+			t.Errorf("a %s carries a %q comment, want %q", item.Kind, got, want)
+		}
+	}
+
+	for _, c := range d.Threads[0].Comments {
+		if c.Kind != CommentThread {
+			t.Errorf("a thread comment says it is %q, want %q", c.Kind, CommentThread)
+		}
+	}
+}
+
+// Whose writing it is and what may be done to it are two questions. A
+// maintainer can edit and delete a comment they did not write, and a screen
+// that offers the keys on authorship alone hides them from the person holding
+// the permission.
+func TestAuthorshipAndPermissionAreSeparateAnswers(t *testing.T) {
+	byID := make(map[string]Comment)
+	for _, item := range fetchDetail(t).Timeline {
+		if item.Comment != nil {
+			byID[item.Said().ID] = item.Said()
+		}
+	}
+
+	tests := []struct {
+		id string
+		authored,
+		edit, del, react bool
+	}{
+		{"IC_1", false, false, true, true},
+		{"IC_2", false, true, true, true},
+		{"REV_1", false, false, true, true},
+	}
+	for _, tt := range tests {
+		c, ok := byID[tt.id]
+		if !ok {
+			t.Fatalf("%s is not in the timeline", tt.id)
+		}
+		if c.ViewerDidAuthor != tt.authored || c.CanEdit != tt.edit ||
+			c.CanDelete != tt.del || c.CanReact != tt.react {
+			t.Errorf("%s: authored=%v edit=%v delete=%v react=%v, want %v %v %v %v",
+				tt.id, c.ViewerDidAuthor, c.CanEdit, c.CanDelete, c.CanReact,
+				tt.authored, tt.edit, tt.del, tt.react)
+		}
+	}
+
+	// The one comment in the fixture the viewer wrote.
+	own := fetchDetail(t).Threads[0].Comments[1]
+	if !own.ViewerDidAuthor || !own.CanEdit {
+		t.Errorf("RC_2 is the viewer's own: authored=%v edit=%v", own.ViewerDidAuthor, own.CanEdit)
+	}
+}
+
+// Resolve and unresolve are one control with two directions, and GitHub
+// permissions them apart. A thread already closed answers with the other one.
+func TestAThreadCarriesReplyAndBothDirectionsOfResolve(t *testing.T) {
+	threads := fetchDetail(t).Threads
+
+	open := threads[0]
+	if !open.CanReply || !open.CanResolve || open.CanUnresolve {
+		t.Errorf("open thread: reply=%v resolve=%v unresolve=%v, want true true false",
+			open.CanReply, open.CanResolve, open.CanUnresolve)
+	}
+
+	closed := threads[1]
+	if !closed.CanReply || closed.CanResolve || !closed.CanUnresolve {
+		t.Errorf("resolved thread: reply=%v resolve=%v unresolve=%v, want true false true",
+			closed.CanReply, closed.CanResolve, closed.CanUnresolve)
 	}
 }
 

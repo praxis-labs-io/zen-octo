@@ -31,11 +31,21 @@ import (
 // GitHub is the slice of the client this model needs. Declaring it here rather
 // than in the gh package is what lets tests drive the UI without a network.
 type GitHub interface {
+	Viewer(ctx context.Context) (gh.ViewerResult, error)
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
 	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 }
+
+// The viewer is asked for once, at startup. It names nothing because there is
+// only ever one of it, and the failure carries nothing because there is nowhere
+// to put it: see the handler.
+type viewerFetchedMsg struct {
+	res gh.ViewerResult
+}
+
+type viewerFailedMsg struct{}
 
 type sectionFetchedMsg struct {
 	index int
@@ -225,15 +235,29 @@ func New(cfg *config.Config, client GitHub) Model {
 	return m
 }
 
-// Init starts the list and fetches every section. tea.Batch runs its commands
-// concurrently, which is the whole of the concurrency here: no goroutine of
-// ours touches the model.
+// Init starts the list, asks who the token belongs to, and fetches every
+// section. tea.Batch runs its commands concurrently, which is the whole of the
+// concurrency here: no goroutine of ours touches the model.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.list.Init()}
+	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer()}
 	for i, section := range m.store.Sections() {
 		cmds = append(cmds, m.fetchSection(i, section.Filters))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m Model) fetchViewer() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.Viewer(ctx)
+		if err != nil {
+			return viewerFailedMsg{}
+		}
+		return viewerFetchedMsg{res: res}
+	}
 }
 
 func (m Model) fetchSection(index int, query string) tea.Cmd {
@@ -600,6 +624,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case viewerFetchedMsg:
+		m.store.ViewerApplied(msg.res)
+		return m, nil
+
+	case viewerFailedMsg:
+		// Nothing is shown, and the error is not kept. The login only changes
+		// how a name is written, and a token broken enough to fail this fails
+		// every section beside it, which the list says out loud with the reason.
+		// A toast here would be the only one at startup, for the one failure the
+		// reader cannot see the effect of.
+		return m, nil
 
 	case sectionFetchedMsg:
 		// No staleness guard: store.Begin refuses a section that already has a
