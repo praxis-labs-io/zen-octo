@@ -25,9 +25,13 @@ const composeRows = 8
 // border, but a control the reader can move onto earns a line of its own.
 const composeChrome = 1
 
-// postLabel is the button. The brackets are what make it read as something to
-// press rather than a word sitting in the corner.
-const postLabel = "[ Post ]"
+// postLabel is what the button says. The padding around it is the button: a
+// filled surface reads as something to press, where a bare word reads as a
+// caption.
+const postLabel = "Post"
+
+// postPad is the room either side of the label inside the button.
+const postPad = 2
 
 // composeGutter is the space between the pane's border and what it holds. Text
 // against a border reads as a rendering fault rather than as a box, which is
@@ -165,18 +169,26 @@ func (c composer) view(th theme.Theme, title string) string {
 	return c.pane.Title(title).Footer(c.hints()).Focus(true).Render(body)
 }
 
-// button is the post control, on the last row and against the right edge. It
-// stays muted: the writing is what the pane is for, and a filled block in the
-// corner would out-shout it. Only focus lights it.
+// button is the post control, on the last row and against the right edge.
+//
+// It is a filled surface at every state, because it is a button at every state.
+// Muted is the colour, not the shape: the raised background the rail uses for
+// its cursor line, which sits just off the pane behind it. Focus swaps it for
+// the accent, and an empty buffer greys the label without taking the surface
+// away, so the control does not appear and disappear as you type.
 func (c composer) button(th theme.Theme) string {
-	style := lipgloss.NewStyle().Foreground(th.Primary)
+	style := lipgloss.NewStyle().
+		Padding(0, postPad).
+		Foreground(th.Primary).
+		Background(th.SelectedBackground)
+
 	switch {
 	// Nothing to send. A control that takes a press and does nothing is worse
 	// than one that says it is not ready.
 	case c.body() == "":
-		style = lipgloss.NewStyle().Foreground(th.Faint)
+		style = style.Foreground(th.Faint)
 	case c.onPost:
-		style = lipgloss.NewStyle().Foreground(th.Inverted).Background(th.Secondary)
+		style = style.Foreground(th.Inverted).Background(th.Secondary)
 	}
 
 	return lipgloss.NewStyle().
@@ -265,8 +277,24 @@ func (m *Model) SetChords(v bool) { m.compose.chords = v }
 // are the reader's, and a network that dropped them is not a reason to.
 func (m *Model) RestoreDraft(body string) tea.Cmd {
 	cmd := m.compose.restore(body)
-	m.layout()
+	m.reflow()
 	return cmd
+}
+
+// reflow re-lays the panes around a change in the composer's height.
+//
+// A reader at the foot of the conversation is the one about to write, so the
+// box opening under them pushes the text up rather than cutting off the end of
+// what they just read. Anywhere else the page stays exactly where it is: the
+// window loses lines from the bottom, which are lines they had already scrolled
+// past. Moving the page under someone reading the middle of a thread is the one
+// thing this screen must not do, and the same rule holds when the box closes.
+func (m *Model) reflow() {
+	bottom := m.view.AtBottom()
+	m.layout()
+	if bottom {
+		m.view.GotoBottom()
+	}
 }
 
 // composeKey is every key while the pane is open. It answers the handful that
@@ -277,7 +305,7 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(keyMsg, k.Back):
 		m.compose.hide()
-		m.layout()
+		m.reflow()
 		return m, nil
 
 	case key.Matches(keyMsg, k.Editor):
@@ -311,7 +339,7 @@ func (m Model) post() (Model, tea.Cmd) {
 
 	id := m.pr.ID
 	m.compose.sent()
-	m.layout()
+	m.reflow()
 	return m, func() tea.Msg { return PostCommentMsg{ID: id, Body: body} }
 }
 

@@ -218,18 +218,40 @@ func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
 
 // lit is whether the post button carries the accent it takes on focus.
 func lit(frame string) bool {
-	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Secondary)+"m"+"[ Post ]")
+	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Secondary)+"mPost")
+}
+
+// It is a button at every state, filled surface and all. Muted is the colour it
+// wears, not a different shape: a control that turns into a word when it is not
+// focused is one the reader has to hunt for.
+func TestThePostButtonIsAFilledSurfaceAtEveryState(t *testing.T) {
+	empty := composing(200, 40)
+	written := typed(empty, "ship it")
+
+	states := map[string]string{
+		"with nothing written": empty.View(),
+		"ready to send":        written.View(),
+		"holding focus":        press(written, "tab").View(),
+	}
+	for name, frame := range states {
+		if !strings.Contains(frame, bgSeq(theme.RosePineMoon.SelectedBackground)+"mPost") &&
+			!lit(frame) {
+			t.Errorf("the button has no background %s", name)
+		}
+	}
 }
 
 // The button sits against the right edge of the pane, one column in, which is
 // the corner every dialog puts its confirm in.
 func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
-	m := typed(composing(200, 40), "ship it")
+	// Narrow enough that the rail is hidden, so the composer's own border is
+	// the last thing on the row.
+	m := typed(composing(100, 40), "ship it")
 
 	lines := strings.Split(stripANSI(m.View()), "\n")
 	at := -1
 	for i, line := range lines {
-		if strings.Contains(line, "[ Post ]") {
+		if strings.Contains(line, "Post") {
 			at = i
 		}
 	}
@@ -242,9 +264,10 @@ func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
 		t.Errorf("the button is not on the pane's last row: %q", lines[at+1])
 	}
 
-	// One column of gutter between the label and the border it sits against.
-	tail := lines[at][strings.Index(lines[at], "[ Post ]")+len("[ Post ]"):]
-	if want := " │"; !strings.HasPrefix(tail, want) {
+	// Nothing but the button's own padding and the gutter between the label and
+	// the border it sits against.
+	tail := lines[at][strings.Index(lines[at], "Post")+len("Post"):]
+	if strings.TrimLeft(tail, " ") != "│" {
 		t.Errorf("the button is followed by %q, want it against the right border", tail)
 	}
 }
@@ -381,4 +404,69 @@ func TestTheComposerIsAsWideAsTheConversation(t *testing.T) {
 	if a, b := closesAt(lines[foot]), closesAt(lines[title]); a != b {
 		t.Errorf("the composer closes at column %d and the conversation at %d", b, a)
 	}
+}
+
+// A reader at the foot of the conversation is the one about to write, so the
+// box opening under them pushes the text up rather than cutting off the end of
+// what they just read.
+func TestOpeningTheComposerAtTheFootPushesTheTextUp(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
+
+	// The rail is hidden at this width, so a row is the conversation alone.
+	m := press(detailed(held(d), 100, 30), "G")
+	tail := lastCard(t, m.View())
+	if tail == "" {
+		t.Fatal("nothing on screen at the foot of the conversation")
+	}
+
+	if got := lastCard(t, press(m, "c").View()); got != tail {
+		t.Errorf("the foot of the conversation is now %q, want %q still on screen", got, tail)
+	}
+}
+
+// Anywhere else the page stays exactly where it is. The window loses lines from
+// the bottom, which are lines the reader had already scrolled past; moving the
+// page under someone reading the middle of a thread is the one thing this
+// screen must not do.
+func TestOpeningTheComposerMidThreadLeavesThePageAlone(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
+
+	m := press(detailed(held(d), 100, 30), "j", "j", "j", "j", "j")
+	top := firstBodyLine(t, m.View())
+
+	if got := firstBodyLine(t, press(m, "c").View()); got != top {
+		t.Errorf("the page moved to %q, want %q where it was", got, top)
+	}
+}
+
+// lastCard is the heading of the final card the conversation is showing, which
+// is what tells whether the foot of the thread is still on screen.
+func lastCard(t *testing.T, frame string) string {
+	t.Helper()
+
+	var last string
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if strings.Contains(line, " · ") && strings.Contains(line, "│") {
+			last = strings.Trim(line, "│ ")
+		}
+		if strings.Contains(line, "Comment on #") {
+			break
+		}
+	}
+	return last
+}
+
+// firstBodyLine is the first line of content the conversation pane is showing,
+// which is where the page sits.
+func firstBodyLine(t *testing.T, frame string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(stripANSI(frame), "\n")[1:] {
+		if text := strings.Trim(line, "│╭╮╰╯─ "); text != "" {
+			return text
+		}
+	}
+	return ""
 }

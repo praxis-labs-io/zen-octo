@@ -201,7 +201,12 @@ func (p Pane) bottomBorder() string {
 		return style.Render("╰" + strings.Repeat("─", mid) + "╯")
 	}
 
-	footer := lipgloss.NewStyle().Foreground(p.theme.Primary).
+	// The footer is chrome: a scroll counter, a line of key hints. It reads at
+	// the same weight as the border it sits in rather than at the weight of the
+	// content above it, and it stays there whichever pane has focus. Which pane
+	// that is the border already says, and saying it twice is a second encoding
+	// of a fact the reader can already see.
+	footer := lipgloss.NewStyle().Foreground(p.theme.Faint).
 		MaxWidth(max(0, mid-1)).Render(p.footer)
 	fill := max(0, mid-lipgloss.Width(footer)-1)
 

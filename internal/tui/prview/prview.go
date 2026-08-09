@@ -387,7 +387,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// and none of them is this one.
 	case key.Matches(keyMsg, k.Comment) && m.railTab():
 		cmd := m.compose.show()
-		m.layout()
+		m.reflow()
 		return m, cmd
 
 	case key.Matches(keyMsg, k.FocusNext):
