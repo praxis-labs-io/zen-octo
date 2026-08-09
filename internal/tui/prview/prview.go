@@ -38,6 +38,19 @@ type RefreshMsg struct {
 	SHA   string
 }
 
+// PostCommentMsg asks the root to write a comment on this pull request. The
+// screen cannot reach the network, so the buffer leaves here as a message and
+// the write starts at the root, the same way a fetch does.
+type PostCommentMsg struct {
+	ID   string
+	Body string
+}
+
+// EditorFailedMsg reports an editor that would not run or a file that would not
+// be read. The buffer is untouched and the pane is still open; the root raises
+// the toast, because the screen has nowhere to say it.
+type EditorFailedMsg struct{ Err error }
+
 // RailPreference is what the user last asked of the details rail. The root
 // carries it from one pull request to the next, so hiding the rail stays hidden
 // instead of having to be redone on every open.
@@ -194,6 +207,10 @@ type Model struct {
 	// down.
 	offsets []int
 
+	// compose is the pane a comment is written in. It is closed on open and
+	// takes no height until it is not.
+	compose composer
+
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
 	railOn      bool
@@ -223,6 +240,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		// The pull request's own diff is the one review threads were written
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
+		compose:     newComposer(th),
 		collapsed:   make(map[string]bool),
 		expanded:    make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
@@ -296,6 +314,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case CommitSettleMsg:
 		return m, m.settleCommit(msg)
 
+	case editorDoneMsg:
+		return m.editorReturned(msg)
+
 	case spinner.TickMsg:
 		cmd := m.spinner.Advance(msg, m.waiting())
 		// The body is built into the viewport rather than in View, so a new
@@ -335,6 +356,13 @@ func waitingFor(f store.Files) bool {
 
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
+
+	// The composer takes the keyboard while it is open. Every letter in it is a
+	// letter, so nothing below this line gets a look.
+	if m.compose.open {
+		return m.composeKey(keyMsg)
+	}
+
 	before := m.view.YOffset()
 
 	// A key that placed the cursor itself must not then have the diff place it
@@ -353,6 +381,14 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Refresh):
 		return m, m.refresh()
+
+	// A top-level comment lands in the conversation, so it is written from
+	// there. The three tabs with a column each anchor their own kind of comment
+	// and none of them is this one.
+	case key.Matches(keyMsg, k.Comment) && m.railTab():
+		cmd := m.compose.show()
+		m.layout()
+		return m, cmd
 
 	case key.Matches(keyMsg, k.FocusNext):
 		m.stepFocus(1)
@@ -766,6 +802,10 @@ func (m *Model) SetSize(width, height int) {
 }
 
 // layout sizes the panes for the current frame, tab, and rail state.
+//
+// The composer is subtracted first and the panes divide what is left, so a
+// comment being written costs the conversation four lines rather than pushing
+// the frame past the height it was handed.
 func (m *Model) layout() {
 	// Focus follows the panes: a tab switch or a resize can take the one that
 	// had it off the screen.
@@ -773,22 +813,25 @@ func (m *Model) layout() {
 		m.focus = paneMain
 	}
 
+	m.compose.setWidth(m.width)
+	panes := max(0, m.height-m.compose.height())
+
 	mainWidth := m.width
 	if m.sideVisible() {
 		column := m.sideColumn()
 		mainWidth -= column
-		m.side = m.side.Size(column, m.height)
+		m.side = m.side.Size(column, panes)
 		m.sideView.SetWidth(m.side.InnerWidth())
 		m.sideView.SetHeight(m.sideHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
-		m.rail = m.rail.Size(columnWidth, m.height)
+		m.rail = m.rail.Size(columnWidth, panes)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, m.height)
+	m.main = m.main.Size(mainWidth, panes)
 	m.view.SetWidth(m.main.InnerWidth())
 	m.view.SetHeight(m.main.InnerHeight())
 	m.syncContent()
@@ -969,7 +1012,17 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	row := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	if pane := m.compose.view(m.theme, m.composeTitle()); pane != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, row, pane)
+	}
+	return row
+}
+
+// composeTitle names what is being written and where it lands. A text box at
+// the foot of the screen with no title says neither.
+func (m Model) composeTitle() string {
+	return "Comment on #" + strconv.Itoa(m.pr.Number)
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

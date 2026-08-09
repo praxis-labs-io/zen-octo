@@ -8,6 +8,7 @@ package store
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -65,6 +66,22 @@ type Files struct {
 	Loaded bool
 }
 
+// Pending is a write applied here and not yet answered for. It renders as
+// though it had landed, which is what optimistic means.
+//
+// It is held beside the fetched detail rather than inside it, and that is the
+// whole point of the type. A refetch replaces a timeline wholesale, and a
+// timeline fetched before the mutation answered is not evidence the mutation
+// failed. Written into the detail, an optimistic comment would vanish on the
+// next refresh with nothing to say why.
+//
+// Key is minted here and belongs to this session. It is not a node id, and the
+// comment carrying it is marked Pending so nothing mistakes it for one.
+type Pending struct {
+	Key     string
+	Comment gh.Comment
+}
+
 // Store holds every configured section, every detail opened this session, and
 // the point budget across all of them.
 type Store struct {
@@ -74,6 +91,12 @@ type Store struct {
 	commits  map[string]Files
 	rate     gh.RateLimit
 	viewer   gh.Actor
+
+	// pending is the writes in flight, by pull request. The counter names them:
+	// a sequence rather than a clock, so the same run of keystrokes produces the
+	// same keys every time.
+	pending map[string][]Pending
+	writes  int
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -160,9 +183,94 @@ func (s *Store) Failed(i int, err error) {
 	s.sections[i].Err = err
 }
 
-// Detail is what is held for a pull request. The zero value is one never
-// opened, which reads as idle and unloaded.
-func (s Store) Detail(id string) Detail { return s.details[id] }
+// Detail is what is held for a pull request, with whatever is still in flight
+// folded into its timeline. The zero value is one never opened, which reads as
+// idle and unloaded.
+//
+// The fold happens here rather than at write time so a refetch cannot drop a
+// pending comment. Callers ask for a detail at settle points, not per frame.
+func (s Store) Detail(id string) Detail {
+	held := s.details[id]
+	waiting := s.pending[id]
+	if len(waiting) == 0 {
+		return held
+	}
+
+	// A fresh slice, because the held timeline is shared with the map and
+	// appending to it would leave the pending items behind on the next call.
+	timeline := make([]gh.TimelineItem, len(held.Detail.Timeline), len(held.Detail.Timeline)+len(waiting))
+	copy(timeline, held.Detail.Timeline)
+	for _, p := range waiting {
+		timeline = append(timeline, timelineComment(p.Comment))
+	}
+
+	held.Detail.Timeline = timeline
+	return held
+}
+
+// PendingComment holds a comment written but not yet acknowledged, and returns
+// the key the response reconciles against. The comment renders from now on; the
+// caller is expected to post it and answer with one of the two calls below.
+func (s *Store) PendingComment(id string, c gh.Comment) string {
+	s.writes++
+	key := "pending-" + strconv.Itoa(s.writes)
+
+	c.Pending = true
+	c.ID = key
+	if s.pending == nil {
+		s.pending = make(map[string][]Pending)
+	}
+	s.pending[id] = append(s.pending[id], Pending{Key: key, Comment: c})
+	return key
+}
+
+// PendingApplied swaps the placeholder for what GitHub recorded. The real
+// comment goes onto the held timeline, so it survives everything the
+// placeholder was standing in for.
+func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
+	if !s.dropPending(id, key) {
+		return
+	}
+
+	held, ok := s.details[id]
+	if ok {
+		held.Detail.Timeline = append(held.Detail.Timeline, timelineComment(res.Comment))
+		s.put(id, held)
+	}
+	s.adopt(res.RateLimit)
+}
+
+// PendingReverted takes the placeholder back off the screen. The caller owns
+// saying why: the store has no way to tell a rejected write from a lost one.
+func (s *Store) PendingReverted(id, key string) { s.dropPending(id, key) }
+
+// dropPending removes one write and reports whether it was there. A response
+// for a key already gone is one that already settled, and applying it twice
+// would put the comment in the conversation a second time.
+func (s *Store) dropPending(id, key string) bool {
+	waiting := s.pending[id]
+	at := slices.IndexFunc(waiting, func(p Pending) bool { return p.Key == key })
+	if at < 0 {
+		return false
+	}
+
+	s.pending[id] = slices.Delete(waiting, at, at+1)
+	if len(s.pending[id]) == 0 {
+		delete(s.pending, id)
+	}
+	return true
+}
+
+// timelineComment is a comment as the conversation reads one. A top-level
+// comment is a timeline item whichever direction it arrived from.
+func timelineComment(c gh.Comment) gh.TimelineItem {
+	return gh.TimelineItem{
+		Kind:      gh.TimelineComment,
+		Actor:     c.Author,
+		CreatedAt: c.CreatedAt,
+		Comment:   &c,
+	}
+}
 
 // BeginDetail marks a pull request in flight and reports whether it started. It
 // refuses one already on its way, so opening a screen twice in quick succession

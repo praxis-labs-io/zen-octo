@@ -117,6 +117,12 @@ type Comment struct {
 	CanEdit         bool
 	CanDelete       bool
 	CanReact        bool
+
+	// Pending marks a comment written here and not yet acknowledged by GitHub.
+	// This package never sets it: it has nothing pending, everything it returns
+	// has already happened. The store sets it on the optimistic copy it holds
+	// until the mutation answers, and the screen reads it to say so.
+	Pending bool
 }
 
 // DiffSide is which half of the diff a line belongs to. A comment on a deleted
@@ -389,6 +395,14 @@ type RateLimit struct {
 // screen, before a permission field settles what you can do to it.
 type ViewerResult struct {
 	Viewer    Actor
+	RateLimit RateLimit
+}
+
+// CommentResult is one comment written, as GitHub recorded it. The comment
+// comes back rather than just its id: a write is the cheapest place to learn
+// what the server made of it, and the caller has a placeholder to replace.
+type CommentResult struct {
+	Comment   Comment
 	RateLimit RateLimit
 }
 

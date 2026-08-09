@@ -75,9 +75,13 @@ func (m *Model) entries() string {
 		item := d.Timeline[i]
 		switch item.Kind {
 		case gh.TimelineComment:
-			key := focusKey{kind: focusComment, id: item.Said().ID}
+			written := item.Said()
+			key := focusKey{kind: focusComment, id: written.ID}
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
-			push(m.card(head, m.body(item.Said().Body, m.cardWidth(width), "No comment.", key), width, key), key)
+			if written.Pending {
+				head = m.posting(item.Actor)
+			}
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key), key)
 
 		case gh.TimelineReview:
 			// The review records its own card and every thread hung off it, so
@@ -272,6 +276,18 @@ func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.Timelin
 		parts = append(parts, m.faint().Render(at))
 	}
 	return strings.Join(parts, m.faint().Render(" · "))
+}
+
+// posting is the heading over a comment on its way. It says so where the time
+// would go: a card that has landed and one that still might not read the same
+// otherwise, and only one of the two can disappear.
+//
+// The item is empty so said writes no time. There is none to write, and "now"
+// would be a claim about a comment GitHub has not seen.
+func (m *Model) posting(actor gh.Actor) string {
+	return m.said(actor, "commented", m.theme.Faint, gh.TimelineItem{}) +
+		m.faint().Render(" · ") +
+		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
 }
 
 // event is one line. Nobody reads a merge twice, and giving it the same block
