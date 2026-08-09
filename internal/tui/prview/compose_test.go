@@ -195,9 +195,57 @@ func TestAnEmptyComposerPostsNothing(t *testing.T) {
 		t.Errorf("an empty composer sent %T, want nothing", msg)
 	}
 
-	// Faint, not the accent it takes when there is something to send.
-	if strings.Contains(m.View(), bgSeq(theme.RosePineMoon.Secondary)+"m Post ") {
+	if lit(m.View()) {
 		t.Error("the post button is lit with nothing to post")
+	}
+}
+
+// The button stays muted until it holds the focus. The writing is what the pane
+// is for, and a filled block in the corner would out-shout it.
+func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
+	written := typed(composing(200, 40), "ship it")
+	if lit(written.View()) {
+		t.Error("the button is lit before anything reached it")
+	}
+
+	if !lit(press(written, "tab").View()) {
+		t.Error("tab did not light the button")
+	}
+	if lit(press(written, "tab", "tab").View()) {
+		t.Error("the button is still lit after focus went back to the text")
+	}
+}
+
+// lit is whether the post button carries the accent it takes on focus.
+func lit(frame string) bool {
+	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Secondary)+"m"+"[ Post ]")
+}
+
+// The button sits against the right edge of the pane, one column in, which is
+// the corner every dialog puts its confirm in.
+func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
+	m := typed(composing(200, 40), "ship it")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	at := -1
+	for i, line := range lines {
+		if strings.Contains(line, "[ Post ]") {
+			at = i
+		}
+	}
+	if at < 0 {
+		t.Fatalf("no post button on the frame:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The last row inside the pane: the line under it closes the border.
+	if !strings.Contains(lines[at+1], "╰") {
+		t.Errorf("the button is not on the pane's last row: %q", lines[at+1])
+	}
+
+	// One column of gutter between the label and the border it sits against.
+	tail := lines[at][strings.Index(lines[at], "[ Post ]")+len("[ Post ]"):]
+	if want := " │"; !strings.HasPrefix(tail, want) {
+		t.Errorf("the button is followed by %q, want it against the right border", tail)
 	}
 }
 

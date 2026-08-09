@@ -16,18 +16,18 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// composeRows is the writing the pane shows at once. Three lines is enough to
-// see the shape of a comment without taking the conversation off the screen,
-// and anything longer belongs in $EDITOR, which is one key away.
-const composeRows = 3
+// composeRows is the writing the pane shows at once. Enough to see a paragraph
+// whole: a box that shows three lines of an eight-line comment is one you write
+// in blind, and $EDITOR is for the times that is not enough.
+const composeRows = 8
 
 // composeChrome is the button row under the text. The hints go in the bottom
 // border, but a control the reader can move onto earns a line of its own.
 const composeChrome = 1
 
-// postLabel is the button. The padding is what makes it read as something to
-// press rather than a word sitting in the pane.
-const postLabel = " Post "
+// postLabel is the button. The brackets are what make it read as something to
+// press rather than a word sitting in the corner.
+const postLabel = "[ Post ]"
 
 // composeGutter is the space between the pane's border and what it holds. Text
 // against a border reads as a rendering fault rather than as a box, which is
@@ -95,7 +95,10 @@ func (c composer) height(frame int) int {
 	if !c.open {
 		return 0
 	}
-	return min(composeRows+composeChrome+c.pane.Chrome(), max(0, frame))
+
+	// Never more than half the column. The conversation is what the comment is
+	// being written about, and a box that buries it is worse than a short box.
+	return min(composeRows+composeChrome+c.pane.Chrome(), max(frame/2, 0), frame)
 }
 
 // show opens the pane on whatever is already in the buffer, with the cursor in
@@ -158,20 +161,28 @@ func (c composer) view(th theme.Theme, title string) string {
 		return ""
 	}
 
-	// Faint until there is something to send. A button that takes a press and
-	// does nothing is worse than one that says it is not ready.
-	button := lipgloss.NewStyle().Foreground(th.Faint)
+	body := c.area.View() + "\n" + c.button(th)
+	return c.pane.Title(title).Footer(c.hints()).Focus(true).Render(body)
+}
+
+// button is the post control, on the last row and against the right edge. It
+// stays muted: the writing is what the pane is for, and a filled block in the
+// corner would out-shout it. Only focus lights it.
+func (c composer) button(th theme.Theme) string {
+	style := lipgloss.NewStyle().Foreground(th.Primary)
 	switch {
+	// Nothing to send. A control that takes a press and does nothing is worse
+	// than one that says it is not ready.
 	case c.body() == "":
+		style = lipgloss.NewStyle().Foreground(th.Faint)
 	case c.onPost:
-		button = lipgloss.NewStyle().Foreground(th.Inverted).Background(th.Secondary)
-	default:
-		button = lipgloss.NewStyle().Foreground(th.Inverted).Background(th.Faint)
+		style = lipgloss.NewStyle().Foreground(th.Inverted).Background(th.Secondary)
 	}
 
-	body := c.area.View() + "\n" +
-		strings.Repeat(" ", composeGutter) + button.Render(postLabel)
-	return c.pane.Title(title).Footer(c.hints()).Focus(true).Render(body)
+	return lipgloss.NewStyle().
+		Width(max(1, c.pane.InnerWidth()-composeGutter)).
+		Align(lipgloss.Right).
+		Render(style.Render(postLabel))
 }
 
 // hints is the footer. It names the chord only where the terminal can send it:
