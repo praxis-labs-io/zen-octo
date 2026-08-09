@@ -123,7 +123,7 @@ func (m *Model) entries() string {
 			if written.Pending {
 				head = m.posting(item.Actor, "commented")
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint()), key)
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(written.Body)), key)
 
 		case gh.TimelineReview:
 			// A review renders as its own card with every thread it opened hung
@@ -159,7 +159,7 @@ func (m *Model) entries() string {
 			if m.reply.thread == thread.ID {
 				mark()
 			}
-			pushStops(m.thread(thread, width, true, m.replyBox(thread, width)))
+			pushStops(m.threadWithReply(thread, width))
 		}
 	}
 
@@ -270,7 +270,7 @@ func (m *Model) boxBlock(width int) rendered {
 
 	for _, t := range d.Threads {
 		if t.ID == m.conv.thread {
-			return m.thread(t, width, true, m.replyBox(t, width))
+			return m.threadWithReply(t, width)
 		}
 	}
 
@@ -309,7 +309,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint())
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(written.Body))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -321,7 +321,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 		}
 		shown[i] = true
 		inner := width - treeGutter
-		owned = append(owned, m.thread(thread, inner, true, m.replyBox(thread, inner)))
+		owned = append(owned, m.threadWithReply(thread, inner))
 	}
 
 	for i, t := range owned {
@@ -417,8 +417,23 @@ func (m Model) threadHints(t gh.ReviewThread) string {
 // quoteHint is what a block with no thread under it answers to. r is not on it:
 // GitHub has no reply for a loose comment, and a key named on a card it does
 // nothing to is the lie this line exists to avoid.
-func (m Model) quoteHint() string {
-	return hintLine(keys.Detail.QuoteReply.Help().Key + " quote")
+func (m Model) quoteHint(body string) string {
+	k := keys.Detail
+
+	parts := []string{k.QuoteReply.Help().Key + " quote"}
+	if foldable(body) {
+		parts = append(parts, k.Expand.Help().Key+" expand")
+	}
+	return hintLine(parts...)
+}
+
+// foldable is whether a body has a <details> block in it, which is the only
+// thing o works on. Asked of the focused card alone, so it costs one parse a
+// frame rather than one per card.
+func foldable(body string) bool {
+	return slices.ContainsFunc(comp.SplitDetails(body), func(seg comp.Segment) bool {
+		return seg.Summary != ""
+	})
 }
 
 func hintLine(parts ...string) string {
@@ -454,7 +469,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 	for _, seg := range comp.SplitDetails(text) {
 		rendered := m.md.Render(seg.Text, width)
 		if seg.Summary != "" {
-			rendered = m.folded(seg.Summary+" · "+comp.Plural(seg.Lines, "line"), width)
+			rendered = wrap(m.faint().Render("▸ "+seg.Summary+" · "+comp.Plural(seg.Lines, "line")), width)
 		}
 		// A segment that renders to nothing still costs the blank line the join
 		// puts after it. Bot comments open with a hidden marker often enough
@@ -467,24 +482,10 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 	return strings.Join(out, "\n\n")
 }
 
-// folded is a <details> block nobody has opened, drawn as a closed box rather
-// than a line of text. The line reads as prose that happens to start with an
-// arrow; a box reads as something with a lid on it, which is what it is.
-//
-// The summary is content rather than a title in the border. A border clips, and
-// a bot review puts a whole sentence in a summary: the tail would go over the
-// edge with nothing to say it had.
-func (m Model) folded(summary string, width int) string {
-	pane := comp.NewPane(m.theme)
-	body := indent(wrap(m.faint().Render("▸ "+summary), m.cardWidth(width)), cardGutter)
-	lines := strings.Count(body, "\n") + 1
-	return pane.Size(width, lines+pane.Chrome()).Render(body)
-}
-
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint())
+	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(d.Body))
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -614,14 +615,14 @@ var eventLabels = map[gh.TimelineKind]string{
 // hunk asks for the code the thread was written against. The conversation
 // wants it: a comment about a line nobody can see is an assertion about
 // nothing. The Files tab does not, because the line is already on the screen.
-func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) rendered {
+func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	anchor := t.Path
 	if t.Line > 0 {
 		anchor += ":" + strconv.Itoa(t.Line)
 	}
 
 	key := threadKey(t)
-	lit := m.lit(key) || (reply != "" && m.lit(m.replyFocus()))
+	lit := m.lit(key)
 
 	head := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(anchor)
 	if t.IsResolved {
@@ -680,11 +681,11 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 	// on a single-comment thread the card's own border already says which words
 	// the keys have, and a second mark for the same fact is noise.
 	//
-	// An open box takes it too. The keys are all going into the box by then, so a
-	// bar left on a comment claims they act there, and two bars on one card read
-	// as two selections.
+	// An open box takes the focus off the thread, so the bar goes with it: the
+	// keys are all going into the box by then, and a bar left on a comment would
+	// claim they act there.
 	within := ""
-	if lit && reply == "" && len(t.Comments) > 1 {
+	if lit && len(t.Comments) > 1 {
 		within = m.within(t)
 	}
 
@@ -694,12 +695,8 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 		push(gutter(block, c.ID == within))
 	}
 
-	stops := []focusItem{{focusKey: key}}
-	if reply != "" {
-		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(gutter(reply, true))})
-	}
-
 	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(t))
+	stops := []focusItem{{focusKey: key}}
 	for i := range stops {
 		stops[i].start += cardHeadLines
 	}

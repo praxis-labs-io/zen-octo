@@ -31,13 +31,14 @@ func replying(t *testing.T, n int, key string) prview.Model {
 	return press(onThread(t, n), key)
 }
 
-// The reply goes where the reply goes. The box at the foot of the page files a
-// comment against the pull request, which is a different thing from an answer
-// to a line of code.
-func TestReplyOpensABoxInsideTheThread(t *testing.T) {
+// The box goes under the thread it answers, as a card of its own. The box at
+// the foot of the page files a comment against the pull request, which is a
+// different thing from an answer to a line of code.
+func TestTheBoxOpensUnderTheThreadItAnswers(t *testing.T) {
 	out := stripANSI(replying(t, tabThread, "r").View())
 
 	head := strings.Index(out, "internal/gh/client.go:42")
+	last := strings.Index(out, "Seconded, the cap is the fix.")
 	box := strings.Index(out, "write a reply")
 	foot := strings.Index(out, "write a comment")
 
@@ -45,9 +46,11 @@ func TestReplyOpensABoxInsideTheThread(t *testing.T) {
 	case box < 0:
 		t.Fatalf("r opened no box:\n%s", out)
 	case head < 0 || box < head:
-		t.Error("the box is not inside the thread it answers")
+		t.Error("the box is above the thread it answers")
+	case last < 0 || box < last:
+		t.Error("the box is above the comments it follows on from")
 	case foot >= 0 && box > foot:
-		t.Error("the box is below the compose card, not in the thread")
+		t.Error("the box is below the compose card rather than under its thread")
 	}
 
 	if !strings.Contains(out, "Leave a reply") {
@@ -292,23 +295,15 @@ func TestReplyIsInertOnSomethingWithNoThread(t *testing.T) {
 }
 
 // The bar says which comment the keys have. Once a box is open the keys are all
-// going into it, so a bar left on a comment claims they act somewhere they do
-// not, and two bars on one card read as two selections.
+// going into it, and the box has a border of its own to say so, so a bar left
+// on a comment would claim they act somewhere they do not.
 func TestOpeningTheBoxTakesTheBarOffTheComment(t *testing.T) {
-	before := barred(onThread(t, tabThread).View())
-	if len(before) == 0 {
+	if before := barred(onThread(t, tabThread).View()); len(before) == 0 {
 		t.Fatal("no bar on the focused thread to begin with")
 	}
 
-	after := barred(replying(t, tabThread, "r").View())
-	for _, line := range after {
-		if strings.HasPrefix(line, "octobot · said") || strings.HasPrefix(line, "nkr · said") {
-			t.Errorf("a comment still carries the bar with the box open: %q", after)
-			break
-		}
-	}
-	if len(after) == 0 {
-		t.Error("the box itself lost the bar too, so nothing says where the keys are")
+	if after := barred(replying(t, tabThread, "r").View()); len(after) > 0 {
+		t.Errorf("the thread still carries a bar with the box open: %q", after)
 	}
 }
 
@@ -389,24 +384,53 @@ func TestAResolvedThreadIsACardThatOpens(t *testing.T) {
 	}
 }
 
-// A folded block was the other bare line on a page made of cards.
-func TestAFoldedBlockIsABox(t *testing.T) {
+// o works on any body carrying a <details> block, so the hint has to name it
+// there and nowhere else. A key missing from the line is the same lie as a key
+// that does not work, told the other way round.
+func TestTheExpandHintFollowsTheFolds(t *testing.T) {
 	d := sampleDetail()
 	d.Body = "The problem.\n\n<details>\n<summary>What it does</summary>\n\nIt retries forever.\n\n</details>\n"
+	m := detailed(held(d), 200, 60)
+
+	// The description has a fold, so both keys are named and both work.
+	folded := stripANSI(tabbed(m, 1).View())
+	if !strings.Contains(folded, "R quote · o expand") {
+		t.Errorf("the description has a fold and does not offer o:\n%s", folded)
+	}
+	if out := stripANSI(press(tabbed(m, 1), "o").View()); !strings.Contains(out, "It retries forever") {
+		t.Error("o is named on the description and does nothing")
+	}
+
+	// The comment below it has none, so o is not offered.
+	plain := stripANSI(tabbed(m, 2).View())
+	if strings.Contains(plain, "o expand") {
+		t.Errorf("a body with nothing to unfold still offers o:\n%s", plain)
+	}
+	if !strings.Contains(plain, "R quote") {
+		t.Errorf("the comment lost its quote hint:\n%s", plain)
+	}
+}
+
+// A fold is inline inside a body, not a block of the page. It reads as prose
+// with a marker on it, and a border around one line inside an already-bordered
+// card is more chrome than the thing it wraps.
+func TestAFoldedBlockIsALineNotABox(t *testing.T) {
+	d := sampleDetail()
+	// Prose either side of the fold, so the card's own borders are not the
+	// lines this looks at.
+	d.Body = "The problem.\n\n<details>\n<summary>What it does</summary>\n\nIt retries forever.\n\n</details>\n\nThe fix.\n"
 
 	frame := detailed(held(d), 200, 60).View()
-	out := stripANSI(frame)
-
-	lines := strings.Split(out, "\n")
+	lines := strings.Split(stripANSI(frame), "\n")
 	at := lineOf(t, frame, "▸ What it does")
 
-	// A border above it and another below, nested inside the card holding the
-	// body it came out of.
-	if !strings.Contains(lines[at-1], "╭") {
-		t.Errorf("the folded block has no lid:\n%s", out)
-	}
-	if !strings.Contains(lines[at+1], "╰") {
-		t.Errorf("the folded block has no floor:\n%s", out)
+	for _, edge := range []struct {
+		at   int
+		what string
+	}{{at - 1, "above"}, {at + 1, "below"}} {
+		if strings.Contains(lines[edge.at], "╭") || strings.Contains(lines[edge.at], "╰") {
+			t.Errorf("the fold has a border %s it:\n%s", edge.what, strings.Join(lines[at-2:at+2], "\n"))
+		}
 	}
 }
 
@@ -726,10 +750,19 @@ func TestARestoredReplyToAThreadThatIsGoneOpensNothing(t *testing.T) {
 	}
 }
 
-// The mark on the byline is the accent, the same signal every other focused
-// thing on this screen uses.
-func TestTheOpenBoxLightsItsThreadCard(t *testing.T) {
-	if got := focusedCard(t, replying(t, tabThread, "r").View()); !strings.HasPrefix(got, cardThread) {
-		t.Errorf("the card holding the open box is not lit, focused %q", got)
+// The accent lands on the box rather than on the thread above it, because the
+// box is where the keys are going. Two lit cards would say the keys are in two
+// places.
+func TestTheOpenBoxTakesTheAccent(t *testing.T) {
+	frame := replying(t, tabThread, "r").View()
+
+	if got := focusedCard(t, frame); !strings.HasPrefix(got, "write a reply") {
+		t.Errorf("the lit card is %q, want the box", got)
+	}
+
+	// focusedCard reads the first lit card down the page, and the thread sits
+	// above the box, so finding the box means the thread is not lit.
+	if !strings.Contains(stripANSI(frame), cardThread) {
+		t.Error("the thread went off the screen when the box opened")
 	}
 }

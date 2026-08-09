@@ -131,27 +131,41 @@ func (m Model) replyFocus() focusKey {
 	return focusKey{kind: focusReply, id: m.reply.thread}
 }
 
-// replyBox is the box drawn inside a thread's card, or nothing for every thread
-// it is not open on. It renders as a block among the comments rather than as a
-// card of its own: the answer goes where the answers go.
-func (m *Model) replyBox(t gh.ReviewThread, width int) string {
-	if m.reply.thread == "" || m.reply.thread != t.ID {
-		return ""
+// threadWithReply is a thread and, when a box is open on it, the box under it.
+//
+// The box is a card of its own rather than a block inside the thread's. A
+// thread card holds what people said; the box is where you say something, which
+// is the compose card's job at the foot of the page and the same shape here. It
+// keeps the two apart on the page and out of each other's way in the code: no
+// gutter to dodge, no rule to draw, and the accent lands on whichever of the two
+// the keys are going to.
+func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
+	v := m.thread(t, width, true)
+	if m.reply.thread != t.ID {
+		return v
 	}
 
-	inner := m.cardWidth(width) - gutterWidth
+	box := m.replyCard(width)
+	at := strings.Count(v.block, "\n") + 2
+	block := v.block + "\n\n" + box
+
+	return rendered{block: block, stops: tile(block, []focusItem{
+		{focusKey: threadKey(t)},
+		{focusKey: m.replyFocus(), start: at},
+	})}
+}
+
+// replyCard is the box, rendered through the same card every comment renders
+// through, so an answer being written sits among the answers already made.
+func (m *Model) replyCard(width int) string {
+	key := m.replyFocus()
+
+	inner := m.cardWidth(width)
 	m.reply.setWidth(inner)
 
-	// A rule above it, because the box is the one block in the card that is not
-	// something somebody said, and without a line it reads as another comment
-	// with an empty body.
-	rule := m.faint().Render(strings.Repeat("─", max(1, inner)))
 	head := m.said(m.who, "write a reply", m.theme.Faint, gh.TimelineItem{})
-
-	return rule + "\n\n" +
-		wrap(head, inner) + "\n\n" +
-		m.reply.area.View() + "\n\n" +
-		m.reply.button(m.theme, inner, m.lit(m.replyFocus()))
+	body := m.reply.area.View() + "\n\n" + m.reply.button(m.theme, inner, m.lit(key))
+	return m.card(head, body, width, m.lit(key), "")
 }
 
 // within is the comment a quote reply would take from a thread, and the one the
