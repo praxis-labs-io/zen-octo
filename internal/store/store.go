@@ -239,8 +239,26 @@ func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	if !ok {
 		return
 	}
+
+	// A refetch that landed while the write was out already carries it. Adding
+	// it again puts the same comment on the page twice, and the two cards share
+	// a node id, which is the one thing the focus ring cannot survive.
+	if hasComment(held.Detail.Timeline, res.Comment.ID) {
+		return
+	}
+
 	held.Detail.Timeline = append(held.Detail.Timeline, timelineComment(res.Comment))
 	s.put(id, held)
+}
+
+// hasComment reports whether a timeline already holds a comment with this id.
+func hasComment(timeline []gh.TimelineItem, id string) bool {
+	if id == "" {
+		return false
+	}
+	return slices.ContainsFunc(timeline, func(item gh.TimelineItem) bool {
+		return item.Kind == gh.TimelineComment && item.Said().ID == id
+	})
 }
 
 // PendingReverted takes the placeholder back off the screen. The caller owns

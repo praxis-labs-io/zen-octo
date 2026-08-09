@@ -723,6 +723,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case viewerFetchedMsg:
 		m.store.ViewerApplied(msg.res)
+		// A screen already open took the login when it opened, which at startup
+		// is before this lands. Without this the comment box is headed by nobody
+		// for the rest of the session.
+		m.detail.SetViewer(m.store.Viewer())
 		return m, nil
 
 	case viewerFailedMsg:
@@ -995,12 +999,31 @@ func (m Model) contextLabel() string {
 	return label
 }
 
+// helpBody is the overlay's content, and says so when the frame cannot hold it.
+//
+// A narrow frame forces the columns down until the list is taller than the room
+// there is, and the overlay is drawn over the screen rather than into a pane, so
+// what does not fit is simply cut off the bottom. Bindings disappear with
+// nothing to say they existed. The line is not a fix, it is the difference
+// between a short list and a wrong one.
 func (m Model) helpBody() string {
 	groups := m.list.Keys().FullHelp()
 	if m.screen == screenDetail {
 		groups = m.detail.Keys().FullHelp()
 	}
-	return m.help.FullHelpView(refitHelp(groups, m.width-modalChrome))
+
+	body := m.help.FullHelpView(refitHelp(groups, m.width-modalChrome))
+
+	// The overlay spends a line on each border and the frame spends one on the
+	// status bar.
+	room := m.height - statusBarHeight - m.noticeHeight() - 2
+	if strings.Count(body, "\n")+1 <= room {
+		return body
+	}
+
+	note := lipgloss.NewStyle().Foreground(m.theme.Warning).
+		Render("… more keys than this frame can show")
+	return strings.Join(append(strings.Split(body, "\n")[:max(0, room-1)], note), "\n")
 }
 
 // modalChrome is what the overlay spends on itself: two border runes and a

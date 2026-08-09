@@ -2291,3 +2291,60 @@ func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
 		})
 	}
 }
+
+// The viewer query answers after a screen is already open at startup. Taken
+// only on open, the comment box is headed by nobody for the rest of the session.
+func TestTheViewerReachesAScreenAlreadyOpen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	// Init's messages, with the viewer's held back so the detail screen opens
+	// before it lands. The type is unexported and this test is outside the
+	// package, so it is named rather than asserted on.
+	m := app.New(testConfig(), client)
+	var viewer, rest []tea.Msg
+	for _, msg := range immediate(m.Init()) {
+		if fmt.Sprintf("%T", msg) == "app.viewerFetchedMsg" {
+			viewer = append(viewer, msg)
+			continue
+		}
+		rest = append(rest, msg)
+	}
+	if len(viewer) != 1 {
+		t.Fatalf("startup produced %d viewer responses, want one", len(viewer))
+	}
+
+	opened := press(settle(m, append(rest, tea.WindowSizeMsg{Width: 160, Height: 40})...), "enter")
+	if out := stripANSI(render(t, opened)); strings.Contains(out, "drucial · write a comment") {
+		t.Fatal("the viewer reached the screen before the response was applied")
+	}
+
+	m2 := settle(opened, viewer...)
+	if out := stripANSI(render(t, m2)); !strings.Contains(out, "drucial · write a comment") {
+		t.Errorf("the comment box is still headed by nobody:\n%s", out)
+	}
+}
+
+// The overlay is drawn over the screen rather than into a pane, so a list too
+// tall for the frame is cut off the bottom with nothing to say what went.
+func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+
+	// Wide enough for every binding, so nothing is hidden and nothing is said.
+	roomy := stripANSI(render(t, press(loaded(t, client, 120, 34), "enter", "?")))
+	for _, want := range []string{"comment", "$EDITOR", "quit from anywhere", "refresh"} {
+		if !strings.Contains(roomy, want) {
+			t.Errorf("a frame with room for the help is missing %q", want)
+		}
+	}
+	if strings.Contains(roomy, "more keys than this frame") {
+		t.Error("a frame with room for the help claims it is short of room")
+	}
+
+	// Too small to hold it, so it says so rather than quietly dropping nine.
+	cramped := stripANSI(render(t, press(loaded(t, client, 60, 20), "enter", "?")))
+	if !strings.Contains(cramped, "more keys than this frame") {
+		t.Errorf("the overlay drops bindings without saying so:\n%s", cramped)
+	}
+}

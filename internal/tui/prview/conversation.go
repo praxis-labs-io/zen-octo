@@ -48,7 +48,11 @@ func (m *Model) conversationBody() string {
 		}
 		return m.entries()
 	case m.detail.Status == store.StatusFailed:
-		return m.faint().Render("Could not load the conversation: " + m.detail.Err.Error())
+		// Wrapped here rather than by the viewport. This tab does not soft wrap,
+		// and an error is the one block on it not already measured to a width, so
+		// it would be clipped at whatever the pane is wide: the reader would be
+		// told the fetch failed and not told why.
+		return wrap(m.faint().Render("Could not load the conversation: "+m.detail.Err.Error()), m.bodyWidth())
 	}
 	return m.spinner.Render("Loading the conversation")
 }

@@ -106,13 +106,19 @@ func (c *composer) sent() {
 	c.stop()
 }
 
-// restore puts a failed comment back, so the words survive the network, and
-// takes the keyboard with it: a revert nobody is looking at reads as the
-// comment having vanished.
-func (c *composer) restore(body string) tea.Cmd {
+// restore puts a failed comment back, so the words survive the network.
+//
+// It appends rather than assigns when something is already there. A post is
+// answered for long after the box emptied, and by then the reader may be
+// writing the next comment; overwriting would destroy that one to rescue this
+// one, which is the same loss in the other direction. Two comments run together
+// is a mess the reader can cut apart. A comment that is gone is gone.
+func (c *composer) restore(body string) {
+	if held := c.body(); held != "" {
+		body = body + "\n\n" + held
+	}
 	c.area.SetValue(body)
 	c.area.MoveToEnd()
-	return c.start()
 }
 
 // step moves between the text and the button, which is what tab means while
@@ -169,10 +175,17 @@ func (c composer) button(th theme.Theme, width int, focused bool) string {
 		style = style.Foreground(th.Inverted).Background(th.Secondary)
 	}
 
-	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint(focused))
 	button := style.Render(postLabel)
 
-	gap := max(1, width-lipgloss.Width(hint)-lipgloss.Width(button))
+	// The hint gives way first. A narrow card that keeps both overflows, and the
+	// pane clips from the right, which takes the button rather than the words
+	// about it: on a terminal that cannot send the chord that is the only way to
+	// post, gone.
+	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint(focused))
+	gap := width - lipgloss.Width(hint) - lipgloss.Width(button)
+	if gap < 1 {
+		hint, gap = "", max(0, width-lipgloss.Width(button))
+	}
 	return hint + strings.Repeat(" ", gap) + button
 }
 
@@ -213,14 +226,44 @@ func (m Model) Composing() bool { return m.compose.typing }
 func (m *Model) SetChords(v bool) { m.compose.chords = v }
 
 // SetViewer names who a comment will be from, for the box's heading.
-func (m *Model) SetViewer(a gh.Actor) { m.who = a }
+//
+// It rebuilds the page. The login lands after the first screen is already open,
+// and the heading is a rendered string by then: setting the field alone would
+// leave the box headed by nobody until something else happened to redraw.
+func (m *Model) SetViewer(a gh.Actor) {
+	m.who = a
+	m.conv.ok = false
+	m.syncContent()
+}
+
+// canCompose is whether the box is on the screen to be written in. The
+// conversation is the only tab that renders it, and only once there is a
+// conversation: the failure and the spinner take its place.
+//
+// Turning typing on without it is the worst thing this screen can do. The root
+// stands aside for Composing(), so every key from then on goes to a textarea
+// nobody can see, and the only way out is an esc the reader has no reason to
+// press.
+func (m Model) canCompose() bool { return m.railTab() && m.detail.Loaded }
 
 // RestoreDraft puts a comment that failed to post back in the box. The words
-// are the reader's, and a network that dropped them is not a reason to.
+// are the reader's, and a network that dropped them is not a reason to lose
+// them.
+//
+// It takes the keyboard back only where the box is on screen. A reader who
+// moved to another tab while the write was out keeps the tab they chose, and
+// the words are waiting the next time they open the box.
 func (m *Model) RestoreDraft(body string) tea.Cmd {
 	m.conv.ok = false
+	m.compose.restore(body)
+
+	if !m.canCompose() {
+		return nil
+	}
+
 	m.convRing.on = focusKey{kind: focusCompose}
-	cmd := m.compose.restore(body)
+	cmd := m.compose.start()
+	m.focus = paneMain
 	m.showCompose()
 	return cmd
 }
@@ -234,6 +277,12 @@ func (m Model) writeComment() (Model, tea.Cmd) {
 	// Focus moves onto the box, so whichever card was lit is not any more.
 	m.conv.ok = false
 	m.convRing.on = focusKey{kind: focusCompose}
+
+	// The box is in the conversation, so the keys have to be going there. Left
+	// on the rail, the accent would name one pane while another took every
+	// keystroke.
+	m.focus = paneMain
+
 	m.showCompose()
 	return m, cmd
 }

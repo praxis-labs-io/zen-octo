@@ -126,3 +126,31 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		})
 	}
 }
+
+// Two rows reading "quit" tell the reader nothing about why there are two, or
+// which one works out of a pane that is taking text.
+func TestNoTwoBindingsInOneContextReadTheSame(t *testing.T) {
+	tests := []struct {
+		name string
+		live []any
+	}{
+		{name: "list", live: []any{keys.List, keys.Global}},
+		{name: "detail", live: []any{keys.Detail, keys.Global}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner := map[string]string{}
+			for _, km := range tt.live {
+				for field, b := range declared(km) {
+					desc := b.Help().Desc
+					if prev, taken := owner[desc]; taken {
+						t.Errorf("%s and %s both read %q in the help", prev, field, desc)
+						continue
+					}
+					owner[desc] = field
+				}
+			}
+		})
+	}
+}

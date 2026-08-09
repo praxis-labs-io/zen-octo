@@ -1,6 +1,7 @@
 package prview_test
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -520,5 +522,109 @@ func TestAPasteWhileReadingIsIgnored(t *testing.T) {
 
 	if got := stripANSI(m.View()); strings.Contains(got, "pasted words") {
 		t.Errorf("a paste landed in the box with the keyboard elsewhere:\n%s", got)
+	}
+}
+
+// Typing must never turn on where no box is drawn. The root stands aside for
+// Composing(), so every key after that goes to a textarea nobody can see and
+// the only way out is an esc the reader has no reason to press.
+func TestTypingNeverStartsWhereThereIsNoBox(t *testing.T) {
+	// The ring keeps its focus across a tab switch, so enter on a tab with a
+	// column would otherwise walk straight into the composer.
+	t.Run("enter on a tab with a column", func(t *testing.T) {
+		m := press(detailed(held(sampleDetail()), 200, 60), "c", "esc", "]", "enter")
+
+		if m.Composing() {
+			t.Error("enter started the composer on the Commits tab")
+		}
+		if got := stripANSI(press(m, "q").View()); strings.Contains(got, "q") && m.Composing() {
+			t.Error("keys are being swallowed by a box that is not on screen")
+		}
+	})
+
+	// The failure line takes the box's place, so there is nothing to write in.
+	t.Run("c on a conversation that never loaded", func(t *testing.T) {
+		failed := store.Detail{Status: store.StatusFailed, Err: errors.New("network is down")}
+		m := press(detailed(failed, 200, 60), "c")
+
+		if m.Composing() {
+			t.Error("c started the composer on a conversation that failed to load")
+		}
+	})
+}
+
+// A failed post takes the keyboard back only where the box is on screen. A
+// reader who moved on keeps the tab they chose; the words wait for them.
+func TestARestoredDraftDoesNotCaptureAnUnrelatedTab(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 60), "]")
+	m.RestoreDraft("this did not send")
+
+	if m.Composing() {
+		t.Error("the restore captured the keyboard on a tab drawing no box")
+	}
+
+	// The words are still there when the reader comes back to them.
+	if got := stripANSI(press(m, "[", "c").View()); !strings.Contains(got, "this did not send") {
+		t.Errorf("the words did not survive the trip back:\n%s", got)
+	}
+}
+
+// A post is answered for long after the box emptied, and by then the reader may
+// be writing the next comment. Overwriting rescues one and destroys the other.
+func TestARestoredDraftDoesNotDestroyOneWrittenSince(t *testing.T) {
+	m := typed(composing(200, 60), "the next comment")
+	m.RestoreDraft("the one that failed")
+
+	out := stripANSI(m.View())
+	for _, want := range []string{"the one that failed", "the next comment"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q is gone:\n%s", want, out)
+		}
+	}
+}
+
+// The box is in the conversation, so the keys have to be going there. Left on
+// the rail, the accent names one pane while another takes every keystroke.
+func TestWritingFromTheRailMovesTheKeysToTheConversation(t *testing.T) {
+	// l moves the keys to the rail and tab puts its cursor on a row, which is
+	// what the rail paints. Without both, there is no cursor line to be wrong.
+	rail := press(detailed(held(sampleDetail()), 200, 60), "l", "tab")
+	if markedRailRow(t, rail.View()) == "" {
+		t.Fatal("the rail has no cursor line to begin with")
+	}
+
+	m := press(rail, "c")
+	if !m.Composing() {
+		t.Fatal("c did not start the composer from the rail")
+	}
+	if got := markedRailRow(t, m.View()); got != "" {
+		t.Errorf("the rail still paints %q as the cursor line while the box takes the keys", got)
+	}
+}
+
+// The button keeps its room and the hint gives way. Clipping from the right
+// takes the button, which on a terminal that cannot send the chord is the only
+// way to post.
+func TestThePostButtonSurvivesANarrowCard(t *testing.T) {
+	for _, width := range []int{80, 70, 60, 50, 44} {
+		m := typed(press(detailed(held(sampleDetail()), width, 40), "c"), "ship it")
+		if got := stripANSI(m.View()); !strings.Contains(got, "Post") {
+			t.Errorf("at %d columns the button is gone:\n%s", width, got)
+		}
+	}
+}
+
+// The one block on this tab that was relying on the viewport to fold it. Soft
+// wrap is off now, so it wraps itself or the reader is told the fetch failed
+// and not told why.
+func TestTheLoadFailureSaysWhyAtEveryWidth(t *testing.T) {
+	err := errors.New("Post \"https://api.github.com/graphql\": dial tcp 140.82.121.6:443: connect: operation timed out")
+	failed := store.Detail{Status: store.StatusFailed, Err: err}
+
+	for _, width := range []int{200, 120, 90, 70} {
+		out := stripANSI(detailed(failed, width, 30).View())
+		if !strings.Contains(out, "operation timed out") {
+			t.Errorf("at %d columns the reason is clipped away:\n%s", width, out)
+		}
 	}
 }

@@ -407,12 +407,15 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// A top-level comment lands in the conversation, so it is written from
 	// there. The three tabs with a column each anchor their own kind of comment
 	// and none of them is this one.
-	case key.Matches(keyMsg, k.Comment) && m.railTab():
+	// Both gated on the box being on the screen. The ring keeps its focus across
+	// a tab switch, so without the guard enter would start typing on a tab that
+	// draws no box at all.
+	case key.Matches(keyMsg, k.Comment) && m.canCompose():
 		return m.writeComment()
 
 	// The box is a card like any other, so the ring reaches it and enter is what
 	// steps into it, the same key that presses the button once inside.
-	case key.Matches(keyMsg, k.Activate) && m.convRing.on.kind == focusCompose:
+	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.convRing.on.kind == focusCompose:
 		return m.writeComment()
 
 	case key.Matches(keyMsg, k.FocusNext):

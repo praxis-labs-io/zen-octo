@@ -607,3 +607,23 @@ func TestAPendingCommentStaysOnItsOwnPullRequest(t *testing.T) {
 		t.Errorf("PR_2 timeline = %q, want only its own", got)
 	}
 }
+
+// A refetch that lands while the write is out already carries the comment.
+// Adding it again puts the same one on the page twice, and the two cards share
+// a node id, which is the one thing the focus ring cannot survive.
+func TestACommentARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	// GitHub recorded it and the refetch answered before the mutation did.
+	s.DetailApplied("PR_1", detailWith("first", "mine"))
+
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_mine", Body: "mine"},
+	})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 {
+		t.Errorf("timeline = %q, want the comment once", got)
+	}
+}
