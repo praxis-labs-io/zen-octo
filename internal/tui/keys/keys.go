@@ -7,9 +7,14 @@ import "charm.land/bubbles/v2/key"
 
 // GlobalMap answers whatever has focus. The root model handles these before it
 // delegates to a screen.
+//
+// Quit and ForceQuit are separate because the compose pane takes plain letters
+// as text. While it is open the root stands aside and q types a q; ctrl+c still
+// quits, because one way out has to work from everywhere.
 type GlobalMap struct {
-	Help key.Binding
-	Quit key.Binding
+	Help      key.Binding
+	Quit      key.Binding
+	ForceQuit key.Binding
 }
 
 // ListMap is live while the pull request list has focus.
@@ -60,14 +65,27 @@ type DetailMap struct {
 	Expand       key.Binding
 	Refresh      key.Binding
 	Back         key.Binding
+
+	// The compose pane's own. Comment opens it; Post and Editor are live only
+	// while it is open. Closing it is Back and reaching the post button is
+	// FocusNext, because both already mean that everywhere else on this screen.
+	//
+	// Post is a chord only a terminal speaking the Kitty keyboard protocol can
+	// send. Every terminal reaches the button instead, which is why there is
+	// one, and the pane names whichever of the two the reader can actually use.
+	Comment  key.Binding
+	Post     key.Binding
+	Activate key.Binding
+	Editor   key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
 // later; until then these are the only place a key is named.
 var (
 	Global = GlobalMap{
-		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:      key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+		ForceQuit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit from anywhere")),
 	}
 
 	List = ListMap{
@@ -107,6 +125,11 @@ var (
 		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
 		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+
+		Comment:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
+		Post:     key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
+		Activate: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "press the button")),
+		Editor:   key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 	}
 )
 
@@ -122,7 +145,7 @@ func (k ListMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextSection, k.PrevSection, k.Open, k.Refresh},
-		{Global.Help, Global.Quit},
+		{Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }
 
@@ -145,6 +168,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
 		{k.FocusNext, k.FocusPrev, k.Expand, k.ToggleRail},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
-		{k.Refresh, k.Back, Global.Help, Global.Quit},
+		{k.Comment, k.Post, k.Activate, k.Editor},
+		{k.Refresh, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

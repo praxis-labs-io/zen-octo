@@ -21,6 +21,7 @@ const (
 	cardComment     = "octobot · commented"
 	cardReview      = "nkr · requested changes"
 	cardThread      = "internal/gh/client.go:42"
+	cardCompose     = "write a comment"
 )
 
 // A screen opens with nothing focused. The reader came to read it.
@@ -55,9 +56,16 @@ func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
 		t.Error("the resolved thread is not marked when focus reaches it")
 	}
 
-	sixth := focusedCard(t, press(m, "tab", "tab", "tab", "tab", "tab", "tab").View())
-	if !strings.HasPrefix(sixth, cardDescription) {
-		t.Errorf("tab past the last card focused %q, want it back at the description", sixth)
+	// The sixth is the comment box, which closes the conversation the way it
+	// closes GitHub's page.
+	sixth := focusedCard(t, press(m, strings.Fields(strings.Repeat("tab ", 6))...).View())
+	if !strings.HasPrefix(sixth, cardCompose) {
+		t.Errorf("the sixth tab focused %q, want the comment box", sixth)
+	}
+
+	seventh := focusedCard(t, press(m, strings.Fields(strings.Repeat("tab ", 7))...).View())
+	if !strings.HasPrefix(seventh, cardDescription) {
+		t.Errorf("tab past the last card focused %q, want it back at the description", seventh)
 	}
 }
 

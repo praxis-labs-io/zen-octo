@@ -451,3 +451,179 @@ func TestTheDiffAndTheDetailAreHeldApart(t *testing.T) {
 		t.Error("a loaded detail made the diff read as loaded")
 	}
 }
+
+// bodies is the comment bodies on a detail's timeline, in order, which is what
+// the conversation would render.
+func bodies(d store.Detail) []string {
+	var out []string
+	for _, item := range d.Detail.Timeline {
+		if item.Kind == gh.TimelineComment {
+			out = append(out, item.Said().Body)
+		}
+	}
+	return out
+}
+
+func detailWith(bodies ...string) gh.DetailResult {
+	items := make([]gh.TimelineItem, len(bodies))
+	for i, body := range bodies {
+		c := gh.Comment{Kind: gh.CommentIssue, ID: "IC_" + body, Body: body}
+		items[i] = gh.TimelineItem{Kind: gh.TimelineComment, Comment: &c}
+	}
+	return gh.DetailResult{Detail: gh.PullRequestDetail{Timeline: items}}
+}
+
+// A comment written here shows in the conversation before GitHub has seen it.
+// That is the whole of what optimistic means.
+func TestAPendingCommentRendersBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+
+	s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 || got[1] != "mine" {
+		t.Errorf("timeline = %q, want the pending comment at the end", got)
+	}
+
+	// It says it has not landed. A placeholder that looks like the real thing
+	// is a lie the moment the post fails.
+	last := s.Detail("PR_1").Detail.Timeline[1].Said()
+	if !last.Pending {
+		t.Error("the pending comment is not marked pending")
+	}
+}
+
+// The reason pending is held beside the detail rather than written into it. A
+// refetch that answers before the mutation does must not take the comment away.
+func TestARefetchDoesNotDropACommentStillInFlight(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	s.DetailApplied("PR_1", detailWith("first", "second"))
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 3 || got[2] != "mine" {
+		t.Errorf("timeline = %q, want the pending comment still on the end", got)
+	}
+}
+
+// Reading twice gives the same answer. Folding pending into the held slice
+// rather than a copy would append it again on every call.
+func TestReadingADetailTwiceDoesNotDoubleThePending(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	_ = s.Detail("PR_1")
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 {
+		t.Errorf("timeline = %q on the second read, want two comments", got)
+	}
+}
+
+func TestAPostedCommentReplacesItsPlaceholder(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_REAL", Body: "mine"},
+	})
+
+	d := s.Detail("PR_1")
+	if got := bodies(d); len(got) != 2 || got[1] != "mine" {
+		t.Fatalf("timeline = %q, want the comment once", got)
+	}
+
+	last := d.Detail.Timeline[1].Said()
+	if last.Pending {
+		t.Error("the comment is still marked pending after GitHub confirmed it")
+	}
+	if last.ID != "IC_REAL" {
+		t.Errorf("ID = %q, want the node id GitHub gave it", last.ID)
+	}
+}
+
+// The revert branch. A post that fails takes its comment back off the screen
+// rather than leaving a card nothing will ever confirm.
+func TestAFailedPostTakesItsCommentBack(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	s.PendingReverted("PR_1", key)
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 1 || got[0] != "first" {
+		t.Errorf("timeline = %q, want only what was fetched", got)
+	}
+}
+
+// Two comments in flight settle independently, and each names its own.
+func TestTwoWritesInFlightSettleSeparately(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+
+	one := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "one"})
+	two := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "two"})
+	if one == two {
+		t.Fatalf("both writes got the key %q", one)
+	}
+
+	s.PendingReverted("PR_1", one)
+	s.PendingApplied("PR_1", two, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_TWO", Body: "two"},
+	})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 || got[1] != "two" {
+		t.Errorf("timeline = %q, want the first reverted and the second landed", got)
+	}
+}
+
+// A response for a key already settled is a second copy of an answer. Applying
+// it would put the comment in the conversation twice.
+func TestAResponseForAWriteAlreadySettledIsIgnored(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	landed := gh.CommentResult{Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_REAL", Body: "mine"}}
+	s.PendingApplied("PR_1", key, landed)
+	s.PendingApplied("PR_1", key, landed)
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 {
+		t.Errorf("timeline = %q, want the comment once", got)
+	}
+}
+
+// Writes belong to the pull request they were written on. One open in a second
+// screen must not show the other's placeholder.
+func TestAPendingCommentStaysOnItsOwnPullRequest(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	s.DetailApplied("PR_2", detailWith("other"))
+
+	s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	if got := bodies(s.Detail("PR_2")); len(got) != 1 || got[0] != "other" {
+		t.Errorf("PR_2 timeline = %q, want only its own", got)
+	}
+}
+
+// A refetch that lands while the write is out already carries the comment.
+// Adding it again puts the same one on the page twice, and the two cards share
+// a node id, which is the one thing the focus ring cannot survive.
+func TestACommentARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", detailWith("first"))
+	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
+
+	// GitHub recorded it and the refetch answered before the mutation did.
+	s.DetailApplied("PR_1", detailWith("first", "mine"))
+
+	s.PendingApplied("PR_1", key, gh.CommentResult{
+		Comment: gh.Comment{Kind: gh.CommentIssue, ID: "IC_mine", Body: "mine"},
+	})
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 2 {
+		t.Errorf("timeline = %q, want the comment once", got)
+	}
+}

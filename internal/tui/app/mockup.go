@@ -26,6 +26,25 @@ func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
 	}, nil
 }
 
+// AddComment takes the write and hands it straight back as though GitHub had
+// recorded it. The mockup exists to judge the layout, and a compose pane that
+// posts to nothing never shows what a posted comment looks like.
+func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, error) {
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind:            gh.CommentIssue,
+			ID:              "IC_MOCK",
+			Author:          gh.Actor{Login: mockViewer},
+			CreatedAt:       time.Now(),
+			Body:            body,
+			ViewerDidAuthor: true,
+			CanEdit:         true,
+			CanDelete:       true,
+			CanReact:        true,
+		},
+	}, nil
+}
+
 // SearchPullRequests answers from the fixtures, keyed by the query so the tabs
 // carry counts that differ.
 func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {

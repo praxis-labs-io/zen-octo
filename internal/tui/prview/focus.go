@@ -27,6 +27,11 @@ const (
 	focusAddReviewer
 	focusAddAssignee
 	focusAddLabel
+
+	// The comment box is the last card in the conversation, so tab reaches it
+	// the same way it reaches everything above it. Focus on it is not the same
+	// as typing in it: enter starts that, and esc stops it.
+	focusCompose
 )
 
 // prose is whether this kind renders a markdown body, which is the only thing

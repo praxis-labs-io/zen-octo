@@ -38,6 +38,19 @@ type RefreshMsg struct {
 	SHA   string
 }
 
+// PostCommentMsg asks the root to write a comment on this pull request. The
+// screen cannot reach the network, so the buffer leaves here as a message and
+// the write starts at the root, the same way a fetch does.
+type PostCommentMsg struct {
+	ID   string
+	Body string
+}
+
+// EditorFailedMsg reports an editor that would not run or a file that would not
+// be read. The buffer is untouched and the pane is still open; the root raises
+// the toast, because the screen has nowhere to say it.
+type EditorFailedMsg struct{ Err error }
+
 // RailPreference is what the user last asked of the details rail. The root
 // carries it from one pull request to the next, so hiding the rail stays hidden
 // instead of having to be redone on every open.
@@ -194,6 +207,17 @@ type Model struct {
 	// down.
 	offsets []int
 
+	// compose is the box a comment is written in: the last card in the
+	// conversation, always on the page.
+	//
+	// who is the account it will be from, for its heading. The root knows it and
+	// the screen does not, so it is handed over rather than fetched.
+	compose composer
+	who     gh.Actor
+
+	// conv is the conversation above the box, kept while it is being written in.
+	conv convCache
+
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
 	railOn      bool
@@ -223,6 +247,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		// The pull request's own diff is the one review threads were written
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
+		compose:     newComposer(th),
 		collapsed:   make(map[string]bool),
 		expanded:    make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
@@ -268,6 +293,7 @@ func (m Model) firstFile() int {
 func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.detail = d
 	m.diff.blocks = nil
+	m.conv.ok = false
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
@@ -296,14 +322,31 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case CommitSettleMsg:
 		return m, m.settleCommit(msg)
 
+	case editorDoneMsg:
+		return m.editorReturned(msg)
+
 	case spinner.TickMsg:
 		cmd := m.spinner.Advance(msg, m.waiting())
 		// The body is built into the viewport rather than in View, so a new
 		// frame of the glyph only reaches the screen through a resync.
 		m.syncContent()
 		return m, cmd
+
+	default:
+		// A paste is not a keypress. The terminal sends it whole, as its own
+		// message, and the textarea answers two of them: the bracketed paste the
+		// terminal wraps a middle-click or a cmd+v in, and the clipboard read its
+		// own ctrl+v asks for. Neither reaches handleKey, so while the box has
+		// the keyboard anything this screen does not recognise goes to it.
+		if !m.compose.typing {
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.compose.area, cmd = m.compose.area.Update(msg)
+		m.showCompose()
+		return m, cmd
 	}
-	return m, nil
 }
 
 // waiting is the one state the spinner belongs in: nothing to read yet. A
@@ -335,6 +378,13 @@ func waitingFor(f store.Files) bool {
 
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
+
+	// The box takes the keyboard while it is being written in. Every letter is a
+	// letter then, so nothing below this line gets a look.
+	if m.compose.typing {
+		return m.composeKey(keyMsg)
+	}
+
 	before := m.view.YOffset()
 
 	// A key that placed the cursor itself must not then have the diff place it
@@ -353,6 +403,20 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Refresh):
 		return m, m.refresh()
+
+	// A top-level comment lands in the conversation, so it is written from
+	// there. The three tabs with a column each anchor their own kind of comment
+	// and none of them is this one.
+	// Both gated on the box being on the screen. The ring keeps its focus across
+	// a tab switch, so without the guard enter would start typing on a tab that
+	// draws no box at all.
+	case key.Matches(keyMsg, k.Comment) && m.canCompose():
+		return m.writeComment()
+
+	// The box is a card like any other, so the ring reaches it and enter is what
+	// steps into it, the same key that presses the button once inside.
+	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.convRing.on.kind == focusCompose:
+		return m.writeComment()
 
 	case key.Matches(keyMsg, k.FocusNext):
 		m.stepFocus(1)
@@ -692,6 +756,7 @@ func (m *Model) toggleExpanded() {
 
 	m.expanded[r.on] = !m.expanded[r.on]
 	m.folds++
+	m.conv.ok = false
 
 	// Unfolding pushes everything under it down. Without this the card that
 	// just grew opens below the window it was read in.
@@ -767,6 +832,9 @@ func (m *Model) SetSize(width, height int) {
 
 // layout sizes the panes for the current frame, tab, and rail state.
 func (m *Model) layout() {
+	// Every block is measured against a width, so none of them survive one.
+	m.conv.ok = false
+
 	// Focus follows the panes: a tab switch or a resize can take the one that
 	// had it off the screen.
 	if !m.paneVisible(m.focus) {
@@ -863,7 +931,13 @@ func (m *Model) syncContent() {
 	// Code is clipped to the pane rather than wrapped: a line of source folded
 	// onto a second row puts its tail under the gutter and every line below it
 	// out of step with its own number. Both tabs that show a diff want it off.
-	m.view.SoftWrap = m.tab != tabFiles && m.tab != tabCommits
+	//
+	// So does the conversation, for a different reason. Every block it builds is
+	// already wrapped to bodyWidth before it gets here, so soft wrap has nothing
+	// to fold and spends half the cost of setting the content proving it: 12.7ms
+	// against 7.0ms on a hundred-and-forty-comment thread, which is paid on
+	// every keystroke once a comment is being written into it.
+	m.view.SoftWrap = m.tab == tabChecks
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens

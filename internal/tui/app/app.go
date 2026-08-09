@@ -36,6 +36,7 @@ type GitHub interface {
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
 	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
+	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -95,6 +96,25 @@ type commitFilesFailedMsg struct {
 	err error
 }
 
+// A comment is applied here before it is sent, so both outcomes name the write
+// rather than the pull request alone. Two comments can be in flight at once,
+// and the key is what tells one answer from the other.
+//
+// The failure carries the body back. The pane emptied when the write left, and
+// the words are the only thing in this program that cannot be fetched again.
+type commentPostedMsg struct {
+	id  string
+	key string
+	res gh.CommentResult
+}
+
+type commentFailedMsg struct {
+	id   string
+	key  string
+	body string
+	err  error
+}
+
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
 // the UI spinning with no error and no way out but quitting.
 const fetchTimeout = 30 * time.Second
@@ -130,6 +150,11 @@ type Model struct {
 	// registered. Silently falling back reads as "my config is ignored".
 	notice   string
 	showHelp bool
+
+	// chords is whether the terminal can tell ctrl+enter from enter. It is held
+	// here rather than on the screen because the screen is rebuilt on every
+	// open and the terminal only answers once.
+	chords bool
 
 	// refreshing is the sections the last r press actually started. A refresh
 	// returns the same rows more often than not, so the toast is the only sign
@@ -260,6 +285,75 @@ func (m Model) fetchViewer() tea.Cmd {
 	}
 }
 
+// postComment writes a comment and puts it on the screen before it is sent.
+// The card is the acknowledgement; a toast saying "posting" would be a second
+// one for the same fact and would take the status bar off the keymap for it.
+//
+// The store holds the placeholder beside the fetched detail, so an r pressed
+// while this is out cannot take it away.
+func (m Model) postComment(msg prview.PostCommentMsg) (tea.Model, tea.Cmd) {
+	key := m.store.PendingComment(msg.ID, gh.Comment{
+		Kind:      gh.CommentIssue,
+		Author:    m.store.Viewer(),
+		CreatedAt: time.Now(),
+		Body:      msg.Body,
+	})
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
+	return m, tea.Batch(shown, m.sendComment(msg.ID, key, msg.Body))
+}
+
+func (m Model) sendComment(id, key, body string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.AddComment(ctx, id, body)
+		if err != nil {
+			return commentFailedMsg{id: id, key: key, body: body, err: err}
+		}
+		return commentPostedMsg{id: id, key: key, res: res}
+	}
+}
+
+// commentLanded swaps the placeholder for what GitHub recorded.
+func (m Model) commentLanded(msg commentPostedMsg) (tea.Model, tea.Cmd) {
+	m.store.PendingApplied(msg.id, msg.key, msg.res)
+
+	toast := m.toasts.Show(comp.ToastSuccess, "Posted")
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+}
+
+// commentFailed is the revert branch. The placeholder comes off the screen and
+// the words go back in the pane, because a comment lost to a dropped
+// connection is the one thing here that cannot be fetched again.
+func (m Model) commentFailed(msg commentFailedMsg) (tea.Model, tea.Cmd) {
+	m.store.PendingReverted(msg.id, msg.key)
+
+	toast := m.toasts.Show(comp.ToastError, "Could not post the comment: "+msg.err.Error())
+
+	// A reader who left has no pane to put the words back into. The toast still
+	// goes up: they are about to find the comment is not there.
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.id))
+	restored := m.detail.RestoreDraft(msg.body)
+	m.resize()
+	return m, tea.Batch(shown, restored, toast)
+}
+
+// showing is whether the detail screen is up on this pull request. A response
+// outlives the screen that asked for it, and every settle path checks.
+func (m Model) showing(id string) bool {
+	return m.screen == screenDetail && m.detail.PullRequest().ID == id
+}
+
 func (m Model) fetchSection(index int, query string) tea.Cmd {
 	client, limit := m.client, m.limit
 	return func() tea.Msg {
@@ -330,6 +424,8 @@ func stillLoading(sections []store.Section, indices []int) bool {
 // position, so nothing moves under the reader.
 func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail = prview.New(m.theme, pr, m.detail.Rail(), m.syntax)
+	m.detail.SetChords(m.chords)
+	m.detail.SetViewer(m.store.Viewer())
 	m.screen = screenDetail
 	m.detailRefreshing = detailRefresh{}
 
@@ -627,6 +723,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case viewerFetchedMsg:
 		m.store.ViewerApplied(msg.res)
+		// A screen already open took the login when it opened, which at startup
+		// is before this lands. Without this the comment box is headed by nobody
+		// for the rest of the session.
+		m.detail.SetViewer(m.store.Viewer())
 		return m, nil
 
 	case viewerFailedMsg:
@@ -694,6 +794,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.RefreshMsg:
 		return m.refreshDetail(msg)
 
+	case prview.PostCommentMsg:
+		return m.postComment(msg)
+
+	case prview.EditorFailedMsg:
+		return m, m.toasts.Show(comp.ToastError, "Could not open an editor: "+msg.Err.Error())
+
+	case commentPostedMsg:
+		return m.commentLanded(msg)
+
+	case commentFailedMsg:
+		return m.commentFailed(msg)
+
+	// The terminal answers once, at startup, and only the compose pane cares:
+	// it decides whether ctrl+enter is a key worth naming in its footer.
+	case tea.KeyboardEnhancementsMsg:
+		m.chords = msg.SupportsKeyDisambiguation()
+		m.detail.SetChords(m.chords)
+		return m, nil
+
 	case list.OpenMsg:
 		return m.open(msg.PR)
 
@@ -714,6 +833,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// ctrl+c goes first and answers from anywhere, including out of a pane
+	// taking text. One way out of the program has to be unconditional.
+	if key.Matches(msg, keys.Global.ForceQuit) {
+		return m, tea.Quit
+	}
+
+	// A screen writing a comment owns the keyboard. q is a letter in there, and
+	// the root's own bindings would each eat one.
+	if m.screen == screenDetail && m.detail.Composing() {
+		return m.delegate(msg)
+	}
+
 	switch {
 	case key.Matches(msg, keys.Global.Quit):
 		return m, tea.Quit
@@ -868,12 +999,31 @@ func (m Model) contextLabel() string {
 	return label
 }
 
+// helpBody is the overlay's content, and says so when the frame cannot hold it.
+//
+// A narrow frame forces the columns down until the list is taller than the room
+// there is, and the overlay is drawn over the screen rather than into a pane, so
+// what does not fit is simply cut off the bottom. Bindings disappear with
+// nothing to say they existed. The line is not a fix, it is the difference
+// between a short list and a wrong one.
 func (m Model) helpBody() string {
 	groups := m.list.Keys().FullHelp()
 	if m.screen == screenDetail {
 		groups = m.detail.Keys().FullHelp()
 	}
-	return m.help.FullHelpView(refitHelp(groups, m.width-modalChrome))
+
+	body := m.help.FullHelpView(refitHelp(groups, m.width-modalChrome))
+
+	// The overlay spends a line on each border and the frame spends one on the
+	// status bar.
+	room := m.height - statusBarHeight - m.noticeHeight() - 2
+	if strings.Count(body, "\n")+1 <= room {
+		return body
+	}
+
+	note := lipgloss.NewStyle().Foreground(m.theme.Warning).
+		Render("… more keys than this frame can show")
+	return strings.Join(append(strings.Split(body, "\n")[:max(0, room-1)], note), "\n")
 }
 
 // modalChrome is what the overlay spends on itself: two border runes and a
@@ -892,23 +1042,27 @@ const helpColumns = 3
 // rather than reflowed, and the modal loses its right border.
 func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 	var flat []key.Binding
-	widest := 0
+	widestKey, widestDesc := 0, 0
 	for _, group := range groups {
 		for _, b := range group {
 			flat = append(flat, b)
-			if w := len(b.Help().Key) + len(b.Help().Desc) + 1; w > widest {
-				widest = w
-			}
+			widestKey = max(widestKey, len(b.Help().Key))
+			widestDesc = max(widestDesc, len(b.Help().Desc))
 		}
 	}
 	if len(flat) == 0 {
 		return groups
 	}
 
+	// A column is as wide as its widest key plus its widest description, and
+	// the two sit on different rows as often as not. Measuring the widest
+	// single binding instead reads a column narrower than it renders, and the
+	// overlay then runs past the frame and loses its own right border.
+	//
 	// The help bubble puts a gap between columns; budget for it so the last
 	// column is not the one that overflows.
 	const columnGap = 4
-	columns := max(1, min(helpColumns, width/(widest+columnGap)))
+	columns := max(1, min(helpColumns, width/(widestKey+widestDesc+1+columnGap)))
 	if columns >= len(groups) {
 		return groups
 	}

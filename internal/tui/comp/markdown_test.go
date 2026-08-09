@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -96,4 +97,46 @@ func TestNothingToRenderComesBackEmpty(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A single newline is a line break, the way GitHub renders one in a comment.
+// CommonMark calls it a soft break and folds it into the paragraph, which put
+// two lines somebody typed onto one and made a comment read differently here
+// from the way it reads in the browser it was written for.
+func TestASingleNewlineIsALineBreak(t *testing.T) {
+	m := NewMarkdown(theme.RosePineMoon)
+
+	lines := body(m.Render("this is a sentence\nand this is another", 60))
+	if len(lines) != 2 {
+		t.Fatalf("rendered %d lines, want two:\n%q", len(lines), lines)
+	}
+	if !strings.HasPrefix(lines[0], "this is a sentence") {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "and this is another") {
+		t.Errorf("second line = %q", lines[1])
+	}
+}
+
+// A blank line is still a paragraph break, so the two are told apart rather
+// than every newline becoming the same thing.
+func TestABlankLineStillSeparatesParagraphs(t *testing.T) {
+	m := NewMarkdown(theme.RosePineMoon)
+
+	if got := body(m.Render("one\n\ntwo", 60)); len(got) != 3 {
+		t.Errorf("rendered %d lines, want two paragraphs with a blank between:\n%q", len(got), got)
+	}
+}
+
+// body is the rendered lines with the styling and the right-hand padding off.
+// Glamour pads every line out to the wrap width.
+func body(out string) []string {
+	var lines []string
+	for _, line := range strings.Split(out, "\n") {
+		lines = append(lines, strings.TrimRight(xansi.Strip(line), " "))
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }

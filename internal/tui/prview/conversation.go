@@ -2,6 +2,7 @@ package prview
 
 import (
 	"image/color"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -39,9 +40,19 @@ func (m *Model) conversationBody() string {
 
 	switch {
 	case m.detail.Loaded:
+		// Everything above the box is fixed while it is being written in, so it
+		// is joined to a fresh box rather than rebuilt around one.
+		if m.conv.ok && m.compose.typing {
+			m.convRing.items = append(m.convRing.items[:0], m.conv.items...)
+			return m.withCompose(m.bodyWidth())
+		}
 		return m.entries()
 	case m.detail.Status == store.StatusFailed:
-		return m.faint().Render("Could not load the conversation: " + m.detail.Err.Error())
+		// Wrapped here rather than by the viewport. This tab does not soft wrap,
+		// and an error is the one block on it not already measured to a width, so
+		// it would be clipped at whatever the pane is wide: the reader would be
+		// told the fetch failed and not told why.
+		return wrap(m.faint().Render("Could not load the conversation: "+m.detail.Err.Error()), m.bodyWidth())
 	}
 	return m.spinner.Render("Loading the conversation")
 }
@@ -75,9 +86,13 @@ func (m *Model) entries() string {
 		item := d.Timeline[i]
 		switch item.Kind {
 		case gh.TimelineComment:
-			key := focusKey{kind: focusComment, id: item.Said().ID}
+			written := item.Said()
+			key := focusKey{kind: focusComment, id: written.ID}
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
-			push(m.card(head, m.body(item.Said().Body, m.cardWidth(width), "No comment.", key), width, key), key)
+			if written.Pending {
+				head = m.posting(item.Actor)
+			}
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key), key)
 
 		case gh.TimelineReview:
 			// The review records its own card and every thread hung off it, so
@@ -116,7 +131,40 @@ func (m *Model) entries() string {
 		push(wrap(m.faint().Render(comp.Plural(n, "more review thread")+" on GitHub"), width), focusKey{})
 	}
 
-	return strings.Join(blocks, "\n\n")
+	m.conv = convCache{body: strings.Join(blocks, "\n\n"), items: slices.Clone(m.convRing.items), at: at, ok: true}
+	return m.withCompose(width)
+}
+
+// convCache is the conversation above the comment box.
+//
+// While the box has the keyboard nothing above it can change: the detail is not
+// being refetched, the width is not moving, and focus is on the box. So it is
+// built once and joined to a freshly rendered box on each keystroke. On a
+// hundred-and-forty-comment thread that is the difference between re-bordering
+// a hundred and forty cards per character and re-bordering one: 27ms against
+// 7ms, which is the difference between typing and waiting.
+//
+// It is only ever read while typing, and the four things that can invalidate it
+// all end typing or cannot happen during it. Anything else added here has to
+// clear ok or the page will render a card that has moved on.
+type convCache struct {
+	body  string
+	items []focusItem
+	at    int
+	ok    bool
+}
+
+// withCompose puts the box under whatever the conversation already is. It is
+// the last block, under everything already said, which is where the comment
+// being written is going to appear.
+func (m *Model) withCompose(width int) string {
+	box := m.composeCard(width)
+	m.convRing.add(focusKey{kind: focusCompose}, m.conv.at, strings.Count(box, "\n")+1)
+
+	if m.conv.body == "" {
+		return box
+	}
+	return m.conv.body + "\n\n" + box
 }
 
 // review is the verdict and body in a box, then the threads it opened, set in
@@ -272,6 +320,18 @@ func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.Timelin
 		parts = append(parts, m.faint().Render(at))
 	}
 	return strings.Join(parts, m.faint().Render(" · "))
+}
+
+// posting is the heading over a comment on its way. It says so where the time
+// would go: a card that has landed and one that still might not read the same
+// otherwise, and only one of the two can disappear.
+//
+// The item is empty so said writes no time. There is none to write, and "now"
+// would be a claim about a comment GitHub has not seen.
+func (m *Model) posting(actor gh.Actor) string {
+	return m.said(actor, "commented", m.theme.Faint, gh.TimelineItem{}) +
+		m.faint().Render(" · ") +
+		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
 }
 
 // event is one line. Nobody reads a merge twice, and giving it the same block

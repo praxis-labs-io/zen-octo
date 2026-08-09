@@ -1,0 +1,439 @@
+package prview
+
+import (
+	"cmp"
+	"os"
+	"os/exec"
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/theme"
+)
+
+// composeRows is the writing the box shows at once. Enough to see a paragraph
+// whole: a box that shows three lines of an eight-line comment is one you write
+// in blind, and $EDITOR is for the times that is not enough.
+const composeRows = 8
+
+// postLabel is what the button says. The padding around it is the button: a
+// filled surface reads as something to press, where a bare word reads as a
+// caption.
+const postLabel = "Post"
+
+// postPad is the room either side of the label inside the button.
+const postPad = 2
+
+// composer is where a comment gets written: the last card in the conversation,
+// under everything already said, which is where GitHub puts it and where the
+// comment being written is going to appear.
+//
+// It is always on the page. A box that has to be summoned is one nobody knows
+// is there, and the card is cheap: eight rows at the end of a thread nobody is
+// reading the end of.
+//
+// typing is whether it has the keyboard. Focus alone is not enough: tab walks
+// onto it the way it walks onto any card, and until enter it is a card like the
+// rest, so j still scrolls.
+type composer struct {
+	area textarea.Model
+
+	typing bool
+
+	// onPost is whether the button holds focus rather than the text. Enter
+	// posts from the button and nowhere else: in the text it is a newline, and
+	// a key that sends a half-written comment is worse than one more keystroke.
+	onPost bool
+
+	// chords is whether the terminal can tell ctrl+enter from enter. Only a
+	// terminal speaking the Kitty keyboard protocol can, so on the rest the
+	// chord arrives as a bare enter and would add a blank line. The button is
+	// what those terminals post with, and the hint names whichever works.
+	chords bool
+}
+
+func newComposer(th theme.Theme) composer {
+	area := textarea.New()
+	area.Placeholder = "Leave a comment"
+	area.ShowLineNumbers = false
+	area.Prompt = ""
+
+	// The default is four hundred characters, which is a short review comment.
+	area.CharLimit = 0
+
+	area.SetHeight(composeRows)
+
+	styles := area.Styles()
+	for _, state := range []*textarea.StyleState{&styles.Focused, &styles.Blurred} {
+		state.Base = lipgloss.NewStyle()
+		state.Text = lipgloss.NewStyle().Foreground(th.Primary)
+		state.Placeholder = lipgloss.NewStyle().Foreground(th.Faint)
+		state.CursorLine = lipgloss.NewStyle()
+		state.EndOfBuffer = lipgloss.NewStyle().Foreground(th.Faint)
+	}
+	area.SetStyles(styles)
+
+	return composer{area: area}
+}
+
+// body is what has been written, with the surrounding whitespace off. A comment
+// of nothing but newlines is not one to post.
+func (c composer) body() string { return strings.TrimSpace(c.area.Value()) }
+
+// start puts the keyboard in the text. The card is already on the page; this is
+// the difference between looking at it and writing in it.
+func (c *composer) start() tea.Cmd {
+	c.typing, c.onPost = true, false
+	return c.area.Focus()
+}
+
+// stop hands the keyboard back to the screen, keeping every word. The card
+// stays where it is: it is part of the conversation, not something summoned.
+func (c *composer) stop() {
+	c.typing, c.onPost = false, false
+	c.area.Blur()
+}
+
+// sent empties the box, for a comment on its way. The text is not lost: the
+// caller holds it, and puts it back if the post fails.
+func (c *composer) sent() {
+	c.area.Reset()
+	c.stop()
+}
+
+// restore puts a failed comment back, so the words survive the network.
+//
+// It appends rather than assigns when something is already there. A post is
+// answered for long after the box emptied, and by then the reader may be
+// writing the next comment; overwriting would destroy that one to rescue this
+// one, which is the same loss in the other direction. Two comments run together
+// is a mess the reader can cut apart. A comment that is gone is gone.
+func (c *composer) restore(body string) {
+	if held := c.body(); held != "" {
+		body = body + "\n\n" + held
+	}
+	c.area.SetValue(body)
+	c.area.MoveToEnd()
+}
+
+// step moves between the text and the button, which is what tab means while
+// the box has the keyboard.
+func (c *composer) step() tea.Cmd {
+	c.onPost = !c.onPost
+	if c.onPost {
+		c.area.Blur()
+		return nil
+	}
+	return c.area.Focus()
+}
+
+func (c *composer) setWidth(width int) { c.area.SetWidth(width) }
+
+// card renders the box the way every other entry in the conversation renders:
+// a heading, a rule, then the content. It is the same component, so a comment
+// being written sits among the comments already made rather than beside them.
+func (m *Model) composeCard(width int) string {
+	key := focusKey{kind: focusCompose}
+
+	// said drops the login when there is none, which is what the heading needs
+	// until the viewer query lands, and the empty item keeps a time off a card
+	// nothing has happened to yet.
+	head := m.said(m.who, "write a comment", m.theme.Faint, gh.TimelineItem{})
+
+	inner := m.cardWidth(width)
+	m.compose.setWidth(inner)
+
+	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
+	return m.card(head, body, width, key)
+}
+
+// button is the post control, on the last row of the card and against its right
+// edge.
+//
+// It is a filled surface at every state, because it is a button at every state.
+// Muted is the colour, not the shape: the raised background the rail uses for
+// its cursor line. Focus swaps it for the accent, and an empty buffer greys the
+// label without taking the surface away, so the control does not appear and
+// disappear as you type.
+func (c composer) button(th theme.Theme, width int, focused bool) string {
+	style := lipgloss.NewStyle().
+		Padding(0, postPad).
+		Foreground(th.Primary).
+		Background(th.SelectedBackground)
+
+	switch {
+	// Nothing to send. A control that takes a press and does nothing is worse
+	// than one that says it is not ready.
+	case c.body() == "":
+		style = style.Foreground(th.Faint)
+	case c.onPost:
+		style = style.Foreground(th.Inverted).Background(th.Secondary)
+	}
+
+	button := style.Render(postLabel)
+
+	// The hint gives way first. A narrow card that keeps both overflows, and the
+	// pane clips from the right, which takes the button rather than the words
+	// about it: on a terminal that cannot send the chord that is the only way to
+	// post, gone.
+	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint(focused))
+	gap := width - lipgloss.Width(hint) - lipgloss.Width(button)
+	if gap < 1 {
+		hint, gap = "", max(0, width-lipgloss.Width(button))
+	}
+	return hint + strings.Repeat(" ", gap) + button
+}
+
+// hint is the line beside the button, and it names the key that works from
+// where the reader is standing. enter starts writing only once the ring is on
+// the box; from anywhere else on the page it is c, and naming the wrong one is
+// a key that does nothing to whoever tries it.
+//
+// The chord is named only where the terminal can send it: on the rest
+// ctrl+enter arrives as a plain enter and would add a blank line.
+func (c composer) hint(focused bool) string {
+	if !c.typing {
+		if focused {
+			return keys.Detail.Activate.Help().Key + " to write"
+		}
+		return keys.Detail.Comment.Help().Key + " to write"
+	}
+
+	post := "tab · enter post"
+	if c.chords {
+		post = keys.Detail.Post.Help().Key + " post"
+	}
+	return strings.Join([]string{
+		post,
+		keys.Detail.Editor.Help().Key + " editor",
+		keys.Detail.Back.Help().Key + " done",
+	}, " · ")
+}
+
+// Composing reports whether the box has the keyboard. The root reads it before
+// its own bindings: q is a letter in there, and the only way out of that is for
+// the root to stand aside.
+func (m Model) Composing() bool { return m.compose.typing }
+
+// SetChords says whether the terminal can send ctrl+enter. Only the hint reads
+// it: the binding is live either way, and on a terminal that cannot send the
+// chord the key simply never arrives.
+func (m *Model) SetChords(v bool) { m.compose.chords = v }
+
+// SetViewer names who a comment will be from, for the box's heading.
+//
+// It rebuilds the page. The login lands after the first screen is already open,
+// and the heading is a rendered string by then: setting the field alone would
+// leave the box headed by nobody until something else happened to redraw.
+func (m *Model) SetViewer(a gh.Actor) {
+	m.who = a
+	m.conv.ok = false
+	m.syncContent()
+}
+
+// canCompose is whether the box is on the screen to be written in. The
+// conversation is the only tab that renders it, and only once there is a
+// conversation: the failure and the spinner take its place.
+//
+// Turning typing on without it is the worst thing this screen can do. The root
+// stands aside for Composing(), so every key from then on goes to a textarea
+// nobody can see, and the only way out is an esc the reader has no reason to
+// press.
+func (m Model) canCompose() bool { return m.railTab() && m.detail.Loaded }
+
+// RestoreDraft puts a comment that failed to post back in the box. The words
+// are the reader's, and a network that dropped them is not a reason to lose
+// them.
+//
+// It takes the keyboard back only where the box is on screen. A reader who
+// moved to another tab while the write was out keeps the tab they chose, and
+// the words are waiting the next time they open the box.
+func (m *Model) RestoreDraft(body string) tea.Cmd {
+	m.conv.ok = false
+	m.compose.restore(body)
+
+	if !m.canCompose() {
+		return nil
+	}
+
+	m.convRing.on = focusKey{kind: focusCompose}
+	cmd := m.compose.start()
+	m.focus = paneMain
+	m.showCompose()
+	return cmd
+}
+
+// writeComment puts the keyboard in the box and brings it onto the screen. It
+// is the last card in the conversation, so on a long thread it is usually
+// somewhere below the fold when the key is pressed.
+func (m Model) writeComment() (Model, tea.Cmd) {
+	cmd := m.compose.start()
+
+	// Focus moves onto the box, so whichever card was lit is not any more.
+	m.conv.ok = false
+	m.convRing.on = focusKey{kind: focusCompose}
+
+	// The box is in the conversation, so the keys have to be going there. Left
+	// on the rail, the accent would name one pane while another took every
+	// keystroke.
+	m.focus = paneMain
+
+	m.showCompose()
+	return m, cmd
+}
+
+// composeKey is every key while the box has the keyboard. It answers the
+// handful that belong to it and hands the rest to the text.
+func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
+	k := keys.Detail
+
+	switch {
+	case key.Matches(keyMsg, k.Back):
+		m.compose.stop()
+		m.conv.ok = false
+		m.syncContent()
+		return m, nil
+
+	case key.Matches(keyMsg, k.Editor):
+		return m, m.compose.editorCmd()
+
+	case key.Matches(keyMsg, k.FocusNext), key.Matches(keyMsg, k.FocusPrev):
+		cmd := m.compose.step()
+		m.syncContent()
+		return m, cmd
+
+	case key.Matches(keyMsg, k.Post):
+		return m.post()
+
+	// Enter posts from the button and nowhere else. In the text it falls
+	// through below and is a newline, which is the only thing it can be.
+	case key.Matches(keyMsg, k.Activate) && m.compose.onPost:
+		return m.post()
+	}
+
+	var cmd tea.Cmd
+	m.compose.area, cmd = m.compose.area.Update(keyMsg)
+
+	// The box is content inside a scrolling pane, so the caret leaves the window
+	// as readily as any other line would. It is the last block on the page, so
+	// holding the page at the foot of it is the whole of keeping the caret in
+	// sight.
+	m.showCompose()
+	return m, cmd
+}
+
+// showCompose rebuilds the page and brings the box onto it. Typing changes the
+// last block, and the pane is holding a string that no longer matches it.
+func (m *Model) showCompose() {
+	m.syncContent()
+	m.view.GotoBottom()
+}
+
+// post hands the buffer to the root and empties the box. An empty buffer is
+// nothing to post, and the button says so by going faint rather than by
+// swallowing the keypress silently.
+func (m Model) post() (Model, tea.Cmd) {
+	body := m.compose.body()
+	if body == "" {
+		return m, nil
+	}
+
+	id := m.pr.ID
+	m.compose.sent()
+
+	// Focus goes with the comment. The box is empty and no longer taking keys,
+	// so an accent left on it says the keyboard is somewhere it is not.
+	//
+	// It does not move onto the comment that just landed, tempting as that is:
+	// that card is the placeholder, keyed by an id minted here, and the moment
+	// GitHub confirms it the id becomes a real one and the highlight would
+	// vanish on its own a few hundred milliseconds later.
+	m.convRing.clear()
+	m.conv.ok = false
+	m.syncContent()
+	return m, func() tea.Msg { return PostCommentMsg{ID: id, Body: body} }
+}
+
+// editorReturned takes back what the editor wrote. A trailing newline is what
+// every editor leaves and no comment wants.
+func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
+	if msg.err != nil {
+		err := msg.err
+		return m, func() tea.Msg { return EditorFailedMsg{Err: err} }
+	}
+
+	m.compose.area.SetValue(strings.TrimRight(msg.body, "\n"))
+	m.compose.area.MoveToEnd()
+	m.showCompose()
+	return m, nil
+}
+
+// editorCmd hands the buffer to the reader's editor and takes back what comes
+// out.
+func (c composer) editorCmd() tea.Cmd {
+	path, err := draftFile(c.area.Value())
+	if err != nil {
+		return func() tea.Msg { return editorDoneMsg{err: err} }
+	}
+
+	name, args := editorCommand()
+	return tea.ExecProcess(exec.Command(name, append(args, path)...), func(runErr error) tea.Msg {
+		// A remove that fails leaves one file in the temp directory. There is
+		// nowhere on the screen to report that, and it is not worth losing the
+		// edit over.
+		defer func() { _ = os.Remove(path) }()
+
+		if runErr != nil {
+			return editorDoneMsg{err: runErr}
+		}
+		out, err := os.ReadFile(path)
+		return editorDoneMsg{body: string(out), err: err}
+	})
+}
+
+// draftFile puts the buffer somewhere the editor can open it. The suffix is
+// what makes an editor light it up as markdown, which is what a comment is.
+func draftFile(body string) (string, error) {
+	file, err := os.CreateTemp("", "zen-octo-*.md")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+
+	_, writeErr := file.WriteString(body)
+	if err := cmp.Or(writeErr, file.Close()); err != nil {
+		// Half a draft is worse than none: the editor would open it and the
+		// reader would lose the rest without being told.
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+// editorDoneMsg carries back what the editor left behind, or why it did not
+// run. One message for both outcomes because the box does the same thing
+// either way: it comes back.
+type editorDoneMsg struct {
+	body string
+	err  error
+}
+
+// editorCommand is the reader's editor and the arguments in front of the file.
+// VISUAL wins over EDITOR, which is the order every other terminal program
+// reads them in, and vi is what is there when neither is set.
+//
+// The value is split on spaces so "code -w" works. That is not a shell, and a
+// path with a space in it will not survive: the fix for that is a shell, and a
+// shell is a bigger thing to invite in than this is worth.
+func editorCommand() (string, []string) {
+	fields := strings.Fields(cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"), "vi"))
+	if len(fields) == 0 {
+		return "vi", nil
+	}
+	return fields[0], fields[1:]
+}

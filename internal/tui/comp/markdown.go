@@ -83,6 +83,12 @@ func render(style ansi.StyleConfig, body string, width int) string {
 		glamour.WithStyles(style),
 		glamour.WithWordWrap(width),
 		glamour.WithEmoji(),
+
+		// GitHub renders a single newline in a comment as a line break. CommonMark
+		// calls it a soft break and folds it into the paragraph, which puts two
+		// lines somebody typed onto one and makes a comment read differently here
+		// from the way it reads in the browser it was written in.
+		glamour.WithPreservedNewLines(),
 	)
 	if err != nil {
 		return body

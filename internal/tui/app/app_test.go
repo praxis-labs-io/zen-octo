@@ -42,10 +42,13 @@ type fakeSearcher struct {
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
+	posted      []string
 	detailErr   error
 	filesErr    error
 	commitErr   error
+	postErr     error
 	commitHold  time.Duration
+	postHold    time.Duration
 	gotLimit    int
 	gotDeadline time.Time
 	hadDeadline bool
@@ -199,6 +202,41 @@ func (f *fakeSearcher) CommitFiles(_ context.Context, repo, sha string) (gh.File
 	return gh.FilesResult{Files: files}, nil
 }
 
+func (f *fakeSearcher) AddComment(_ context.Context, subjectID, body string) (gh.CommentResult, error) {
+	f.mu.Lock()
+	f.posted = append(f.posted, subjectID+": "+body)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.CommentResult{}, err
+	}
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind: gh.CommentIssue, ID: "IC_POSTED",
+			Author: gh.Actor{Login: "drucial"}, CreatedAt: time.Now(), Body: body,
+			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+		},
+	}, nil
+}
+
+// written is the comments the model sent, in order.
+func (f *fakeSearcher) written() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.posted)
+}
+
+// holdPosts makes every write answer later than the pump waits, which is how a
+// test gets its hands on a comment that is still in flight.
+func (f *fakeSearcher) holdPosts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.postHold = 50 * time.Millisecond
+}
+
 // holdCommits makes every commit diff answer later than the pump above waits,
 // which is how a test gets its hands on a request that is still in flight.
 func (f *fakeSearcher) holdCommits() {
@@ -259,6 +297,10 @@ func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) 
 
 func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
 	return gh.FilesResult{}, nil
+}
+
+func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
+	return gh.CommentResult{}, nil
 }
 
 func testConfig() *config.Config {
@@ -389,9 +431,21 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "ctrl+enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}
+	case "ctrl+c":
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	default:
 		return tea.KeyPressMsg{Code: rune(k[0]), Text: k}
 	}
+}
+
+// write sends a string a character at a time, the way it reaches a text pane.
+func write(m tea.Model, text string) tea.Model {
+	for _, r := range text {
+		m = settle(m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	return m
 }
 
 func TestRendersFetchedPullRequests(t *testing.T) {
@@ -2067,4 +2121,230 @@ func TestTheStatusBarNamesTheRepositoryOnTheDetailScreen(t *testing.T) {
 func lastLine(frame string) string {
 	lines := strings.Split(stripANSI(frame), "\n")
 	return lines[len(lines)-1]
+}
+
+// composed is a detail screen with a comment written and not yet sent.
+func composed(t *testing.T, client *fakeSearcher, body string) tea.Model {
+	t.Helper()
+
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	m := press(loaded(t, client, 160, 40), "enter", "c")
+	return write(m, body)
+}
+
+// The whole of what optimistic means: the card is on the screen before GitHub
+// has been told, and it says it has not landed yet.
+func TestAPostedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(composed(t, client, "ship it"), "ctrl+enter")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "ship it") {
+		t.Errorf("the comment is not in the conversation:\n%s", out)
+	}
+	if !strings.Contains(out, "posting") {
+		t.Error("the comment does not say it is still on its way")
+	}
+	if got := client.written(); len(got) != 1 || got[0] != "PR_412: ship it" {
+		t.Errorf("wrote %v, want one comment on PR_412", got)
+	}
+}
+
+func TestACommentThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := press(composed(t, client, "ship it"), "ctrl+enter")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "ship it") {
+		t.Fatalf("the comment left the conversation when it landed:\n%s", out)
+	}
+	if strings.Contains(out, "posting") {
+		t.Error("the comment still says it is on its way after GitHub confirmed it")
+	}
+	if !strings.Contains(out, "Posted") {
+		t.Error("nothing on the bar says the comment landed")
+	}
+}
+
+// The revert branch. The card comes off, the reason goes up, and the words go
+// back in the pane: a comment lost to a dropped connection is the one thing
+// here that cannot be fetched again.
+func TestAFailedPostTakesTheCardBackAndKeepsTheWords(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
+
+	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	out := stripANSI(render(t, m))
+
+	// Twice would mean the card is still in the conversation as well as in the
+	// pane the words came back into.
+	if n := strings.Count(out, "ship it"); n != 1 {
+		t.Errorf("%q appears %d times, want it only in the composer:\n%s", "ship it", n, out)
+	}
+	// The box takes the keyboard back with the words, so the reader is looking
+	// at the comment they have to do something about.
+	if !strings.Contains(out, "ctrl+e editor") {
+		t.Error("the box did not take the keyboard back with the failed comment")
+	}
+	if !strings.Contains(out, "502 Bad Gateway") {
+		t.Error("the bar does not say why the comment did not post")
+	}
+}
+
+// A refresh landing while a comment is out must not take it off the screen.
+// The store holds it beside the fetched detail for exactly this.
+func TestARefreshDoesNotTakeAwayACommentStillInFlight(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	m = press(m, "r")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "ship it") {
+		t.Errorf("the refresh dropped a comment still on its way:\n%s", out)
+	}
+}
+
+// q is a letter in the compose pane. The root answers it everywhere else, and
+// a quit on the way to "quick" would be unforgivable.
+func TestQIsALetterWhileACommentIsBeingWritten(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := composed(t, client, "quick question")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "quick question") {
+		t.Errorf("the root ate the letters:\n%s", out)
+	}
+	if strings.Contains(out, "My PRs") {
+		t.Error("a letter in the composer left the detail screen")
+	}
+}
+
+// ? opens the help overlay everywhere else. In the composer it is punctuation.
+func TestTheHelpKeyIsPunctuationWhileACommentIsBeingWritten(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := composed(t, client, "does this work?")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "does this work?") {
+		t.Errorf("? opened the help instead of typing:\n%s", out)
+	}
+}
+
+// One way out has to work from anywhere, including out of a pane taking text.
+func TestCtrlCStillQuitsFromTheComposer(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := composed(t, client, "half written")
+	_, cmd := m.Update(keyMsg("ctrl+c"))
+
+	if cmd == nil {
+		t.Fatal("ctrl+c did nothing in the composer")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Errorf("ctrl+c sent %T, want a quit", msg)
+	}
+}
+
+// The help overlay stays inside the frame. It is sized from an estimate of how
+// wide a column of bindings renders, and an estimate that reads narrow puts the
+// modal's right border off the screen: the frame is still the right width, so
+// nothing catches it but this.
+func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
+	sizes := []struct{ width, height int }{
+		{width: 200, height: 50},
+		{width: 120, height: 40},
+		{width: 100, height: 30},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+	}
+
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			client := &fakeSearcher{prs: samplePRs()}
+			client.serveDetail("PR_412", "Caps the backoff at 30s.")
+			m := press(loaded(t, client, size.width, size.height), "enter", "?")
+
+			lines := strings.Split(render(t, m), "\n")
+			if len(lines) != size.height {
+				t.Fatalf("frame is %d lines, want %d", len(lines), size.height)
+			}
+			for i, line := range lines {
+				if w := lipgloss.Width(line); w > size.width {
+					t.Errorf("line %d is %d cells wide, want no more than %d", i, w, size.width)
+				}
+			}
+
+			// The corner is the tell. A modal one column too wide loses it, and
+			// every row under it loses its right border with it.
+			out := stripANSI(render(t, m))
+			at := strings.Index(out, "╭─Keys")
+			if at < 0 {
+				t.Fatal("the help overlay is not on the frame")
+			}
+			if head := out[at : strings.Index(out[at:], "\n")+at]; !strings.Contains(head, "╮") {
+				t.Errorf("the overlay's top border has no right corner: %q", head)
+			}
+		})
+	}
+}
+
+// The viewer query answers after a screen is already open at startup. Taken
+// only on open, the comment box is headed by nobody for the rest of the session.
+func TestTheViewerReachesAScreenAlreadyOpen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	// Init's messages, with the viewer's held back so the detail screen opens
+	// before it lands. The type is unexported and this test is outside the
+	// package, so it is named rather than asserted on.
+	m := app.New(testConfig(), client)
+	var viewer, rest []tea.Msg
+	for _, msg := range immediate(m.Init()) {
+		if fmt.Sprintf("%T", msg) == "app.viewerFetchedMsg" {
+			viewer = append(viewer, msg)
+			continue
+		}
+		rest = append(rest, msg)
+	}
+	if len(viewer) != 1 {
+		t.Fatalf("startup produced %d viewer responses, want one", len(viewer))
+	}
+
+	opened := press(settle(m, append(rest, tea.WindowSizeMsg{Width: 160, Height: 40})...), "enter")
+	if out := stripANSI(render(t, opened)); strings.Contains(out, "drucial · write a comment") {
+		t.Fatal("the viewer reached the screen before the response was applied")
+	}
+
+	m2 := settle(opened, viewer...)
+	if out := stripANSI(render(t, m2)); !strings.Contains(out, "drucial · write a comment") {
+		t.Errorf("the comment box is still headed by nobody:\n%s", out)
+	}
+}
+
+// The overlay is drawn over the screen rather than into a pane, so a list too
+// tall for the frame is cut off the bottom with nothing to say what went.
+func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+
+	// Wide enough for every binding, so nothing is hidden and nothing is said.
+	roomy := stripANSI(render(t, press(loaded(t, client, 120, 34), "enter", "?")))
+	for _, want := range []string{"comment", "$EDITOR", "quit from anywhere", "refresh"} {
+		if !strings.Contains(roomy, want) {
+			t.Errorf("a frame with room for the help is missing %q", want)
+		}
+	}
+	if strings.Contains(roomy, "more keys than this frame") {
+		t.Error("a frame with room for the help claims it is short of room")
+	}
+
+	// Too small to hold it, so it says so rather than quietly dropping nine.
+	cramped := stripANSI(render(t, press(loaded(t, client, 60, 20), "enter", "?")))
+	if !strings.Contains(cramped, "more keys than this frame") {
+		t.Errorf("the overlay drops bindings without saying so:\n%s", cramped)
+	}
 }
