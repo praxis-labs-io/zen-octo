@@ -1,32 +1,41 @@
 package prview_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// onComment puts the ring on a comment inside the thread GitHub will take a
-// reply to. Four tabs is the first of its two comments, five the second.
-func onComment(t *testing.T, n int) prview.Model {
+// Where tab stops on the fixture: the thread GitHub will take a reply to, the
+// one it will not, and a second answerable one further down.
+const (
+	tabThread = 4
+	tabLocked = 6
+	tabOther  = 7
+)
+
+// onThread puts the ring on a card by tab count.
+func onThread(t *testing.T, n int) prview.Model {
 	t.Helper()
 	return tabbed(detailed(held(sampleDetail()), 200, 60), n)
 }
 
-// replying opens the box on that comment.
+// replying opens a box from that card.
 func replying(t *testing.T, n int, key string) prview.Model {
 	t.Helper()
-	return press(onComment(t, n), key)
+	return press(onThread(t, n), key)
 }
 
 // The reply goes where the reply goes. The box at the foot of the page files a
 // comment against the pull request, which is a different thing from an answer
 // to a line of code.
 func TestReplyOpensABoxInsideTheThread(t *testing.T) {
-	out := stripANSI(replying(t, 4, "r").View())
+	out := stripANSI(replying(t, tabThread, "r").View())
 
 	head := strings.Index(out, "internal/gh/client.go:42")
 	box := strings.Index(out, "write a reply")
@@ -49,11 +58,11 @@ func TestReplyOpensABoxInsideTheThread(t *testing.T) {
 // The thread that renders at the foot of the page is the one nobody may answer.
 // A key that opens a box GitHub will reject is worse than one that does nothing.
 func TestReplyIsInertOnAThreadThatTakesNoReply(t *testing.T) {
-	locked := onComment(t, 7)
+	locked := onThread(t, tabLocked)
 
 	before := locked.View()
 	if got := focusedCard(t, before); !strings.HasPrefix(got, cardLocked) {
-		t.Fatalf("the seventh tab focused %q, want the locked thread", got)
+		t.Fatalf("the sixth tab focused %q, want the locked thread", got)
 	}
 
 	if after := press(locked, "r").View(); after != before {
@@ -65,24 +74,42 @@ func TestReplyIsInertOnAThreadThatTakesNoReply(t *testing.T) {
 }
 
 // Both keys read the ring, so neither does anything with nothing focused.
-func TestReplyNeedsAFocusedComment(t *testing.T) {
+func TestReplyNeedsSomethingFocused(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
 	if after := press(m, "r").View(); after != m.View() {
 		t.Error("r opened a box with nothing focused")
 	}
+}
 
-	// The description is focusable and is not a review comment.
-	onDescription := tabbed(m, 1)
-	if after := press(onDescription, "r").View(); after != onDescription.View() {
-		t.Error("r opened a box on the description")
+// GitHub does not thread the conversation, so there is nothing to hang a reply
+// off a top-level comment. Answering one is a comment at the foot of the page,
+// which is what the browser's quote reply does too. Without this r is a key that
+// does nothing on most of the page.
+func TestReplyingToSomethingWithNoThreadUsesTheCommentBox(t *testing.T) {
+	// The second card is the top-level comment.
+	out := stripANSI(press(onThread(t, 2), "R").View())
+
+	if !strings.Contains(out, "> Coverage held at 84.2%.") {
+		t.Errorf("R did not quote the comment into the box:\n%s", out)
+	}
+	if strings.Contains(out, "write a reply") {
+		t.Error("R opened a thread box for a comment with no thread")
+	}
+
+	// The description answers the same way, and so does a review's own words.
+	if out := stripANSI(press(onThread(t, 1), "R").View()); !strings.Contains(out, "> Caps the backoff at 30s") {
+		t.Errorf("R did not quote the description:\n%s", out)
+	}
+	if out := stripANSI(press(onThread(t, 3), "R").View()); !strings.Contains(out, "> Two things on the retry path.") {
+		t.Errorf("R did not quote the review:\n%s", out)
 	}
 }
 
 func TestQuoteReplyPutsTheCommentInTheBox(t *testing.T) {
-	out := stripANSI(press(replying(t, 4, "R"), "n", "o").View())
+	out := stripANSI(press(replying(t, tabThread, "R"), "n", "o").View())
 
-	if !strings.Contains(out, "> This backs off forever.") {
+	if !strings.Contains(out, "> Seconded, the cap is the fix.") {
 		t.Errorf("the quote is not in the box:\n%s", out)
 	}
 	if !strings.Contains(out, "no") {
@@ -90,22 +117,137 @@ func TestQuoteReplyPutsTheCommentInTheBox(t *testing.T) {
 	}
 }
 
-// R quotes the comment the ring is on, not the first one in the thread.
-func TestQuoteReplyQuotesTheFocusedComment(t *testing.T) {
-	out := stripANSI(replying(t, 5, "R").View())
+// Tab lands on a thread, not on a comment inside it, so a quote has to pick one.
+// The last is the answer until J or K says otherwise: it is the newest, the one
+// at the bottom of the card, and the one an answer follows on from.
+func TestQuoteReplyTakesTheLastCommentByDefault(t *testing.T) {
+	out := stripANSI(replying(t, tabThread, "R").View())
 
 	if !strings.Contains(out, "> Seconded, the cap is the fix.") {
 		t.Errorf("R quoted the wrong comment:\n%s", out)
 	}
 	if strings.Contains(out, "> This backs off forever.") {
-		t.Error("R quoted a comment the ring was not on")
+		t.Error("R quoted a comment the sub-cursor was not on")
+	}
+}
+
+// K steps the sub-cursor back up the thread, which is what makes answering the
+// first comment of three possible.
+func TestSteppingWithinTheThreadMovesWhatAQuoteTakes(t *testing.T) {
+	out := stripANSI(press(onThread(t, tabThread), "K", "R").View())
+
+	if !strings.Contains(out, "> This backs off forever.") {
+		t.Errorf("K did not move what R quotes:\n%s", out)
+	}
+	if strings.Contains(out, "> Seconded, the cap is the fix.") {
+		t.Error("R quoted the comment the sub-cursor left")
+	}
+}
+
+// barred is the text of every line carrying the sub-cursor's bar. The bar runs
+// the height of one comment, so this is that comment, line by line.
+func barred(frame string) []string {
+	var out []string
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if at := strings.Index(line, "▍"); at >= 0 {
+			out = append(out, strings.TrimSpace(strings.Trim(line[at+len("▍"):], "│ ")))
+		}
+	}
+	return out
+}
+
+// The bar is the only thing saying which comment the keys have, since the card
+// is lit for the whole thread either way.
+func TestTheSubCursorIsMarkedWithABar(t *testing.T) {
+	// It opens on the last comment, which is the one an answer follows on from.
+	last := barred(onThread(t, tabThread).View())
+	if len(last) == 0 {
+		t.Fatalf("no bar on the focused thread:\n%s", stripANSI(onThread(t, tabThread).View()))
+	}
+	if !strings.HasPrefix(last[0], "octobot · said") {
+		t.Errorf("the bar opens on %q, want the last comment", last[0])
+	}
+	if !slices.Contains(last, "Seconded, the cap is the fix.") {
+		t.Errorf("the bar does not run the height of the comment: %q", last)
+	}
+
+	// K moves it up rather than adding a second one.
+	up := barred(press(onThread(t, tabThread), "K").View())
+	if !strings.HasPrefix(up[0], "nkr · said") {
+		t.Errorf("after K the bar is on %q, want the first comment", up[0])
+	}
+	if slices.Contains(up, "Seconded, the cap is the fix.") {
+		t.Error("the bar is on both comments at once")
+	}
+
+	// And it is gone once the thread is not the focus.
+	if away := barred(onThread(t, tabLocked).View()); len(away) > 0 {
+		t.Errorf("a bar is drawn on a thread that does not hold the focus: %q", away)
+	}
+}
+
+// It clamps at both ends. Running off a thread is a reader asking for the block
+// above or below it, and tab is the key for that.
+func TestTheSubCursorStopsAtTheEndsOfTheThread(t *testing.T) {
+	m := onThread(t, tabThread)
+
+	top := press(m, "K", "K", "K")
+	if got := barred(top.View()); !strings.HasPrefix(got[0], "nkr · said") {
+		t.Errorf("K past the top landed on %q, want the first comment", got[0])
+	}
+
+	bottom := press(top, "J", "J", "J")
+	if got := barred(bottom.View()); !strings.HasPrefix(got[0], "octobot · said") {
+		t.Errorf("J past the end landed on %q, want the last comment", got[0])
+	}
+}
+
+// Where the reader left the sub-cursor is where they find it. Tab past a thread
+// and back is not them changing their mind about which comment they meant.
+func TestTheSubCursorIsRememberedPerThread(t *testing.T) {
+	stepped := press(onThread(t, tabThread), "K")
+
+	// A full lap of the ring, which is eight stops on this fixture.
+	away := tabbed(stepped, 8)
+	if got := focusedCard(t, away.View()); !strings.HasPrefix(got, cardThread) {
+		t.Fatalf("a lap of the ring landed on %q, want back on the thread", got)
+	}
+	if got := barred(away.View()); !strings.HasPrefix(got[0], "nkr · said") {
+		t.Errorf("coming back, the bar is on %q, want where it was left", got[0])
+	}
+}
+
+// A single-comment thread has nothing to disambiguate, and a bar there is a
+// second mark for what the card's own border already says.
+func TestASingleCommentThreadTakesNoBar(t *testing.T) {
+	on := onThread(t, tabOther).View()
+
+	if got := focusedCard(t, on); !strings.HasPrefix(got, "internal/tui/keys/keys.go:7") {
+		t.Fatalf("the seventh tab focused %q, want the second answerable thread", got)
+	}
+	if strings.Contains(on, fgSeq(theme.RosePineMoon.Secondary)+"m▍") {
+		t.Error("a one-comment thread drew a bar")
+	}
+}
+
+// Reserved whether it is drawn or not, so the words do not reflow as the bar
+// moves down the card.
+func TestTheBarCostsTheSameSpaceWhenItIsNotDrawn(t *testing.T) {
+	resting := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
+	focused := stripANSI(onThread(t, tabThread).View())
+
+	if strings.Count(resting, "This backs off forever.") != 1 {
+		t.Fatal("the fixture comment is not on the resting frame once")
+	}
+	if strings.Count(focused, "This backs off forever.") != 1 {
+		t.Error("the comment reflowed when the thread took focus")
 	}
 }
 
 // Plain r leaves the buffer alone. A reader who wanted the quote has a key for
 // it, and one who did not would have to clear five lines before writing.
 func TestReplyDoesNotQuote(t *testing.T) {
-	if out := stripANSI(replying(t, 4, "r").View()); strings.Contains(out, "> This backs off") {
+	if out := stripANSI(replying(t, tabThread, "r").View()); strings.Contains(out, "> This backs off") {
 		t.Error("r quoted the comment without being asked")
 	}
 }
@@ -113,7 +255,7 @@ func TestReplyDoesNotQuote(t *testing.T) {
 // Typing goes into the box and nowhere else. r is a letter in there, and so is
 // every other key this screen binds.
 func TestTheReplyBoxTakesTheKeyboard(t *testing.T) {
-	out := stripANSI(typed(replying(t, 4, "r"), "capped it").View())
+	out := stripANSI(typed(replying(t, tabThread, "r"), "capped it").View())
 
 	if !strings.Contains(out, "capped it") {
 		t.Errorf("the box did not take the letters:\n%s", out)
@@ -127,7 +269,7 @@ func TestTheReplyBoxTakesTheKeyboard(t *testing.T) {
 // is the only way a box in a keyboard-driven program can be written in. c is the
 // one that would otherwise open a second box.
 func TestEveryKeyIsALetterInTheReplyBox(t *testing.T) {
-	out := stripANSI(typed(replying(t, 4, "r"), "cdoqr").View())
+	out := stripANSI(typed(replying(t, tabThread, "r"), "cdoqr").View())
 
 	if !strings.Contains(out, "cdoqr") {
 		t.Errorf("a bound key was swallowed instead of typed:\n%s", out)
@@ -150,7 +292,7 @@ func TestOnlyOneBoxTakesTheKeysAtOnce(t *testing.T) {
 // esc closes the box and keeps the words against the thread they were written
 // for, so looking at the code above an answer does not throw the answer away.
 func TestEscClosesTheBoxAndKeepsTheWords(t *testing.T) {
-	closed := press(typed(replying(t, 4, "r"), "capped it"), "esc")
+	closed := press(typed(replying(t, tabThread, "r"), "capped it"), "esc")
 
 	if out := stripANSI(closed.View()); strings.Contains(out, "write a reply") {
 		t.Errorf("esc left the box on the page:\n%s", out)
@@ -164,12 +306,17 @@ func TestEscClosesTheBoxAndKeepsTheWords(t *testing.T) {
 // A draft belongs to its thread. Reopening a different one must not serve it
 // somebody else's answer.
 func TestADraftStaysOnItsOwnThread(t *testing.T) {
-	held := press(typed(replying(t, 4, "r"), "capped it"), "esc")
+	held := press(typed(replying(t, tabThread, "r"), "capped it"), "esc")
 
-	// The ring went back to the comment it was opened from, so one tab reaches
-	// the resolved thread and two the thread nobody may answer.
-	other := press(tabbed(held, 3), "r")
-	if out := stripANSI(other.View()); strings.Contains(out, "capped it") {
+	// esc put the ring back on the thread the box was opened from, so three
+	// tabs reach the next thread that takes a reply.
+	other := press(tabbed(held, tabOther-tabThread), "r")
+
+	out := stripANSI(other.View())
+	if !strings.Contains(out, "write a reply") {
+		t.Fatalf("the second thread did not open a box:\n%s", out)
+	}
+	if strings.Contains(out, "capped it") {
 		t.Errorf("a draft leaked onto another thread:\n%s", out)
 	}
 }
@@ -177,7 +324,7 @@ func TestADraftStaysOnItsOwnThread(t *testing.T) {
 // esc puts the reader back where they were rather than nowhere. The card that
 // opened the box is the one they were reading.
 func TestEscGivesFocusBackToTheComment(t *testing.T) {
-	closed := press(replying(t, 4, "r"), "esc")
+	closed := press(replying(t, tabThread, "r"), "esc")
 
 	if got := focusedCard(t, closed.View()); !strings.HasPrefix(got, cardThread) {
 		t.Errorf("esc focused %q, want the thread it was opened from", got)
@@ -191,7 +338,7 @@ func TestTheReplyBoxNeverRendersOnTheFilesTab(t *testing.T) {
 	// esc first, because every key is a letter while the box has the keyboard.
 	// The words stay held against the thread, which is the state that could put
 	// a box in the diff if anything read it there.
-	onFiles := press(press(typed(replying(t, 4, "r"), "capped it"), "esc"), "]", "]", "]")
+	onFiles := press(press(typed(replying(t, tabThread, "r"), "capped it"), "esc"), "]", "]", "]")
 
 	out := stripANSI(onFiles.View())
 	if strings.Contains(out, "write a reply") {
@@ -217,7 +364,7 @@ func TestTheReplyBoxDoesNotMoveTheLayout(t *testing.T) {
 	for _, size := range []struct{ width, height int }{
 		{200, 60}, {160, 40}, {120, 30}, {100, 20},
 	} {
-		m := press(tabbed(detailed(held(sampleDetail()), size.width, size.height), 4), "r")
+		m := press(tabbed(detailed(held(sampleDetail()), size.width, size.height), tabThread), "r")
 		lines := strings.Split(m.View(), "\n")
 
 		if len(lines) != size.height {
@@ -243,7 +390,7 @@ func TestTypingInTheBoxRendersWhatARebuildWould(t *testing.T) {
 	// The thread this opens on hangs off a review, so the halves are cut either
 	// side of a block holding a card, a branch gutter and the thread under it.
 	// Cutting inside that block is what the split is built to avoid.
-	joined := typed(replying(t, 4, "r"), "capped it")
+	joined := typed(replying(t, tabThread, "r"), "capped it")
 
 	rebuilt := joined
 	rebuilt.SetSize(200, 60)
@@ -271,7 +418,7 @@ func TestTypingInTheCommentBoxRendersWhatARebuildWould(t *testing.T) {
 // Posting hands the words to the root, addressed to the thread rather than to
 // the pull request.
 func TestPostingAReplyAsksTheRootForTheThread(t *testing.T) {
-	m, cmd := chord(typed(replying(t, 4, "r"), "capped it"))
+	m, cmd := chord(typed(replying(t, tabThread, "r"), "capped it"))
 
 	msg, ok := runCmd(cmd).(prview.PostReplyMsg)
 	if !ok {
@@ -295,7 +442,7 @@ func TestPostingAReplyAsksTheRootForTheThread(t *testing.T) {
 // An empty box posts nothing. The button says so by going faint rather than by
 // swallowing the keypress.
 func TestAnEmptyReplyPostsNothing(t *testing.T) {
-	if _, cmd := chord(replying(t, 4, "r")); cmd != nil {
+	if _, cmd := chord(replying(t, tabThread, "r")); cmd != nil {
 		t.Error("an empty box asked the root to post")
 	}
 }
@@ -303,7 +450,7 @@ func TestAnEmptyReplyPostsNothing(t *testing.T) {
 // A posted reply is not a draft. Reopening the box on that thread must not
 // serve the words back as though they never left.
 func TestPostingClearsTheDraft(t *testing.T) {
-	m, _ := chord(typed(replying(t, 4, "r"), "capped it"))
+	m, _ := chord(typed(replying(t, tabThread, "r"), "capped it"))
 
 	if out := stripANSI(press(m, "r").View()); strings.Contains(out, "capped it") {
 		t.Errorf("the posted words came back as a draft:\n%s", out)
@@ -350,7 +497,7 @@ func TestARestoredReplyDoesNotStealTheKeyboard(t *testing.T) {
 
 	// The words are the thread's draft, so the box opens on them once the
 	// keyboard is free again.
-	back := press(tabbed(press(m, "esc"), 4), "r")
+	back := press(tabbed(press(m, "esc"), tabThread), "r")
 	if out := stripANSI(back.View()); !strings.Contains(out, "capped it") {
 		t.Errorf("the words are not waiting on their thread:\n%s", out)
 	}
@@ -370,7 +517,7 @@ func TestARestoredReplyToAThreadThatIsGoneOpensNothing(t *testing.T) {
 // The mark on the byline is the accent, the same signal every other focused
 // thing on this screen uses.
 func TestTheOpenBoxLightsItsThreadCard(t *testing.T) {
-	if got := focusedCard(t, replying(t, 4, "r").View()); !strings.HasPrefix(got, cardThread) {
+	if got := focusedCard(t, replying(t, tabThread, "r").View()); !strings.HasPrefix(got, cardThread) {
 		t.Errorf("the card holding the open box is not lit, focused %q", got)
 	}
 }

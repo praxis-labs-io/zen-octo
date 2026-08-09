@@ -448,6 +448,14 @@ func sampleDetail() gh.PullRequestDetail {
 					{Kind: gh.CommentThread, ID: "RC_5", Author: gh.Actor{Login: "nkr"},
 						CreatedAt: ago(time.Hour), Body: "Locked, so no reply."},
 				}},
+			// A second answerable thread, so a draft has somewhere else to not
+			// turn up.
+			{ID: "RT_5", Path: "internal/tui/keys/keys.go", Line: 7, Side: gh.SideRight,
+				CanReply: true,
+				Comments: []gh.Comment{
+					{Kind: gh.CommentThread, ID: "RC_6", Author: gh.Actor{Login: "octobot"},
+						CreatedAt: ago(time.Hour), Body: "Is r free after the move?"},
+				}},
 		},
 	}
 }

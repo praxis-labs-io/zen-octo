@@ -97,9 +97,9 @@ func joinDraft(first, second string) string {
 // quote puts a comment in the buffer with the cursor under it, the way the
 // browser's quote reply does. The raw body goes in, not the rendered markdown: a
 // quote of a fenced block has to come out the other side as a fenced block.
-func (r *replier) quote(body string) {
-	r.area.SetValue(joinDraft(r.body(), quoted(body)) + "\n\n")
-	r.area.MoveToEnd()
+func (c *composer) quote(body string) {
+	c.area.SetValue(joinDraft(c.body(), quoted(body)) + "\n\n")
+	c.area.MoveToEnd()
 }
 
 // quoted is a body as a blockquote. An empty line takes a bare marker: the
@@ -141,44 +141,148 @@ func (m *Model) replyBox(t gh.ReviewThread, width int) string {
 		m.reply.button(m.theme, inner, m.lit(m.replyFocus()))
 }
 
-// replyTarget is the comment r would answer, its thread, and whether GitHub
-// will take a reply to it.
+// within is the comment a quote reply would take from a thread, and the one the
+// gutter bar points at.
+//
+// Tab walks whole threads, so landing on one says nothing about which of its
+// comments the reader means. The last is the answer until they say otherwise:
+// it is the one at the bottom of the card, the newest, and the one an answer
+// follows on from. StepWithin moves it, and it is remembered per thread rather
+// than reset by every tab past.
+func (m Model) within(t gh.ReviewThread) string {
+	if len(t.Comments) == 0 {
+		return ""
+	}
+	if held, ok := m.sub[t.ID]; ok && slices.ContainsFunc(t.Comments,
+		func(c gh.Comment) bool { return c.ID == held }) {
+		return held
+	}
+	return t.Comments[len(t.Comments)-1].ID
+}
+
+// stepWithin moves the sub-cursor through the focused thread's comments. It
+// clamps rather than wrapping: a run off either end of a thread is a reader
+// asking for the thread above or below, and tab is the key for that.
+func (m Model) stepWithin(delta int) (Model, tea.Cmd) {
+	t, ok := m.focusedThread()
+	if !ok || len(t.Comments) < 2 {
+		return m, nil
+	}
+
+	at := slices.IndexFunc(t.Comments, func(c gh.Comment) bool { return c.ID == m.within(t) })
+	next := min(max(at+delta, 0), len(t.Comments)-1)
+	if next == at {
+		return m, nil
+	}
+
+	if m.sub == nil {
+		m.sub = make(map[string]string)
+	}
+	m.sub[t.ID] = t.Comments[next].ID
+
+	m.conv.ok = false
+	m.syncContent()
+	return m, nil
+}
+
+// focusedThread is the thread the ring is on, unresolved and on the screen. A
+// resolved one renders as a single line with no comments under it, so there is
+// nothing inside it to step through.
+func (m Model) focusedThread() (gh.ReviewThread, bool) {
+	on := m.convRing.on
+	if !m.answerable() || on.kind != focusThread {
+		return gh.ReviewThread{}, false
+	}
+	for _, t := range m.detail.Detail.Threads {
+		if t.ID == on.id && !t.IsResolved {
+			return t, true
+		}
+	}
+	return gh.ReviewThread{}, false
+}
+
+// answerable is whether the ring is holding something the reply keys can act
+// on at all: a block of prose, on the tab that draws boxes, on the screen.
 //
 // A focus scrolled out of the window is not one to act on, which is the rule
 // every key that reads the ring holds to. Opening a box on a comment the reader
 // has already scrolled past would haul them back to it.
-func (m Model) replyTarget() (gh.ReviewThread, gh.Comment, bool) {
-	on := m.convRing.on
-	if !m.canCompose() || m.focus != paneMain || on.kind != focusThreadComment {
-		return gh.ReviewThread{}, gh.Comment{}, false
-	}
-	if !m.convRing.live(bodyTop(&m.view), m.view.Height()) {
+func (m Model) answerable() bool {
+	return m.canCompose() && m.focus == paneMain &&
+		m.convRing.live(bodyTop(&m.view), m.view.Height())
+}
+
+// replyThread is the thread the ring is on and the comment inside it a quote
+// would take, when GitHub will take a reply to it.
+func (m Model) replyThread() (gh.ReviewThread, gh.Comment, bool) {
+	t, ok := m.focusedThread()
+	if !ok || !t.CanReply {
 		return gh.ReviewThread{}, gh.Comment{}, false
 	}
 
-	for _, t := range m.detail.Detail.Threads {
-		for _, c := range t.Comments {
-			if c.ID == on.id {
-				return t, c, t.CanReply
+	within := m.within(t)
+	for _, c := range t.Comments {
+		if c.ID == within {
+			return t, c, true
+		}
+	}
+	return t, gh.Comment{}, true
+}
+
+// replyBody is what the keys would answer when the ring is on a block with no
+// thread under it: a top-level comment, a review's own words, or the
+// description.
+//
+// There is nothing to hang a reply off in the API for any of them. GitHub does
+// not thread the conversation, so answering one is a new comment at the foot of
+// the page, which is what the browser's quote reply does too. That is a
+// narrower thing than answering a review thread, and it is not nothing: without
+// it r is a key that does nothing on most of the page.
+func (m Model) replyBody() (string, bool) {
+	on := m.convRing.on
+	if !m.answerable() {
+		return "", false
+	}
+
+	switch on.kind {
+	case focusDescription:
+		return m.detail.Detail.Body, true
+	case focusComment, focusReview:
+		for _, item := range m.detail.Detail.Timeline {
+			if said := item.Said(); said.ID == on.id {
+				return said.Body, true
 			}
 		}
 	}
-	return gh.ReviewThread{}, gh.Comment{}, false
+	return "", false
 }
 
-// startReply opens the box under the focused comment. quote puts that comment
-// in it first, which is the whole difference between the two keys.
+// startReply opens a box on whatever the ring is holding. quote puts the focused
+// words in it first, which is the whole difference between the two keys.
 func (m Model) startReply(quote bool) (Model, tea.Cmd) {
-	t, c, ok := m.replyTarget()
-	if !ok {
-		return m, nil
+	if t, c, ok := m.replyThread(); ok {
+		return m.openReply(t, c, quote)
 	}
 
+	// No thread under it, so the answer is a comment on the pull request and the
+	// box for that is the one at the foot of the page.
+	if body, ok := m.replyBody(); ok {
+		if !quote {
+			body = ""
+		}
+		return m.openCompose(body)
+	}
+	return m, nil
+}
+
+// openReply puts the box inside the thread, under the comment it answers.
+func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, tea.Cmd) {
 	// One box takes the keys. The compose card keeps its words: it is furniture,
 	// and esc leaves them there too.
 	m.compose.stop()
 
-	cmd := m.reply.open(t.ID, m.convRing.on)
+	from := m.convRing.on
+	cmd := m.reply.open(t.ID, from)
 	if quote {
 		m.reply.quote(c.Body)
 	}
@@ -327,14 +431,13 @@ func (m Model) hasThread(id string) bool {
 	})
 }
 
-// threadFocus is where esc should land after a box reopened on its own: the last
-// comment in the thread, which is the one the reply answers.
+// threadFocus is where esc lands after a box reopened on its own: the thread it
+// was written against, which is the block tab would have been on.
 func threadFocus(threads []gh.ReviewThread, id string) focusKey {
 	for _, t := range threads {
-		if t.ID != id || len(t.Comments) == 0 {
-			continue
+		if t.ID == id {
+			return threadKey(t)
 		}
-		return threadCommentKey(t.Comments[len(t.Comments)-1])
 	}
 	return focusKey{}
 }

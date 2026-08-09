@@ -83,6 +83,14 @@ type DetailMap struct {
 	// key this screen exists for, and it was behind the one that refetches.
 	Reply      key.Binding
 	QuoteReply key.Binding
+
+	// NextWithin and PrevWithin move between the comments inside the focused
+	// thread. Tab walks whole threads, because a thread is one thing to read and
+	// stopping on every reply in a long one makes crossing the page a chore.
+	// This is the level below it, for the times the answer is to a reply rather
+	// than to the thread.
+	NextWithin key.Binding
+	PrevWithin key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
@@ -138,6 +146,8 @@ var (
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
+		NextWithin: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "next in thread")),
+		PrevWithin: key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "prev in thread")),
 	}
 )
 
@@ -176,7 +186,8 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
 		{k.FocusNext, k.FocusPrev, k.Expand, k.ToggleRail},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
-		{k.Comment, k.Reply, k.QuoteReply, k.Post, k.Activate, k.Editor},
+		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
+		{k.Comment, k.Post, k.Activate, k.Editor},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

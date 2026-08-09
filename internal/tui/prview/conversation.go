@@ -393,12 +393,6 @@ func (m Model) lit(key focusKey) bool {
 	return m.railTab() && m.focus == paneMain && m.convRing.focused(key)
 }
 
-// litAny is lit for a card holding more than one focusable thing. A thread card
-// takes the accent for whichever of its comments the ring is on.
-func (m Model) litAny(stops []focusItem) bool {
-	return slices.ContainsFunc(stops, func(it focusItem) bool { return m.lit(it.focusKey) })
-}
-
 // cardWidth is what is left for text once the box has taken its sides and its
 // gutter.
 func (m Model) cardWidth(width int) int { return max(1, width-2-2*cardGutter) }
@@ -586,7 +580,12 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 		head += m.faint().Render(" · outdated")
 	}
 
-	inner := m.cardWidth(width)
+	key := threadKey(t)
+	lit := m.lit(key) || (reply != "" && m.lit(m.replyFocus()))
+
+	// Every comment gives up two columns whether it is marked or not, so the
+	// mark can appear and disappear without reflowing the text beside it.
+	inner := m.cardWidth(width) - gutterWidth
 
 	// at is the content line the next block will start on. The join puts one
 	// blank line between blocks, so a block costs its own lines plus that.
@@ -601,28 +600,55 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool, reply string) re
 
 	if hunk {
 		if code := m.threadHunk(t, inner); code != "" {
-			push(code)
+			push(m.gutter(code, false))
 		}
 	}
 
-	stops := make([]focusItem, 0, len(t.Comments)+1)
+	// The sub-cursor is what a quote reply takes and what the bar points at. It
+	// is only drawn on a thread holding the focus and holding more than one
+	// comment: on a single-comment thread the card's own border already says
+	// which words the keys have, and a second mark for the same fact is noise.
+	within := ""
+	if lit && len(t.Comments) > 1 {
+		within = m.within(t)
+	}
+
 	for _, c := range t.Comments {
-		key := threadCommentKey(c)
-		stops = append(stops, focusItem{
-			focusKey: key,
-			start:    push(wrap(m.byline(c, key), inner) + "\n\n" + m.body(c.Body, inner, "No comment.", key)),
-		})
+		ck := threadCommentKey(c)
+		block := wrap(m.byline(c), inner) + "\n\n" + m.body(c.Body, inner, "No comment.", ck)
+		push(m.gutter(block, c.ID == within))
 	}
 
+	stops := []focusItem{{focusKey: key}}
 	if reply != "" {
-		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(reply)})
+		stops = append(stops, focusItem{focusKey: m.replyFocus(), start: push(m.gutter(reply, true))})
 	}
 
-	block := m.card(head, strings.Join(blocks, "\n\n"), width, m.litAny(stops))
+	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit)
 	for i := range stops {
 		stops[i].start += cardHeadLines
 	}
 	return rendered{block: block, stops: tile(block, stops)}
+}
+
+// gutterWidth is the bar down the left of a comment inside a thread, and the
+// space it stands in when there is no bar to draw.
+const gutterWidth = 2
+
+// gutter marks one comment inside a thread card. The bar runs the height of the
+// block rather than sitting on the byline alone, because what the keys act on is
+// the whole comment and a mark on one row of it says otherwise.
+func (m Model) gutter(block string, lit bool) string {
+	bar := strings.Repeat(" ", gutterWidth)
+	if lit {
+		bar = lipgloss.NewStyle().Foreground(m.theme.Secondary).Render("▍") + " "
+	}
+
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		lines[i] = bar + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // rendered is one block of the conversation and where each of its own ring
@@ -634,19 +660,13 @@ type rendered struct {
 	stops []focusItem
 }
 
-// byline is the line above one comment in a thread. A focused one takes the
-// accent on its verb, because a comment inside a card has no border of its own
-// and the card is already lit for the thread as a whole.
-func (m *Model) byline(c gh.Comment, key focusKey) string {
+// byline is the line above one comment in a thread. Which one the keys have is
+// the gutter's job, not this line's.
+func (m *Model) byline(c gh.Comment) string {
 	if c.Pending {
 		return m.posting(c.Author, "said")
 	}
-
-	verb := m.theme.Faint
-	if m.lit(key) {
-		verb = m.theme.Secondary
-	}
-	return m.said(c.Author, "said", verb, gh.TimelineItem{CreatedAt: c.CreatedAt})
+	return m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt})
 }
 
 // tile spreads stops over every line of the block they came out of: the first

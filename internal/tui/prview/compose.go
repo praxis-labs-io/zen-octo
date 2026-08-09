@@ -272,8 +272,16 @@ func (m *Model) RestoreDraft(body string) tea.Cmd {
 // writeComment puts the keyboard in the box and brings it onto the screen. It
 // is the last card in the conversation, so on a long thread it is usually
 // somewhere below the fold when the key is pressed.
-func (m Model) writeComment() (Model, tea.Cmd) {
+func (m Model) writeComment() (Model, tea.Cmd) { return m.openCompose("") }
+
+// openCompose is writeComment with words to open on. quote is empty for c, and
+// the focused block's body for a quote reply to something with no thread under
+// it, which the conversation cannot answer any other way.
+func (m Model) openCompose(quote string) (Model, tea.Cmd) {
 	cmd := m.compose.start()
+	if quote != "" {
+		m.compose.quote(quote)
+	}
 
 	// Focus moves onto the box, so whichever card was lit is not any more.
 	m.conv.ok = false

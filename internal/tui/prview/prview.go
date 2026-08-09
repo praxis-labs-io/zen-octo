@@ -230,6 +230,12 @@ type Model struct {
 	// of them has the keyboard at a time.
 	reply replier
 
+	// sub is which comment inside a thread the keys have, by thread. Tab walks
+	// whole threads, so this is the second level: what a quote takes and what
+	// the gutter bar points at. A thread missing from here is one nobody has
+	// stepped into, and its last comment is the answer.
+	sub map[string]string
+
 	// conv is the conversation above the box, kept while it is being written in.
 	conv convCache
 
@@ -468,6 +474,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startReply(false)
 	case key.Matches(keyMsg, k.QuoteReply):
 		return m.startReply(true)
+
+	case key.Matches(keyMsg, k.NextWithin):
+		return m.stepWithin(1)
+	case key.Matches(keyMsg, k.PrevWithin):
+		return m.stepWithin(-1)
 
 	case key.Matches(keyMsg, k.FocusNext):
 		m.stepFocus(1)
@@ -805,7 +816,8 @@ func (m *Model) toggleExpanded() {
 		return
 	}
 
-	m.expanded[r.on] = !m.expanded[r.on]
+	key := m.foldTarget()
+	m.expanded[key] = !m.expanded[key]
 	m.folds++
 	m.conv.ok = false
 
@@ -813,6 +825,18 @@ func (m *Model) toggleExpanded() {
 	// just grew opens below the window it was read in.
 	m.syncContent()
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
+}
+
+// foldTarget is what o unfolds. A thread card holds several comments and the
+// fold is per comment, on both tabs that draw one, so the sub-cursor picks which
+// rather than the whole card folding at once.
+func (m Model) foldTarget() focusKey {
+	if t, ok := m.focusedThread(); ok {
+		if within := m.within(t); within != "" {
+			return focusKey{kind: focusThreadComment, id: within}
+		}
+	}
+	return m.convRing.on
 }
 
 // focusPane moves focus to a pane, skipping whatever is not on screen. Focus

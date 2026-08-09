@@ -77,7 +77,9 @@ func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
 // It renders through the same card the comments above it render through, so
 // one being written sits among the ones already made rather than beside them.
 func TestTheCommentBoxRendersAsACard(t *testing.T) {
-	lines := strings.Split(stripANSI(detailed(held(sampleDetail()), 200, 60).View()), "\n")
+	// G, because the box closes a conversation longer than the window.
+	frame := press(detailed(held(sampleDetail()), 200, 60), "G").View()
+	lines := strings.Split(stripANSI(frame), "\n")
 
 	column := func(want string) int {
 		for i, line := range lines {
@@ -88,7 +90,7 @@ func TestTheCommentBoxRendersAsACard(t *testing.T) {
 		return -1
 	}
 
-	box, comment := column("write a comment"), column("octobot · commented")
+	box, comment := column("write a comment"), column("internal/tui/keys/keys.go:7")
 	if box < 0 || comment < 0 {
 		t.Fatalf("could not find both cards: box %d, comment %d", box, comment)
 	}

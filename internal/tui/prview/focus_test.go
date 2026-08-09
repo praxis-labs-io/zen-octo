@@ -42,18 +42,14 @@ func tabbed(m prview.Model, n int) prview.Model {
 	return press(m, strings.Fields(strings.Repeat("tab ", n))...)
 }
 
-// Tab walks the cards in the order they were written, and comes back round.
-//
-// The fourth and fifth are the two comments in one thread. An unresolved thread
-// is walked comment by comment rather than whole, because a reply answers one of
-// them, so both light the card the pair are in.
+// Tab walks the cards in the order they were written, and comes back round. A
+// thread is one card and one stop however many comments are in it: stopping on
+// every reply makes crossing a heavily reviewed page a chore, and J is one key
+// away for the times the answer is to a reply.
 func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	want := []string{
-		cardDescription, cardComment, cardReview,
-		cardThread, cardThread,
-	}
+	want := []string{cardDescription, cardComment, cardReview, cardThread}
 	for i, card := range want {
 		got := focusedCard(t, tabbed(m, i+1).View())
 		if !strings.HasPrefix(got, card) {
@@ -61,16 +57,17 @@ func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
 		}
 	}
 
-	// The sixth is the resolved thread, which is one line with no border to
+	// The fifth is the resolved thread, which is one line with no border to
 	// take the accent, so the text carries it instead.
-	sixth := tabbed(m, 6).View()
-	if !strings.Contains(sixth, fgSeq(theme.RosePineMoon.Secondary)+"m✓ internal/store/store.go:88") {
+	fifth := tabbed(m, 5).View()
+	if !strings.Contains(fifth, fgSeq(theme.RosePineMoon.Secondary)+"m✓ internal/store/store.go:88") {
 		t.Error("the resolved thread is not marked when focus reaches it")
 	}
 
-	// The seventh is the thread no review owns, which renders at the end.
-	if got := focusedCard(t, tabbed(m, 7).View()); !strings.HasPrefix(got, cardLocked) {
-		t.Errorf("the seventh tab focused %q, want the unowned thread", got)
+	// The sixth and seventh are the threads no review owns, which render at the
+	// end of the page in the order the query returned them.
+	if got := focusedCard(t, tabbed(m, 6).View()); !strings.HasPrefix(got, cardLocked) {
+		t.Errorf("the sixth tab focused %q, want the unowned thread", got)
 	}
 
 	// The eighth is the comment box, which closes the conversation the way it
@@ -81,28 +78,6 @@ func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
 
 	if got := focusedCard(t, tabbed(m, 9).View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("tab past the last card focused %q, want it back at the description", got)
-	}
-}
-
-// The card is lit for either of its comments, so it cannot say which one the
-// keys would answer. The byline does: a comment inside a card has no border of
-// its own, and the accent moves to the verb over the one holding the focus.
-func TestTheFocusedThreadCommentIsMarkedOnItsByline(t *testing.T) {
-	m := detailed(held(sampleDetail()), 200, 60)
-	accent := fgSeq(theme.RosePineMoon.Secondary)
-
-	first := tabbed(m, 4).View()
-	if !strings.Contains(first, accent+"msaid") {
-		t.Error("the fourth tab lights no byline in the thread")
-	}
-	if strings.Count(first, accent+"msaid") != 1 {
-		t.Errorf("%d bylines are lit at once, want one", strings.Count(first, accent+"msaid"))
-	}
-
-	// The card is the same one either way, so the frames differ only in which
-	// byline carries the accent.
-	if second := tabbed(m, 5).View(); second == first {
-		t.Error("the fifth tab did not move the mark to the second comment")
 	}
 }
 
@@ -198,8 +173,9 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 		t.Fatal("the diff is not showing the thread's fold")
 	}
 
-	// Unfold it in the conversation: the fourth card is that thread.
-	m = press(m, "tab", "tab", "tab", "tab", "o")
+	// Unfold it in the conversation: the fourth card is that thread, and K steps
+	// the sub-cursor off its last comment onto the one holding the fold.
+	m = press(m, "tab", "tab", "tab", "tab", "K", "o")
 	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
 		t.Fatal("o did not unfold the thread in the conversation")
 	}
