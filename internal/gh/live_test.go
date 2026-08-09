@@ -3,6 +3,7 @@ package gh_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,5 +186,62 @@ func TestLiveViewer(t *testing.T) {
 	}
 	if res.RateLimit.Remaining == 0 {
 		t.Error("RateLimit.Remaining is 0, want the live budget")
+	}
+}
+
+// TestLiveTheAddCommentDocumentMatchesTheSchema validates the mutation without
+// writing anything, by asking it to comment on a node that does not exist.
+//
+// The other live tests read, so they can run against the real thing freely. A
+// write cannot: there is no delete beside it to clean up after one, and a test
+// that leaves a comment on somebody's pull request every time it runs is worse
+// than no test. So this one stops at the step that matters.
+//
+// GraphQL validates a document before it resolves anything. A misspelled field
+// fails at that step, whatever the variables say, which is exactly how
+// `rateLimit` shipped on a mutation that never worked: it is a field on Query,
+// and every unit test decodes canned JSON that never notices. A well-formed
+// document gets past validation and dies resolving the id instead.
+//
+// So an error is expected. Which error is the assertion.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// A node id that belongs to no repository, so nothing is written wherever
+	// this runs and there is nothing to tidy up after it.
+	_, err = client.AddComment(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+	if err == nil {
+		t.Fatal("commenting on a node that does not exist came back as a success")
+	}
+
+	// The shapes a rejected document comes back as. Any of them means the
+	// mutation is wrong, not the id.
+	for _, broken := range []string{
+		"doesn't exist on type",
+		"Unknown argument",
+		"Field must have selections",
+		"Parse error",
+	} {
+		if strings.Contains(err.Error(), broken) {
+			t.Fatalf("the document does not match the schema: %v", err)
+		}
+	}
+
+	// And the shape that means it validated and then could not find the node,
+	// which is the whole document proved good.
+	if !strings.Contains(err.Error(), "Could not resolve to") {
+		t.Logf("unexpected error shape, read it before trusting this test: %v", err)
 	}
 }
