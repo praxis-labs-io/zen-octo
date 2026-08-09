@@ -28,12 +28,6 @@ const cardGutter = 1
 // comment is about is the last one in it.
 const threadHunkLines = 4
 
-// cardHeadLines is what a card spends above its first line of content: the top
-// border, the heading row, and the rule under it. comp.Pane.Chrome counts those
-// three and the bottom border together, and a caller placing something inside a
-// card needs the two numbers apart.
-const cardHeadLines = 3
-
 // conversationBody is the description and everything said since. It renders
 // markdown, so it belongs on an Update path: m.md caches what it produces.
 //
@@ -123,7 +117,7 @@ func (m *Model) entries() string {
 			if written.Pending {
 				head = m.posting(item.Actor, "commented")
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(written.Body)), key)
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body)), key)
 
 		case gh.TimelineReview:
 			// A review renders as its own card with every thread it opened hung
@@ -309,7 +303,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(written.Body))
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -394,7 +388,10 @@ func (m Model) card(head, content string, width int, lit bool, hints string) str
 
 // threadHints is the keys live on a thread card, in the order a reader reaches
 // for them.
-func (m Model) threadHints(t gh.ReviewThread) string {
+func (m Model) threadHints(lit bool, t gh.ReviewThread) string {
+	if !lit {
+		return ""
+	}
 	k := keys.Detail
 
 	if !m.threadOpen(t) {
@@ -417,7 +414,10 @@ func (m Model) threadHints(t gh.ReviewThread) string {
 // quoteHint is what a block with no thread under it answers to. r is not on it:
 // GitHub has no reply for a loose comment, and a key named on a card it does
 // nothing to is the lie this line exists to avoid.
-func (m Model) quoteHint(body string) string {
+func (m Model) quoteHint(lit bool, body string) string {
+	if !lit {
+		return ""
+	}
 	k := keys.Detail
 
 	parts := []string{k.QuoteReply.Help().Key + " quote"}
@@ -428,8 +428,8 @@ func (m Model) quoteHint(body string) string {
 }
 
 // foldable is whether a body has a <details> block in it, which is the only
-// thing o works on. Asked of the focused card alone, so it costs one parse a
-// frame rather than one per card.
+// thing o works on. The guard above is what keeps this to one parse a frame:
+// every card on the page asks for its hints, and only the lit one shows them.
 func foldable(body string) bool {
 	return slices.ContainsFunc(comp.SplitDetails(body), func(seg comp.Segment) bool {
 		return seg.Summary != ""
@@ -485,7 +485,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(d.Body))
+	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(m.lit(key), d.Body))
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -638,7 +638,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	// way every other block does and o has something to open.
 	if !m.threadOpen(t) {
 		body := wrap(m.faint().Render("▸ "+comp.Plural(len(t.Comments), "comment")), m.cardWidth(width))
-		block := m.card(head, body, width, lit, m.threadHints(t))
+		block := m.card(head, body, width, lit, m.threadHints(lit, t))
 		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
@@ -695,12 +695,8 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		push(gutter(block, c.ID == within))
 	}
 
-	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(t))
-	stops := []focusItem{{focusKey: key}}
-	for i := range stops {
-		stops[i].start += cardHeadLines
-	}
-	return rendered{block: block, stops: tile(block, stops)}
+	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(lit, t))
+	return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 }
 
 // gutterWidth is the bar down the left of a comment inside a thread, and the

@@ -12,10 +12,10 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// replier is the box r opens inside a review thread, under the comment being
-// answered. It is a second composer rather than the compose card retargeted:
-// one textarea drawn at two places is one buffer, and opening a reply would
-// then wipe out a top-level comment half written at the foot of the page.
+// replier is the box r opens under a review thread. It is a second composer
+// rather than the compose card retargeted: one textarea drawn at two places is
+// one buffer, and opening a reply would then wipe out a top-level comment half
+// written at the foot of the page.
 //
 // Unlike the compose card it is summoned. It exists only while it is open, so
 // the box is on the page exactly when it has the keyboard.
@@ -38,9 +38,9 @@ type replier struct {
 }
 
 // replyRows is the writing the box shows at once. Half the compose card's,
-// because a reply is an answer rather than an opening argument, and the box sits
-// inside a card that is already carrying the discussion above it. $EDITOR is
-// there for the ones that need more.
+// because a reply is an answer rather than an opening argument and the thread it
+// answers is on the screen above it. $EDITOR is there for the ones that need
+// more.
 const replyRows = 4
 
 func newReplier(th theme.Theme) replier {
@@ -104,8 +104,15 @@ func joinDraft(first, second string) string {
 // quote puts a comment in the buffer with the cursor under it, the way the
 // browser's quote reply does. The raw body goes in, not the rendered markdown: a
 // quote of a fenced block has to come out the other side as a fenced block.
+//
+// A comment with no body quotes to nothing, and the box opens on whatever was
+// already in it rather than on a blockquote marker standing over an empty line.
 func (c *composer) quote(body string) {
-	c.area.SetValue(joinDraft(c.body(), quoted(body)) + "\n\n")
+	q := quoted(body)
+	if q == "" {
+		return
+	}
+	c.area.SetValue(joinDraft(c.body(), q) + "\n\n")
 	c.area.MoveToEnd()
 }
 
@@ -113,7 +120,12 @@ func (c *composer) quote(body string) {
 // trailing space a uniform "> " would leave is invisible here and real in the
 // comment GitHub stores.
 func quoted(body string) string {
-	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	body = strings.TrimRight(body, "\n")
+	if body == "" {
+		return ""
+	}
+
+	lines := strings.Split(body, "\n")
 	for i, line := range lines {
 		if line == "" {
 			lines[i] = ">"

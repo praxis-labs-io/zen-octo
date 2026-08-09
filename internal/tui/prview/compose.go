@@ -370,15 +370,26 @@ func (m Model) post() (Model, tea.Cmd) {
 
 // editorReturned takes back what the editor wrote. A trailing newline is what
 // every editor leaves and no comment wants.
+//
+// It goes to the box that opened the editor, which is the one still holding the
+// keyboard: the program was suspended in between, so nothing can have moved. The
+// compose card is not that box whenever a reply opened the editor, and writing
+// there would drop the reply into the wrong conversation and take out whatever
+// was already in the card on the way.
 func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
 		err := msg.err
 		return m, func() tea.Msg { return EditorFailedMsg{Err: err} }
 	}
 
-	m.compose.area.SetValue(strings.TrimRight(msg.body, "\n"))
-	m.compose.area.MoveToEnd()
-	m.showCompose()
+	box := m.writing()
+	if box == nil {
+		return m, nil
+	}
+
+	box.area.SetValue(strings.TrimRight(msg.body, "\n"))
+	box.area.MoveToEnd()
+	m.showBox()
 	return m, nil
 }
 

@@ -480,6 +480,58 @@ func TestAnUnfocusedCardNamesNothing(t *testing.T) {
 	}
 }
 
+// A comment with no body quotes to nothing. Splitting an empty string yields one
+// empty line, so a naive quote seeds the box with a bare marker standing over
+// nothing.
+func TestQuotingAnEmptyCommentSeedsNothing(t *testing.T) {
+	d := sampleDetail()
+	// The sub-cursor opens on the last comment, so that is the one R takes.
+	d.Threads[0].Comments[1].Body = ""
+
+	m := tabbed(detailed(held(d), 200, 60), tabThread)
+	box := boxLines(t, press(m, "R").View())
+
+	for _, line := range box {
+		if strings.HasPrefix(line, ">") {
+			t.Errorf("R on an empty comment seeded a blockquote: %q", box)
+			break
+		}
+	}
+
+	// The box still opens: the reader asked to write, and having nothing to
+	// quote is not a reason to refuse.
+	if len(box) == 0 {
+		t.Errorf("R on an empty comment opened no box:\n%s", stripANSI(press(m, "R").View()))
+	}
+}
+
+// boxLines is what the open reply box holds, from its heading down to its hint
+// row.
+func boxLines(t *testing.T, frame string) []string {
+	t.Helper()
+
+	lines := strings.Split(stripANSI(frame), "\n")
+	at := -1
+	for i, line := range lines {
+		if strings.Contains(line, "write a reply") {
+			at = i
+		}
+	}
+	if at < 0 {
+		return nil
+	}
+
+	var out []string
+	for _, line := range lines[at:] {
+		text := strings.TrimSpace(strings.Trim(line, "│╭╮╰╯─ "))
+		if strings.Contains(line, "esc done") {
+			break
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
 // Plain r leaves the buffer alone. A reader who wanted the quote has a key for
 // it, and one who did not would have to clear five lines before writing.
 func TestReplyDoesNotQuote(t *testing.T) {

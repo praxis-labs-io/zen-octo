@@ -612,12 +612,12 @@ func refreshed(t *testing.T, m prview.Model) prview.RefreshMsg {
 
 	_, cmd := key(m, "s")
 	if cmd == nil {
-		t.Fatal("r asked for nothing")
+		t.Fatal("s asked for nothing")
 	}
 	asked := cmd()
 	msg, ok := asked.(prview.RefreshMsg)
 	if !ok {
-		t.Fatalf("r produced %T, want a RefreshMsg", asked)
+		t.Fatalf("s produced %T, want a RefreshMsg", asked)
 	}
 	return msg
 }
