@@ -145,9 +145,13 @@ func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
 		return v
 	}
 
+	// Stacked against the thread rather than spaced off it. Every other pair of
+	// blocks on the page has a blank line between them because they are separate
+	// things; these two are one thing being answered and the answer, and the gap
+	// read as the box belonging to the page rather than to the thread above it.
 	box := m.replyCard(width)
-	at := strings.Count(v.block, "\n") + 2
-	block := v.block + "\n\n" + box
+	at := strings.Count(v.block, "\n") + 1
+	block := v.block + "\n" + box
 
 	return rendered{block: block, stops: tile(block, []focusItem{
 		{focusKey: threadKey(t)},
