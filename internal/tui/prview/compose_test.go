@@ -76,6 +76,12 @@ func TestTheFrameStillFillsItsSizeWithTheComposerOpen(t *testing.T) {
 		{width: 160, height: 24},
 		{width: 100, height: 20},
 		{width: 60, height: 12},
+
+		// Shorter than the composer wants. It gives way rather than pushing the
+		// panes past the bottom of the frame.
+		{width: 100, height: 8},
+		{width: 100, height: 6},
+		{width: 100, height: 4},
 	}
 
 	for _, size := range sizes {

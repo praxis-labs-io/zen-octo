@@ -79,11 +79,15 @@ func newComposer(th theme.Theme) composer {
 
 // height is what the composer takes off the frame. Zero when it is closed, so
 // the panes above get the whole screen back.
-func (c composer) height() int {
+//
+// It gives way on a frame too short to hold it whole rather than pushing the
+// panes past the bottom. A screen that renders more lines than it was handed
+// writes over the status bar, which is where the key that quits is named.
+func (c composer) height(frame int) int {
 	if !c.open {
 		return 0
 	}
-	return composeRows + composeChrome + c.pane.Chrome()
+	return min(composeRows+composeChrome+c.pane.Chrome(), max(0, frame))
 }
 
 // show opens the pane on whatever is already in the buffer, with the cursor in
@@ -128,9 +132,15 @@ func (c *composer) step() tea.Cmd {
 	return c.area.Focus()
 }
 
-func (c *composer) setWidth(width int) {
-	c.pane = c.pane.Size(width, c.height())
+func (c *composer) setSize(width, frame int) {
+	height := c.height(frame)
+	c.pane = c.pane.Size(width, height)
 	c.area.SetWidth(c.pane.InnerWidth())
+
+	// One line of writing is the floor. Under that the pane is borders and a
+	// button, which is barely a pane, but it is still the answer to the key
+	// that was pressed and it still names the one that closes it.
+	c.area.SetHeight(max(1, height-composeChrome-c.pane.Chrome()))
 }
 
 // view renders the pane. The title says what is being written and where it

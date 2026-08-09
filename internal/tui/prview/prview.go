@@ -813,8 +813,8 @@ func (m *Model) layout() {
 		m.focus = paneMain
 	}
 
-	m.compose.setWidth(m.width)
-	panes := max(0, m.height-m.compose.height())
+	m.compose.setSize(m.width, m.height)
+	panes := max(0, m.height-m.compose.height(m.height))
 
 	mainWidth := m.width
 	if m.sideVisible() {
@@ -1013,10 +1013,17 @@ func (m Model) View() string {
 	}
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	if pane := m.compose.view(m.theme, m.composeTitle()); pane != "" {
-		return lipgloss.JoinVertical(lipgloss.Left, row, pane)
+
+	pane := m.compose.view(m.theme, m.composeTitle())
+	switch {
+	case pane == "":
+		return row
+	// A pane with no room for content renders nothing at all, and joining that
+	// empty string would still cost the line it was denied.
+	case row == "":
+		return pane
 	}
-	return row
+	return lipgloss.JoinVertical(lipgloss.Left, row, pane)
 }
 
 // composeTitle names what is being written and where it lands. A text box at
