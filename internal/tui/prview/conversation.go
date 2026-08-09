@@ -75,14 +75,14 @@ func (m *Model) entries() string {
 		item := d.Timeline[i]
 		switch item.Kind {
 		case gh.TimelineComment:
-			key := focusKey{kind: focusComment, index: i}
+			key := focusKey{kind: focusComment, id: item.Said().ID}
 			head := m.said(item.Actor, "commented", m.theme.Faint, item)
 			push(m.card(head, m.body(item.Said().Body, m.cardWidth(width), "No comment.", key), width, key), key)
 
 		case gh.TimelineReview:
 			// The review records its own card and every thread hung off it, so
 			// it takes the line it starts on and push takes no key.
-			push(m.review(item, i, d.Threads, shown, width, at), focusKey{})
+			push(m.review(item, d.Threads, shown, width, at), focusKey{})
 
 		case gh.TimelineCommit:
 			// A push arrives as one item per commit. They fold back into the one
@@ -104,7 +104,7 @@ func (m *Model) entries() string {
 
 	for i, thread := range d.Threads {
 		if !shown[i] {
-			key := focusKey{kind: focusThread, index: i}
+			key := threadKey(thread)
 			push(m.thread(thread, width, true, key), key)
 		}
 	}
@@ -122,12 +122,12 @@ func (m *Model) entries() string {
 // review is the verdict and body in a box, then the threads it opened, set in
 // under it. The box is what stops a bot review that runs for forty lines
 // reading as loose comments with no telling where it ends.
-func (m *Model) review(item gh.TimelineItem, index int, threads []gh.ReviewThread, shown map[int]bool, width, at int) string {
+func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown map[int]bool, width, at int) string {
 	label, c := comp.ReviewStateLabel(m.theme, item.Review)
 	head := m.said(item.Actor, label, c, item)
 
 	written := item.Said()
-	key := focusKey{kind: focusReview, index: index}
+	key := focusKey{kind: focusReview, id: written.ID}
 	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, key)
 
 	used := strings.Count(block, "\n") + 1
@@ -144,7 +144,7 @@ func (m *Model) review(item gh.TimelineItem, index int, threads []gh.ReviewThrea
 			continue
 		}
 		shown[i] = true
-		tk := focusKey{kind: focusThread, index: i}
+		tk := threadKey(thread)
 		owned = append(owned, hung{m.thread(thread, width-treeGutter, true, tk), tk})
 	}
 

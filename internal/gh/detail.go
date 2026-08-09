@@ -668,7 +668,7 @@ func rollup(n pullRequestResponse) CheckRollup {
 			check.Workflow = run.Workflow.Name
 		}
 
-		key := check.Workflow + "\x00" + check.Name
+		key := check.Key()
 		i, seen := at[key]
 		switch {
 		case !seen:

@@ -249,6 +249,15 @@ type Check struct {
 	State    CheckState
 }
 
+// Key tells one check from another. A check run has a node id, but the rollup
+// folds a re-run onto the attempt it replaces, so the id changes under a check
+// that is still the same row. This does not.
+//
+// The rollup keeps one check per workflow and name, which is what makes it
+// unique. The separator is a NUL rather than a slash because a workflow may
+// hold one.
+func (c Check) Key() string { return c.Workflow + "\x00" + c.Name }
+
 // CheckRollup is the head commit's checks as a whole. State is GitHub's own
 // summary; the list and the counts are this package's, from the contexts
 // behind it.
