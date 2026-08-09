@@ -419,6 +419,74 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	}
 }
 
+// Focus names the card, not the place it sat in. A rebase re-sorts commits into
+// the timeline by date, and the reader comes back to the comment they left.
+func TestFocusHoldsThroughAReorderedTimeline(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 60), "tab", "tab")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
+		t.Fatalf("two tabs focused %q, want %q", got, cardComment)
+	}
+
+	m.SetDetail(held(reordered(sampleDetail())))
+
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
+		t.Errorf("the reorder moved focus to %q, want %q still", got, cardComment)
+	}
+}
+
+// An unfold is keyed the same way, so a reorder does not hand it to whichever
+// card took the place.
+func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
+	folded := func() gh.PullRequestDetail {
+		d := sampleDetail()
+		d.Timeline[0].Comment.Body = "Look.\n\n<details>\n<summary>Hidden</summary>\n\nThe secret.\n\n</details>\n"
+		return d
+	}
+
+	m := press(detailed(held(folded()), 200, 60), "tab", "tab", "o")
+	if !strings.Contains(stripANSI(m.View()), "The secret.") {
+		t.Fatal("o did not unfold the comment")
+	}
+
+	m.SetDetail(held(reordered(folded())))
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "▸ Hidden") {
+		t.Error("the comment renders folded after the reorder")
+	}
+	if !strings.Contains(out, "The secret.") {
+		t.Error("the reorder folded the comment back up")
+	}
+}
+
+// reordered swaps the comment and the review, which is the shape a refetch
+// after a rebase comes back in.
+func reordered(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.Timeline[0], d.Timeline[1] = d.Timeline[1], d.Timeline[0]
+	return d
+}
+
+// The rail keys on the row's own name. A label added above the one the reader
+// is pointing at leaves the cursor where it was.
+func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+
+	// Eight tabs: the state, three reviewers and their add row, the assignee
+	// and its add row, then the one label.
+	m = press(m, strings.Fields(strings.Repeat("tab ", 8))...)
+	if got := markedRailRow(t, m.View()); got != "bug" {
+		t.Fatalf("eight tabs marked %q, want the label", got)
+	}
+
+	d := sampleDetail()
+	d.Labels = append([]gh.Label{{Name: "docs", Color: "0075ca"}}, d.Labels...)
+	m.SetDetail(held(d))
+
+	if got := markedRailRow(t, m.View()); got != "bug" {
+		t.Errorf("the new label moved the cursor to %q, want %q still", got, "bug")
+	}
+}
+
 // A frame with a card focused is still exactly the size it was given.
 func TestAFocusedFrameFillsItsSizeExactly(t *testing.T) {
 	sizes := []struct{ width, height int }{

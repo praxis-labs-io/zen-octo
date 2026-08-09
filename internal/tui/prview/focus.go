@@ -1,5 +1,7 @@
 package prview
 
+import "github.com/zen-octo/zen-octo/internal/gh"
+
 // focusKind is what a focusable thing is. An action key reads it to know what
 // it has been handed: a reply belongs on a thread and nowhere else.
 type focusKind int
@@ -39,15 +41,30 @@ func (k focusKind) prose() bool {
 
 // focusKey names one focusable thing: what it is and which one.
 //
-// Which one is a place in the slice it came from, and for a comment or a review
-// that slice is the timeline. Appending to it is safe, which is the common case
-// and the only one a refresh usually produces. Reordering it is not: a rebase
-// re-sorts commits into the list by date, and focus and whatever the reader
-// unfolded then name the card that took the index. Comments carry ids now; the
-// rail rows this key also serves do not, which is what a switch has to answer.
+// Which one is the thing's own identity, never its place in a slice. A refetch
+// re-sorts the timeline whenever a rebase rewrites a commit's date, and a place
+// would then name whichever card took it: focus and everything the reader
+// unfolded would move to a card they never pointed at.
+//
+// id is the node id on a comment, a review or a thread; a login on a reviewer
+// or an assignee; a name on a label; and Key on a check, which the rollup keeps
+// one of per workflow and name. It is empty on the rows there is only ever one
+// of, which is the description and every rail control.
+//
+// Two focusable things sharing an id would wedge tab, because the ring steps
+// from the first match and lands back on the same key. Nothing above produces
+// one: GitHub's node ids are unique, reviewers are deduplicated by login, and
+// no pull request carries a label or an assignee twice.
 type focusKey struct {
-	kind  focusKind
-	index int
+	kind focusKind
+	id   string
+}
+
+// threadKey is what a review thread answers to. The conversation and the Files
+// tab both render the same threads, and an unfold on one is an unfold on the
+// other, so they have to build this the same way.
+func threadKey(t gh.ReviewThread) focusKey {
+	return focusKey{kind: focusThread, id: t.ID}
 }
 
 // focusItem is a key with where it landed. start and lines are in the body the

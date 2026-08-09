@@ -399,8 +399,8 @@ func (m *Model) threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.Di
 // conversation gives it, so a <details> block unfolded on one tab is unfolded
 // on the other. Focus is not shared: a card is only lit on the tab with a ring.
 func (m *Model) diffThread(i, width int) string {
-	key := focusKey{kind: focusThread, index: i}
-	return indent(m.thread(m.detail.Detail.Threads[i], width-threadIndent, false, key), threadIndent)
+	t := m.detail.Detail.Threads[i]
+	return indent(m.thread(t, width-threadIndent, false, threadKey(t)), threadIndent)
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {

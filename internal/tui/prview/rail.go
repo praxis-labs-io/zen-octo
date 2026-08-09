@@ -171,8 +171,8 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 	}
 
 	out := make([]railEntry, 0, len(r.Checks))
-	for i, check := range r.Checks {
-		key := focusKey{kind: focusCheck, index: i}
+	for _, check := range r.Checks {
+		key := focusKey{kind: focusCheck, id: check.Key()}
 		base := m.railBase(m.railRing.focused(key))
 		_, c := comp.CheckStateIcon(m.theme, check.State)
 
@@ -200,8 +200,8 @@ func checkName(c gh.Check) string {
 // for the words, and the same dot the checks use carries it in one cell.
 func (m Model) reviewerRows(reviewers []gh.Reviewer, width int) []railEntry {
 	out := make([]railEntry, 0, len(reviewers)+1)
-	for i, r := range reviewers {
-		key := focusKey{kind: focusReviewer, index: i}
+	for _, r := range reviewers {
+		key := focusKey{kind: focusReviewer, id: r.Actor.Login}
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
@@ -235,8 +235,8 @@ func (m Model) fit(style lipgloss.Style, name string, room int) string {
 
 func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
 	out := make([]railEntry, 0, len(actors)+1)
-	for i, a := range actors {
-		key := focusKey{kind: focusAssignee, index: i}
+	for _, a := range actors {
+		key := focusKey{kind: focusAssignee, id: a.Login}
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
@@ -255,8 +255,8 @@ func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
 // not already say, and the row already spends its background on the cursor.
 func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 	out := make([]railEntry, 0, len(labels)+1)
-	for i, l := range labels {
-		key := focusKey{kind: focusLabel, index: i}
+	for _, l := range labels {
+		key := focusKey{kind: focusLabel, id: l.Name}
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,

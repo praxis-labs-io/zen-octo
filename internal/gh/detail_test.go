@@ -501,6 +501,29 @@ func TestARerunCheckIsReportedOnce(t *testing.T) {
 	}
 }
 
+// No two checks in one rollup share a key. A screen names a row by it, and two
+// rows answering to one key is one row the reader cannot reach.
+func TestNoTwoChecksShareAKey(t *testing.T) {
+	seen := make(map[string]Check)
+	for _, check := range fetchDetail(t).Rollup.Checks {
+		if was, dup := seen[check.Key()]; dup {
+			t.Errorf("%q under %q has the key of %q under %q",
+				check.Name, check.Workflow, was.Name, was.Workflow)
+		}
+		seen[check.Key()] = check
+	}
+}
+
+// The separator is not a slash, because a workflow name may hold one and the
+// two halves would then run together.
+func TestAKeyTellsTheWorkflowFromTheJob(t *testing.T) {
+	a := Check{Workflow: "Lint / Format", Name: "go"}
+	b := Check{Workflow: "Lint", Name: "Format / go"}
+	if a.Key() == b.Key() {
+		t.Errorf("%+v and %+v both key to %q", a, b, a.Key())
+	}
+}
+
 func TestMergeabilityFoldsTheTwoFieldsGitHubAnswersWith(t *testing.T) {
 	tests := []struct {
 		name      string
