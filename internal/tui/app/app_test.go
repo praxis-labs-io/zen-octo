@@ -44,6 +44,7 @@ type fakeSearcher struct {
 	commitFiles map[string][]gh.ChangedFile
 	posted      []string
 	replied     []string
+	settled     []string
 	detailErr   error
 	filesErr    error
 	commitErr   error
@@ -243,6 +244,29 @@ func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.Co
 	}, nil
 }
 
+func (f *fakeSearcher) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
+	f.mu.Lock()
+	f.settled = append(f.settled, threadID+": "+strconv.FormatBool(resolved))
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.ThreadResult{}, err
+	}
+	return gh.ThreadResult{
+		ID: threadID, IsResolved: resolved, CanResolve: !resolved, CanUnresolve: resolved,
+	}, nil
+}
+
+// resolved is the threads the model settled, in order.
+func (f *fakeSearcher) resolved() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.settled)
+}
+
 // answered is the replies the model sent, in order.
 func (f *fakeSearcher) answered() []string {
 	f.mu.Lock()
@@ -333,6 +357,10 @@ func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentRe
 
 func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
+}
+
+func (f *querySearcher) SetThreadResolved(_ context.Context, _ string, _ bool) (gh.ThreadResult, error) {
+	return gh.ThreadResult{}, nil
 }
 
 func testConfig() *config.Config {
@@ -2392,7 +2420,7 @@ func (f *fakeSearcher) serveThread(id string) {
 	held := f.details[id]
 	held.Threads = []gh.ReviewThread{{
 		ID: "RT_1", Path: "internal/gh/client.go", Line: 42,
-		Side: gh.SideRight, CanReply: true,
+		Side: gh.SideRight, CanReply: true, CanResolve: true,
 		Comments: []gh.Comment{{
 			Kind: gh.CommentThread, ID: "RC_1", Author: gh.Actor{Login: "nkr"},
 			CreatedAt: time.Now(), Body: "This backs off forever.",
@@ -2486,5 +2514,140 @@ func TestASyncDoesNotTakeAwayAReplyStillInFlight(t *testing.T) {
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "capped it") {
 		t.Errorf("the sync dropped a reply still on its way:\n%s", out)
+	}
+}
+
+// settling opens the staged pull request and puts the ring on its one review
+// thread. Two tabs, because the ring walks the description first.
+func settling(t *testing.T, client *fakeSearcher) tea.Model {
+	t.Helper()
+
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveThread("PR_412")
+
+	return press(loaded(t, client, 160, 40), "enter", "tab", "tab")
+}
+
+// The card collapsing is the acknowledgement, the same way the optimistic
+// comment is one for a comment.
+func TestAResolvedThreadReadsResolvedBeforeItLands(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(settling(t, client), "x")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "resolved") {
+		t.Errorf("the thread does not read as settled:\n%s", out)
+	}
+	if strings.Contains(out, "This backs off forever.") {
+		t.Error("the settled thread is still showing its comments")
+	}
+	if got := client.resolved(); len(got) != 1 || got[0] != "RT_1: true" {
+		t.Errorf("sent %v, want the resolve addressed to the thread", got)
+	}
+}
+
+func TestAResolveThatLandsSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := press(settling(t, client), "x")
+
+	if !strings.Contains(lastLine(render(t, m)), "Resolved") {
+		t.Errorf("status bar = %q, want the resolve reported", strings.TrimSpace(lastLine(render(t, m))))
+	}
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "resolved") {
+		t.Errorf("the thread came back open after landing:\n%s", out)
+	}
+}
+
+// The revert branch. Nothing was typed, so putting the thread back is the whole
+// of it, and the toast carries the reason.
+func TestAFailedResolvePutsTheThreadBack(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
+
+	m := press(settling(t, client), "x")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "This backs off forever.") {
+		t.Errorf("the thread stayed settled after the write failed:\n%s", out)
+	}
+	if !strings.Contains(lastLine(render(t, m)), "502 Bad Gateway") {
+		t.Errorf("status bar = %q, want the reason on it", strings.TrimSpace(lastLine(render(t, m))))
+	}
+}
+
+// A sync landing while a resolve is out must not open the thread again. The
+// store holds it beside the fetched detail for exactly this.
+func TestASyncDoesNotUndoAResolveStillInFlight(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(press(settling(t, client), "x"), "s")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "resolved") {
+		t.Errorf("the sync opened a thread whose resolve is still on its way:\n%s", out)
+	}
+}
+
+// The diff is a request of its own, so v on a cold tab asks the root for it and
+// lands when it arrives.
+func TestVFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, []gh.ChangedFile{{
+		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 1,
+		Hunks: []gh.Hunk{{
+			Header: "@@ -40,2 +40,3 @@",
+			Lines: []gh.DiffLine{
+				{Kind: gh.DiffContext, Old: 40, New: 40, Content: "for {"},
+				{Kind: gh.DiffAdded, New: 42, Content: "delay = min(delay*2, fetchTimeout)"},
+			},
+		}},
+	}})
+
+	m := press(settling(t, client), "v")
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "internal/gh/client.go:42") {
+		t.Errorf("v never reached the thread in the diff:\n%s", out)
+	}
+	if !strings.Contains(out, "delay = min(delay*2, fetchTimeout)") {
+		t.Errorf("the diff around the thread is not on the screen:\n%s", out)
+	}
+}
+
+// Nothing failed: the reader asked for a place the diff does not have, and the
+// screen has nowhere of its own to say so.
+func TestAThreadWhoseFileIsNotInTheDiffSaysSo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveFiles(412, []gh.ChangedFile{{
+		Path: "internal/store/store.go", Status: gh.FileModified,
+		Hunks: []gh.Hunk{{
+			Header: "@@ -1,1 +1,1 @@",
+			Lines:  []gh.DiffLine{{Kind: gh.DiffContext, Old: 1, New: 1, Content: "package store"}},
+		}},
+	}})
+
+	m := press(settling(t, client), "v")
+
+	if got := lastLine(render(t, m)); !strings.Contains(got, "internal/gh/client.go is not in the diff") {
+		t.Errorf("status bar = %q, want it to say the file is not in the diff", strings.TrimSpace(got))
+	}
+}
+
+// One write per thread. A second press while the first is out would settle
+// against whichever response arrived first, and the card would then read the
+// opposite of what was pressed last.
+func TestASecondXWhileTheResolveIsOutSendsNothing(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(press(settling(t, client), "x"), "x")
+
+	if got := client.resolved(); len(got) != 1 {
+		t.Errorf("sent %v, want one write on the wire", got)
+	}
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "resolved") {
+		t.Errorf("the second press undid the first on the page:\n%s", out)
 	}
 }

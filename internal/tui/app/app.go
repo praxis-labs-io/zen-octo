@@ -38,6 +38,7 @@ type GitHub interface {
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
+	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -131,6 +132,22 @@ type replyFailedMsg struct {
 	thread string
 	body   string
 	err    error
+}
+
+// A resolve settles the same way and writes no words, so the failure carries
+// only what the toast has to say: which direction the press was going. The
+// store puts the thread back on its own.
+type threadResolvedMsg struct {
+	id  string
+	key string
+	res gh.ThreadResult
+}
+
+type resolveFailedMsg struct {
+	id       string
+	key      string
+	resolved bool
+	err      error
 }
 
 // fetchTimeout bounds a single request. Without it a half-open socket leaves
@@ -423,6 +440,64 @@ func (m Model) replyFailed(msg replyFailedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(shown, restored, toast)
 }
 
+// resolveThread settles a review thread, closing it on the page before the
+// write leaves. The card collapsing is the acknowledgement, the way the
+// optimistic comment is one for a comment.
+func (m Model) resolveThread(msg prview.ResolveThreadMsg) (tea.Model, tea.Cmd) {
+	key := m.store.PendingResolve(msg.ID, msg.ThreadID, msg.Resolved)
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
+	return m, tea.Batch(shown, m.sendResolve(msg, key))
+}
+
+func (m Model) sendResolve(msg prview.ResolveThreadMsg, key string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.SetThreadResolved(ctx, msg.ThreadID, msg.Resolved)
+		if err != nil {
+			return resolveFailedMsg{id: msg.ID, key: key, resolved: msg.Resolved, err: err}
+		}
+		return threadResolvedMsg{id: msg.ID, key: key, res: res}
+	}
+}
+
+// resolveLanded takes GitHub's answer, which carries the permissions the next
+// press needs as well as the state.
+func (m Model) resolveLanded(msg threadResolvedMsg) (tea.Model, tea.Cmd) {
+	m.store.ResolveApplied(msg.id, msg.key, msg.res)
+
+	said := "Unresolved"
+	if msg.res.IsResolved {
+		said = "Resolved"
+	}
+
+	toast := m.toasts.Show(comp.ToastSuccess, said)
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+}
+
+// resolveFailed is the revert branch. Nothing was typed and no box changed
+// height, so the thread going back where it was is the whole of it.
+func (m Model) resolveFailed(msg resolveFailedMsg) (tea.Model, tea.Cmd) {
+	m.store.ResolveReverted(msg.id, msg.key)
+
+	doing := "unresolve"
+	if msg.resolved {
+		doing = "resolve"
+	}
+
+	toast := m.toasts.Show(comp.ToastError, "Could not "+doing+" the thread: "+msg.err.Error())
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+}
+
 // showing is whether the detail screen is up on this pull request. A response
 // outlives the screen that asked for it, and every settle path checks.
 func (m Model) showing(id string) bool {
@@ -516,7 +591,7 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, m.detail.Init())
 
 	cmds = append(cmds, m.detail.SetDetail(m.store.Detail(pr.ID)))
-	m.detail.SetFiles(m.store.Files(pr.ID))
+	cmds = append(cmds, m.detail.SetFiles(m.store.Files(pr.ID)))
 	m.resize()
 	return m, tea.Batch(cmds...)
 }
@@ -550,7 +625,7 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 		// re-highlight for a frame that reads the same. One that failed has
 		// nothing worth keeping, so it takes the loading state and spins.
 		if held := m.store.Files(msg.ID); !held.Loaded {
-			m.detail.SetFiles(held)
+			cmds = append(cmds, m.detail.SetFiles(held))
 		}
 		cmds = append(cmds, m.fetchFiles(msg.ID, pr.Repository, pr.Number, pr.ChangedFiles))
 	}
@@ -643,8 +718,8 @@ func (m Model) needFiles(id string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	pr := m.detail.PullRequest()
-	m.detail.SetFiles(m.store.Files(id))
-	return m, tea.Batch(m.fetchFiles(id, pr.Repository, pr.Number, pr.ChangedFiles), m.detail.Init())
+	shown := m.detail.SetFiles(m.store.Files(id))
+	return m, tea.Batch(shown, m.fetchFiles(id, pr.Repository, pr.Number, pr.ChangedFiles), m.detail.Init())
 }
 
 // fetchFiles carries the repository and number because the diff comes over
@@ -672,14 +747,16 @@ func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.detail.SetFiles(held)
+	// A jump waiting on this diff lands inside SetFiles and answers here.
+	shown := m.detail.SetFiles(held)
 	if cmd, claimed := m.claim(legFiles, id, err); claimed {
-		return m, cmd
+		return m, tea.Batch(shown, cmd)
 	}
 	if err != nil && held.Loaded {
-		return m, m.toasts.Show(comp.ToastError, "Could not refresh the diff for #"+strconv.Itoa(m.detail.PullRequest().Number))
+		toast := m.toasts.Show(comp.ToastError, "Could not refresh the diff for #"+strconv.Itoa(m.detail.PullRequest().Number))
+		return m, tea.Batch(shown, toast)
 	}
-	return m, nil
+	return m, shown
 }
 
 // needCommit answers the screen asking for a commit's diff, the same way
@@ -889,6 +966,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case replyFailedMsg:
 		return m.replyFailed(msg)
+
+	case prview.ResolveThreadMsg:
+		return m.resolveThread(msg)
+
+	case threadResolvedMsg:
+		return m.resolveLanded(msg)
+
+	case resolveFailedMsg:
+		return m.resolveFailed(msg)
+
+	// Nothing failed: the reader asked for a place in the diff that is not in
+	// it, and the screen has nowhere of its own to say so.
+	case prview.ThreadNotInDiffMsg:
+		return m, m.toasts.Show(comp.ToastInfo, msg.Path+" is not in the diff")
 
 	// The terminal answers once, at startup, and only the compose pane cares:
 	// it decides whether ctrl+enter is a key worth naming in its footer.

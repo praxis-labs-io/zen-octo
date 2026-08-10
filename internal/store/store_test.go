@@ -845,3 +845,195 @@ func TestACommentAndAReplyInFlightSettleSeparately(t *testing.T) {
 		t.Errorf("thread = %q, want the reply landed", got)
 	}
 }
+
+// threadIn is one thread out of a detail, by id.
+func threadIn(t *testing.T, d store.Detail, id string) gh.ReviewThread {
+	t.Helper()
+
+	for _, th := range d.Detail.Threads {
+		if th.ID == id {
+			return th
+		}
+	}
+	t.Fatalf("no thread %q in the detail", id)
+	return gh.ReviewThread{}
+}
+
+func TestAPendingResolveShowsResolvedBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	s.PendingResolve("PR_1", "RT_1", true)
+
+	if !threadIn(t, s.Detail("PR_1"), "RT_1").IsResolved {
+		t.Error("the thread reads open, want it resolved while the write is out")
+	}
+}
+
+// The permissions are GitHub's to say. Flipping CanUnresolve here would put a
+// key on the card that opens a write the token cannot make.
+func TestAPendingResolveLeavesThePermissionsAlone(t *testing.T) {
+	s := store.New(configured())
+	d := threadWith("RT_1", "asked")
+	d.Detail.Threads[0].CanResolve = true
+	s.DetailApplied("PR_1", d)
+
+	s.PendingResolve("PR_1", "RT_1", true)
+
+	got := threadIn(t, s.Detail("PR_1"), "RT_1")
+	if !got.CanResolve || got.CanUnresolve {
+		t.Errorf("permissions = %v/%v, want them as GitHub last sent them", got.CanResolve, got.CanUnresolve)
+	}
+}
+
+func TestARefetchDoesNotDropAResolveStillInFlight(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	s.PendingResolve("PR_1", "RT_1", true)
+
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked", "somebody else"))
+
+	if !threadIn(t, s.Detail("PR_1"), "RT_1").IsResolved {
+		t.Error("the refetch took the resolve back off a write still in flight")
+	}
+}
+
+func TestFoldingAResolveDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	held := s.Detail("PR_1")
+	s.PendingResolve("PR_1", "RT_1", true)
+	_ = s.Detail("PR_1")
+
+	if threadIn(t, held, "RT_1").IsResolved {
+		t.Error("the detail already handed out now reads resolved, want it unchanged")
+	}
+}
+
+// Both fold into one clone. A second loop cloning from the held slice again
+// would drop the reply the first one folded in.
+func TestAResolveAndAReplyInFlightBothFoldIn(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "answered"})
+	s.PendingResolve("PR_1", "RT_1", true)
+
+	got := threadIn(t, s.Detail("PR_1"), "RT_1")
+	if !got.IsResolved {
+		t.Error("the thread reads open, want it resolved")
+	}
+	if len(got.Comments) != 2 || got.Comments[1].Body != "answered" {
+		t.Errorf("thread = %q, want the reply still on it", replies(s.Detail("PR_1"), "RT_1"))
+	}
+}
+
+func TestAPostedResolveTakesGitHubsPermissionsBack(t *testing.T) {
+	s := store.New(configured())
+	d := threadWith("RT_1", "asked")
+	d.Detail.Threads[0].CanResolve = true
+	s.DetailApplied("PR_1", d)
+
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	s.ResolveApplied("PR_1", key, gh.ThreadResult{ID: "RT_1", IsResolved: true, CanUnresolve: true})
+
+	got := threadIn(t, s.Detail("PR_1"), "RT_1")
+	if !got.IsResolved || got.CanResolve || !got.CanUnresolve {
+		t.Errorf("thread = %+v, want it resolved with the permissions flipped", got)
+	}
+}
+
+func TestReconcilingAResolveDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	held := s.Detail("PR_1")
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	s.ResolveApplied("PR_1", key, gh.ThreadResult{ID: "RT_1", IsResolved: true, CanUnresolve: true})
+
+	if threadIn(t, held, "RT_1").IsResolved {
+		t.Error("the detail already handed out now reads resolved, want it unchanged")
+	}
+}
+
+func TestAFailedResolvePutsTheThreadBack(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingResolve("PR_1", "RT_1", true)
+
+	s.ResolveReverted("PR_1", key)
+
+	if threadIn(t, s.Detail("PR_1"), "RT_1").IsResolved {
+		t.Error("the thread still reads resolved, want the write taken back")
+	}
+}
+
+// The thread went away under the write. Writing it back to carry one field
+// would be the store inventing state GitHub did not send.
+func TestAResolveForAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+	key := s.PendingResolve("PR_1", "RT_1", true)
+
+	s.DetailApplied("PR_1", threadWith("RT_OTHER", "elsewhere"))
+	s.ResolveApplied("PR_1", key, gh.ThreadResult{ID: "RT_1", IsResolved: true})
+
+	if got := s.Detail("PR_1").Detail.Threads; len(got) != 1 || got[0].ID != "RT_OTHER" {
+		t.Errorf("threads = %+v, want only the one the refetch carries", got)
+	}
+}
+
+// A comment and a resolve out at once take one key each, and each answer finds
+// its own write.
+func TestACommentAndAResolveInFlightSettleSeparately(t *testing.T) {
+	s := store.New(configured())
+	d := threadWith("RT_1", "asked")
+	d.Detail.Timeline = detailWith("first").Detail.Timeline
+	s.DetailApplied("PR_1", d)
+
+	comment := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "loose"})
+	resolve := s.PendingResolve("PR_1", "RT_1", true)
+	if comment == resolve {
+		t.Fatalf("both writes were held under %q", comment)
+	}
+
+	s.PendingReverted("PR_1", comment)
+
+	if got := bodies(s.Detail("PR_1")); len(got) != 1 {
+		t.Errorf("timeline = %q, want the comment taken back", got)
+	}
+	if !threadIn(t, s.Detail("PR_1"), "RT_1").IsResolved {
+		t.Error("the resolve went with the comment, want it still in flight")
+	}
+}
+
+// The screen reads this to keep a second press off a thread already answering
+// for one. Two writes out settle in the order the responses arrive, not the
+// order they were pressed.
+func TestAThreadWithAResolveInFlightIsMarkedPending(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	if !threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Fatal("the thread is not marked while the write is out")
+	}
+
+	s.ResolveApplied("PR_1", key, gh.ThreadResult{ID: "RT_1", IsResolved: true, CanUnresolve: true})
+	if threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Error("the thread is still marked once the write landed")
+	}
+}
+
+func TestAFailedResolveTakesTheMarkerWithIt(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	s.ResolveReverted("PR_1", key)
+
+	if threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Error("the thread is still marked after the write was taken back")
+	}
+}

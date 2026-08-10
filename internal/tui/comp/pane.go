@@ -73,6 +73,23 @@ func (p Pane) Chrome() int {
 	return 4
 }
 
+// Above is the lines the pane draws before its content: the top border, and
+// the heading row with its rule when there is one and there is room for it.
+// Anything mapping a line of content to a line on the screen has to clear
+// these, and reading it off the pane is what keeps the two in step when the
+// heading changes.
+func (p Pane) Above() int {
+	// Render draws nothing at all at this size, so there is no line for a
+	// caller's arithmetic to clear.
+	if p.width < 2 || p.height < 2 {
+		return 0
+	}
+	if p.header == "" || p.InnerHeight() < 3 {
+		return 1
+	}
+	return 3
+}
+
 // Index sets the bracketed number that leads the top border and jumps focus
 // here. Zero leaves it off, which is right for a screen with one pane.
 func (p Pane) Index(n int) Pane {

@@ -2,6 +2,7 @@ package gh_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -226,6 +227,13 @@ func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 		t.Fatal("commenting on a node that does not exist came back as a success")
 	}
 
+	assertValidated(t, err)
+}
+
+// assertValidated reads a rejection for which step it failed at.
+func assertValidated(t *testing.T, err error) {
+	t.Helper()
+
 	// The shapes a rejected document comes back as. Any of them means the
 	// mutation is wrong, not the id.
 	for _, broken := range []string{
@@ -268,18 +276,35 @@ func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
 		t.Fatal("replying to a thread that does not exist came back as a success")
 	}
 
-	for _, broken := range []string{
-		"doesn't exist on type",
-		"Unknown argument",
-		"Field must have selections",
-		"Parse error",
-	} {
-		if strings.Contains(err.Error(), broken) {
-			t.Fatalf("the document does not match the schema: %v", err)
-		}
+	assertValidated(t, err)
+}
+
+// TestLiveTheThreadResolveDocumentsMatchTheSchema is the same check for both
+// halves of the resolve toggle. It is the only thing that catches the input
+// field being named wrong: canned JSON decodes whatever it is sent.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheThreadResolveDocumentsMatchTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	if !strings.Contains(err.Error(), "Could not resolve to") {
-		t.Logf("unexpected error shape, read it before trusting this test: %v", err)
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	for _, resolved := range []bool{true, false} {
+		t.Run(fmt.Sprintf("resolved=%v", resolved), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err := client.SetThreadResolved(ctx, "NOT_A_NODE", resolved)
+			if err == nil {
+				t.Fatal("resolving a thread that does not exist came back as a success")
+			}
+
+			assertValidated(t, err)
+		})
 	}
 }

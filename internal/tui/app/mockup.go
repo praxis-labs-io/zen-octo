@@ -47,6 +47,17 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 	}, nil
 }
 
+// SetThreadResolved hands the toggle straight back, with the permissions the
+// real one flips: a thread just resolved can only be unresolved.
+func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
+	return gh.ThreadResult{
+		ID:           threadID,
+		IsResolved:   resolved,
+		CanResolve:   !resolved,
+		CanUnresolve: resolved,
+	}, nil
+}
+
 // AddReply is AddComment for a review thread. The id counts up so two replies
 // to one thread do not come back sharing a node id, which is the one thing the
 // focus ring cannot survive.
@@ -329,6 +340,17 @@ func mockDetail() gh.PullRequestDetail {
 			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, Side: gh.SideRight,
 				IsOutdated: true,
 				CanReply:   true, CanResolve: true,
+				// Outdated, so the hunk is the code as it stood when the comment
+				// was written. The sum it asks about is gone from the diff the
+				// Files tab shows, which is what outdated means.
+				Hunk: &gh.Hunk{
+					Header: "@@ -116,3 +116,3 @@ func total(res searchResponse) int {",
+					Lines: []gh.DiffLine{
+						{Kind: gh.DiffContext, Old: 116, New: 116, Content: "func total(res searchResponse) int {"},
+						{Kind: gh.DiffContext, Old: 117, New: 117, Content: "\treturn res.Search.IssueCount + res.Search.More"},
+						{Kind: gh.DiffContext, Old: 118, New: 118, Content: "}"},
+					},
+				},
 				Comments: []gh.Comment{
 					theirs(gh.CommentThread, "RC_3", "nkr", ago(6*time.Hour),
 						"Worth pulling this sum out into a named helper."),
@@ -337,6 +359,16 @@ func mockDetail() gh.PullRequestDetail {
 			{ID: "RT_3", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
 				IsResolved: true,
 				CanReply:   true, CanUnresolve: true,
+				// On the left of the diff, so the hunk ends on the line that was
+				// deleted rather than on one that survived.
+				Hunk: &gh.Hunk{
+					Header: "@@ -86,4 +86,3 @@ func (s *Store) Begin(i int) bool {",
+					Lines: []gh.DiffLine{
+						{Kind: gh.DiffContext, Old: 86, New: 86, Content: "// Begin marks one section in flight."},
+						{Kind: gh.DiffContext, Old: 87, New: 87, Content: "// It refuses a section that already has"},
+						{Kind: gh.DiffRemoved, Old: 88, Content: "// a request out, which is what refuces the"},
+					},
+				},
 				Comments: []gh.Comment{
 					theirs(gh.CommentThread, "RC_4", "nkr", ago(6*time.Hour), "Typo: refuces."),
 					mine(gh.CommentThread, "RC_5", ago(5*time.Hour), "Fixed."),

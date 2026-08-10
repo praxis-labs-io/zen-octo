@@ -258,3 +258,42 @@ func TestAPaneTooShortForBothKeepsTheContent(t *testing.T) {
 		t.Errorf("pane = %q, want the content rather than the heading", stripANSI(out))
 	}
 }
+
+// Above is only worth having if it agrees with the render. Anything mapping a
+// content line to a screen line reads it, and a pane that grew a row without it
+// would put every one of them out by that row.
+func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
+	tests := []struct {
+		name string
+		pane comp.Pane
+	}{
+		{"headed", pane().Header(" heading").Size(40, 10)},
+		{"bare", pane().Size(40, 10)},
+		// Two rows of content and the borders, which is under the height the
+		// heading needs, so the pane drops it.
+		{"no room for the heading", pane().Header(" heading").Size(40, 4)},
+		// Narrower than its own borders, which the pane refuses to draw at all.
+		{"too narrow to draw", pane().Header(" heading").Size(1, 10)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := tt.pane.Render("first line")
+			lines := strings.Split(out, "\n")
+
+			at := tt.pane.Above()
+			if out == "" {
+				if at != 0 {
+					t.Errorf("Above() = %d on a pane that draws nothing, want 0", at)
+				}
+				return
+			}
+			if at >= len(lines) {
+				t.Fatalf("Above() = %d, and the pane is %d lines", at, len(lines))
+			}
+			if !strings.Contains(lines[at], "first line") {
+				t.Errorf("Above() = %d, which is %q rather than the content", at, lines[at])
+			}
+		})
+	}
+}

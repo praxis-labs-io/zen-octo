@@ -163,6 +163,13 @@ type ReviewThread struct {
 	CanResolve   bool
 	CanUnresolve bool
 
+	// Pending marks a thread whose resolution was changed here and not yet
+	// acknowledged. This package never sets it, the same as Comment.Pending: it
+	// has nothing pending. The store sets it while the write is out, and the
+	// screen reads it to keep a second press off a thread already answering
+	// for one.
+	Pending bool
+
 	Hunk     *Hunk
 	Comments []Comment
 }
@@ -407,6 +414,18 @@ type ViewerResult struct {
 // until the next fetch reports a budget that has already moved.
 type CommentResult struct {
 	Comment Comment
+}
+
+// ThreadResult is one review thread's resolution, as GitHub recorded it. The
+// permissions come back with the state because resolving flips them: the same
+// key unresolves next, and only GitHub knows whether this viewer may.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type ThreadResult struct {
+	ID           string
+	IsResolved   bool
+	CanResolve   bool
+	CanUnresolve bool
 }
 
 // SearchResult is one search response: what it matched and what it cost.

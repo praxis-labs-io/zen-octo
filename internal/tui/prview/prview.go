@@ -56,6 +56,20 @@ type PostReplyMsg struct {
 	Body     string
 }
 
+// ResolveThreadMsg asks the root to settle a review thread or open it again.
+// Resolved is the state the key is asking for rather than the one the thread is
+// in, so the root writes what it was handed and never reads the page back.
+type ResolveThreadMsg struct {
+	ID       string
+	ThreadID string
+	Resolved bool
+}
+
+// ThreadNotInDiffMsg reports a jump with nowhere to land: the thread's file is
+// not among the changed files the diff carries. The root raises the toast, for
+// the reason EditorFailedMsg gives.
+type ThreadNotInDiffMsg struct{ Path string }
+
 // EditorFailedMsg reports an editor that would not run or a file that would not
 // be read. The buffer is untouched and the pane is still open; the root raises
 // the toast, because the screen has nowhere to say it.
@@ -196,6 +210,11 @@ type Model struct {
 	// a push fetch the change rather than the one before it.
 	filesAsked bool
 
+	// jump is the review thread v is on its way to, empty when there is none.
+	// The diff costs a request of its own, so a jump made before it has ever
+	// been asked for waits here and lands when the answer arrives.
+	jump string
+
 	// convRing and railRing are what tab walks: the conversation's cards and
 	// the rail's rows. The panes with a column of their own have a cursor
 	// instead, and no ring.
@@ -281,7 +300,11 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 // SetFiles takes what the store holds for this pull request's diff. A cursor
 // still at the top goes to the first file rather than the directory above it,
 // which is what the diff beside it is already showing.
-func (m *Model) SetFiles(f store.Files) {
+//
+// It returns a command because a jump can be waiting on this: v pressed before
+// the diff was ever asked for lands here, and what it cannot do it has to be
+// able to say.
+func (m *Model) SetFiles(f store.Files) tea.Cmd {
 	m.files = f
 	m.diff.blocks = nil
 	m.syncRows()
@@ -291,6 +314,7 @@ func (m *Model) SetFiles(f store.Files) {
 		m.cursor = m.firstFile()
 	}
 	m.syncContent()
+	return m.finishJump()
 }
 
 func (m Model) firstFile() int {
@@ -318,6 +342,16 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.conv.ok = false
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
+	}
+
+	// A thread that came back open keeps no fold of its own. The flag is read
+	// only while a thread is resolved, and one left from the last time it was
+	// would hold the card open against the next resolve, which is the write's
+	// only acknowledgement.
+	for _, t := range d.Detail.Threads {
+		if !t.IsResolved {
+			delete(m.expanded, threadKey(t))
+		}
 	}
 	m.syncCommits()
 	m.syncChecks()
@@ -474,6 +508,14 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startReply(false)
 	case key.Matches(keyMsg, k.QuoteReply):
 		return m.startReply(true)
+
+	// Both act on the thread the ring is holding, and both keep their gate
+	// inside: whether GitHub will take a resolve is the thread's answer, and
+	// whether the file is in the diff is the diff's.
+	case key.Matches(keyMsg, k.Resolve):
+		return m.toggleResolved()
+	case key.Matches(keyMsg, k.Jump):
+		return m.showInDiff()
 
 	case key.Matches(keyMsg, k.NextWithin):
 		return m.stepWithin(1)
@@ -690,17 +732,25 @@ func (m *Model) showSideCursor() {
 	}
 }
 
-// changeTab moves the strip and takes the scroll position with it. The offset
-// is restored after the content, because SetYOffset clamps to what is there.
+// changeTab walks the strip, wrapping at either end.
+func (m *Model) changeTab(delta int) tea.Cmd {
+	return m.goToTab((m.tab + delta + len(tabs)) % len(tabs))
+}
+
+// goToTab moves to a tab and takes the scroll position with it. The offset is
+// restored after the content, because SetYOffset clamps to what is there.
 //
 // Both diff tabs open on content rather than on an empty pane. Files asks the
 // root outright; Commits arms the same wait a cursor move does, so landing on
 // the tab loads whatever the cursor is already pointing at. The fetch is the
 // root's to make either way, and the tab is the only thing that says it is
 // wanted.
-func (m *Model) changeTab(delta int) tea.Cmd {
+//
+// The destination is named rather than stepped, because a jump from the
+// conversation into the diff owes the screen everything a tab switch does.
+func (m *Model) goToTab(at int) tea.Cmd {
 	m.offsets[m.tab] = m.view.YOffset()
-	m.tab = (m.tab + delta + len(tabs)) % len(tabs)
+	m.tab = at
 
 	// The column comes and goes with the tab, and focus cannot sit on a pane
 	// that is no longer on screen.

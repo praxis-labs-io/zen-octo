@@ -91,6 +91,15 @@ type DetailMap struct {
 	// than to the thread.
 	NextWithin key.Binding
 	PrevWithin key.Binding
+
+	// Resolve settles a review thread and opens a settled one. One key for both,
+	// because GitHub treats it as one control with two permissions and the card
+	// names whichever of the two the reader has.
+	//
+	// Jump takes the thread to its place in the diff, which is the one question
+	// a comment on a line raises that the conversation cannot answer.
+	Resolve key.Binding
+	Jump    key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
@@ -148,6 +157,8 @@ var (
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
 		NextWithin: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "next in thread")),
 		PrevWithin: key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "prev in thread")),
+		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
+		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
 	}
 )
 
@@ -187,6 +198,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.FocusNext, k.FocusPrev, k.Expand, k.ToggleRail},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
+		{k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}

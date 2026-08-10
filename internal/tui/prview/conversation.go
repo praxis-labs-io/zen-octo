@@ -117,7 +117,7 @@ func (m *Model) entries() string {
 			if written.Pending {
 				head = m.posting(item.Actor, "commented")
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body)), key)
+			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body, width)), key)
 
 		case gh.TimelineReview:
 			// A review renders as its own card with every thread it opened hung
@@ -303,7 +303,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body))
+	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body, width))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -388,14 +388,14 @@ func (m Model) card(head, content string, width int, lit bool, hints string) str
 
 // threadHints is the keys live on a thread card, in the order a reader reaches
 // for them.
-func (m Model) threadHints(lit bool, t gh.ReviewThread) string {
+func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	if !lit {
 		return ""
 	}
 	k := keys.Detail
 
 	if !m.threadOpen(t) {
-		return hintLine(k.Expand.Help().Key + " open")
+		return hintLine(width, append([]string{k.Expand.Help().Key + " open"}, m.threadActs(t)...)...)
 	}
 
 	var parts []string
@@ -405,16 +405,37 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread) string {
 	if t.CanReply {
 		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
 	}
+	parts = append(parts, m.threadActs(t)...)
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
 	}
-	return hintLine(parts...)
+	return hintLine(width, parts...)
+}
+
+// threadActs is what a thread answers to whether it is open or closed: the
+// resolve toggle, in the direction this viewer may press it, and the jump into
+// the diff when there is somewhere for it to land.
+func (m Model) threadActs(t gh.ReviewThread) []string {
+	k := keys.Detail
+
+	var parts []string
+	if m.canToggleResolved(t) {
+		word := " resolve"
+		if t.IsResolved {
+			word = " unresolve"
+		}
+		parts = append(parts, k.Resolve.Help().Key+word)
+	}
+	if m.jumpable(t) {
+		parts = append(parts, k.Jump.Help().Key+" in diff")
+	}
+	return parts
 }
 
 // quoteHint is what a block with no thread under it answers to. r is not on it:
 // GitHub has no reply for a loose comment, and a key named on a card it does
 // nothing to is the lie this line exists to avoid.
-func (m Model) quoteHint(lit bool, body string) string {
+func (m Model) quoteHint(lit bool, body string, width int) string {
 	if !lit {
 		return ""
 	}
@@ -424,7 +445,7 @@ func (m Model) quoteHint(lit bool, body string) string {
 	if foldable(body) {
 		parts = append(parts, k.Expand.Help().Key+" expand")
 	}
-	return hintLine(parts...)
+	return hintLine(width, parts...)
 }
 
 // foldable is whether a body has a <details> block in it, which is the only
@@ -436,12 +457,28 @@ func foldable(body string) bool {
 	})
 }
 
-func hintLine(parts ...string) string {
-	if len(parts) == 0 {
-		return ""
+// hintLine joins the keys a card answers to, dropping from the end until the
+// line fits the border it rides in. The pane clips a long footer mid-word with
+// nothing to say it did, and the keys it would eat are the ones added last,
+// which are the newest and the least known.
+//
+// width is the card's, not the footer's; hintRoom takes off what the border
+// keeps for itself.
+func hintLine(width int, parts ...string) string {
+	room := hintRoom(width)
+	for len(parts) > 0 {
+		line := strings.Join(parts, " · ") + " "
+		if lipgloss.Width(line) <= room {
+			return line
+		}
+		parts = parts[:len(parts)-1]
 	}
-	return strings.Join(parts, " · ") + " "
+	return ""
 }
+
+// hintRoom is what the bottom border leaves a footer: its two corners and the
+// single cell it keeps to the right of the text.
+func hintRoom(width int) int { return max(0, width-3) }
 
 // lit is whether a block holds the conversation's focus. A card is only lit on
 // the pane the keys are going to, which is neither the Files tab, where the
@@ -485,7 +522,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(m.lit(key), d.Body))
+	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(m.lit(key), d.Body, width))
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -638,7 +675,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	// way every other block does and o has something to open.
 	if !m.threadOpen(t) {
 		body := wrap(m.faint().Render("▸ "+comp.Plural(len(t.Comments), "comment")), m.cardWidth(width))
-		block := m.card(head, body, width, lit, m.threadHints(lit, t))
+		block := m.card(head, body, width, lit, m.threadHints(lit, t, width))
 		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
@@ -695,7 +732,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		push(gutter(block, c.ID == within))
 	}
 
-	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(lit, t))
+	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(lit, t, width))
 	return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 }
 
