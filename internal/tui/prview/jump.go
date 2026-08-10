@@ -99,12 +99,8 @@ func (m *Model) finishJump() tea.Cmd {
 	m.syncContent()
 	m.showCursorRow()
 
-	// The thread goes to the top row, with the code it answers under it. The
-	// shortest scroll would land it at the foot of the pane with everything it
-	// is about below the fold.
-
 	if line, ok := m.diff.threadAt[t.ID]; ok {
-		m.view.SetYOffset(contentLead + line)
+		m.view.SetYOffset(contentLead + m.jumpTop(t.Path, line))
 		return nil
 	}
 
@@ -112,6 +108,26 @@ func (m *Model) finishJump() tea.Cmd {
 	// body GitHub omitted. The file is still the right place to be.
 	m.showCursorFile()
 	return nil
+}
+
+// jumpLead is the code kept above a thread when a jump lands: the line it
+// answers, and enough of the hunk around it to read that line in context.
+const jumpLead = 4
+
+// jumpTop is where the diff opens for a thread. Not the card's own line: the
+// card hangs under the line it was written against, so putting it on the top
+// row scrolls away the one thing the reader pressed the key to see. The same
+// rule the reply box follows, one tab over.
+//
+// It never opens above the file's own heading. A thread near the top of a file
+// would otherwise show the tail of the file before it, which reads as the wrong
+// file until the eye finds the border.
+func (m Model) jumpTop(path string, line int) int {
+	top := line - jumpLead
+	if at := slices.IndexFunc(m.diff.spans, func(s fileSpan) bool { return s.key == path }); at >= 0 {
+		top = max(top, m.diff.spans[at].start)
+	}
+	return max(0, top)
 }
 
 // reveal takes a file out from under every fold hiding it. A file inside a

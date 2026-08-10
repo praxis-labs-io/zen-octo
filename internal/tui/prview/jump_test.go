@@ -32,26 +32,41 @@ func onTab(frame, name string) bool {
 	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Primary)+"m"+name)
 }
 
-// The thread goes to the top row with the code it answers under it. The
-// shortest scroll would put it at the foot of the pane with everything it is
-// about below the fold.
+// landed is what every jump has to produce: the code the thread was written
+// against on the screen with the card under it, and the file's own hunk heading
+// scrolled away, so the pane is not just showing the top of the file.
 //
-// Line two, because line zero is the pane's own border and line one is the
-// card's.
-func TestVPutsTheThreadOnTheTopRowOfTheDiff(t *testing.T) {
+// The marker is the line above the anchor. They are next to each other in the
+// diff, so one on the screen puts the other there too.
+func landed(t *testing.T, frame string) {
+	t.Helper()
+
+	code := lineOf(t, frame, "min(delay*2, fetchTimeout)")
+	card := lineOf(t, frame, cardThread)
+
+	if code >= card {
+		t.Errorf("the code is on row %d and the card answering it on row %d, want the code above it:\n%s",
+			code, card, stripANSI(frame))
+	}
+	if card > 8 {
+		t.Errorf("the card opens on row %d, too far down the pane to be where the jump landed:\n%s",
+			card, stripANSI(frame))
+	}
+	if strings.Contains(stripANSI(frame), "@@ -40,4 +40,5 @@") {
+		t.Errorf("the diff opened on the file's own top rather than on the thread:\n%s", stripANSI(frame))
+	}
+}
+
+// A card put on the top row takes the line it answers off the screen with it,
+// which leaves the reader looking at a comment about code they cannot see. The
+// reply box one tab over follows the same rule for the same reason.
+func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 
-	out := stripANSI(m.View())
 	if !onTab(m.View(), "Files") {
-		t.Fatalf("v did not reach the Files tab:\n%s", out)
+		t.Fatalf("v did not reach the Files tab:\n%s", stripANSI(m.View()))
 	}
-
-	if at := lineOf(t, m.View(), cardThread); at != 2 {
-		t.Errorf("the thread opens on frame line %d, want it on the top row:\n%s", at, out)
-	}
-	if strings.Contains(out, "@@ -40,4 +40,5 @@") {
-		t.Error("the diff opened on the file rather than on the thread")
-	}
+	landed(t, m.View())
 }
 
 // The diff costs a request of its own, so the first v on a cold tab asks for it
@@ -72,9 +87,7 @@ func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 
 	next.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	if at := lineOf(t, next.View(), cardThread); at != 2 {
-		t.Errorf("the thread opens on frame line %d once the diff lands:\n%s", at, stripANSI(next.View()))
-	}
+	landed(t, next.View())
 }
 
 // A file inside a collapsed directory is in no row and no span, so there is
@@ -89,11 +102,7 @@ func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
-	back := press(folded, "[", "[", "[", "v")
-	if at := lineOf(t, back.View(), cardThread); at != 2 {
-		t.Errorf("the thread came out at line %d, want it out from under the fold:\n%s",
-			at, stripANSI(back.View()))
-	}
+	landed(t, press(folded, "[", "[", "[", "v").View())
 }
 
 // The column and the pane beside it have to agree on which file is on screen.
@@ -196,9 +205,7 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 // has.
 func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
-	if at := lineOf(t, m.View(), cardThread); at != 2 {
-		t.Fatalf("setup: the jump landed on line %d", at)
-	}
+	landed(t, m.View())
 
 	folded := press(m, "1", "o")
 	if strings.Contains(stripANSI(folded.View()), "This backs off forever.") {
@@ -206,12 +213,7 @@ func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) 
 	}
 
 	// The ring is still on the thread, so the conversation needs no walking.
-	back := press(folded, "[", "[", "[", "v")
-
-	if at := lineOf(t, back.View(), cardThread); at != 2 {
-		t.Errorf("the thread came back on line %d, want it on the top row again:\n%s",
-			at, stripANSI(back.View()))
-	}
+	landed(t, press(folded, "[", "[", "[", "v").View())
 }
 
 // A diff that failed is asked for again rather than landed on. The pane carries
@@ -233,9 +235,7 @@ func TestVAsksAgainForADiffThatFailed(t *testing.T) {
 	}
 
 	next.SetFiles(loadedFiles(sampleFiles(), 0))
-	if at := lineOf(t, next.View(), cardThread); at != 2 {
-		t.Errorf("the thread opens on frame line %d once the retry lands:\n%s", at, stripANSI(next.View()))
-	}
+	landed(t, next.View())
 }
 
 // tallFiles is a diff whose tree does not fit the column, which is what makes
