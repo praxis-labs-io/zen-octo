@@ -163,6 +163,13 @@ type ReviewThread struct {
 	CanResolve   bool
 	CanUnresolve bool
 
+	// Pending marks a thread whose resolution was changed here and not yet
+	// acknowledged. This package never sets it, the same as Comment.Pending: it
+	// has nothing pending. The store sets it while the write is out, and the
+	// screen reads it to keep a second press off a thread already answering
+	// for one.
+	Pending bool
+
 	Hunk     *Hunk
 	Comments []Comment
 }

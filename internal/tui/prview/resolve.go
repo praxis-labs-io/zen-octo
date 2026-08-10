@@ -28,7 +28,15 @@ func (m Model) toggleResolved() (Model, tea.Cmd) {
 // canToggleResolved is whether GitHub will take the press. The two permissions
 // are separate, so a viewer allowed to close a thread and not to reopen it has
 // the key on one card and not on the other.
+//
+// A thread already answering for a write is inert whatever the permissions say.
+// Two out at once settle in the order the responses arrive rather than the
+// order they were pressed, and the card would then read the opposite of the
+// last press until a refetch.
 func (m Model) canToggleResolved(t gh.ReviewThread) bool {
+	if t.Pending {
+		return false
+	}
 	if t.IsResolved {
 		return t.CanUnresolve
 	}

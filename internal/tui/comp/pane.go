@@ -79,6 +79,11 @@ func (p Pane) Chrome() int {
 // these, and reading it off the pane is what keeps the two in step when the
 // heading changes.
 func (p Pane) Above() int {
+	// Render draws nothing at all at this size, so there is no line for a
+	// caller's arithmetic to clear.
+	if p.width < 2 || p.height < 2 {
+		return 0
+	}
 	if p.header == "" || p.InnerHeight() < 3 {
 		return 1
 	}

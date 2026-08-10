@@ -343,6 +343,16 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
+
+	// A thread that came back open keeps no fold of its own. The flag is read
+	// only while a thread is resolved, and one left from the last time it was
+	// would hold the card open against the next resolve, which is the write's
+	// only acknowledgement.
+	for _, t := range d.Detail.Threads {
+		if !t.IsResolved {
+			delete(m.expanded, threadKey(t))
+		}
+	}
 	m.syncCommits()
 	m.syncChecks()
 	m.syncContent()

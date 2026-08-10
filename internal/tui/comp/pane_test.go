@@ -272,13 +272,22 @@ func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
 		// Two rows of content and the borders, which is under the height the
 		// heading needs, so the pane drops it.
 		{"no room for the heading", pane().Header(" heading").Size(40, 4)},
+		// Narrower than its own borders, which the pane refuses to draw at all.
+		{"too narrow to draw", pane().Header(" heading").Size(1, 10)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lines := strings.Split(tt.pane.Render("first line"), "\n")
+			out := tt.pane.Render("first line")
+			lines := strings.Split(out, "\n")
 
 			at := tt.pane.Above()
+			if out == "" {
+				if at != 0 {
+					t.Errorf("Above() = %d on a pane that draws nothing, want 0", at)
+				}
+				return
+			}
 			if at >= len(lines) {
 				t.Fatalf("Above() = %d, and the pane is %d lines", at, len(lines))
 			}

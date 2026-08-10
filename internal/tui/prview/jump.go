@@ -28,6 +28,15 @@ func (m Model) showInDiff() (Model, tea.Cmd) {
 
 	m.jump = t.ID
 
+	// A diff that failed is asked for again rather than landed on. Pressing v is
+	// asking to see the code, the pane carries no retry of its own, and dropping
+	// the jump here would leave the reader on an error with nothing said about
+	// what they pressed. Clearing filesAsked is what lets the tab ask twice.
+	if retry := !m.files.Loaded && m.files.Status == store.StatusFailed; retry {
+		m.filesAsked = false
+		return m, m.goToTab(tabFiles)
+	}
+
 	// Both taken before the return. finishJump writes the offset onto this
 	// model, and a return statement is free to read its own operand before the
 	// calls beside it.
@@ -83,9 +92,12 @@ func (m *Model) finishJump() tea.Cmd {
 	m.reveal(t.Path)
 	m.pointAt(t.Path)
 
-	// Rendered before the offset moves: the block the jump lands on was only
-	// measured now, and SetYOffset clamps to the content the viewport holds.
+	// Rendered before either pane is scrolled: both were only measured now, and
+	// SetYOffset clamps to the content the viewport is holding. Scrolling the
+	// column first against the tree as it was folded clamps the cursor to the
+	// top and leaves it off screen once the rows come back.
 	m.syncContent()
+	m.showCursorRow()
 
 	// The thread goes to the top row, with the code it answers under it. The
 	// shortest scroll would land it at the foot of the pane with everything it
@@ -96,9 +108,8 @@ func (m *Model) finishJump() tea.Cmd {
 		return nil
 	}
 
-	// The file is here and the thread is not drawn in it, which is a file
-	// folded by hand a moment ago or one the diff omitted the body of. The
-	// file is still the right place to be.
+	// The file is here and the thread is not drawn in it, which is a file whose
+	// body GitHub omitted. The file is still the right place to be.
 	m.showCursorFile()
 	return nil
 }
@@ -117,15 +128,14 @@ func (m *Model) reveal(path string) {
 }
 
 // pointAt moves the tree cursor to a file, so the column agrees with the pane
-// beside it.
+// beside it. Bringing the cursor into the column's own window is the caller's,
+// because the column has to be rendered first.
 func (m *Model) pointAt(path string) {
 	at := slices.IndexFunc(m.rows, func(r row) bool { return r.file != nil && r.key == path })
 	if at < 0 {
 		return
 	}
-
 	m.cursor = at
-	m.showCursorRow()
 }
 
 // hasPath is whether the diff carries a file. The tree and the thread key by

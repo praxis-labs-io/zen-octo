@@ -1007,3 +1007,33 @@ func TestACommentAndAResolveInFlightSettleSeparately(t *testing.T) {
 		t.Error("the resolve went with the comment, want it still in flight")
 	}
 }
+
+// The screen reads this to keep a second press off a thread already answering
+// for one. Two writes out settle in the order the responses arrive, not the
+// order they were pressed.
+func TestAThreadWithAResolveInFlightIsMarkedPending(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	if !threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Fatal("the thread is not marked while the write is out")
+	}
+
+	s.ResolveApplied("PR_1", key, gh.ThreadResult{ID: "RT_1", IsResolved: true, CanUnresolve: true})
+	if threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Error("the thread is still marked once the write landed")
+	}
+}
+
+func TestAFailedResolveTakesTheMarkerWithIt(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
+
+	key := s.PendingResolve("PR_1", "RT_1", true)
+	s.ResolveReverted("PR_1", key)
+
+	if threadIn(t, s.Detail("PR_1"), "RT_1").Pending {
+		t.Error("the thread is still marked after the write was taken back")
+	}
+}

@@ -2634,3 +2634,20 @@ func TestAThreadWhoseFileIsNotInTheDiffSaysSo(t *testing.T) {
 		t.Errorf("status bar = %q, want it to say the file is not in the diff", strings.TrimSpace(got))
 	}
 }
+
+// One write per thread. A second press while the first is out would settle
+// against whichever response arrived first, and the card would then read the
+// opposite of what was pressed last.
+func TestASecondXWhileTheResolveIsOutSendsNothing(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	m := press(press(settling(t, client), "x"), "x")
+
+	if got := client.resolved(); len(got) != 1 {
+		t.Errorf("sent %v, want one write on the wire", got)
+	}
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "resolved") {
+		t.Errorf("the second press undid the first on the page:\n%s", out)
+	}
+}

@@ -2,9 +2,11 @@ package prview_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
@@ -209,5 +211,70 @@ func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) 
 	if at := lineOf(t, back.View(), cardThread); at != 2 {
 		t.Errorf("the thread came back on line %d, want it on the top row again:\n%s",
 			at, stripANSI(back.View()))
+	}
+}
+
+// A diff that failed is asked for again rather than landed on. The pane carries
+// no retry of its own, and pressing v is the reader asking to see the code.
+func TestVAsksAgainForADiffThatFailed(t *testing.T) {
+	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
+
+	// The tab has been opened once already and the fetch came back empty.
+	m = press(m, "]", "]", "]")
+	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("502 Bad Gateway")})
+	m = press(m, "[", "[", "[")
+
+	next, cmd := key(m, "v")
+	if cmd == nil {
+		t.Fatal("v asked for nothing against a diff that failed")
+	}
+	if got := cmd(); got != (prview.NeedFilesMsg{ID: "PR_412"}) {
+		t.Fatalf("v produced %+v, want another request for the diff", got)
+	}
+
+	next.SetFiles(loadedFiles(sampleFiles(), 0))
+	if at := lineOf(t, next.View(), cardThread); at != 2 {
+		t.Errorf("the thread opens on frame line %d once the retry lands:\n%s", at, stripANSI(next.View()))
+	}
+}
+
+// tallFiles is a diff whose tree does not fit the column, which is what makes
+// the cursor's own scroll position observable.
+func tallFiles() []gh.ChangedFile {
+	files := make([]gh.ChangedFile, 0, 31)
+	for i := range 30 {
+		files = append(files, gh.ChangedFile{
+			Path: fmt.Sprintf("internal/gh/a%02d.go", i), Status: gh.FileModified, Additions: 1,
+			Hunks: []gh.Hunk{{
+				Header: "@@ -1,1 +1,2 @@",
+				Lines: []gh.DiffLine{
+					{Kind: gh.DiffContext, Old: 1, New: 1, Content: "package gh"},
+				},
+			}},
+		})
+	}
+	return append(files, sampleFiles()[0])
+}
+
+// The column can only be scrolled once it holds the rows. Scrolled against the
+// tree as it was folded, the offset clamps and the cursor lands off screen.
+func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
+	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
+	m.SetFiles(loadedFiles(tallFiles(), 0))
+
+	// Up to the one directory and fold it, which takes every file out of the
+	// tree. The cursor opens on the first file, one row under it.
+	folded := press(m, "]", "]", "]", "1", "k", "o")
+	if got := selectedRow(folded.View()); !strings.Contains(got, "internal/gh/") {
+		t.Fatalf("setup: the fold landed on %q rather than the directory", strings.TrimSpace(got))
+	}
+	if strings.Contains(stripANSI(folded.View()), "a00.go") {
+		t.Fatal("setup: the directory did not fold")
+	}
+
+	back := press(folded, "[", "[", "[", "v")
+	if got := cursorFile(back.View()); got != "client.go" {
+		t.Errorf("the tree cursor reads %q, want it on the file and on the screen:\n%s",
+			got, stripANSI(back.View()))
 	}
 }

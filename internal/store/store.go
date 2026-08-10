@@ -277,7 +277,13 @@ func (s Store) Detail(id string) Detail {
 		// and not to reopen has an inert key on the thread they just closed,
 		// and flipping CanUnresolve locally would offer them a write GitHub
 		// rejects.
+		//
+		// Marked pending so the screen keeps a second press off it. Two writes
+		// out on one thread answer in whatever order the network gives them,
+		// and the one that answers last writes its own state whether or not it
+		// was the last one pressed.
 		threads[at].IsResolved = r.Resolved
+		threads[at].Pending = true
 	}
 
 	held.Detail.Timeline = timeline
@@ -315,9 +321,12 @@ func (s *Store) hold(id, threadID string, c gh.Comment) string {
 }
 
 // PendingResolve holds a thread closed or opened but not yet acknowledged, and
-// returns the key the response reconciles against. Two in flight on one thread
-// fold in order and settle against their own keys, so the last press wins the
-// way the reader expects.
+// returns the key the response reconciles against.
+//
+// One at a time per thread is the screen's rule, not this one's: the fold marks
+// the thread pending and the key goes inert while it is. Two held here would
+// settle in whatever order the responses arrive, which is not the order they
+// were pressed in.
 func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
 	s.writes++
 	key := "pending-" + strconv.Itoa(s.writes)

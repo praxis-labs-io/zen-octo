@@ -1,6 +1,8 @@
 package prview_test
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -148,4 +150,106 @@ func TestAThreadPushedBackResolvedCollapsesAndKeepsFocus(t *testing.T) {
 	if got := focusedCard(t, m.View()); !strings.Contains(got, cardThread) {
 		t.Errorf("focus landed on %q, want the thread it was on", got)
 	}
+}
+
+// One write per thread. Two out at once settle in the order the responses
+// arrive rather than the order they were pressed, and the card would then read
+// the opposite of the last press until a refetch.
+func TestXIsInertOnAThreadWithAWriteStillOut(t *testing.T) {
+	d := sampleDetail()
+	d.Threads[0].Pending = true
+	d.Threads[0].CanUnresolve = true
+
+	m := tabbed(detailed(held(d), 200, 60), tabThread)
+
+	if got := asked(t, m, "x"); got != nil {
+		t.Errorf("x asked for %+v on a thread already answering for a write", got)
+	}
+	if out := stripANSI(m.View()); strings.Contains(out, "x resolve") || strings.Contains(out, "x unresolve") {
+		t.Error("the card names a key that is inert while the write is out")
+	}
+}
+
+// o on a resolved thread opens it, and that flag has to go when the thread
+// comes back open. Left behind, the next resolve collapses nothing and the
+// write loses its only acknowledgement.
+func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
+	m := onThread(t, tabResolved)
+
+	// Open the settled thread, which is what leaves the flag behind.
+	m = press(m, "o")
+	if !strings.Contains(stripANSI(m.View()), "Typo.") {
+		t.Fatal("setup: o did not open the resolved thread")
+	}
+
+	open := sampleDetail()
+	open.Threads[1].IsResolved = false
+	m.SetDetail(held(open))
+
+	closed := sampleDetail()
+	m.SetDetail(held(closed))
+
+	if out := stripANSI(m.View()); strings.Contains(out, "Typo.") {
+		t.Errorf("the thread resolved again is still showing its comments:\n%s", out)
+	}
+}
+
+// The pane clips a footer mid-word with nothing to say it did, so the line
+// gives up whole keys instead. The ones it gives up first are the ones written
+// last, which are the newest and the least known.
+func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
+	whole := map[string]bool{
+		"J/K in thread": true, "r reply": true, "R quote": true,
+		"x resolve": true, "v in diff": true,
+	}
+
+	tests := []struct {
+		width int
+		want  []string
+	}{
+		{200, []string{"J/K in thread", "r reply", "R quote", "x resolve", "v in diff"}},
+		{62, []string{"J/K in thread", "r reply", "R quote", "x resolve"}},
+		{50, []string{"J/K in thread", "r reply", "R quote"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.width), func(t *testing.T) {
+			got := cardHints(t, tabbed(detailed(held(sampleDetail()), tt.width, 60), tabThread).View())
+
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("hints = %q, want %q", got, tt.want)
+			}
+			for _, hint := range got {
+				if !whole[hint] {
+					t.Errorf("%q is not a whole hint, so the line was cut", hint)
+				}
+			}
+		})
+	}
+}
+
+// cardHints is the footer of the first card carrying one, split back into the
+// keys it names.
+func cardHints(t *testing.T, frame string) []string {
+	t.Helper()
+
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		at := strings.Index(line, "╰")
+		if at < 0 || !strings.Contains(line, "·") {
+			continue
+		}
+
+		end := strings.Index(line[at:], "╯")
+		if end < 0 {
+			continue
+		}
+
+		text := strings.Trim(line[at:at+end], "╰╯─ ")
+		if text == "" {
+			continue
+		}
+		return strings.Split(text, " · ")
+	}
+	t.Fatalf("no card on the frame carries hints:\n%s", stripANSI(frame))
+	return nil
 }
