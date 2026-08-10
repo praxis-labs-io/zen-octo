@@ -71,11 +71,6 @@ type drawnThread struct {
 	text string
 }
 
-// fileHeadLines is what the pane puts above a file's first line of diff: its
-// top border, the heading row, and the rule under it. Chrome counts the bottom
-// border too, which sits below everything a thread can land on.
-const fileHeadLines = 3
-
 // blockState is everything outside a single file that its block is rendered
 // against. A change to either retires the whole cache.
 //
@@ -212,12 +207,16 @@ func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool
 	body, spans := m.fileBody(f, inner, threads)
 	lines := strings.Count(body, "\n") + 1
 
+	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
+	pane = pane.Size(width, lines+pane.Chrome())
+
+	// The spans were counted from the body's first line, and the block they are
+	// recorded against starts at the pane's own top border.
 	for i := range spans {
-		spans[i].start += fileHeadLines
+		spans[i].start += pane.Above()
 	}
 
-	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
-	return block{text: pane.Size(width, lines+pane.Chrome()).Render(body), threads: spans}
+	return block{text: pane.Render(body), threads: spans}
 }
 
 // fileBody is everything under a file's heading, already the full inner width
