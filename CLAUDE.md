@@ -147,12 +147,18 @@ so the screen sends a delta and the app cancels before it asks. A team requested
 for review is kept and never listed, because `assignableUsers` holds none and
 a delta cannot remove what it could not offer; `Reviewer.Team` is what the
 exclusion reads, rather than the slash in a handle this client built itself.
-Copilot answers to three names, `copilot-pull-request-reviewer` in GraphQL,
-`copilot-pull-request-reviewer[bot]` in a request and `Copilot` in the answer,
-and the first is canonical everywhere above `internal/gh`. It cannot be
-discovered, so it is offered always; and the request has to be read back rather
-than trusted, because asking under the wrong name returns 200 having written
-nothing. A reviewer write refetches the whole detail, since the endpoint reports
+Copilot answers to a different name in every direction and the two REST verbs
+disagree with each other: `POST` takes `copilot-pull-request-reviewer[bot]` and
+answers 200 while writing nothing to a bare `Copilot`; `DELETE` takes the bare
+`Copilot` and 422s on the `[bot]` form, which it resolves to a Bot and then
+rejects for not being a User; GraphQL reports `copilot-pull-request-reviewer`,
+and that one is canonical everywhere above `internal/gh`. **The `POST` response
+never lists the bot at all**, landed or not, so `requested_reviewers` cannot
+tell a success from the silent no-op and reading it rejects every Copilot
+request there is. That shipped once. The confirmation is a GraphQL
+`reviewRequests` read, which is the only place a bot request is visible, and it
+is what makes those two 200s distinguishable. Copilot cannot be discovered
+either, so it is offered always. A reviewer write refetches the whole detail, since the endpoint reports
 the outstanding requests alone and says nothing about who has already reviewed,
 and requesting one rewrites the review decision the header renders. An assignee
 write refetches nothing: it changes nothing the store cannot already see. The
