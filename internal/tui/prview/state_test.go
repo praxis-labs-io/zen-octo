@@ -86,30 +86,40 @@ func openStateMenu(t *testing.T, d store.Detail) prview.Model {
 	return m
 }
 
-// stateMenu cuts the modal out of the frame it is composited over.
-//
-// Asserting against the whole frame cannot say what the menu offers. The rail
-// row and the header both read "Closed" on a closed pull request, so a search
-// for "Close" across the frame finds one whether or not the menu holds it.
+// stateMenu cuts the State modal out of the frame it is composited over.
 func stateMenu(t *testing.T, m prview.Model) string {
+	t.Helper()
+	return menuBox(t, m, "State")
+}
+
+// menuBox cuts the modal with this title out of the frame it is composited
+// over.
+//
+// Asserting against the whole frame cannot say what a menu offers. The rail row
+// and the header both read "Closed" on a closed pull request, so a search for
+// "Close" across the frame finds one whether or not the menu holds it, and a
+// handle in the Assignees picker reads in the conversation as readily as on the
+// rail.
+func menuBox(t *testing.T, m prview.Model, title string) string {
 	t.Helper()
 
 	frame := pickerFrame(m)
 	lines := strings.Split(frame, "\n")
+	corner := "╭─" + title
 
 	top := -1
 	for i, line := range lines {
-		if strings.Contains(line, "╭─State") {
+		if strings.Contains(line, corner) {
 			top = i
 			break
 		}
 	}
 	if top < 0 {
-		t.Fatalf("no state menu in the frame:\n%s", frame)
+		t.Fatalf("no %s menu in the frame:\n%s", title, frame)
 	}
 
 	head := []rune(lines[top])
-	left := runeIndex(head, "╭─State")
+	left := runeIndex(head, corner)
 	right := left + runeIndex(head[left:], "╮") + 1
 
 	var out []string

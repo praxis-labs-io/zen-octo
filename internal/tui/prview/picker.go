@@ -21,12 +21,15 @@ const (
 	pickNone pickField = iota
 	pickLabels
 	pickState
+	pickAssignees
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
 // to the detail the screen already holds. Only those cost a round trip before
 // the modal can open; the state menu is built from what is on screen.
-func (f pickField) needsRepo() bool { return f == pickLabels }
+func (f pickField) needsRepo() bool {
+	return f == pickLabels || f == pickAssignees
+}
 
 // picking is the picker over the screen, if any.
 //
@@ -38,15 +41,20 @@ type picking struct {
 	field pickField
 	p     comp.Picker
 
-	// choices is what the picker was built over, held so applying reads the
-	// same list it offered. Rebuilding it at apply time would let a refetch
-	// landing while the modal was up change the set under the reader, and a
-	// choice that disappeared between opening and applying is one the write
-	// would silently drop.
+	// labels and users are what the picker was built over, held so applying
+	// reads the same list it offered. Rebuilding either at apply time would let
+	// a refetch landing while the modal was up change the set under the reader,
+	// and a choice that disappeared between opening and applying is one the
+	// write would silently drop.
 	//
-	// The state menu needs no twin of this. Its ids are the transitions
+	// One per field rather than one list of something they have in common. They
+	// are different types and each apply path wants its own back whole: the rail
+	// draws a label from its name and a person from their login.
+	//
+	// The state menu needs no twin of these. Its ids are the transitions
 	// themselves, so applying reads them straight back off the picker.
-	choices []gh.Label
+	labels []gh.Label
+	users  []gh.Actor
 
 	want pickField
 }
@@ -110,10 +118,16 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A row in a section and the row that adds to it open the same picker. The
+	// picker is the section: it is where something is taken off as well as put
+	// on, so pointing at one of them is as good an ask as pointing at the add
+	// row under them.
 	var want pickField
 	switch m.railRing.on.kind {
 	case focusLabel, focusAddLabel:
 		want = pickLabels
+	case focusAssignee, focusAddAssignee:
+		want = pickAssignees
 	case focusState:
 		want = pickState
 	default:
@@ -154,12 +168,26 @@ func (m *Model) startPicker(field pickField) {
 		on := m.railDetail().Labels
 		choices := labelChoices(m.repo.Meta.Labels, on)
 		m.picking = picking{
-			field:   field,
-			choices: choices,
+			field:  field,
+			labels: choices,
 			p: comp.NewPicker(
 				"Labels",
 				labelItems(choices, m.theme.Secondary),
 				labelIDs(on),
+				true,
+			),
+		}
+
+	case pickAssignees:
+		on := m.railDetail().Assignees
+		choices := assigneeChoices(m.repo.Meta.Users, on)
+		m.picking = picking{
+			field: field,
+			users: choices,
+			p: comp.NewPicker(
+				"Assignees",
+				m.assigneeItems(choices),
+				actorIDs(on),
 				true,
 			),
 		}
@@ -250,6 +278,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 	switch p.field {
 	case pickLabels:
 		return m.applyLabels(p)
+	case pickAssignees:
+		return m.applyAssignees(p)
 	case pickState:
 		return m.applyState(p)
 	}
@@ -262,7 +292,7 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 // an unchanged picker is how a reader backs out of one they opened by mistake,
 // and it should cost neither a request nor a toast.
 func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
-	labels := labelsByID(p.choices, p.p.Chosen())
+	labels := labelsByID(p.labels, p.p.Chosen())
 	if sameLabels(labels, m.railDetail().Labels) {
 		return m, nil
 	}

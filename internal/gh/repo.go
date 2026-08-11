@@ -9,21 +9,22 @@ import (
 
 // repoMetaQuery is what a picker on the detail rail draws its choices from.
 //
-// Labels alone. The assignable users, the branches and the merge flags belong
-// to pickers that do not exist yet, and asking for them now spends rate-limit
-// points on every open for lists nothing renders. Each lands with the ticket
-// that reads it.
+// Labels and the people who can be assigned. The branches and the merge flags
+// belong to pickers that do not exist yet, and asking for them now spends
+// rate-limit points on every open for lists nothing renders. Each lands with
+// the ticket that reads it.
 //
-// The first hundred, which is GitHub's own page cap. The detail asks for the
-// same number, so the two sides of the picker are truncated at the same point
-// and a pull request's own labels are all present to be checked. Past that the
-// union in the screen is the backstop: a label the picker cannot list is one it
-// must not delete.
+// The first hundred of each, which is GitHub's own page cap. The detail asks
+// for the same number, so the two sides of a picker are truncated at the same
+// point and a pull request's own labels are all present to be checked. Past
+// that the union in the screen is the backstop: a choice the picker cannot list
+// is one it must not delete.
 const repoMetaQuery = `
 query RepoMeta($owner: String!, $name: String!) {
   rateLimit { limit cost remaining resetAt }
   repository(owner: $owner, name: $name) {
     labels(first: 100) { nodes { id name } }
+    assignableUsers(first: 100) { nodes { id login } }
   }
 }`
 
@@ -38,6 +39,9 @@ type repoMetaResponse struct {
 	Repository *struct {
 		Labels struct {
 			Nodes []struct{ ID, Name string }
+		}
+		AssignableUsers struct {
+			Nodes []struct{ ID, Login string }
 		}
 	}
 }
@@ -64,10 +68,16 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 		return RepoMetaResult{}, fmt.Errorf("fetching repository metadata: GitHub returned no repository %q", repo)
 	}
 
-	nodes := resp.Repository.Labels.Nodes
-	meta := RepoMeta{Labels: make([]Label, 0, len(nodes))}
-	for _, n := range nodes {
+	labels, users := resp.Repository.Labels.Nodes, resp.Repository.AssignableUsers.Nodes
+	meta := RepoMeta{
+		Labels: make([]Label, 0, len(labels)),
+		Users:  make([]Actor, 0, len(users)),
+	}
+	for _, n := range labels {
 		meta.Labels = append(meta.Labels, Label{ID: n.ID, Name: n.Name})
+	}
+	for _, n := range users {
+		meta.Users = append(meta.Users, Actor{ID: n.ID, Login: n.Login})
 	}
 
 	return RepoMetaResult{

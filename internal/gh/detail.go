@@ -28,6 +28,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
       viewerCanUpdate
       viewerCanClose
       viewerCanReopen
+      viewerCanAssign
       createdAt
       updatedAt
       additions
@@ -45,7 +46,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
       baseRef { compare(headRef: $head) { behindBy } }
 
       labels(first: 100) { nodes { id name } }
-      assignees(first: 10) { nodes { login } }
+      assignees(first: 10) { nodes { id login } }
       reviewRequests(first: 10) {
         nodes {
           requestedReviewer {
@@ -227,6 +228,7 @@ type pullRequestResponse struct {
 		ViewerCanUpdate bool
 		ViewerCanClose  bool
 		ViewerCanReopen bool
+		ViewerCanAssign bool
 		CreatedAt       time.Time
 		UpdatedAt       time.Time
 		Additions       int
@@ -249,7 +251,9 @@ type pullRequestResponse struct {
 		Labels struct {
 			Nodes []struct{ ID, Name string }
 		}
-		Assignees struct{ Nodes []struct{ Login string } }
+		Assignees struct {
+			Nodes []struct{ ID, Login string }
+		}
 
 		ReviewRequests struct {
 			Nodes []struct {
@@ -405,6 +409,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CanUpdate: n.ViewerCanUpdate,
 			CanClose:  n.ViewerCanClose,
 			CanReopen: n.ViewerCanReopen,
+			CanAssign: n.ViewerCanAssign,
 		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
@@ -416,7 +421,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Labels = append(detail.Labels, Label{ID: l.ID, Name: l.Name})
 	}
 	for _, a := range n.Assignees.Nodes {
-		detail.Assignees = append(detail.Assignees, Actor{Login: a.Login})
+		detail.Assignees = append(detail.Assignees, Actor{ID: a.ID, Login: a.Login})
 	}
 	detail.Reviewers = reviewers(resp)
 
@@ -526,12 +531,16 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		if r.RequestedReviewer == nil {
 			continue
 		}
-		name := cmp.Or(r.RequestedReviewer.Login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
+		login := r.RequestedReviewer.Login
+		name := cmp.Or(login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
 		if _, seen := at[name]; name == "" || seen {
 			continue
 		}
 		at[name] = len(out)
-		out = append(out, Reviewer{Actor: Actor{Login: name}})
+		// A team is what is left when no login came back. The handle under it is
+		// built here rather than sent by GitHub, so nothing may write it back
+		// where a login goes.
+		out = append(out, Reviewer{Actor: Actor{Login: name}, Team: login == ""})
 	}
 	return out
 }

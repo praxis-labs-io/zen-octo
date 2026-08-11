@@ -46,6 +46,7 @@ type fakeSearcher struct {
 	replied     []string
 	settled     []string
 	labelled    []string
+	assigned    []string
 	moved       []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
@@ -128,11 +129,12 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 		f.details = make(map[string]gh.PullRequestDetail)
 	}
 	// Staged as the viewer's own open pull request. Without the flags the rail's
-	// State row has nothing to offer and stops being somewhere tab lands, which
-	// would move every rail row in these tests up by one.
+	// State row has nothing to offer and the Assignees section loses its add
+	// row, and either one stops being somewhere tab lands, which would move
+	// every rail row in these tests up by one.
 	f.details[id] = gh.PullRequestDetail{
 		Body:   body,
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 	}
 }
 
@@ -145,6 +147,18 @@ func (f *fakeSearcher) serveLabels(id string, labels []gh.Label) {
 	}
 	held := f.details[id]
 	held.Labels = labels
+	f.details[id] = held
+}
+
+// serveAssignees stages who one pull request is assigned to.
+func (f *fakeSearcher) serveAssignees(id string, assignees []gh.Actor) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Assignees = assignees
 	f.details[id] = held
 }
 
@@ -355,6 +369,49 @@ func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []stri
 	return gh.LabelsResult{Labels: out}, nil
 }
 
+// SetAssignees is SetLabels for people: it records the ask and answers with the
+// staged repository's own users, dropping an id it does not carry the way the
+// real one drops somebody who lost access since the picker was filled.
+//
+// It writes the answer back onto the staged detail, the way SetState writes
+// onto f.prs. Assignees live on the detail rather than on the row, so this is
+// the channel a refetch would read them back through.
+func (f *fakeSearcher) SetAssignees(_ context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error) {
+	f.mu.Lock()
+	f.assigned = append(f.assigned, prID+": "+strings.Join(assigneeIDs, ","))
+	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Users, f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.AssigneesResult{}, err
+	}
+
+	out := make([]gh.Actor, 0, len(assigneeIDs))
+	for _, u := range known {
+		if slices.Contains(assigneeIDs, u.ID) {
+			out = append(out, u)
+		}
+	}
+
+	f.mu.Lock()
+	if held, ok := f.details[prID]; ok {
+		held.Assignees = out
+		f.details[prID] = held
+	}
+	f.mu.Unlock()
+
+	return gh.AssigneesResult{Assignees: out}, nil
+}
+
+// assigneeWrites is the assignee sets the model asked for, in order.
+func (f *fakeSearcher) assigneeWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.assigned)
+}
+
 // SetState answers with where the transition lands, so a test reads the rail
 // rather than the fake's own bookkeeping. It reuses postErr and postHold, the
 // way SetLabels does, so a test stages one failure for whichever write it is
@@ -539,6 +596,10 @@ func (f *querySearcher) SetLabels(_ context.Context, _ string, _ []string) (gh.L
 
 func (f *querySearcher) SetState(_ context.Context, _ string, _ gh.PRTransition) (gh.PRStateResult, error) {
 	return gh.PRStateResult{}, nil
+}
+
+func (f *querySearcher) SetAssignees(_ context.Context, _ string, _ []string) (gh.AssigneesResult, error) {
+	return gh.AssigneesResult{}, nil
 }
 
 func testConfig() *config.Config {

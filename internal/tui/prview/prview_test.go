@@ -387,8 +387,10 @@ func sampleDetail() gh.PullRequestDetail {
 		PullRequest: samplePR(),
 		Body:        "Caps the backoff at 30s, matching the fetch timeout.",
 
-		Labels:    []gh.Label{{ID: "LA_1", Name: "bug"}},
-		Assignees: []gh.Actor{{Login: "drucial"}},
+		Labels: []gh.Label{{ID: "LA_1", Name: "bug"}},
+		// With the node id, which the picker checks by: an assignee decoded
+		// without one opens the picker with nobody selected.
+		Assignees: []gh.Actor{{ID: "U_1", Login: "drucial"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "octobot"}, State: gh.ReviewStateApproved},
@@ -408,9 +410,10 @@ func sampleDetail() gh.PullRequestDetail {
 		BehindBy: 4,
 
 		// The sample is the viewer's own open pull request, so the state menu
-		// has both moves an open one takes. CanReopen is GitHub's answer for an
-		// open one: there is nothing to reopen.
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+		// has both moves an open one takes and the Assignees section is theirs
+		// to change. CanReopen is GitHub's answer for an open one: there is
+		// nothing to reopen.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 
 		Timeline: []gh.TimelineItem{
 			commented("octobot", ago(3*time.Hour), "Coverage held at 84.2%."),

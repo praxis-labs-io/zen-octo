@@ -23,9 +23,21 @@ func repoLabels() []gh.Label {
 	}
 }
 
+// repoUsers is who the repository will let you assign. The first is the one the
+// fixture pull request already carries, and the author is among them: GitHub
+// lists them as assignable and refuses them as a reviewer, which is the one
+// difference between the two pickers built over this list.
+func repoUsers() []gh.Actor {
+	return []gh.Actor{
+		{ID: "U_1", Login: "drucial"},
+		{ID: "U_2", Login: "nkr"},
+		{ID: "U_3", Login: "octobot"},
+	}
+}
+
 func loadedRepo() store.Repo {
 	return store.Repo{
-		Meta:   gh.RepoMeta{Labels: repoLabels()},
+		Meta:   gh.RepoMeta{Labels: repoLabels(), Users: repoUsers()},
 		Status: store.StatusReady,
 		Loaded: true,
 	}

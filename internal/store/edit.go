@@ -46,6 +46,8 @@ type editField int
 const (
 	fieldLabels editField = iota
 	fieldState
+	fieldAssignees
+	fieldReviewers
 )
 
 // LabelEdit is a whole label set claimed for a pull request. The picker applies
@@ -62,6 +64,43 @@ func (e LabelEdit) Field() editField { return fieldLabels }
 // handed cannot write into the slice this edit is still holding.
 func (e LabelEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 	d.Labels = slices.Clone(e.labels)
+	return d
+}
+
+// AssigneeEdit is a whole assignee set claimed for a pull request. The picker
+// applies a set rather than a delta, and so does the mutation behind it.
+type AssigneeEdit struct {
+	key       string
+	assignees []gh.Actor
+}
+
+func (e AssigneeEdit) Key() string      { return e.key }
+func (e AssigneeEdit) Field() editField { return fieldAssignees }
+
+// Apply replaces the assignee set. Cloned, for the reason LabelEdit gives.
+func (e AssigneeEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.Assignees = slices.Clone(e.assignees)
+	return d
+}
+
+// ReviewerEdit is a whole reviewer panel claimed for a pull request.
+//
+// The whole panel rather than the requests it changes. The rail lists everyone
+// who has reviewed alongside everyone still being waited on, the write only
+// moves the second group, and the two are one slice here: carrying the delta
+// would mean rebuilding the first group at fold time from a detail that may
+// have been refetched since.
+type ReviewerEdit struct {
+	key       string
+	reviewers []gh.Reviewer
+}
+
+func (e ReviewerEdit) Key() string      { return e.key }
+func (e ReviewerEdit) Field() editField { return fieldReviewers }
+
+// Apply replaces the reviewer panel. Cloned, for the reason LabelEdit gives.
+func (e ReviewerEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.Reviewers = slices.Clone(e.reviewers)
 	return d
 }
 
@@ -102,29 +141,18 @@ func (e StateEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 // PendingState holds a lifecycle change applied here and not yet acknowledged,
 // and returns the key the response reconciles against.
 func (s *Store) PendingState(id string, to gh.PRTransition) string {
-	key := s.nextKey()
-	if s.edits == nil {
-		s.edits = make(map[string][]Edit)
-	}
-	s.edits[id] = append(s.edits[id], StateEdit{key: key, to: to})
-	return key
+	return s.holdEdit(id, func(key string) Edit { return StateEdit{key: key, to: to} })
 }
 
 // StateApplied takes GitHub's answer for a lifecycle change and drops the write
-// it settles, on the same terms as LabelsApplied: written into the held detail
-// so the row does not fall back to the fetched state, and skipped while a later
-// write on the state is still out.
+// it settles, on the terms settleEdit sets out.
 //
 // It writes no permissions. What the viewer may do next is GitHub's to say, and
 // a locally guessed CanReopen would offer a menu item that opens a write GitHub
 // rejects. The refetch the caller fires is what brings those back.
 func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
-	if !s.dropEdit(id, key) {
-		return
-	}
-
-	held, ok := s.details[id]
-	if !ok || s.laterEdit(id, fieldState) {
+	_, held, ok := s.settleEdit(id, key, fieldState)
+	if !ok {
 		return
 	}
 
@@ -134,40 +162,117 @@ func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
 	s.markStale(id)
 }
 
+// PendingAssignees holds an assignee set applied here and not yet acknowledged,
+// and returns the key the response reconciles against.
+func (s *Store) PendingAssignees(id string, assignees []gh.Actor) string {
+	return s.holdEdit(id, func(key string) Edit {
+		return AssigneeEdit{key: key, assignees: slices.Clone(assignees)}
+	})
+}
+
+// AssigneesApplied takes GitHub's answer for an assignee set and drops the
+// write it settles, on the terms settleEdit sets out.
+func (s *Store) AssigneesApplied(id, key string, res gh.AssigneesResult) {
+	_, held, ok := s.settleEdit(id, key, fieldAssignees)
+	if !ok {
+		return
+	}
+
+	held.Detail.Assignees = res.Assignees
+	s.put(id, held)
+	s.markStale(id)
+}
+
+// PendingReviewers holds a reviewer panel applied here and not yet
+// acknowledged, and returns the key the response reconciles against.
+func (s *Store) PendingReviewers(id string, reviewers []gh.Reviewer) string {
+	return s.holdEdit(id, func(key string) Edit {
+		return ReviewerEdit{key: key, reviewers: slices.Clone(reviewers)}
+	})
+}
+
+// ReviewersApplied settles a reviewer write by promoting the panel it put up
+// into the held detail, on the terms settleEdit sets out.
+//
+// It is the one Applied that takes no answer from GitHub, because there is none
+// worth taking: the endpoint reports the requests the pull request now holds and
+// says nothing about who has already reviewed, so the panel cannot be rebuilt
+// from it. Promoting the write's own value is what keeps the rail still. Just
+// dropping the edit would put the fetched panel back for as long as the refetch
+// takes, which reads as the write undoing itself.
+//
+// The refetch is what reconciles, and marking the fetch stale is what makes
+// sure the one that lands was asked for after the write rather than before it.
+func (s *Store) ReviewersApplied(id, key string) {
+	dropped, held, ok := s.settleEdit(id, key, fieldReviewers)
+	if !ok {
+		return
+	}
+
+	held.Detail = dropped.Apply(held.Detail)
+	s.put(id, held)
+	s.markStale(id)
+}
+
 // PendingLabels holds a label set applied here and not yet acknowledged, and
 // returns the key the response reconciles against.
 func (s *Store) PendingLabels(id string, labels []gh.Label) string {
+	return s.holdEdit(id, func(key string) Edit {
+		return LabelEdit{key: key, labels: slices.Clone(labels)}
+	})
+}
+
+// holdEdit mints a key, puts the write on the queue and hands the key back. The
+// edit is built from the key rather than handed in, so no caller can append one
+// naming a key the store did not issue.
+func (s *Store) holdEdit(id string, mint func(key string) Edit) string {
 	key := s.nextKey()
 	if s.edits == nil {
 		s.edits = make(map[string][]Edit)
 	}
-	s.edits[id] = append(s.edits[id], LabelEdit{key: key, labels: slices.Clone(labels)})
+	s.edits[id] = append(s.edits[id], mint(key))
 	return key
 }
 
-// LabelsApplied takes GitHub's answer for a label set and drops the write it
-// settles. The answer is written into the held detail rather than left for the
-// next fetch: dropping the edit alone would put the fetched labels back on the
-// screen until something refetched, which reads as the write undoing itself.
+// settleEdit drops the write a response answers for and hands back both it and
+// the held detail to write the answer into, or false when there is nothing to
+// write.
 //
-// It writes nothing while a later write on the labels is still out. Two settle
-// in whatever order the network gives them, and the earlier one answering last
-// would otherwise overwrite the reader's newer ask with a set they have already
-// moved on from. The fold renders the later edit until it answers for itself.
+// Two guards, and both are load-bearing. A key already gone is a write that
+// settled already. A later write still out on the same field means the earlier
+// one is answering last, carrying a value the reader has moved on from; the
+// fold renders the later edit until it answers for itself.
 //
-// On the labels, not on the pull request. A state change in flight says nothing
-// about what the labels are, and gating on it drops an answer nobody is going
-// to send again: the fold would keep rendering the fetched set, and if the
-// state write then failed there would be no edit left to explain it.
+// On the same field, never on the pull request. A state change in flight says
+// nothing about what the labels are, and gating one on the other drops an
+// answer nobody is going to send again: the fold would keep rendering the
+// fetched set, and if the state write then failed there would be no edit left
+// to explain it.
 //
-// No budget to fold: a mutation cannot report the rate limit.
-func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
-	if !s.dropEdit(id, key) {
-		return
+// The caller writes the answer into the held detail rather than leaving it for
+// the next fetch. Dropping the edit alone would put the fetched value back on
+// the screen until something refetched, which reads as the write undoing
+// itself.
+func (s *Store) settleEdit(id, key string, f editField) (Edit, Detail, bool) {
+	dropped, ok := s.dropEdit(id, key)
+	if !ok {
+		return nil, Detail{}, false
 	}
 
 	held, ok := s.details[id]
-	if !ok || s.laterEdit(id, fieldLabels) {
+	if !ok || s.laterEdit(id, f) {
+		return nil, Detail{}, false
+	}
+	return dropped, held, true
+}
+
+// LabelsApplied takes GitHub's answer for a label set and drops the write it
+// settles, on the terms settleEdit sets out.
+//
+// No budget to fold: a mutation cannot report the rate limit.
+func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
+	_, held, ok := s.settleEdit(id, key, fieldLabels)
+	if !ok {
 		return
 	}
 
@@ -197,22 +302,25 @@ func (s *Store) laterEdit(id string, f editField) bool {
 	return slices.ContainsFunc(s.edits[id], func(e Edit) bool { return e.Field() == f })
 }
 
-// dropEdit removes one write and reports whether it was there. A response for a
-// key already gone is one that already settled.
+// dropEdit removes one write and gives it back, or false when it was not
+// there. A response for a key already gone is one that already settled.
 //
-// It gives back a bare yes, unlike dropPending: an edit settles by assignment
-// and the response carries everything the assignment needs, so there is nothing
-// on the held write the caller has to read back.
-func (s *Store) dropEdit(id, key string) bool {
+// The write itself comes back because most responses carry a replacement for
+// what it claimed and one does not: a reviewer write is answered by an endpoint
+// that reports the requests it now holds and nothing about who has already
+// reviewed. That one promotes its own optimistic value into the held detail
+// instead, which needs the value read back off the write.
+func (s *Store) dropEdit(id, key string) (Edit, bool) {
 	held := s.edits[id]
 	at := slices.IndexFunc(held, func(e Edit) bool { return e.Key() == key })
 	if at < 0 {
-		return false
+		return nil, false
 	}
 
+	dropped := held[at]
 	s.edits[id] = slices.Delete(held, at, at+1)
 	if len(s.edits[id]) == 0 {
 		delete(s.edits, id)
 	}
-	return true
+	return dropped, true
 }

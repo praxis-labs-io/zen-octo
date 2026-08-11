@@ -520,3 +520,195 @@ func TestALabelWriteDoesNotReadAsAStateWrite(t *testing.T) {
 		t.Error("a label write reads as a lifecycle write")
 	}
 }
+
+func people(logins ...string) []gh.Actor {
+	out := make([]gh.Actor, len(logins))
+	for i, l := range logins {
+		out[i] = gh.Actor{ID: "U_" + l, Login: l}
+	}
+	return out
+}
+
+func assigned(logins ...string) gh.DetailResult {
+	return gh.DetailResult{Detail: gh.PullRequestDetail{Assignees: people(logins...)}}
+}
+
+func assigneeLogins(d store.Detail) []string {
+	out := make([]string, 0, len(d.Detail.Assignees))
+	for _, a := range d.Detail.Assignees {
+		out = append(out, a.Login)
+	}
+	return out
+}
+
+func reviewerLogins(d store.Detail) []string {
+	out := make([]string, 0, len(d.Detail.Reviewers))
+	for _, r := range d.Detail.Reviewers {
+		out = append(out, r.Actor.Login)
+	}
+	return out
+}
+
+func TestAPendingAssigneeSetRendersBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	s.PendingAssignees("PR_1", people("drucial", "nkr"))
+
+	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"drucial", "nkr"}; !slices.Equal(got, want) {
+		t.Errorf("assignees = %q, want %q", got, want)
+	}
+}
+
+// Unchecking the last assignee is a real write, the same as unchecking the last
+// label. An empty set folding as "no edit" would leave them on the screen with
+// nothing to say why.
+func TestAPendingEmptyAssigneeSetClearsThem(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	s.PendingAssignees("PR_1", nil)
+
+	if got := assigneeLogins(s.Detail("PR_1")); len(got) != 0 {
+		t.Errorf("assignees = %q, want none", got)
+	}
+}
+
+func TestARefetchDoesNotDropAnAssigneeEditStillInFlight(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+	s.PendingAssignees("PR_1", people("drucial", "nkr"))
+
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"drucial", "nkr"}; !slices.Equal(got, want) {
+		t.Errorf("assignees = %q, want the edit still folded over the refetch", got)
+	}
+}
+
+func TestAnEarlierAssigneeResponseDoesNotOverwriteALaterEdit(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	first := s.PendingAssignees("PR_1", people("nkr"))
+	s.PendingAssignees("PR_1", people("nkr", "octocat"))
+
+	// The first write answers last, carrying the set nobody is asking for now.
+	s.AssigneesApplied("PR_1", first, gh.AssigneesResult{Assignees: people("nkr")})
+
+	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"nkr", "octocat"}; !slices.Equal(got, want) {
+		t.Errorf("assignees = %q, want the later edit still showing", got)
+	}
+}
+
+// A failed write takes only itself off the screen.
+func TestAFailedAssigneeWriteRestoresTheFetchedSet(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	key := s.PendingAssignees("PR_1", people("drucial", "nkr"))
+	s.EditReverted("PR_1", key)
+
+	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"drucial"}; !slices.Equal(got, want) {
+		t.Errorf("assignees = %q, want the fetched set back", got)
+	}
+}
+
+// The reviewer panel is the one write with no answer worth taking. The endpoint
+// reports the requests it now holds and nothing about who already reviewed, so
+// the optimistic panel stands until the refetch replaces it.
+func TestAReviewerAnswerLeavesTheOptimisticPanelStanding(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		Reviewers: []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateApproved}},
+	}})
+
+	key := s.PendingReviewers("PR_1", []gh.Reviewer{
+		{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateApproved},
+		{Actor: gh.Actor{Login: "octocat"}},
+	})
+	s.ReviewersApplied("PR_1", key)
+
+	if got, want := reviewerLogins(s.Detail("PR_1")), []string{"nkr", "octocat"}; !slices.Equal(got, want) {
+		t.Errorf("reviewers = %q, want the panel the write put up", got)
+	}
+}
+
+func TestAFailedReviewerWriteRestoresTheFetchedPanel(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		Reviewers: []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}},
+	}})
+
+	key := s.PendingReviewers("PR_1", []gh.Reviewer{
+		{Actor: gh.Actor{Login: "nkr"}},
+		{Actor: gh.Actor{Login: "octocat"}},
+	})
+	s.EditReverted("PR_1", key)
+
+	if got, want := reviewerLogins(s.Detail("PR_1")), []string{"nkr"}; !slices.Equal(got, want) {
+		t.Errorf("reviewers = %q, want the fetched panel back", got)
+	}
+}
+
+// A reviewer write fires a refetch, so a fetch already in flight when it settles
+// is one asked for before it and cannot be taken.
+func TestAReviewerWriteMarksAFetchInFlightStale(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		Reviewers: []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}},
+	}})
+
+	if !s.BeginDetail("PR_1") {
+		t.Fatal("BeginDetail refused a detail that is not loading")
+	}
+	key := s.PendingReviewers("PR_1", []gh.Reviewer{{Actor: gh.Actor{Login: "octocat"}}})
+	s.ReviewersApplied("PR_1", key)
+
+	if !s.StaleDetail("PR_1") {
+		t.Error("the fetch in flight is not marked stale")
+	}
+}
+
+// The four fields are four queues. An answer on one is not evidence about
+// another, and gating them together drops an answer nobody will send again.
+func TestAnAssigneeWriteDoesNotSuppressAReviewerAnswer(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		Assignees: people("drucial"),
+		Reviewers: []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}},
+	}})
+
+	reviewers := s.PendingReviewers("PR_1", []gh.Reviewer{
+		{Actor: gh.Actor{Login: "nkr"}},
+		{Actor: gh.Actor{Login: "octocat"}},
+	})
+	assignees := s.PendingAssignees("PR_1", people("drucial", "nkr"))
+
+	// The reviewers answer while the assignee write is still out.
+	s.ReviewersApplied("PR_1", reviewers)
+	// The assignee write then fails and takes only itself off the screen.
+	s.EditReverted("PR_1", assignees)
+
+	if got, want := reviewerLogins(s.Detail("PR_1")), []string{"nkr", "octocat"}; !slices.Equal(got, want) {
+		t.Errorf("reviewers = %q, want the answered panel kept", got)
+	}
+	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"drucial"}; !slices.Equal(got, want) {
+		t.Errorf("assignees = %q, want the fetched set back", got)
+	}
+}
+
+// Neither of the two new writes holds the State row: the rail reads StateWriting
+// to know the permissions beside the state are a round trip behind it, and only
+// a lifecycle write puts them there.
+func TestNeitherPeopleWriteReadsAsAStateWrite(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", assigned("drucial"))
+
+	s.PendingAssignees("PR_1", people("drucial", "nkr"))
+	s.PendingReviewers("PR_1", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}})
+
+	if s.Detail("PR_1").StateWriting {
+		t.Error("a reviewer or assignee write reads as a lifecycle write")
+	}
+}
