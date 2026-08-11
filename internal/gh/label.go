@@ -17,6 +17,10 @@ import (
 // The caller is holding an optimistic list and GitHub is the only authority on
 // what it actually now carries.
 //
+// A hundred of them, which is GitHub's own page cap and the same number the
+// detail asks for. A shorter page here would reconcile the rail to a truncated
+// set and take labels off it that the write had just kept.
+//
 // It asks for no rateLimit. That field is on Query and nowhere else, and a
 // mutation selecting it is rejected whole.
 const setLabelsMutation = `
@@ -24,7 +28,7 @@ mutation SetLabels($pullRequestId: ID!, $labelIds: [ID!]!) {
   updatePullRequest(input: {pullRequestId: $pullRequestId, labelIds: $labelIds}) {
     pullRequest {
       id
-      labels(first: 20) { nodes { id name } }
+      labels(first: 100) { nodes { id name } }
     }
   }
 }`

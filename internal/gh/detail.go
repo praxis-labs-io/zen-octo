@@ -41,7 +41,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
 
       baseRef { compare(headRef: $head) { behindBy } }
 
-      labels(first: 20) { nodes { id name } }
+      labels(first: 100) { nodes { id name } }
       assignees(first: 10) { nodes { login } }
       reviewRequests(first: 10) {
         nodes {

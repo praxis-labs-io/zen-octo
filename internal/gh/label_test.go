@@ -103,3 +103,18 @@ func TestSetLabelsWrapsTransportError(t *testing.T) {
 		t.Errorf("error = %q, want it to name what failed", err)
 	}
 }
+
+// Both label pages ask for GitHub's full cap. Applying replaces the whole set,
+// so a page shorter than the one the picker was built from reconciles the rail
+// to a truncated set and takes off labels the write had just kept.
+func TestBothLabelPagesAskForTheFullCap(t *testing.T) {
+	for _, doc := range []struct{ name, query string }{
+		{name: "SetLabels", query: setLabelsMutation},
+		{name: "detail", query: pullRequestQuery},
+		{name: "RepoMeta", query: repoMetaQuery},
+	} {
+		if !strings.Contains(doc.query, "labels(first: 100)") {
+			t.Errorf("%s does not ask for a full page of labels", doc.name)
+		}
+	}
+}

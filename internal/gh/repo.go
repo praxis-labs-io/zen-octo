@@ -14,10 +14,11 @@ import (
 // points on every open for lists nothing renders. Each lands with the ticket
 // that reads it.
 //
-// The first hundred. GitHub caps a connection page at a hundred, and a
-// repository past that is one where scrolling a picker has stopped working
-// anyway; the union in the screen keeps a label outside the page from being
-// dropped by a write.
+// The first hundred, which is GitHub's own page cap. The detail asks for the
+// same number, so the two sides of the picker are truncated at the same point
+// and a pull request's own labels are all present to be checked. Past that the
+// union in the screen is the backstop: a label the picker cannot list is one it
+// must not delete.
 const repoMetaQuery = `
 query RepoMeta($owner: String!, $name: String!) {
   rateLimit { limit cost remaining resetAt }
