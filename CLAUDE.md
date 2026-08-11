@@ -121,6 +121,20 @@ Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never s
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
 
+The State row's menu is built from where the pull request sits and from what
+GitHub says the viewer may do to it, never from the word on the row: state and
+draft are independent fields, a closed draft reads as "Draft", and the detail
+query asks for `viewerCanUpdate`, `viewerCanClose` and `viewerCanReopen` so a
+menu item never opens a write that comes back refused. A row with nothing to
+offer states a fact and the ring walks past it, the way an empty Checks section
+does, but only once the detail has landed: before that nothing is known, which
+is not nothing being allowed, and dropping the key early moves every rail stop
+by one the moment the answer arrives. A state write refetches the whole detail
+once it settles, because the Merge row, the check rollup and the timeline all
+hang off a field the store cannot compute. It borrows no refresh leg doing it,
+or the sync's summary toast lands behind the one that already said what
+happened.
+
 Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left.
 
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
@@ -139,6 +153,7 @@ Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), ove
 
 Each of these looks like working code and produces a broken frame.
 
+- **A pull request's state and its draft flag are two fields, and a closed one carries both.** GitHub never clears the flag, so reading it ahead of the state labels a closed draft "Draft" and marks it as waiting for somebody to pick up. Read the lifecycle first; the flag is what reopening gives back.
 - **Every styled cell ends in a full SGR reset**, which clears the background along with the foreground. A row background has to be set per cell; wrapping a joined row paints only the first one.
 - **`lipgloss.Canvas.Compose` ignores a layer's position** and draws every layer at the origin. Compositing an overlay needs `lipgloss.NewCompositor`.
 - **`Style.Width` wraps before it clips.** Truncating to a column width means clipping explicitly first, or one long title becomes two rows.

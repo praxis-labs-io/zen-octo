@@ -22,32 +22,41 @@ const (
 )
 
 // PRStateIcon is the lifecycle marker: open, draft, merged, or closed.
+//
+// The state is read before the draft flag, never the other way around. They are
+// independent fields and a closed draft carries both, but draft is a stage of
+// being open: GitHub keeps the flag set on one it closed, so reading it first
+// leaves a closed pull request marked as a draft somebody could still pick up.
+// Reopening it gives the draft back, which is where the flag earns its keep.
 func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
-	if pr.IsDraft {
-		return glyphPRDraft, th.Faint
-	}
 	switch pr.State {
 	case gh.PRStateMerged:
 		return glyphPRMerged, th.Secondary
 	case gh.PRStateClosed:
 		return glyphPRClosed, th.Error
-	case gh.PRStateOpen:
+	}
+	if pr.IsDraft {
+		return glyphPRDraft, th.Faint
+	}
+	if pr.State == gh.PRStateOpen {
 		return glyphPROpen, th.Success
 	}
 	return glyphPROpen, th.Faint
 }
 
-// PRStateLabel names the same thing in words, for places with room for them.
+// PRStateLabel names the same thing in words, for places with room for them. It
+// reads the two fields in the order PRStateIcon gives its reasons for.
 func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
-	if pr.IsDraft {
-		return "Draft", th.Faint
-	}
 	switch pr.State {
 	case gh.PRStateMerged:
 		return "Merged", th.Secondary
 	case gh.PRStateClosed:
 		return "Closed", th.Error
-	case gh.PRStateOpen:
+	}
+	if pr.IsDraft {
+		return "Draft", th.Faint
+	}
+	if pr.State == gh.PRStateOpen {
 		return "Open", th.Success
 	}
 	return string(pr.State), th.Faint

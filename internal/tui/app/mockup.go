@@ -82,6 +82,19 @@ func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.Labels
 	return gh.LabelsResult{Labels: out}, nil
 }
 
+// SetState hands back where the transition lands, applying the same rule the
+// store does: closing keeps the draft flag, and reopening gives it back.
+func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStateResult, error) {
+	out := gh.PRStateResult{State: gh.PRStateOpen}
+	switch to {
+	case gh.TransitionDraft:
+		out.IsDraft = true
+	case gh.TransitionClose:
+		out.State = gh.PRStateClosed
+	}
+	return out, nil
+}
+
 // SetThreadResolved hands the toggle straight back, with the permissions the
 // real one flips: a thread just resolved can only be unresolved.
 func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
@@ -316,6 +329,10 @@ func mockDetail() gh.PullRequestDetail {
 		},
 		Merge:    gh.MergeBlocked,
 		BehindBy: 4,
+
+		// The viewer wrote it, so the state menu has both moves an open pull
+		// request takes. CanReopen is what GitHub answers for one already open.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
 
 		Commits: mockCommits(),
 

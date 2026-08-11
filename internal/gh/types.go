@@ -11,6 +11,19 @@ const (
 	PRStateMerged PRState = "MERGED"
 )
 
+// PRTransition is a change to where a pull request sits in its lifecycle. It is
+// the move rather than the destination: GitHub spells each one as its own
+// mutation, and draft and closed are two independent fields, so "closed" alone
+// does not say what should happen to the other one.
+type PRTransition string
+
+const (
+	TransitionReady  PRTransition = "READY"
+	TransitionDraft  PRTransition = "DRAFT"
+	TransitionClose  PRTransition = "CLOSE"
+	TransitionReopen PRTransition = "REOPEN"
+)
+
 // CheckState is the rollup of every check on a commit. An empty value means
 // no checks reported, which is different from all of them passing.
 type CheckState string
@@ -291,6 +304,24 @@ type CheckRollup struct {
 	Skipped int
 }
 
+// ViewerActions is what the signed-in account may do to a pull request, as
+// GitHub answers it rather than as this client guesses it. A control offering a
+// write GitHub will refuse is worse than no control.
+//
+// It sits on the detail rather than on PullRequest because search does not ask
+// for these, and a false on every row of the list would read as a refusal
+// rather than as a question never put.
+//
+// CanUpdate governs the draft toggle. GitHub publishes no viewer field for
+// markPullRequestReadyForReview or convertPullRequestToDraft; this is the
+// nearest one, and it is true for exactly the accounts those two accept, the
+// author and anyone with write access.
+type ViewerActions struct {
+	CanUpdate bool
+	CanClose  bool
+	CanReopen bool
+}
+
 // PullRequestDetail embeds the row, so a detail response refreshes the header
 // and the rail rather than leaving them on what search returned.
 type PullRequestDetail struct {
@@ -307,6 +338,9 @@ type PullRequestDetail struct {
 	Rollup   CheckRollup
 
 	Merge MergeState
+
+	// Viewer is what the signed-in account may do to this pull request.
+	Viewer ViewerActions
 
 	// BehindBy is how many commits the base has that the head does not. Zero is
 	// up to date.
@@ -467,6 +501,17 @@ type RepoMetaResult struct {
 // It carries no RateLimit, for the reason CommentResult gives.
 type LabelsResult struct {
 	Labels []Label
+}
+
+// PRStateResult is where a pull request sits after a transition, as GitHub
+// recorded it. Both fields, because closing a draft leaves it a draft and
+// reopening one gives that back: a caller holding an optimistic row needs the
+// pair rather than the field it asked to change.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type PRStateResult struct {
+	State   PRState
+	IsDraft bool
 }
 
 // PullRequest is the shape the rest of the app sees. It is deliberately not

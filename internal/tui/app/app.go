@@ -41,6 +41,7 @@ type GitHub interface {
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
 	RepoMeta(ctx context.Context, repo string) (gh.RepoMetaResult, error)
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
+	SetState(ctx context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error)
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -998,6 +999,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case labelsFailedMsg:
 		return m.labelsFailed(msg)
+
+	case prview.SetStateMsg:
+		return m.setState(msg)
+
+	case stateSetMsg:
+		return m.stateLanded(msg)
+
+	case stateFailedMsg:
+		return m.stateFailed(msg)
 
 	case prview.ResolveThreadMsg:
 		return m.resolveThread(msg)

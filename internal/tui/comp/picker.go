@@ -267,14 +267,20 @@ func (p *Picker) scroll() {
 
 // Render draws the picker as a modal, sized to fit inside a frame of the given
 // width. The caller composites it with Over.
+//
+// The choices sit between two blank rows, and the top one is there whether or
+// not a filter row is above it. Every picker then opens with its first choice
+// on the same line, and the title in the border does not read as the first
+// thing in the list.
 func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	inner := p.width(frameWidth)
 	shown := p.shown()
 
 	var rows []string
 	if p.filtering {
-		rows = append(rows, p.filterRow(th, inner), "")
+		rows = append(rows, p.filterRow(th, inner))
 	}
+	rows = append(rows, "")
 	rows = append(rows, p.list(th, shown, inner)...)
 	rows = append(rows, "", p.hint(th, shown, inner))
 

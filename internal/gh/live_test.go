@@ -370,3 +370,36 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveTheStateDocumentsMatchTheSchema checks all four transitions the same
+// way, against a node id that belongs to nothing. Four documents rather than
+// one, and each aliases its own payload, so a typo in any of them would
+// otherwise only surface the first time somebody pressed that menu item.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheStateDocumentsMatchTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	for _, to := range []gh.PRTransition{
+		gh.TransitionReady, gh.TransitionDraft, gh.TransitionClose, gh.TransitionReopen,
+	} {
+		t.Run(string(to), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err := client.SetState(ctx, "NOT_A_NODE", to)
+			if err == nil {
+				t.Fatal("changing the state of a pull request that does not exist came back as a success")
+			}
+
+			assertValidated(t, err)
+		})
+	}
+}

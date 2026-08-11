@@ -65,10 +65,7 @@ func (m *Model) railBody(width int) string {
 		at += len(rows) + 2
 	}
 
-	icon, _ := comp.PRStateIcon(m.theme, pr)
-	label, c := comp.PRStateLabel(m.theme, pr)
-
-	section("State", m.railControl(focusState, icon+" "+label, c, width))
+	section("State", m.stateRow(d, width))
 	section("Author", m.authorRow(pr.Author, width))
 	section("Reviewers", m.reviewerRows(d.Reviewers, width))
 	section("Assignees", m.actorRows(d.Assignees, width))
@@ -125,6 +122,26 @@ func (m Model) railControl(kind focusKind, text string, c color.Color, width int
 	key := focusKey{kind: kind}
 	base := m.railBase(m.railRing.focused(key))
 	return []railEntry{{line: m.railLine(base, base.Foreground(c).Render(text), width), key: key}}
+}
+
+// stateRow is where the pull request sits, and a stop on the ring only while
+// there is somewhere to move it to. A merged one is the end of the line, and a
+// reader with no write access to the repository can move none of them; both
+// leave the row stating a fact, the way an empty Checks section does.
+//
+// Only once the detail has landed. Before that nothing is known about what the
+// viewer may do, which is not the same as nothing being allowed, and dropping
+// the key on a guess would shift every rail stop by one the moment the answer
+// arrived. Enter is inert until then on openRailPicker's own guard.
+func (m Model) stateRow(d gh.PullRequestDetail, width int) []railEntry {
+	icon, _ := comp.PRStateIcon(m.theme, d.PullRequest)
+	label, c := comp.PRStateLabel(m.theme, d.PullRequest)
+	text := icon + " " + label
+
+	if m.detail.Loaded && len(stateChoices(d)) == 0 {
+		return m.railFact(text, c, width)
+	}
+	return m.railControl(focusState, text, c, width)
 }
 
 // addRow opens the picker for a section. It sits under whatever is already

@@ -46,6 +46,73 @@ func (e LabelEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 	return d
 }
 
+// StateEdit is a lifecycle change claimed for a pull request: ready, draft,
+// closed or reopened.
+//
+// It carries the transition rather than the state it lands on. Two out at once
+// then compose in the order they were pressed, and neither one captures a draft
+// flag that was true when it was held and false by the time it applies.
+type StateEdit struct {
+	key string
+	to  gh.PRTransition
+}
+
+func (e StateEdit) Key() string { return e.key }
+
+// Apply moves the two fields the transition touches. Nothing to clone: it
+// writes scalars, so there is no slice here for a caller to be handed and then
+// written into.
+//
+// Draft and closed are independent. Closing keeps the draft flag, because
+// GitHub does, and reopening gives back whatever was closed.
+func (e StateEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	switch e.to {
+	case gh.TransitionReady:
+		d.IsDraft = false
+	case gh.TransitionDraft:
+		d.IsDraft = true
+	case gh.TransitionClose:
+		d.State = gh.PRStateClosed
+	case gh.TransitionReopen:
+		d.State = gh.PRStateOpen
+	}
+	return d
+}
+
+// PendingState holds a lifecycle change applied here and not yet acknowledged,
+// and returns the key the response reconciles against.
+func (s *Store) PendingState(id string, to gh.PRTransition) string {
+	key := s.nextKey()
+	if s.edits == nil {
+		s.edits = make(map[string][]Edit)
+	}
+	s.edits[id] = append(s.edits[id], StateEdit{key: key, to: to})
+	return key
+}
+
+// StateApplied takes GitHub's answer for a lifecycle change and drops the write
+// it settles, on the same terms as LabelsApplied: written into the held detail
+// so the row does not fall back to the fetched state, and skipped entirely
+// while a later edit on the same pull request is still out.
+//
+// It writes no permissions. What the viewer may do next is GitHub's to say, and
+// a locally guessed CanReopen would offer a menu item that opens a write GitHub
+// rejects. The refetch the caller fires is what brings those back.
+func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
+	if !s.dropEdit(id, key) {
+		return
+	}
+
+	held, ok := s.details[id]
+	if !ok || len(s.edits[id]) > 0 {
+		return
+	}
+
+	held.Detail.State = res.State
+	held.Detail.IsDraft = res.IsDraft
+	s.put(id, held)
+}
+
 // PendingLabels holds a label set applied here and not yet acknowledged, and
 // returns the key the response reconciles against.
 func (s *Store) PendingLabels(id string, labels []gh.Label) string {

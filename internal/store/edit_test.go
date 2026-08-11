@@ -260,3 +260,135 @@ func TestTheLastLabelResponseWritesTheHeldSet(t *testing.T) {
 		t.Errorf("labels = %q, want %q", got, want)
 	}
 }
+
+func staged(state gh.PRState, draft bool) gh.DetailResult {
+	return gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{State: state, IsDraft: draft},
+	}}
+}
+
+func lifecycle(d store.Detail) (gh.PRState, bool) {
+	return d.Detail.State, d.Detail.IsDraft
+}
+
+func TestAPendingTransitionRendersBeforeItLands(t *testing.T) {
+	tests := []struct {
+		name      string
+		from      gh.PRState
+		wasDraft  bool
+		to        gh.PRTransition
+		want      gh.PRState
+		wantDraft bool
+	}{
+		{"ready", gh.PRStateOpen, true, gh.TransitionReady, gh.PRStateOpen, false},
+		{"draft", gh.PRStateOpen, false, gh.TransitionDraft, gh.PRStateOpen, true},
+		{"close", gh.PRStateOpen, false, gh.TransitionClose, gh.PRStateClosed, false},
+		{"reopen", gh.PRStateClosed, false, gh.TransitionReopen, gh.PRStateOpen, false},
+		// Closing a draft leaves it a draft, and reopening gives that back.
+		{"close a draft", gh.PRStateOpen, true, gh.TransitionClose, gh.PRStateClosed, true},
+		{"reopen a draft", gh.PRStateClosed, true, gh.TransitionReopen, gh.PRStateOpen, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := store.New(configured())
+			s.DetailApplied("PR_1", staged(tt.from, tt.wasDraft))
+
+			s.PendingState("PR_1", tt.to)
+
+			state, draft := lifecycle(s.Detail("PR_1"))
+			if state != tt.want || draft != tt.wantDraft {
+				t.Errorf("state = %q draft = %v, want %q %v", state, draft, tt.want, tt.wantDraft)
+			}
+		})
+	}
+}
+
+// The edit carries the move, not the landing, so two out at once compose in the
+// order they were pressed rather than the second undoing the first.
+func TestTwoTransitionsInFlightCompose(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	s.PendingState("PR_1", gh.TransitionDraft)
+	s.PendingState("PR_1", gh.TransitionClose)
+
+	state, draft := lifecycle(s.Detail("PR_1"))
+	if state != gh.PRStateClosed || !draft {
+		t.Errorf("state = %q draft = %v, want CLOSED true", state, draft)
+	}
+}
+
+func TestARefetchDoesNotDropATransitionStillInFlight(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	s.PendingState("PR_1", gh.TransitionDraft)
+
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	if _, draft := lifecycle(s.Detail("PR_1")); !draft {
+		t.Error("the refetch dropped an edit still in flight")
+	}
+}
+
+func TestStateAppliedTakesGitHubsAnswer(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	key := s.PendingState("PR_1", gh.TransitionClose)
+
+	// GitHub says it closed and is a draft. Its answer is the authority.
+	s.StateApplied("PR_1", key, gh.PRStateResult{State: gh.PRStateClosed, IsDraft: true})
+
+	state, draft := lifecycle(s.Detail("PR_1"))
+	if state != gh.PRStateClosed || !draft {
+		t.Errorf("state = %q draft = %v, want CLOSED true", state, draft)
+	}
+}
+
+func TestARevertedTransitionPutsTheFetchedStateBack(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	key := s.PendingState("PR_1", gh.TransitionClose)
+
+	s.EditReverted("PR_1", key)
+
+	state, draft := lifecycle(s.Detail("PR_1"))
+	if state != gh.PRStateOpen || draft {
+		t.Errorf("state = %q draft = %v, want OPEN false", state, draft)
+	}
+}
+
+// The earlier write answering last must not overwrite the reader's newer ask.
+func TestAnEarlierStateResponseDoesNotOverwriteALaterEdit(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	first := s.PendingState("PR_1", gh.TransitionDraft)
+	s.PendingState("PR_1", gh.TransitionClose)
+
+	s.StateApplied("PR_1", first, gh.PRStateResult{State: gh.PRStateOpen, IsDraft: true})
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateClosed {
+		t.Errorf("state = %q, want the later edit still showing", state)
+	}
+}
+
+// An edit and a label set are different fields, and both fold at once.
+func TestATransitionAndALabelSetFoldTogether(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{State: gh.PRStateOpen},
+		Labels:      labelSet("bug"),
+	}})
+
+	s.PendingState("PR_1", gh.TransitionClose)
+	s.PendingLabels("PR_1", labelSet("bug", "urgent"))
+
+	held := s.Detail("PR_1")
+	if state, _ := lifecycle(held); state != gh.PRStateClosed {
+		t.Errorf("state = %q, want CLOSED", state)
+	}
+	if got, want := labelNames(held), []string{"bug", "urgent"}; !slices.Equal(got, want) {
+		t.Errorf("labels = %q, want %q", got, want)
+	}
+}

@@ -20,7 +20,13 @@ type pickField int
 const (
 	pickNone pickField = iota
 	pickLabels
+	pickState
 )
+
+// needsRepo is whether a field's choices belong to the repository rather than
+// to the detail the screen already holds. Only those cost a round trip before
+// the modal can open; the state menu is built from what is on screen.
+func (f pickField) needsRepo() bool { return f == pickLabels }
 
 // picking is the picker over the screen, if any.
 //
@@ -32,12 +38,13 @@ type picking struct {
 	field pickField
 	p     comp.Picker
 
-	// choices is what the picker was built over, held so applying reads the
-	// same list it offered. Rebuilding it at apply time would let a refetch
-	// landing while the modal was up change the set under the reader, and a
-	// choice that disappeared between opening and applying is one the write
-	// would silently drop.
+	// choices and states are what the picker was built over, one per field,
+	// held so applying reads the same list it offered. Rebuilding either at
+	// apply time would let a refetch landing while the modal was up change the
+	// set under the reader, and a choice that disappeared between opening and
+	// applying is one the write would silently drop.
 	choices []gh.Label
+	states  []gh.PRTransition
 
 	want pickField
 }
@@ -97,13 +104,15 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	switch m.railRing.on.kind {
 	case focusLabel, focusAddLabel:
 		want = pickLabels
+	case focusState:
+		want = pickState
 	default:
 		return m, nil
 	}
 
 	// The choices are the repository's, not this pull request's, so they
 	// outlive the screen and are asked for once.
-	if !m.repo.Loaded {
+	if want.needsRepo() && !m.repo.Loaded {
 		m.picking.want = want
 		repo := m.pr.Repository
 		return m, func() tea.Msg { return NeedRepoMetaMsg{Repo: repo} }
@@ -113,9 +122,25 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	return m, nil
 }
 
-// startPicker builds the picker for a field over the choices already held.
+// startPicker builds the picker for a field over the choices already held. A
+// field with nothing to offer opens nothing: a modal listing no choices reads
+// as a fetch that came back empty.
 func (m *Model) startPicker(field pickField) {
 	switch field {
+	case pickState:
+		choices := stateChoices(m.railDetail())
+		if len(choices) == 0 {
+			return
+		}
+		m.picking = picking{
+			field:  field,
+			states: choices,
+			// Nothing pre-checked, and single select: these are moves to make,
+			// not a set to hold. No state offers more than two, well under the
+			// picker's own threshold for a filter row, so the menu gets none.
+			p: comp.NewPicker("State", m.stateItems(choices), nil, false),
+		}
+
 	case pickLabels:
 		on := m.railDetail().Labels
 		choices := labelChoices(m.repo.Meta.Labels, on)
@@ -206,20 +231,29 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyPicker closes the picker and asks the root to write what it chose.
+// applyPicker closes the picker and asks the root to write what it chose. The
+// modal is gone either way, including on a field that decides there is nothing
+// to write.
+func (m Model) applyPicker() (Model, tea.Cmd) {
+	p := m.picking
+	m.picking = picking{}
+
+	switch p.field {
+	case pickLabels:
+		return m.applyLabels(p)
+	case pickState:
+		return m.applyState(p)
+	}
+	return m, nil
+}
+
+// applyLabels asks the root to write the set the picker was left holding.
 //
 // A set equal to what is already on the pull request writes nothing. Applying
 // an unchanged picker is how a reader backs out of one they opened by mistake,
 // and it should cost neither a request nor a toast.
-func (m Model) applyPicker() (Model, tea.Cmd) {
-	field, chosen, choices := m.picking.field, m.picking.p.Chosen(), m.picking.choices
-	m.picking = picking{}
-
-	if field != pickLabels {
-		return m, nil
-	}
-
-	labels := labelsByID(choices, chosen)
+func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
+	labels := labelsByID(p.choices, p.p.Chosen())
 	if sameLabels(labels, m.railDetail().Labels) {
 		return m, nil
 	}

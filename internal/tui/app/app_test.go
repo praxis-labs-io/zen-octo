@@ -46,6 +46,8 @@ type fakeSearcher struct {
 	replied     []string
 	settled     []string
 	labelled    []string
+	moved       []string
+	states      map[string]*gh.PRStateResult
 	metaAsked   []string
 	repoMetas   map[string]gh.RepoMeta
 	metaErr     error
@@ -125,7 +127,13 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 	if f.details == nil {
 		f.details = make(map[string]gh.PullRequestDetail)
 	}
-	f.details[id] = gh.PullRequestDetail{Body: body}
+	// Staged as the viewer's own open pull request. Without the flags the rail's
+	// State row has nothing to offer and stops being somewhere tab lands, which
+	// would move every rail row in these tests up by one.
+	f.details[id] = gh.PullRequestDetail{
+		Body:   body,
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+	}
 }
 
 // serveLabels stages the labels one pull request carries.
@@ -347,6 +355,77 @@ func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []stri
 	return gh.LabelsResult{Labels: out}, nil
 }
 
+// SetState answers with where the transition lands, so a test reads the rail
+// rather than the fake's own bookkeeping. It reuses postErr and postHold, the
+// way SetLabels does, so a test stages one failure for whichever write it is
+// driving.
+//
+// serveState overrides the answer, for the tests that need GitHub to say
+// something other than what was asked for.
+func (f *fakeSearcher) SetState(_ context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error) {
+	f.mu.Lock()
+	f.moved = append(f.moved, prID+": "+string(to))
+	staged, err, hold := f.states[prID], f.postErr, f.postHold
+
+	out := gh.PRStateResult{State: gh.PRStateOpen}
+	for _, pr := range f.prs {
+		if pr.ID == prID {
+			out = gh.PRStateResult{State: pr.State, IsDraft: pr.IsDraft}
+		}
+	}
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.PRStateResult{}, err
+	}
+
+	switch {
+	case staged != nil:
+		out = *staged
+	case to == gh.TransitionReady:
+		out.IsDraft = false
+	case to == gh.TransitionDraft:
+		out.IsDraft = true
+	case to == gh.TransitionClose:
+		out.State = gh.PRStateClosed
+	case to == gh.TransitionReopen:
+		out.State = gh.PRStateOpen
+	}
+
+	// A backend remembers what it was told. Without this the refetch the write
+	// fires reports the state from before it, which reads on the rail as the
+	// write undoing itself.
+	f.mu.Lock()
+	for i := range f.prs {
+		if f.prs[i].ID == prID {
+			f.prs[i].State, f.prs[i].IsDraft = out.State, out.IsDraft
+		}
+	}
+	f.mu.Unlock()
+
+	return out, nil
+}
+
+// serveState stages the answer a state write comes back with, whatever it was
+// asked for.
+func (f *fakeSearcher) serveState(id string, state gh.PRState, draft bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.states == nil {
+		f.states = make(map[string]*gh.PRStateResult)
+	}
+	f.states[id] = &gh.PRStateResult{State: state, IsDraft: draft}
+}
+
+// stateWrites is the transitions the model asked for, in order.
+func (f *fakeSearcher) stateWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.moved)
+}
+
 // labelWrites is the label sets the model asked for, in order.
 func (f *fakeSearcher) labelWrites() []string {
 	f.mu.Lock()
@@ -456,6 +535,10 @@ func (f *querySearcher) RepoMeta(_ context.Context, _ string) (gh.RepoMetaResult
 
 func (f *querySearcher) SetLabels(_ context.Context, _ string, _ []string) (gh.LabelsResult, error) {
 	return gh.LabelsResult{}, nil
+}
+
+func (f *querySearcher) SetState(_ context.Context, _ string, _ gh.PRTransition) (gh.PRStateResult, error) {
+	return gh.PRStateResult{}, nil
 }
 
 func testConfig() *config.Config {

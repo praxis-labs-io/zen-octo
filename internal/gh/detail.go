@@ -25,6 +25,9 @@ query PullRequestDetail($id: ID!, $head: String!) {
       url
       isDraft
       state
+      viewerCanUpdate
+      viewerCanClose
+      viewerCanReopen
       createdAt
       updatedAt
       additions
@@ -215,19 +218,22 @@ type pullRequestResponse struct {
 	}
 
 	Node struct {
-		ID           string
-		Number       int
-		Title        string
-		URL          string
-		IsDraft      bool
-		State        string
-		CreatedAt    time.Time
-		UpdatedAt    time.Time
-		Additions    int
-		Deletions    int
-		ChangedFiles int
-		HeadRefName  string
-		BaseRefName  string
+		ID              string
+		Number          int
+		Title           string
+		URL             string
+		IsDraft         bool
+		State           string
+		ViewerCanUpdate bool
+		ViewerCanClose  bool
+		ViewerCanReopen bool
+		CreatedAt       time.Time
+		UpdatedAt       time.Time
+		Additions       int
+		Deletions       int
+		ChangedFiles    int
+		HeadRefName     string
+		BaseRefName     string
 
 		ReviewDecision   string
 		Mergeable        string
@@ -393,8 +399,13 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CreatedAt:      n.CreatedAt,
 			UpdatedAt:      n.UpdatedAt,
 		},
-		Body:         n.Body,
-		Merge:        mergeState(n.Mergeable, n.MergeStateStatus),
+		Body:  n.Body,
+		Merge: mergeState(n.Mergeable, n.MergeStateStatus),
+		Viewer: ViewerActions{
+			CanUpdate: n.ViewerCanUpdate,
+			CanClose:  n.ViewerCanClose,
+			CanReopen: n.ViewerCanReopen,
+		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
 		MoreCommits:  max(0, n.Commits.TotalCount-len(n.Commits.Nodes)),
