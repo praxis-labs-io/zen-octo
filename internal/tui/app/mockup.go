@@ -82,8 +82,14 @@ func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.Labels
 	return gh.LabelsResult{Labels: out}, nil
 }
 
-// SetState hands back where the transition lands, applying the same rule the
-// store does: closing keeps the draft flag, and reopening gives it back.
+// SetState answers each transition from the fixture's own starting point, which
+// is open and not a draft, rather than from wherever the previous call left it.
+//
+// It keeps no state, so it cannot do what the real one does with the draft
+// flag: closing a draft there leaves it a draft, and reopening gives that back.
+// Here a close always answers not-draft. Mock has value receivers and no per
+// pull request store behind it, and the fixture exists to render the screen
+// rather than to model GitHub.
 func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStateResult, error) {
 	out := gh.PRStateResult{State: gh.PRStateOpen}
 	switch to {
