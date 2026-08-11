@@ -166,8 +166,8 @@ func TestPullRequestMapsResponseToDomainTypes(t *testing.T) {
 	if d.Body != "Caps the backoff." {
 		t.Errorf("Body = %q, want the description", d.Body)
 	}
-	if len(d.Labels) != 1 || d.Labels[0].Color != "d73a4a" {
-		t.Errorf("Labels = %+v, want one carrying GitHub's own hex", d.Labels)
+	if len(d.Labels) != 1 || d.Labels[0].Name != "bug" {
+		t.Errorf("Labels = %+v, want [bug]", d.Labels)
 	}
 	if len(d.Assignees) != 1 || d.Assignees[0].Login != "drucial" {
 		t.Errorf("Assignees = %+v, want [drucial]", d.Assignees)

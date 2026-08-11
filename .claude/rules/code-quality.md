@@ -41,6 +41,8 @@ Every write is optimistic: apply locally, toast, reconcile on response, revert o
 
 Everything styles from the active theme (`internal/tui/theme`), never a hardcoded Lipgloss color and never a Lipgloss default. A new color that isn't in the theme struct means the theme struct needs a field.
 
+A color GitHub supplies is a hardcoded one, whatever it arrived over the wire in. A label's hex is chosen against a white browser page, so a pale one vanishes on a dark terminal and no theme can reach it; a terminal speaking only ANSI cannot show it at all. Don't fetch it.
+
 ## Tests
 
 - Tests ship in the same PR as the logic, never a follow-up.

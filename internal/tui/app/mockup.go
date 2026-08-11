@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -45,6 +46,40 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 			CanReact:        true,
 		},
 	}, nil
+}
+
+// mockLabels is the repository's whole label set. The first three are the ones
+// the mock pull request carries, so the picker opens with them checked and the
+// rest are there to check.
+var mockLabels = []gh.Label{
+	{ID: "LA_MOCK_1", Name: "bug"},
+	{ID: "LA_MOCK_2", Name: "needs-design"},
+	{ID: "LA_MOCK_3", Name: "M2"},
+	{ID: "LA_MOCK_4", Name: "enhancement"},
+	{ID: "LA_MOCK_5", Name: "documentation"},
+	{ID: "LA_MOCK_6", Name: "good first issue"},
+	{ID: "LA_MOCK_7", Name: "duplicate"},
+	{ID: "LA_MOCK_8", Name: "wontfix"},
+	{ID: "LA_MOCK_9", Name: "question"},
+}
+
+// RepoMeta hands back a set wide enough to exercise the picker's filter row,
+// which only appears once a list outgrows what fits on screen.
+func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
+	return gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: mockLabels}}, nil
+}
+
+// SetLabels hands back what it was asked for, resolved against the repository's
+// own set. An id the repository does not carry is dropped, which is what the
+// real one does to a label deleted since the picker was filled.
+func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.LabelsResult, error) {
+	out := make([]gh.Label, 0, len(labelIDs))
+	for _, l := range mockLabels {
+		if slices.Contains(labelIDs, l.ID) {
+			out = append(out, l)
+		}
+	}
+	return gh.LabelsResult{Labels: out}, nil
 }
 
 // SetThreadResolved hands the toggle straight back, with the permissions the
@@ -256,11 +291,10 @@ func mockDetail() gh.PullRequestDetail {
 	return gh.PullRequestDetail{
 		Body: mockBody,
 
-		Labels: []gh.Label{
-			{Name: "bug", Color: "d73a4a"},
-			{Name: "needs-design", Color: "c5def5"},
-			{Name: "M2", Color: "0e8a16"},
-		},
+		// Capped as well as sliced: the full set is a package-level literal, and
+		// a window over it with room to spare would let an append write into the
+		// labels every other mock call hands out.
+		Labels:    mockLabels[:3:3],
 		Assignees: []gh.Actor{{Login: "drucial"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},

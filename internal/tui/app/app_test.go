@@ -45,6 +45,10 @@ type fakeSearcher struct {
 	posted      []string
 	replied     []string
 	settled     []string
+	labelled    []string
+	metaAsked   []string
+	repoMetas   map[string]gh.RepoMeta
+	metaErr     error
 	detailErr   error
 	filesErr    error
 	commitErr   error
@@ -122,6 +126,18 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 		f.details = make(map[string]gh.PullRequestDetail)
 	}
 	f.details[id] = gh.PullRequestDetail{Body: body}
+}
+
+// serveLabels stages the labels one pull request carries.
+func (f *fakeSearcher) serveLabels(id string, labels []gh.Label) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Labels = labels
+	f.details[id] = held
 }
 
 // serveCommits stages the commits behind one pull request.
@@ -267,6 +283,77 @@ func (f *fakeSearcher) resolved() []string {
 	return slices.Clone(f.settled)
 }
 
+// RepoMeta answers with whatever choices the test staged, recording which
+// repositories were asked for so a test can hold that the cache spares the
+// second request.
+func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResult, error) {
+	f.mu.Lock()
+	f.metaAsked = append(f.metaAsked, repo)
+	meta, err := f.repoMetas[repo], f.metaErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.RepoMetaResult{}, err
+	}
+	return gh.RepoMetaResult{Meta: meta}, nil
+}
+
+// serveRepoMeta stages the choices every picker draws from, for the repository
+// the sample pull requests live in.
+func (f *fakeSearcher) serveRepoMeta(meta gh.RepoMeta) {
+	f.serveRepoMetaFor("zen-octo/zen-octo", meta)
+}
+
+// serveRepoMetaFor stages one repository's choices. Keyed, because the cache is:
+// a response carries the repository it answered for, and handing one to a pull
+// request in another opens a picker whose ids GitHub rejects.
+func (f *fakeSearcher) serveRepoMetaFor(repo string, meta gh.RepoMeta) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.repoMetas == nil {
+		f.repoMetas = make(map[string]gh.RepoMeta)
+	}
+	f.repoMetas[repo] = meta
+}
+
+// metaCalls is the repositories the model asked about, in order.
+func (f *fakeSearcher) metaCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.metaAsked)
+}
+
+// SetLabels records the ask and answers with the labels the staged repository
+// carries, dropping any id it does not: the real one does the same to a label
+// deleted since the picker was filled.
+func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []string) (gh.LabelsResult, error) {
+	f.mu.Lock()
+	f.labelled = append(f.labelled, prID+": "+strings.Join(labelIDs, ","))
+	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Labels, f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.LabelsResult{}, err
+	}
+
+	out := make([]gh.Label, 0, len(labelIDs))
+	for _, l := range known {
+		if slices.Contains(labelIDs, l.ID) {
+			out = append(out, l)
+		}
+	}
+	return gh.LabelsResult{Labels: out}, nil
+}
+
+// labelWrites is the label sets the model asked for, in order.
+func (f *fakeSearcher) labelWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.labelled)
+}
+
 // answered is the replies the model sent, in order.
 func (f *fakeSearcher) answered() []string {
 	f.mu.Lock()
@@ -361,6 +448,14 @@ func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResu
 
 func (f *querySearcher) SetThreadResolved(_ context.Context, _ string, _ bool) (gh.ThreadResult, error) {
 	return gh.ThreadResult{}, nil
+}
+
+func (f *querySearcher) RepoMeta(_ context.Context, _ string) (gh.RepoMetaResult, error) {
+	return gh.RepoMetaResult{}, nil
+}
+
+func (f *querySearcher) SetLabels(_ context.Context, _ string, _ []string) (gh.LabelsResult, error) {
+	return gh.LabelsResult{}, nil
 }
 
 func testConfig() *config.Config {
@@ -491,6 +586,8 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "ctrl+enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}
 	case "ctrl+c":

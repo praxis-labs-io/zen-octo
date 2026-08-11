@@ -247,9 +247,15 @@ func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
 	return append(out, m.addRow(focusAddAssignee, "Add assignee", width))
 }
 
-// labelRows colors each label the color GitHub gave it. This is the one place
-// the theme does not decide: a label's color is its identity, and the same label
-// has to read the same here as in the browser.
+// labelRows names each label in the theme's own accent. GitHub gives every
+// label a color, and rendering that is the one thing this rail must not do: the
+// hex is fixed against a white browser page, so a pale label disappears into a
+// dark terminal and no theme can reach it. A terminal that only speaks ANSI
+// cannot show it at all.
+//
+// Secondary rather than Actor, which the handles above already hold, and rather
+// than Faint, which the add row under them holds. The section has to keep those
+// three apart.
 //
 // It is a foreground, not a filled chip. A chip buys nothing a colored word does
 // not already say, and the row already spends its background on the cursor.
@@ -260,7 +266,7 @@ func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
-				m.fit(base.Foreground(lipgloss.Color("#"+l.Color)), l.Name, railNameRoom(width, 0)), width),
+				m.fit(base.Foreground(m.theme.Secondary), l.Name, railNameRoom(width, 0)), width),
 			key: key,
 		})
 	}

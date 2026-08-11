@@ -517,7 +517,7 @@ func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
 	}
 
 	d := sampleDetail()
-	d.Labels = append([]gh.Label{{Name: "docs", Color: "0075ca"}}, d.Labels...)
+	d.Labels = append([]gh.Label{{Name: "docs"}}, d.Labels...)
 	m.SetDetail(held(d))
 
 	if got := markedRailRow(t, m.View()); got != "bug" {

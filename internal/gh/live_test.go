@@ -308,3 +308,65 @@ func TestLiveTheThreadResolveDocumentsMatchTheSchema(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveTheSetLabelsDocumentMatchesTheSchema is the same check for the label
+// write. Nothing is written: the id belongs to no pull request, so the document
+// validates and then fails to resolve.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheSetLabelsDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.SetLabels(ctx, "NOT_A_NODE", []string{"NOT_A_LABEL"})
+	if err == nil {
+		t.Fatal("labelling a pull request that does not exist came back as a success")
+	}
+
+	assertValidated(t, err)
+}
+
+// TestLiveTheRepoMetaQueryMatchesTheSchema reads rather than writes, so it runs
+// against a real repository and proves every field resolves. It asserts the
+// shape rather than the contents: labels and branches change under it.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := client.RepoMeta(ctx, "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	// A repository can genuinely have no labels, so the count proves nothing.
+	// The rate limit is what says the query resolved rather than came back an
+	// empty shell.
+	if res.RateLimit.Limit == 0 {
+		t.Error("no rate limit came back, so the query is not selecting it")
+	}
+	for _, l := range res.Meta.Labels {
+		if l.ID == "" {
+			t.Errorf("label %q came back with no node id, which the write path needs", l.Name)
+		}
+	}
+}

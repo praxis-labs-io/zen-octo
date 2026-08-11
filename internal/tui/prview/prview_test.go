@@ -387,7 +387,7 @@ func sampleDetail() gh.PullRequestDetail {
 		PullRequest: samplePR(),
 		Body:        "Caps the backoff at 30s, matching the fetch timeout.",
 
-		Labels:    []gh.Label{{Name: "bug", Color: "d73a4a"}},
+		Labels:    []gh.Label{{ID: "LA_1", Name: "bug"}},
 		Assignees: []gh.Actor{{Login: "drucial"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
@@ -743,11 +743,12 @@ func TestTheChangesRowIsOneLineMarkedWithAGlyph(t *testing.T) {
 	t.Fatalf("no Changes section in the rail: %q", rows)
 }
 
-// A label's color is its identity across every client, so it is the one thing
-// on the screen the theme does not decide.
-func TestALabelKeepsTheColorGitHubGaveIt(t *testing.T) {
-	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(lipgloss.Color("#d73a4a"))) {
-		t.Error("the label is not in GitHub's own color")
+// Labels take the theme's accent. GitHub's own hex is not fetched at all: it is
+// chosen against a white browser page, so a pale label vanishes on a dark
+// terminal and no theme can reach it.
+func TestALabelTakesTheThemesAccent(t *testing.T) {
+	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(theme.RosePineMoon.Secondary)) {
+		t.Error("the label is not in the theme's accent")
 	}
 }
 

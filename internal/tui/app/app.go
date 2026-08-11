@@ -39,6 +39,8 @@ type GitHub interface {
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
+	RepoMeta(ctx context.Context, repo string) (gh.RepoMetaResult, error)
+	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -612,6 +614,18 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// The repository's choices go stale too, and nothing else ever drops them:
+	// BeginRepoMeta refuses one already loaded, so without this a label created
+	// in the browser stays out of the picker for the rest of the session. They
+	// are dropped rather than refetched, because the next picker to open is the
+	// first thing that needs them and they cost a request.
+	//
+	// The screen holds its own copy and asks the root only when it has none, so
+	// clearing the store alone would leave it opening pickers over the stale
+	// set it is still carrying. Both have to go.
+	m.store.InvalidateRepoMeta(pr.Repository)
+	m.detail.SetRepo(store.Repo{})
+
 	var cmds []tea.Cmd
 	started := m.detailRefreshing
 	if m.store.BeginDetail(msg.ID) {
@@ -967,6 +981,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case replyFailedMsg:
 		return m.replyFailed(msg)
 
+	case prview.NeedRepoMetaMsg:
+		return m.needRepoMeta(msg.Repo)
+
+	case repoMetaFetchedMsg:
+		return m.repoMetaLanded(msg)
+
+	case repoMetaFailedMsg:
+		return m.repoMetaFailed(msg)
+
+	case prview.SetLabelsMsg:
+		return m.setLabels(msg)
+
+	case labelsSetMsg:
+		return m.labelsLanded(msg)
+
+	case labelsFailedMsg:
+		return m.labelsFailed(msg)
+
 	case prview.ResolveThreadMsg:
 		return m.resolveThread(msg)
 
@@ -1014,9 +1046,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// A screen writing a comment owns the keyboard. q is a letter in there, and
-	// the root's own bindings would each eat one.
-	if m.screen == screenDetail && m.detail.Composing() {
+	// A screen writing a comment or filtering a picker owns the keyboard. q is
+	// a letter in there, and the root's own bindings would each eat one.
+	if m.screen == screenDetail && m.detail.Capturing() {
 		return m.delegate(msg)
 	}
 
