@@ -17,6 +17,7 @@ const detailBody = `{
     "id": "PR_412", "number": 412, "title": "Fix auth retry",
     "url": "https://github.com/zen-octo/zen-octo/pull/412",
     "isDraft": false, "state": "OPEN",
+    "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-05T11:00:00Z",
     "additions": 42, "deletions": 7, "changedFiles": 3,
     "headRefName": "fix-auth", "baseRefName": "main",
@@ -436,6 +437,20 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	// search result or the detail sees one state.
 	if d.Checks != CheckStateFailure {
 		t.Errorf("Checks = %q, want the rollup state", d.Checks)
+	}
+}
+
+// The rail builds its state menu from these, so a flag lost in decoding offers
+// a write GitHub refuses or hides one it would have taken.
+func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+	if err != nil {
+		t.Fatalf("PullRequest() error = %v, want nil", err)
+	}
+
+	want := ViewerActions{CanUpdate: true, CanClose: true, CanReopen: false}
+	if res.Detail.Viewer != want {
+		t.Errorf("Viewer = %+v, want %+v", res.Detail.Viewer, want)
 	}
 }
 

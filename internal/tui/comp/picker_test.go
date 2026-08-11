@@ -314,3 +314,86 @@ func TestTheHintIsNotClippedOnAListWithACounter(t *testing.T) {
 		t.Errorf("the hint is clipped before it names the cancel key:\n%s", frame)
 	}
 }
+
+// bodyRows is the modal's interior, borders and title stripped, so a test can
+// say what sits on which row.
+func bodyRows(p comp.Picker) []string {
+	lines := strings.Split(stripANSI(p.Render(theme.RosePineMoon, 200)), "\n")
+	if len(lines) < 3 {
+		return nil
+	}
+
+	out := make([]string, 0, len(lines)-2)
+	for _, line := range lines[1 : len(lines)-1] {
+		out = append(out, strings.TrimRight(strings.Trim(line, "│"), " "))
+	}
+	return out
+}
+
+// Every picker opens with a blank row above its choices, filter row or not, so
+// the first choice always lands on the same line and the title in the border
+// does not read as the top of the list.
+func TestABlankRowSitsAboveTheChoices(t *testing.T) {
+	tests := []struct {
+		name  string
+		p     comp.Picker
+		blank int // the row the blank is on
+		first int // the row the first choice is on
+	}{
+		{
+			name:  "no filter row",
+			p:     comp.NewPicker("State", items("Convert to draft", "Close"), nil, false),
+			blank: 0, first: 1,
+		},
+		{
+			name:  "filter row",
+			p:     comp.NewPicker("Labels", many(20), nil, true),
+			blank: 1, first: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows := bodyRows(tt.p)
+
+			if got := strings.TrimSpace(rows[tt.blank]); got != "" {
+				t.Errorf("row %d = %q, want it blank", tt.blank, got)
+			}
+			if got := strings.TrimSpace(rows[tt.first]); got == "" {
+				t.Errorf("row %d is blank, want the first choice:\n%s", tt.first, strings.Join(rows, "\n"))
+			}
+		})
+	}
+}
+
+// The filter row keeps the top, above the blank. It is what the list is being
+// narrowed by, so it reads with the modal's title rather than with the choices.
+func TestTheFilterRowKeepsTheTop(t *testing.T) {
+	rows := bodyRows(comp.NewPicker("Labels", many(20), nil, true))
+
+	if got := strings.TrimSpace(rows[0]); got != "Type to filter" {
+		t.Errorf("first row = %q, want the filter", got)
+	}
+	if !strings.Contains(rows[2], "label-0") {
+		t.Errorf("third row = %q, want the first choice", rows[2])
+	}
+}
+
+// Two blanks and no more: one above the choices, one under them. A third would
+// be a choice not shown, in a modal that holds ten.
+func TestTheChoicesSitBetweenTwoBlankRows(t *testing.T) {
+	rows := bodyRows(comp.NewPicker("State", items("Convert to draft", "Close"), nil, false))
+
+	var blanks int
+	for _, row := range rows {
+		if strings.TrimSpace(row) == "" {
+			blanks++
+		}
+	}
+	if blanks != 2 {
+		t.Errorf("%d blank rows in the modal, want 2:\n%s", blanks, strings.Join(rows, "\n"))
+	}
+	if got := strings.TrimSpace(rows[len(rows)-2]); got != "" {
+		t.Errorf("the row above the hint = %q, want it blank", got)
+	}
+}

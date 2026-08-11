@@ -407,6 +407,11 @@ func sampleDetail() gh.PullRequestDetail {
 		Merge:    gh.MergeBlocked,
 		BehindBy: 4,
 
+		// The sample is the viewer's own open pull request, so the state menu
+		// has both moves an open one takes. CanReopen is GitHub's answer for an
+		// open one: there is nothing to reopen.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+
 		Timeline: []gh.TimelineItem{
 			commented("octobot", ago(3*time.Hour), "Coverage held at 84.2%."),
 			reviewed("REV_1", "nkr", gh.ReviewStateChangesRequested, ago(2*time.Hour),

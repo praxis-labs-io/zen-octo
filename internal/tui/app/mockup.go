@@ -82,6 +82,25 @@ func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.Labels
 	return gh.LabelsResult{Labels: out}, nil
 }
 
+// SetState answers each transition from the fixture's own starting point, which
+// is open and not a draft, rather than from wherever the previous call left it.
+//
+// It keeps no state, so it cannot do what the real one does with the draft
+// flag: closing a draft there leaves it a draft, and reopening gives that back.
+// Here a close always answers not-draft. Mock has value receivers and no per
+// pull request store behind it, and the fixture exists to render the screen
+// rather than to model GitHub.
+func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStateResult, error) {
+	out := gh.PRStateResult{State: gh.PRStateOpen}
+	switch to {
+	case gh.TransitionDraft:
+		out.IsDraft = true
+	case gh.TransitionClose:
+		out.State = gh.PRStateClosed
+	}
+	return out, nil
+}
+
 // SetThreadResolved hands the toggle straight back, with the permissions the
 // real one flips: a thread just resolved can only be unresolved.
 func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
@@ -316,6 +335,10 @@ func mockDetail() gh.PullRequestDetail {
 		},
 		Merge:    gh.MergeBlocked,
 		BehindBy: 4,
+
+		// The viewer wrote it, so the state menu has both moves an open pull
+		// request takes. CanReopen is what GitHub answers for one already open.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
 
 		Commits: mockCommits(),
 

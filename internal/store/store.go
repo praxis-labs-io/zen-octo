@@ -48,6 +48,14 @@ type Detail struct {
 	// Loaded marks a detail that has answered at least once, so a background
 	// refetch can be told from a first open.
 	Loaded bool
+
+	// StateWriting marks a lifecycle change applied here and not yet answered
+	// for. The fold moves the state but never the permissions, so for the length
+	// of the round trip the two disagree: a closed pull request still carries
+	// the CanReopen GitHub gave for an open one. A control reading permissions
+	// to decide whether it has anything to offer has to wait this out rather
+	// than believe them.
+	StateWriting bool
 }
 
 // Files is one diff: a pull request's, keyed by the same id as its Detail, or
@@ -124,6 +132,11 @@ type Store struct {
 	resolving map[string][]Resolution
 	edits     map[string][]Edit
 	writes    int
+
+	// staleFetch marks a detail fetch that was asked for before a write on the
+	// same pull request settled. Its response carries the state from before the
+	// write, so taking it would put the write back on screen undone.
+	staleFetch map[string]bool
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -234,6 +247,7 @@ func (s Store) Detail(id string) Detail {
 	// wrote nor write what it read.
 	for _, e := range editing {
 		held.Detail = e.Apply(held.Detail)
+		held.StateWriting = held.StateWriting || e.Field() == fieldState
 	}
 
 	timeline, threads := held.Detail.Timeline, held.Detail.Threads
@@ -523,18 +537,58 @@ func (s *Store) BeginDetail(id string) bool {
 	if id == "" || held.Status == StatusLoading {
 		return false
 	}
+	// This one is being asked for now, so it will answer with everything that
+	// has settled so far.
+	delete(s.staleFetch, id)
+
 	held.Status = StatusLoading
 	s.put(id, held)
 	return true
 }
 
 // DetailApplied stores a pull request and folds the response into the budget.
+//
+// A response asked for before a write settled is dropped rather than stored.
+// GitHub answered it from the state the pull request was in beforehand, so
+// taking it would put a landed write back on the screen undone, and the fetched
+// permissions that come with it would take the row's own key away. The detail
+// already holds the write's answer; what it is missing is everything the write
+// changed downstream, and only a fetch made after it can carry that.
+//
+// The caller is expected to ask again. Failing to costs freshness, never
+// correctness: what stays on screen is the last response plus every answer
+// since. StaleDetail is how a caller knows it owes one.
 func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 	if id == "" {
 		return
 	}
-	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
 	s.adopt(res.RateLimit)
+
+	if s.staleFetch[id] {
+		held := s.details[id]
+		held.Status = StatusReady
+		s.put(id, held)
+		return
+	}
+	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
+}
+
+// StaleDetail reports whether the detail fetch in flight, or the one that just
+// answered, was asked for before a write settled. A caller that started a fetch
+// and finds this true owes another one.
+func (s Store) StaleDetail(id string) bool { return s.staleFetch[id] }
+
+// markStale records that the fetch in flight predates a write that has now
+// settled. Only while one is actually out: with nothing in flight the next
+// fetch is asked for after the write and carries it.
+func (s *Store) markStale(id string) {
+	if s.details[id].Status != StatusLoading {
+		return
+	}
+	if s.staleFetch == nil {
+		s.staleFetch = make(map[string]bool)
+	}
+	s.staleFetch[id] = true
 }
 
 // DetailFailed puts a pull request into its error state, keeping whatever it
@@ -545,6 +599,8 @@ func (s *Store) DetailFailed(id string, err error) {
 	if id == "" || !ok {
 		return
 	}
+	delete(s.staleFetch, id)
+
 	held.Status = StatusFailed
 	held.Err = err
 	s.put(id, held)
