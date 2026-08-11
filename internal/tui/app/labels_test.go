@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -155,5 +156,82 @@ func TestQDoesNotQuitWhileAPickerIsUp(t *testing.T) {
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "space toggle") {
 		t.Errorf("q reached the root and closed the picker:\n%s", out)
+	}
+}
+
+// The cache is keyed by repository and the screen is handed only its own. A
+// second pull request in another repository must get that repository's labels,
+// never the ones already cached for the first.
+//
+// The mismatch this guards against — a response landing after the reader has
+// moved to another repository — is not reachable here: the harness drains every
+// command before the next key, so no request is ever still in flight. This
+// covers the routing; the guard itself is one line in repoMetaLanded.
+func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
+	client := &fakeSearcher{prs: []gh.PullRequest{
+		{
+			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "zen-octo/zen-octo",
+			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
+			HeadRefName: "fix-auth", UpdatedAt: time.Now().Add(-2 * time.Hour),
+		},
+		{
+			ID: "PR_9", Number: 9, Title: "Other repo", Repository: "zen-octo/website",
+			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
+			HeadRefName: "copy", UpdatedAt: time.Now().Add(-3 * time.Hour),
+		},
+	}}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveDetail("PR_9", "Rewrites the landing copy.")
+	client.serveRepoMetaFor("zen-octo/zen-octo", gh.RepoMeta{Labels: repoLabelSet()})
+	client.serveRepoMetaFor("zen-octo/website", gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
+
+	// The list's own sort decides which opens first, so each step names the pull
+	// request it landed on rather than assuming an order.
+	m := press(loaded(t, client, 160, 40), "enter", "2", "tab", "tab", "tab", "tab", "enter")
+	first := stripANSI(render(t, m))
+	if !strings.Contains(first, "#9 Other repo") {
+		t.Fatalf("the list opened a different pull request first:\n%s", first)
+	}
+	if !strings.Contains(first, "seo") {
+		t.Fatalf("the website picker does not carry the website's labels:\n%s", first)
+	}
+	if strings.Contains(first, "enhancement") {
+		t.Errorf("the website picker is showing the other repository's labels:\n%s", first)
+	}
+
+	m = press(m, "esc", "esc", "esc", "j", "enter", "2", "tab", "tab", "tab", "tab", "enter")
+
+	second := stripANSI(render(t, m))
+	if !strings.Contains(second, "#412") {
+		t.Fatalf("the second open landed on the wrong pull request:\n%s", second)
+	}
+	if !strings.Contains(second, "enhancement") {
+		t.Errorf("the second repository's picker does not carry its own labels:\n%s", second)
+	}
+	if strings.Contains(second, "seo") {
+		t.Errorf("the second repository's picker is showing the first repository's labels:\n%s", second)
+	}
+	if got, want := len(client.metaCalls()), 2; got != want {
+		t.Errorf("asked for metadata %d times, want %d, one per repository", got, want)
+	}
+}
+
+// Nothing else drops the repository's choices, so without the sync hook a label
+// created in the browser stays out of the picker for the rest of the session.
+func TestSyncingLetsThePickerSeeANewLabel(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	m := openLabelPicker(t, client)
+	m = press(m, "esc")
+
+	// A third label appears in the repository, and the reader presses s.
+	client.serveRepoMeta(gh.RepoMeta{Labels: append(repoLabelSet(), gh.Label{ID: "LA_3", Name: "docs"})})
+	m = press(m, "s", "enter")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "docs") {
+		t.Errorf("the picker does not offer a label added since the last fetch:\n%s", out)
+	}
+	if got := client.metaCalls(); len(got) != 2 {
+		t.Errorf("asked for metadata %d times, want the sync to have dropped the first answer", len(got))
 	}
 }

@@ -45,7 +45,7 @@ func (m Model) needRepoMeta(repo string) (tea.Model, tea.Cmd) {
 	if !m.store.BeginRepoMeta(repo) {
 		// Already held, and the screen asked because it had not been handed
 		// them yet. Nothing to fetch, so hand them over now.
-		if held := m.store.Repo(repo); held.Loaded {
+		if held := m.store.Repo(repo); held.Loaded && m.showingRepo(repo) {
 			m.detail.SetRepo(held)
 		}
 		return m, nil
@@ -69,13 +69,24 @@ func (m Model) fetchRepoMeta(repo string) tea.Cmd {
 
 // repoMetaLanded stores the choices and hands them to the screen, which opens
 // the picker that was waiting on them.
+//
+// Only to a screen showing that repository. A response outlives the screen that
+// asked for it, and handing one repository's labels to a pull request in
+// another opens a picker where nothing reads as checked and whose ids GitHub
+// rejects on apply. This is the repository-level twin of showing(id).
 func (m Model) repoMetaLanded(msg repoMetaFetchedMsg) (tea.Model, tea.Cmd) {
 	m.store.RepoMetaApplied(msg.repo, msg.res)
 
-	if m.screen == screenDetail {
+	if m.showingRepo(msg.repo) {
 		m.detail.SetRepo(m.store.Repo(msg.repo))
 	}
 	return m, nil
+}
+
+// showingRepo is whether the detail screen is up on a pull request in this
+// repository.
+func (m Model) showingRepo(repo string) bool {
+	return m.screen == screenDetail && m.detail.PullRequest().Repository == repo
 }
 
 // repoMetaFailed says so and leaves the picker unopened. A modal over an empty

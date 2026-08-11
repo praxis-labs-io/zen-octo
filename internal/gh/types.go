@@ -441,28 +441,15 @@ type SearchResult struct {
 	RateLimit    RateLimit
 }
 
-// MergeMethods is which ways a repository allows a pull request to be merged,
-// and whether it deletes the branch afterwards by default. The merge form
-// offers only what is true here: a method the repository forbids is a button
-// that opens a write GitHub rejects.
-type MergeMethods struct {
-	Merge        bool
-	Squash       bool
-	Rebase       bool
-	DeleteBranch bool
-}
-
 // RepoMeta is the choices a picker on the detail rail draws from. It belongs to
 // the repository rather than to any one pull request, changes on the scale of
 // days, and is fetched once per repository per session.
 //
-// Branches are names rather than refs. A pull request targets a branch by name
-// and nothing above this package has anything to do with a ref's node id.
+// Labels alone so far. The assignable users, the branches and the merge methods
+// each arrive with the picker that reads them, rather than being fetched ahead
+// of a caller and billed to every open in the meantime.
 type RepoMeta struct {
-	Assignable []Actor
-	Labels     []Label
-	Branches   []string
-	Merge      MergeMethods
+	Labels []Label
 }
 
 // RepoMetaResult is one repository-metadata response: the choices and what they

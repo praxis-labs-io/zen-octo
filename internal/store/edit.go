@@ -49,22 +49,11 @@ func (e LabelEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 // PendingLabels holds a label set applied here and not yet acknowledged, and
 // returns the key the response reconciles against.
 func (s *Store) PendingLabels(id string, labels []gh.Label) string {
-	return s.holdEdit(id, func(key string) Edit {
-		return LabelEdit{key: key, labels: slices.Clone(labels)}
-	})
-}
-
-// holdEdit mints the key and files the edit. The counter is the one comments
-// and resolutions draw from, so no two writes in flight can take one key
-// between them.
-func (s *Store) holdEdit(id string, build func(key string) Edit) string {
-	s.writes++
-	key := "pending-" + strconv.Itoa(s.writes)
-
+	key := s.nextKey()
 	if s.edits == nil {
 		s.edits = make(map[string][]Edit)
 	}
-	s.edits[id] = append(s.edits[id], build(key))
+	s.edits[id] = append(s.edits[id], LabelEdit{key: key, labels: slices.Clone(labels)})
 	return key
 }
 
@@ -73,6 +62,12 @@ func (s *Store) holdEdit(id string, build func(key string) Edit) string {
 // next fetch: dropping the edit alone would put the fetched labels back on the
 // screen until something refetched, which reads as the write undoing itself.
 //
+// It writes nothing while a later edit on the same pull request is still out.
+// Two writes settle in whatever order the network gives them, and the earlier
+// one answering last would otherwise overwrite the reader's newer ask with a
+// set they have already moved on from. The fold renders the later edit until it
+// answers for itself.
+//
 // No budget to fold: a mutation cannot report the rate limit.
 func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 	if !s.dropEdit(id, key) {
@@ -80,7 +75,7 @@ func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 	}
 
 	held, ok := s.details[id]
-	if !ok {
+	if !ok || len(s.edits[id]) > 0 {
 		return
 	}
 
@@ -91,6 +86,16 @@ func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 // EditReverted takes a metadata write back off the screen. The caller owns
 // saying why: the store cannot tell a rejected write from a lost one.
 func (s *Store) EditReverted(id, key string) { s.dropEdit(id, key) }
+
+// nextKey mints the name a response reconciles against: a sequence rather than
+// a clock, so the same run of keystrokes produces the same keys every time.
+//
+// One counter across comments, resolutions and edits, so no two writes in
+// flight can take one key between them.
+func (s *Store) nextKey() string {
+	s.writes++
+	return "pending-" + strconv.Itoa(s.writes)
+}
 
 // dropEdit removes one write and reports whether it was there. A response for a
 // key already gone is one that already settled.

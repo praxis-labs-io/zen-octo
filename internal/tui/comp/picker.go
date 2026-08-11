@@ -45,16 +45,6 @@ type PickerItem struct {
 	Color color.Color
 }
 
-// PickerAction is what a keypress left the picker in. Open means it took the
-// key and is still up; the other two mean the caller reads Chosen and closes.
-type PickerAction int
-
-const (
-	PickerOpen PickerAction = iota
-	PickerApplied
-	PickerCancelled
-)
-
 // Picker is a modal list of choices, single or multi select, over a filter.
 //
 // It holds no keymap. Bindings live in internal/tui/keys and a widget package
@@ -115,9 +105,6 @@ func NewPicker(title string, items []PickerItem, checked []string, multi bool) P
 	}
 	return p
 }
-
-// Title is what the modal chrome is labelled with.
-func (p Picker) Title() string { return p.title }
 
 // Multi reports whether this picker toggles a set or picks one row. The screen
 // reads it to know whether the toggle key means anything here.
@@ -297,11 +284,12 @@ func (p Picker) Render(th theme.Theme, frameWidth int) string {
 // width is what the modal gets inside its border: the widest thing it has to
 // show, held between a floor and a ceiling and never wider than the frame.
 //
-// The hint counts. It is the only row whose length is fixed by the picker
-// rather than by the data, and sizing to the names alone clips the line naming
-// the keys on every short list.
+// The hint counts, at the longest it can render rather than the shortest. It
+// grows a counter once the list outruns the window, and measuring it without
+// one clips "esc cancel" off exactly the long lists where the hint is worth
+// having.
 func (p Picker) width(frameWidth int) int {
-	longest := max(lipgloss.Width(p.title), lipgloss.Width(p.hintText(0)))
+	longest := max(lipgloss.Width(p.title), lipgloss.Width(p.hintText(len(p.items))))
 	for _, it := range p.items {
 		longest = max(longest, lipgloss.Width(it.Name)+lipgloss.Width(pickerMark))
 	}

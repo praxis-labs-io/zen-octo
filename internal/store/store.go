@@ -8,7 +8,6 @@ package store
 
 import (
 	"slices"
-	"strconv"
 
 	"github.com/zen-octo/zen-octo/internal/config"
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -323,8 +322,7 @@ func (s *Store) PendingReply(id, threadID string, c gh.Comment) string {
 }
 
 func (s *Store) hold(id, threadID string, c gh.Comment) string {
-	s.writes++
-	key := "pending-" + strconv.Itoa(s.writes)
+	key := s.nextKey()
 
 	c.Pending = true
 	c.ID = key
@@ -343,8 +341,7 @@ func (s *Store) hold(id, threadID string, c gh.Comment) string {
 // settle in whatever order the responses arrive, which is not the order they
 // were pressed in.
 func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
-	s.writes++
-	key := "pending-" + strconv.Itoa(s.writes)
+	key := s.nextKey()
 
 	if s.resolving == nil {
 		s.resolving = make(map[string][]Resolution)

@@ -309,3 +309,76 @@ func TestTheSelectedBackgroundIsTheThemes(t *testing.T) {
 		t.Fatal("the theme has no selected background for the picker to paint with")
 	}
 }
+
+// The repository's label page and the pull request's are both a first page, and
+// applying replaces the whole set. A label the picker never listed is one
+// nobody could keep checked, so leaving it out of the choices would delete it.
+func TestALabelOutsideTheRepositoryPageSurvivesAnApply(t *testing.T) {
+	d := sampleDetail()
+	d.Labels = append(d.Labels, gh.Label{ID: "LA_OFFPAGE", Name: "page-two"})
+
+	m := onRailRow(t, detailed(held(d), 200, 60), "bug")
+	m.SetRepo(loadedRepo()) // LA_OFFPAGE is not in the repository's page
+	m, _ = key(m, "enter")
+
+	if frame := pickerFrame(m); !strings.Contains(frame, "✓ page-two") {
+		t.Fatalf("the off-page label is not offered and checked:\n%s", frame)
+	}
+
+	m = press(m, "down", " ") // check one more, leaving page-two alone
+
+	got, ok := asked(t, m, "enter").(prview.SetLabelsMsg)
+	if !ok {
+		t.Fatal("enter did not ask for a write")
+	}
+	var names []string
+	for _, l := range got.Labels {
+		names = append(names, l.Name)
+	}
+	if !slices.Contains(names, "page-two") {
+		t.Errorf("labels = %q, want the off-page label kept rather than deleted", names)
+	}
+}
+
+// The chosen set is in the repository's order and the pull request's is in its
+// own. Neither query asks for an ordering, so comparing by position calls an
+// untouched picker a change and fires the write the check exists to prevent.
+func TestAnUntouchedPickerWritesNothingWhenTheOrdersDiffer(t *testing.T) {
+	repo := []gh.Label{
+		{ID: "LA_1", Name: "bug"},
+		{ID: "LA_2", Name: "enhancement"},
+	}
+
+	d := sampleDetail()
+	// The pull request lists the same two the other way round.
+	d.Labels = []gh.Label{repo[1], repo[0]}
+
+	m := onRailRow(t, detailed(held(d), 200, 60), "enhancement")
+	m.SetRepo(store.Repo{Meta: gh.RepoMeta{Labels: repo}, Status: store.StatusReady, Loaded: true})
+	m, _ = key(m, "enter")
+
+	if got := asked(t, m, "enter"); got != nil {
+		t.Errorf("an untouched picker sent %T because the two lists are ordered differently", got)
+	}
+}
+
+// A metadata fetch is a round trip. The reader may have started writing by the
+// time it lands, and the picker answers keys ahead of the box.
+func TestAWaitingPickerDoesNotOpenOverAComposeBox(t *testing.T) {
+	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
+
+	m, _ = key(m, "enter") // asks for the repository, picker is waiting
+	m = press(m, "1", "c") // walk to the conversation and start a comment
+	if !m.Composing() {
+		t.Fatal("the compose box did not take the keyboard")
+	}
+
+	m.SetRepo(loadedRepo())
+
+	if frame := pickerFrame(m); strings.Contains(frame, "space toggle") {
+		t.Errorf("the picker dropped over the compose box:\n%s", frame)
+	}
+	if !m.Composing() {
+		t.Error("the picker took the keyboard from the compose box")
+	}
+}

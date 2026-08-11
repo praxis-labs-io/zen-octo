@@ -66,12 +66,7 @@ var mockLabels = []gh.Label{
 // RepoMeta hands back a set wide enough to exercise the picker's filter row,
 // which only appears once a list outgrows what fits on screen.
 func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
-	return gh.RepoMetaResult{Meta: gh.RepoMeta{
-		Assignable: []gh.Actor{{Login: mockViewer}, {Login: "nkr"}},
-		Labels:     mockLabels,
-		Branches:   []string{"main", "develop", "release/v1"},
-		Merge:      gh.MergeMethods{Merge: true, Squash: true, DeleteBranch: true},
-	}}, nil
+	return gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: mockLabels}}, nil
 }
 
 // SetLabels hands back what it was asked for, resolved against the repository's
@@ -296,7 +291,10 @@ func mockDetail() gh.PullRequestDetail {
 	return gh.PullRequestDetail{
 		Body: mockBody,
 
-		Labels:    mockLabels[:3],
+		// Capped as well as sliced: the full set is a package-level literal, and
+		// a window over it with room to spare would let an append write into the
+		// labels every other mock call hands out.
+		Labels:    mockLabels[:3:3],
 		Assignees: []gh.Actor{{Login: "drucial"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},

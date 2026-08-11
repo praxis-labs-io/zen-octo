@@ -300,3 +300,17 @@ func TestACheckedRowIsMarked(t *testing.T) {
 		t.Errorf("an unchecked row carries a mark:\n%s", docs)
 	}
 }
+
+// The hint grows a counter once the list outruns the window, and the modal is
+// sized for the longest it can render. Sizing to the short form clips the keys
+// off exactly the long lists where the hint is worth having.
+func TestTheHintIsNotClippedOnAListWithACounter(t *testing.T) {
+	frame := render(comp.NewPicker("Labels", many(20), nil, true))
+
+	if !strings.Contains(frame, "10 more") {
+		t.Fatalf("the hint does not count the hidden rows:\n%s", frame)
+	}
+	if !strings.Contains(frame, "esc cancel") {
+		t.Errorf("the hint is clipped before it names the cancel key:\n%s", frame)
+	}
+}

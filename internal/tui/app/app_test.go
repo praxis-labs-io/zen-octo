@@ -47,7 +47,7 @@ type fakeSearcher struct {
 	settled     []string
 	labelled    []string
 	metaAsked   []string
-	repoMeta    gh.RepoMeta
+	repoMetas   map[string]gh.RepoMeta
 	metaErr     error
 	detailErr   error
 	filesErr    error
@@ -289,7 +289,7 @@ func (f *fakeSearcher) resolved() []string {
 func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResult, error) {
 	f.mu.Lock()
 	f.metaAsked = append(f.metaAsked, repo)
-	meta, err := f.repoMeta, f.metaErr
+	meta, err := f.repoMetas[repo], f.metaErr
 	f.mu.Unlock()
 
 	if err != nil {
@@ -298,11 +298,22 @@ func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResu
 	return gh.RepoMetaResult{Meta: meta}, nil
 }
 
-// serveRepoMeta stages the choices every picker draws from.
+// serveRepoMeta stages the choices every picker draws from, for the repository
+// the sample pull requests live in.
 func (f *fakeSearcher) serveRepoMeta(meta gh.RepoMeta) {
+	f.serveRepoMetaFor("zen-octo/zen-octo", meta)
+}
+
+// serveRepoMetaFor stages one repository's choices. Keyed, because the cache is:
+// a response carries the repository it answered for, and handing one to a pull
+// request in another opens a picker whose ids GitHub rejects.
+func (f *fakeSearcher) serveRepoMetaFor(repo string, meta gh.RepoMeta) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.repoMeta = meta
+	if f.repoMetas == nil {
+		f.repoMetas = make(map[string]gh.RepoMeta)
+	}
+	f.repoMetas[repo] = meta
 }
 
 // metaCalls is the repositories the model asked about, in order.
@@ -318,7 +329,7 @@ func (f *fakeSearcher) metaCalls() []string {
 func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []string) (gh.LabelsResult, error) {
 	f.mu.Lock()
 	f.labelled = append(f.labelled, prID+": "+strings.Join(labelIDs, ","))
-	known, err, hold := f.repoMeta.Labels, f.postErr, f.postHold
+	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Labels, f.postErr, f.postHold
 	f.mu.Unlock()
 
 	time.Sleep(hold)

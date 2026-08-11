@@ -614,6 +614,18 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// The repository's choices go stale too, and nothing else ever drops them:
+	// BeginRepoMeta refuses one already loaded, so without this a label created
+	// in the browser stays out of the picker for the rest of the session. They
+	// are dropped rather than refetched, because the next picker to open is the
+	// first thing that needs them and they cost a request.
+	//
+	// The screen holds its own copy and asks the root only when it has none, so
+	// clearing the store alone would leave it opening pickers over the stale
+	// set it is still carrying. Both have to go.
+	m.store.InvalidateRepoMeta(pr.Repository)
+	m.detail.SetRepo(store.Repo{})
+
 	var cmds []tea.Cmd
 	started := m.detailRefreshing
 	if m.store.BeginDetail(msg.ID) {

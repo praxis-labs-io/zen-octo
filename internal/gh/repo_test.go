@@ -10,16 +10,10 @@ import (
 const repoMetaBody = `{
   "rateLimit": {"limit": 5000, "cost": 1, "remaining": 4900, "resetAt": "2026-08-04T18:00:00Z"},
   "repository": {
-    "mergeCommitAllowed": true,
-    "squashMergeAllowed": true,
-    "rebaseMergeAllowed": false,
-    "deleteBranchOnMerge": true,
-    "assignableUsers": {"nodes": [{"login": "drucial"}, {"login": "octocat"}]},
     "labels": {"nodes": [
       {"id": "LA_1", "name": "bug", "color": "d73a4a"},
       {"id": "LA_2", "name": "enhancement", "color": "a2eeef"}
-    ]},
-    "refs": {"nodes": [{"name": "main"}, {"name": "release/v1"}]}
+    ]}
   }
 }`
 
@@ -36,12 +30,12 @@ func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 	if got, want := f.gotVars["name"], "zen-octo"; got != want {
 		t.Errorf("name = %v, want %v", got, want)
 	}
-	if !strings.Contains(f.gotQuery, "assignableUsers") {
-		t.Error("query does not ask for assignableUsers")
+	if !strings.Contains(f.gotQuery, "labels(first: 100)") {
+		t.Error("query does not ask for the repository's labels")
 	}
 }
 
-func TestRepoMetaMapsEveryList(t *testing.T) {
+func TestRepoMetaMapsTheLabels(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
 	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
@@ -49,13 +43,6 @@ func TestRepoMetaMapsEveryList(t *testing.T) {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 	meta := res.Meta
-
-	if got, want := len(meta.Assignable), 2; got != want {
-		t.Fatalf("assignable = %d, want %d", got, want)
-	}
-	if got, want := meta.Assignable[0].Login, "drucial"; got != want {
-		t.Errorf("assignable[0] = %q, want %q", got, want)
-	}
 
 	if got, want := len(meta.Labels), 2; got != want {
 		t.Fatalf("labels = %d, want %d", got, want)
@@ -69,20 +56,25 @@ func TestRepoMetaMapsEveryList(t *testing.T) {
 		t.Errorf("labels[0].Name = %q, want %q", got, want)
 	}
 
-	if got, want := len(meta.Branches), 2; got != want {
-		t.Fatalf("branches = %d, want %d", got, want)
-	}
-	if got, want := meta.Branches[1], "release/v1"; got != want {
-		t.Errorf("branches[1] = %q, want %q", got, want)
-	}
-
-	want := MergeMethods{Merge: true, Squash: true, Rebase: false, DeleteBranch: true}
-	if meta.Merge != want {
-		t.Errorf("merge = %+v, want %+v", meta.Merge, want)
-	}
-
 	if got, want := res.RateLimit.Remaining, 4900; got != want {
 		t.Errorf("remaining = %d, want %d", got, want)
+	}
+}
+
+// The query asks for labels and nothing else. Every extra connection is billed
+// to the reader on the first picker open, so a field arrives with the picker
+// that reads it.
+func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo"); err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	for _, unread := range []string{"assignableUsers", "refs(", "mergeCommitAllowed", "deleteBranchOnMerge"} {
+		if strings.Contains(f.gotQuery, unread) {
+			t.Errorf("the query asks for %s, which nothing renders", unread)
+		}
 	}
 }
 

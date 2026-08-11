@@ -7,28 +7,22 @@ import (
 	"time"
 )
 
-// repoMetaQuery is everything a picker needs to offer a choice, in one round
-// trip. Four lists that change on the scale of days, asked for together because
-// a reader opening the labels picker will open the assignees one next and a
-// second wait buys nothing.
+// repoMetaQuery is what a picker on the detail rail draws its choices from.
 //
-// The first hundred of each. GitHub caps a connection page at a hundred and a
-// repository past that in any of these is one where filtering by hand has
-// already stopped working; paging it would spend three more round trips to
-// serve a case the picker's filter row serves better.
+// Labels alone. The assignable users, the branches and the merge flags belong
+// to pickers that do not exist yet, and asking for them now spends rate-limit
+// points on every open for lists nothing renders. Each lands with the ticket
+// that reads it.
+//
+// The first hundred. GitHub caps a connection page at a hundred, and a
+// repository past that is one where scrolling a picker has stopped working
+// anyway; the union in the screen keeps a label outside the page from being
+// dropped by a write.
 const repoMetaQuery = `
 query RepoMeta($owner: String!, $name: String!) {
   rateLimit { limit cost remaining resetAt }
   repository(owner: $owner, name: $name) {
-    mergeCommitAllowed
-    squashMergeAllowed
-    rebaseMergeAllowed
-    deleteBranchOnMerge
-    assignableUsers(first: 100) { nodes { login } }
     labels(first: 100) { nodes { id name } }
-    refs(refPrefix: "refs/heads/", first: 100, orderBy: {field: ALPHABETICAL, direction: ASC}) {
-      nodes { name }
-    }
   }
 }`
 
@@ -41,19 +35,8 @@ type repoMetaResponse struct {
 	}
 
 	Repository *struct {
-		MergeCommitAllowed  bool
-		SquashMergeAllowed  bool
-		RebaseMergeAllowed  bool
-		DeleteBranchOnMerge bool
-
-		AssignableUsers struct {
-			Nodes []struct{ Login string }
-		}
 		Labels struct {
 			Nodes []struct{ ID, Name string }
-		}
-		Refs struct {
-			Nodes []struct{ Name string }
 		}
 	}
 }
@@ -80,26 +63,10 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 		return RepoMetaResult{}, fmt.Errorf("fetching repository metadata: GitHub returned no repository %q", repo)
 	}
 
-	r := resp.Repository
-	meta := RepoMeta{
-		Merge: MergeMethods{
-			Merge:        r.MergeCommitAllowed,
-			Squash:       r.SquashMergeAllowed,
-			Rebase:       r.RebaseMergeAllowed,
-			DeleteBranch: r.DeleteBranchOnMerge,
-		},
-		Assignable: make([]Actor, 0, len(r.AssignableUsers.Nodes)),
-		Labels:     make([]Label, 0, len(r.Labels.Nodes)),
-		Branches:   make([]string, 0, len(r.Refs.Nodes)),
-	}
-	for _, n := range r.AssignableUsers.Nodes {
-		meta.Assignable = append(meta.Assignable, Actor{Login: n.Login})
-	}
-	for _, n := range r.Labels.Nodes {
+	nodes := resp.Repository.Labels.Nodes
+	meta := RepoMeta{Labels: make([]Label, 0, len(nodes))}
+	for _, n := range nodes {
 		meta.Labels = append(meta.Labels, Label{ID: n.ID, Name: n.Name})
-	}
-	for _, n := range r.Refs.Nodes {
-		meta.Branches = append(meta.Branches, n.Name)
 	}
 
 	return RepoMetaResult{

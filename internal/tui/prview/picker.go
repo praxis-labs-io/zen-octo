@@ -2,6 +2,7 @@ package prview
 
 import (
 	"image/color"
+	"slices"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -31,6 +32,13 @@ type picking struct {
 	field pickField
 	p     comp.Picker
 
+	// choices is what the picker was built over, held so applying reads the
+	// same list it offered. Rebuilding it at apply time would let a refetch
+	// landing while the modal was up change the set under the reader, and a
+	// choice that disappeared between opening and applying is one the write
+	// would silently drop.
+	choices []gh.Label
+
 	want pickField
 }
 
@@ -56,13 +64,23 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 
 // SetRepo hands the screen the choices its pickers draw from, and opens the one
 // that was waiting on them.
+//
+// Only if the reader is still standing where they asked. A metadata fetch is a
+// round trip, and they may have started writing a comment or walked to another
+// pane meanwhile. A modal dropping over a box mid-sentence takes the keyboard
+// with it, because the picker answers keys ahead of the box.
 func (m *Model) SetRepo(r store.Repo) {
 	m.repo = r
 	if m.picking.want == pickNone || !r.Loaded {
 		return
 	}
+
 	want := m.picking.want
 	m.picking.want = pickNone
+
+	if m.Composing() || !m.railVisible() || m.focus != paneRail {
+		return
+	}
 	m.startPicker(want)
 }
 
@@ -99,13 +117,36 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 func (m *Model) startPicker(field pickField) {
 	switch field {
 	case pickLabels:
-		m.picking = picking{field: field, p: comp.NewPicker(
-			"Labels",
-			labelItems(m.repo.Meta.Labels, m.theme.Secondary),
-			labelIDs(m.railDetail().Labels),
-			true,
-		)}
+		on := m.railDetail().Labels
+		choices := labelChoices(m.repo.Meta.Labels, on)
+		m.picking = picking{
+			field:   field,
+			choices: choices,
+			p: comp.NewPicker(
+				"Labels",
+				labelItems(choices, m.theme.Secondary),
+				labelIDs(on),
+				true,
+			),
+		}
 	}
+}
+
+// labelChoices is every label the picker may show: the repository's, then any
+// the pull request already carries that the repository's page did not reach.
+//
+// The union is what keeps the write honest. Both lists are a first page, one of
+// a hundred and one of twenty, and applying replaces the whole set. A label the
+// picker never listed is a label nobody could keep checked, so leaving it out
+// here deletes it from the pull request with nothing on screen to say so.
+func labelChoices(repo, onPR []gh.Label) []gh.Label {
+	out := slices.Clone(repo)
+	for _, l := range onPR {
+		if !slices.ContainsFunc(out, func(c gh.Label) bool { return c.ID == l.ID }) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // labelItems is the repository's labels as choices, in the accent the rail
@@ -171,14 +212,14 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 // an unchanged picker is how a reader backs out of one they opened by mistake,
 // and it should cost neither a request nor a toast.
 func (m Model) applyPicker() (Model, tea.Cmd) {
-	field, chosen := m.picking.field, m.picking.p.Chosen()
+	field, chosen, choices := m.picking.field, m.picking.p.Chosen(), m.picking.choices
 	m.picking = picking{}
 
 	if field != pickLabels {
 		return m, nil
 	}
 
-	labels := labelsByID(m.repo.Meta.Labels, chosen)
+	labels := labelsByID(choices, chosen)
 	if sameLabels(labels, m.railDetail().Labels) {
 		return m, nil
 	}
@@ -205,14 +246,21 @@ func labelsByID(all []gh.Label, ids []string) []gh.Label {
 	return out
 }
 
-// sameLabels compares by id and order. Both sides come out of the repository's
-// own list, so the order is the same whenever the set is.
+// sameLabels compares the two as sets of ids, never as sequences. They come
+// from different connections: the chosen set is in the repository's order and
+// the pull request's is in its own, neither query asks for an ordering, and
+// comparing by position would call an untouched picker a change and fire the
+// write this check exists to prevent.
 func sameLabels(a, b []gh.Label) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i].ID != b[i].ID {
+	seen := make(map[string]bool, len(a))
+	for _, l := range a {
+		seen[l.ID] = true
+	}
+	for _, l := range b {
+		if !seen[l.ID] {
 			return false
 		}
 	}

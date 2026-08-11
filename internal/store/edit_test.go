@@ -171,7 +171,7 @@ func TestRepoMetaIsHeldForTheNextPicker(t *testing.T) {
 		t.Fatal("BeginRepoMeta refused a repository never fetched")
 	}
 	s.RepoMetaApplied("zen-octo/zen-octo", gh.RepoMetaResult{
-		Meta: gh.RepoMeta{Labels: labelSet("bug"), Branches: []string{"main"}},
+		Meta: gh.RepoMeta{Labels: labelSet("bug")},
 	})
 
 	held := s.Repo("zen-octo/zen-octo")
@@ -224,5 +224,39 @@ func TestFailedRepoMetaCarriesItsError(t *testing.T) {
 	}
 	if held.Loaded {
 		t.Error("a failed first fetch is marked loaded")
+	}
+}
+
+// Two writes settle in whatever order the network gives them. The earlier one
+// answering last must not overwrite the reader's newer ask with a set they have
+// already moved on from.
+func TestAnEarlierLabelResponseDoesNotOverwriteALaterEdit(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", labelled("bug"))
+
+	first := s.PendingLabels("PR_1", labelSet("urgent"))
+	s.PendingLabels("PR_1", labelSet("urgent", "docs"))
+
+	// The first write answers last, carrying the set nobody is asking for now.
+	s.LabelsApplied("PR_1", first, gh.LabelsResult{Labels: labelSet("urgent")})
+
+	if got, want := labelNames(s.Detail("PR_1")), []string{"urgent", "docs"}; !slices.Equal(got, want) {
+		t.Errorf("labels = %q, want the later edit still showing", got)
+	}
+}
+
+// Once the last write settles, GitHub's answer is the authority again.
+func TestTheLastLabelResponseWritesTheHeldSet(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", labelled("bug"))
+
+	first := s.PendingLabels("PR_1", labelSet("urgent"))
+	second := s.PendingLabels("PR_1", labelSet("urgent", "docs"))
+
+	s.LabelsApplied("PR_1", first, gh.LabelsResult{Labels: labelSet("urgent")})
+	s.LabelsApplied("PR_1", second, gh.LabelsResult{Labels: labelSet("urgent", "docs")})
+
+	if got, want := labelNames(s.Detail("PR_1")), []string{"urgent", "docs"}; !slices.Equal(got, want) {
+		t.Errorf("labels = %q, want %q", got, want)
 	}
 }
