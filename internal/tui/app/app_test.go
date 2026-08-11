@@ -47,6 +47,7 @@ type fakeSearcher struct {
 	settled     []string
 	labelled    []string
 	assigned    []string
+	reviewed    []string
 	moved       []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
@@ -159,6 +160,18 @@ func (f *fakeSearcher) serveAssignees(id string, assignees []gh.Actor) {
 	}
 	held := f.details[id]
 	held.Assignees = assignees
+	f.details[id] = held
+}
+
+// serveReviewers stages the reviewer panel one pull request carries.
+func (f *fakeSearcher) serveReviewers(id string, reviewers []gh.Reviewer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Reviewers = reviewers
 	f.details[id] = held
 }
 
@@ -412,6 +425,79 @@ func (f *fakeSearcher) assigneeWrites() []string {
 	return slices.Clone(f.assigned)
 }
 
+// RequestReviews records the ask and puts each login on the staged panel as
+// somebody being waited on, so the refetch the write fires reports it rather
+// than the panel from before. It reuses postErr and postHold the way the other
+// writes do.
+func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int, logins []string) error {
+	f.mu.Lock()
+	f.reviewed = append(f.reviewed, "+"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+	if err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.idOf(number)
+	held := f.details[id]
+	for _, l := range logins {
+		if !slices.ContainsFunc(held.Reviewers, func(r gh.Reviewer) bool { return r.Actor.Login == l }) {
+			held.Reviewers = append(held.Reviewers, gh.Reviewer{Actor: gh.Actor{Login: l}})
+		}
+	}
+	f.details[id] = held
+	return nil
+}
+
+// RemoveReviewRequests records the ask and takes each login off the staged
+// panel, but only where no verdict has been submitted: cancelling reaches an
+// outstanding request and nothing else, which is what the real endpoint does.
+func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, number int, logins []string) error {
+	f.mu.Lock()
+	f.reviewed = append(f.reviewed, "-"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+	if err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.idOf(number)
+	held := f.details[id]
+	held.Reviewers = slices.DeleteFunc(slices.Clone(held.Reviewers), func(r gh.Reviewer) bool {
+		return r.State == "" && !r.Team && slices.Contains(logins, r.Actor.Login)
+	})
+	f.details[id] = held
+	return nil
+}
+
+// idOf is the node id of the pull request with this number. The two reviewer
+// calls address one by repository and number, which is how REST names it, and
+// everything the fake stages is keyed by id.
+func (f *fakeSearcher) idOf(number int) string {
+	for _, pr := range f.prs {
+		if pr.Number == number {
+			return pr.ID
+		}
+	}
+	return ""
+}
+
+// reviewerWrites is the reviewer changes the model asked for, in order, each
+// marked with the direction it went.
+func (f *fakeSearcher) reviewerWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.reviewed)
+}
+
 // SetState answers with where the transition lands, so a test reads the rail
 // rather than the fake's own bookkeeping. It reuses postErr and postHold, the
 // way SetLabels does, so a test stages one failure for whichever write it is
@@ -600,6 +686,14 @@ func (f *querySearcher) SetState(_ context.Context, _ string, _ gh.PRTransition)
 
 func (f *querySearcher) SetAssignees(_ context.Context, _ string, _ []string) (gh.AssigneesResult, error) {
 	return gh.AssigneesResult{}, nil
+}
+
+func (f *querySearcher) RequestReviews(_ context.Context, _ string, _ int, _ []string) error {
+	return nil
+}
+
+func (f *querySearcher) RemoveReviewRequests(_ context.Context, _ string, _ int, _ []string) error {
+	return nil
 }
 
 func testConfig() *config.Config {

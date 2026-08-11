@@ -394,7 +394,11 @@ func sampleDetail() gh.PullRequestDetail {
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "octobot"}, State: gh.ReviewStateApproved},
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}},
+			// Marked as a team, which is what the decoder does with one: its
+			// handle is built rather than sent, and no write may spell a login
+			// with it. Without the flag it reads here as somebody with an
+			// outstanding request, which the reviewer picker would then cancel.
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Team: true},
 		},
 		Rollup: gh.CheckRollup{
 			State: gh.CheckStateFailure,

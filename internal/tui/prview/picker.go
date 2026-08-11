@@ -22,13 +22,14 @@ const (
 	pickLabels
 	pickState
 	pickAssignees
+	pickReviewers
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
 // to the detail the screen already holds. Only those cost a round trip before
 // the modal can open; the state menu is built from what is on screen.
 func (f pickField) needsRepo() bool {
-	return f == pickLabels || f == pickAssignees
+	return f == pickLabels || f == pickAssignees || f == pickReviewers
 }
 
 // picking is the picker over the screen, if any.
@@ -55,6 +56,12 @@ type picking struct {
 	// themselves, so applying reads them straight back off the picker.
 	labels []gh.Label
 	users  []gh.Actor
+
+	// reviewers is the panel the reviewer picker was built against, held for
+	// the same reason and needed for a second one: that write applies a delta,
+	// so the set it is a delta from has to be the set the reader was looking at
+	// when they ticked.
+	reviewers []gh.Reviewer
 
 	want pickField
 }
@@ -128,6 +135,8 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		want = pickLabels
 	case focusAssignee, focusAddAssignee:
 		want = pickAssignees
+	case focusReviewer, focusAddReviewer:
+		want = pickReviewers
 	case focusState:
 		want = pickState
 	default:
@@ -188,6 +197,24 @@ func (m *Model) startPicker(field pickField) {
 				"Assignees",
 				m.assigneeItems(choices),
 				actorIDs(on),
+				true,
+			),
+		}
+
+	case pickReviewers:
+		panel := m.railDetail().Reviewers
+		choices := reviewerChoices(m.repo.Meta.Users, m.pr)
+		m.picking = picking{
+			field:     field,
+			users:     choices,
+			reviewers: panel,
+			p: comp.NewPicker(
+				"Reviewers",
+				m.reviewerItems(choices),
+				// Who is being waited on, not who is on the panel. A tick
+				// means a review is requested, so somebody who has already
+				// answered opens unchecked and ticking them asks again.
+				pendingReviewers(panel),
 				true,
 			),
 		}
@@ -280,6 +307,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 		return m.applyLabels(p)
 	case pickAssignees:
 		return m.applyAssignees(p)
+	case pickReviewers:
+		return m.applyReviewers(p)
 	case pickState:
 		return m.applyState(p)
 	}

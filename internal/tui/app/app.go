@@ -43,6 +43,11 @@ type GitHub interface {
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
 	SetState(ctx context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error)
 	SetAssignees(ctx context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error)
+
+	// The two REST writes, addressed by repository and number rather than by
+	// node id: GraphQL cannot request Copilot, so this pair goes the other way.
+	RequestReviews(ctx context.Context, repo string, number int, logins []string) error
+	RemoveReviewRequests(ctx context.Context, repo string, number int, logins []string) error
 }
 
 // The viewer is asked for once, at startup. It names nothing because there is
@@ -1017,6 +1022,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case labelsFailedMsg:
 		return m.labelsFailed(msg)
+
+	case prview.SetReviewersMsg:
+		return m.setReviewers(msg)
+
+	case reviewersSetMsg:
+		return m.reviewersLanded(msg)
+
+	case reviewersFailedMsg:
+		return m.reviewersFailed(msg)
 
 	case prview.SetAssigneesMsg:
 		return m.setAssignees(msg)

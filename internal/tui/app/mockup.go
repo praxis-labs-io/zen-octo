@@ -122,6 +122,12 @@ func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.
 	return gh.AssigneesResult{Assignees: out}, nil
 }
 
+// RequestReviews and RemoveReviewRequests answer without recording anything.
+// The fixture renders the screen rather than modelling GitHub, and Mock has
+// value receivers with nowhere to keep a panel.
+func (Mock) RequestReviews(context.Context, string, int, []string) error       { return nil }
+func (Mock) RemoveReviewRequests(context.Context, string, int, []string) error { return nil }
+
 // SetThreadResolved hands the toggle straight back, with the permissions the
 // real one flips: a thread just resolved can only be unresolved.
 func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
