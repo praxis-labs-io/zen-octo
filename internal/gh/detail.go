@@ -41,7 +41,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
 
       baseRef { compare(headRef: $head) { behindBy } }
 
-      labels(first: 20) { nodes { name color } }
+      labels(first: 20) { nodes { id name } }
       assignees(first: 10) { nodes { login } }
       reviewRequests(first: 10) {
         nodes {
@@ -241,7 +241,7 @@ type pullRequestResponse struct {
 		}
 
 		Labels struct {
-			Nodes []struct{ Name, Color string }
+			Nodes []struct{ ID, Name string }
 		}
 		Assignees struct{ Nodes []struct{ Login string } }
 
@@ -402,7 +402,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}
 
 	for _, l := range n.Labels.Nodes {
-		detail.Labels = append(detail.Labels, Label{Name: l.Name, Color: l.Color})
+		detail.Labels = append(detail.Labels, Label{ID: l.ID, Name: l.Name})
 	}
 	for _, a := range n.Assignees.Nodes {
 		detail.Assignees = append(detail.Assignees, Actor{Login: a.Login})

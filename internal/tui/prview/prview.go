@@ -263,6 +263,14 @@ type Model struct {
 	railOn      bool
 	railUserSet bool
 
+	// repo is the choices the rail's pickers offer, held by the root and handed
+	// down. It belongs to the repository rather than to this pull request, so
+	// it survives opening the next one.
+	repo store.Repo
+
+	// picking is the picker over the screen, empty when there is none.
+	picking picking
+
 	width  int
 	height int
 }
@@ -459,9 +467,12 @@ func waitingFor(f store.Files) bool {
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
-	// A box takes the keyboard while it is being written in. Every letter is a
-	// letter then, so nothing below this line gets a look.
+	// A box takes the keyboard while it is being written in, and so does a
+	// picker. Every letter is a letter then, so nothing below this line gets a
+	// look.
 	switch {
+	case m.picking.open():
+		return m.pickerKey(keyMsg)
 	case m.compose.typing:
 		return m.composeKey(keyMsg)
 	case m.reply.typing:
@@ -495,6 +506,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// draws no box at all.
 	case key.Matches(keyMsg, k.Comment) && m.canCompose():
 		return m.writeComment()
+
+	// A rail row opens what it holds. This is ahead of the compose card because
+	// the ring on the conversation keeps its focus while the rail has the keys,
+	// and enter with the rail focused means the row under the rail's cursor.
+	case key.Matches(keyMsg, k.Activate) && m.focus == paneRail:
+		return m.openRailPicker()
 
 	// The box is a card like any other, so the ring reaches it and enter is what
 	// steps into it, the same key that presses the button once inside.
@@ -1176,7 +1193,7 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	return m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...))
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

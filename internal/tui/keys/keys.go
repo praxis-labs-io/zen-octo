@@ -100,6 +100,11 @@ type DetailMap struct {
 	// a comment on a line raises that the conversation cannot answer.
 	Resolve key.Binding
 	Jump    key.Binding
+
+	// Toggle checks and unchecks a row in a picker that takes a set. It is live
+	// only while one is open, which is why it can take space: nothing else on
+	// this screen wants it, and a picker owns the keyboard whenever it is up.
+	Toggle key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
@@ -151,7 +156,7 @@ var (
 
 		Comment:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
 		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
-		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "press the button")),
+		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open or press")),
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
@@ -159,6 +164,7 @@ var (
 		PrevWithin: key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "prev in thread")),
 		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
 		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
+		Toggle:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
 	}
 )
 
@@ -200,6 +206,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
 		{k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
+		{k.Toggle},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

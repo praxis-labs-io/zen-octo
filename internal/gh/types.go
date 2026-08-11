@@ -74,11 +74,18 @@ type Actor struct {
 	Login string
 }
 
-// Label is one label. Color is GitHub's own six hex digits without a leading
-// hash, because a label's color is its identity across every client.
+// Label is one label.
+//
+// ID is the node id, which is the only thing updatePullRequest will take: the
+// mutation sets labels by id and has no spelling that accepts a name.
+//
+// GitHub's own color is deliberately not fetched. The hex is chosen against a
+// white browser page, so a pale label vanishes on a dark terminal and no theme
+// can reach it, and a terminal speaking only ANSI cannot show it at all. Labels
+// are colored from the active theme instead.
 type Label struct {
-	Name  string
-	Color string
+	ID   string
+	Name string
 }
 
 // CommentKind says which of GitHub's three comment types this is. A node id on
@@ -432,6 +439,47 @@ type ThreadResult struct {
 type SearchResult struct {
 	PullRequests []PullRequest
 	RateLimit    RateLimit
+}
+
+// MergeMethods is which ways a repository allows a pull request to be merged,
+// and whether it deletes the branch afterwards by default. The merge form
+// offers only what is true here: a method the repository forbids is a button
+// that opens a write GitHub rejects.
+type MergeMethods struct {
+	Merge        bool
+	Squash       bool
+	Rebase       bool
+	DeleteBranch bool
+}
+
+// RepoMeta is the choices a picker on the detail rail draws from. It belongs to
+// the repository rather than to any one pull request, changes on the scale of
+// days, and is fetched once per repository per session.
+//
+// Branches are names rather than refs. A pull request targets a branch by name
+// and nothing above this package has anything to do with a ref's node id.
+type RepoMeta struct {
+	Assignable []Actor
+	Labels     []Label
+	Branches   []string
+	Merge      MergeMethods
+}
+
+// RepoMetaResult is one repository-metadata response: the choices and what they
+// cost.
+type RepoMetaResult struct {
+	Meta      RepoMeta
+	RateLimit RateLimit
+}
+
+// LabelsResult is a pull request's labels as GitHub recorded them after a
+// write. The whole set comes back rather than the delta, because the picker
+// applies a whole set and the rail renders one: reconciling a delta against a
+// list the reader already sees means computing what GitHub just told us.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type LabelsResult struct {
+	Labels []Label
 }
 
 // PullRequest is the shape the rest of the app sees. It is deliberately not

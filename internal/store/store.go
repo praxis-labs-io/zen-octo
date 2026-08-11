@@ -105,6 +105,7 @@ type Store struct {
 	details  map[string]Detail
 	files    map[string]Files
 	commits  map[string]Files
+	repos    map[string]Repo
 	rate     gh.RateLimit
 	viewer   gh.Actor
 
@@ -115,8 +116,14 @@ type Store struct {
 	// resolving is the same for the toggle on a review thread, sharing the
 	// counter so a comment and a resolve out at once can never take one key
 	// between them.
+	//
+	// edits is the same for the metadata a picker applies, sharing the counter
+	// for the same reason. It is a slice rather than one edit per field because
+	// two writes on one field can be out at once, and the later one wins only
+	// if the order they were held in survives.
 	pending   map[string][]Pending
 	resolving map[string][]Resolution
+	edits     map[string][]Edit
 	writes    int
 }
 
@@ -131,6 +138,7 @@ func New(sections []config.Section) Store {
 		details:  make(map[string]Detail),
 		files:    make(map[string]Files),
 		commits:  make(map[string]Files),
+		repos:    make(map[string]Repo),
 	}
 }
 
@@ -217,9 +225,16 @@ func (s *Store) Failed(i int, err error) {
 // every thread's comments to append to a timeline.
 func (s Store) Detail(id string) Detail {
 	held := s.details[id]
-	waiting, settling := s.pending[id], s.resolving[id]
-	if len(waiting) == 0 && len(settling) == 0 {
+	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
+	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 {
 		return held
+	}
+
+	// Edits go first. Each replaces a whole value and none of them touches the
+	// timeline or the threads, so the two folds below neither read what this
+	// wrote nor write what it read.
+	for _, e := range editing {
+		held.Detail = e.Apply(held.Detail)
 	}
 
 	timeline, threads := held.Detail.Timeline, held.Detail.Threads
