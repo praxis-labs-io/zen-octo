@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -57,6 +58,10 @@ type fakeSearcher struct {
 	filesErr    error
 	commitErr   error
 	postErr     error
+	// requestErr fails the second half of a reviewer write alone, which is the
+	// one shape postErr cannot stage: the cancellation has already landed by
+	// then, so the revert puts back a request that is really gone.
+	requestErr  error
 	commitHold  time.Duration
 	postHold    time.Duration
 	gotLimit    int
@@ -432,7 +437,7 @@ func (f *fakeSearcher) assigneeWrites() []string {
 func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int, logins []string) error {
 	f.mu.Lock()
 	f.reviewed = append(f.reviewed, "+"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
-	err, hold := f.postErr, f.postHold
+	err, hold := cmp.Or(f.requestErr, f.postErr), f.postHold
 	f.mu.Unlock()
 
 	time.Sleep(hold)
