@@ -95,9 +95,9 @@ A body of work big enough to need milestones gets its own finite epic project, n
 
 ### Shipping
 
-Feature-complete work ships via the `ship-feature` skill at `.claude/skills/ship-feature/SKILL.md`: `make all` green, push, draft PR, Copilot + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
+Feature-complete work ships via the global `ship-feature` skill: `make all` green, push, draft PR, Copilot + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
 
-**That file is a copy, and the copy is deliberate.** The source of truth lives in Drew's global skills; every repo carries a real copy rather than a symlink, because a cloud session clones this repo alone and a link into a sibling checkout would dangle. Propagation is manual. Never edit the copy here: the next copy-out discards the change silently. Edit the source, then copy it in.
+**This repo carries no copy of it.** It did until 2026-08-11, so that a session cloning this repo alone would still have the skill. Manual propagation is what actually happened instead: the copy drifted, shadowed the live one, and spent over a week prescribing a Copilot review request that never worked. A stale copy is worse than an absent skill, because nothing about it reads as stale. A session that cannot see the global skill should say so rather than follow a copy nobody maintains.
 
 ### Specs and plans
 
