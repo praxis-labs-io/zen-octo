@@ -2,7 +2,6 @@ package prview
 
 import (
 	"image/color"
-	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -94,20 +93,17 @@ func (m Model) stateChoice(to gh.PRTransition) (string, color.Color) {
 // No unchanged check, unlike labels: the menu never offers a move the pull
 // request has already made, so every pick is a change.
 //
-// It applies only a transition the picker actually offered. A sync landing
-// while the modal is up can rewrite what the pull request will take, and the
-// held list is what the reader was looking at when they pressed the key.
+// No check that the transition is one the menu offered either. The ids come
+// from the items, the items were built from the choices, and a picker cannot
+// return one it was not given. GitHub is the authority on whether the move is
+// still available, and the revert branch is what answers when it is not.
 func (m Model) applyState(p picking) (Model, tea.Cmd) {
 	chosen := p.p.Chosen()
 	if len(chosen) != 1 {
 		return m, nil
 	}
 
-	to := gh.PRTransition(chosen[0])
-	if !slices.Contains(p.states, to) {
-		return m, nil
-	}
-
 	id := m.pr.ID
+	to := gh.PRTransition(chosen[0])
 	return m, func() tea.Msg { return SetStateMsg{ID: id, To: to} }
 }

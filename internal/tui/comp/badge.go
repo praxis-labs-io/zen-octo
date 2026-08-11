@@ -21,42 +21,71 @@ const (
 	glyphPRClosed = "" // nf-cod-git_pull_request_closed
 )
 
-// PRStateIcon is the lifecycle marker: open, draft, merged, or closed.
-//
-// The state is read before the draft flag, never the other way around. They are
-// independent fields and a closed draft carries both, but draft is a stage of
-// being open: GitHub keeps the flag set on one it closed, so reading it first
-// leaves a closed pull request marked as a draft somebody could still pick up.
-// Reopening it gives the draft back, which is where the flag earns its keep.
-func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
+// prStateKind is a pull request's two lifecycle fields resolved to the one
+// thing worth showing. The icon and the label both read it, so the precedence
+// is written once: a fifth state, or a change to where the draft flag sits in
+// the order, cannot leave the two disagreeing.
+type prStateKind int
+
+const (
+	prKindOpen prStateKind = iota
+	prKindDraft
+	prKindClosed
+	prKindMerged
+
+	// prKindUnknown is a state GitHub added since. It comes off the wire
+	// unvalidated, and claiming it is open is the one reading that could be
+	// wrong in a way that matters.
+	prKindUnknown
+)
+
+// prStateOf reads the state before the draft flag, never the other way around.
+// They are independent fields and a closed pull request carries both, but draft
+// is a stage of being open: GitHub keeps the flag set on one it closed, so
+// reading it first leaves a closed pull request marked as a draft somebody could
+// still pick up. Reopening gives the draft back, which is where the flag earns
+// its keep.
+func prStateOf(pr gh.PullRequest) prStateKind {
 	switch pr.State {
 	case gh.PRStateMerged:
-		return glyphPRMerged, th.Secondary
+		return prKindMerged
 	case gh.PRStateClosed:
-		return glyphPRClosed, th.Error
+		return prKindClosed
 	}
 	if pr.IsDraft {
-		return glyphPRDraft, th.Faint
+		return prKindDraft
 	}
 	if pr.State == gh.PRStateOpen {
+		return prKindOpen
+	}
+	return prKindUnknown
+}
+
+// PRStateIcon is the lifecycle marker: open, draft, merged, or closed.
+func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
+	switch prStateOf(pr) {
+	case prKindMerged:
+		return glyphPRMerged, th.Secondary
+	case prKindClosed:
+		return glyphPRClosed, th.Error
+	case prKindDraft:
+		return glyphPRDraft, th.Faint
+	case prKindOpen:
 		return glyphPROpen, th.Success
 	}
 	return glyphPROpen, th.Faint
 }
 
-// PRStateLabel names the same thing in words, for places with room for them. It
-// reads the two fields in the order PRStateIcon gives its reasons for.
+// PRStateLabel names the same thing in words, for places with room for them.
 func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
-	switch pr.State {
-	case gh.PRStateMerged:
+	switch prStateOf(pr) {
+	case prKindMerged:
 		return "Merged", th.Secondary
-	case gh.PRStateClosed:
+	case prKindClosed:
 		return "Closed", th.Error
-	}
-	if pr.IsDraft {
+	case prKindDraft:
 		return "Draft", th.Faint
-	}
-	if pr.State == gh.PRStateOpen {
+	case prKindOpen:
 		return "Open", th.Success
 	}
 	return string(pr.State), th.Faint

@@ -363,3 +363,66 @@ func TestTheStateMenuDoesNotGrowTheFrame(t *testing.T) {
 		}
 	}
 }
+
+// The store moves the state and never the permissions, so for the length of the
+// round trip a freshly closed pull request still carries the CanReopen GitHub
+// gave for an open one. Believing it drops the row the reader is standing on,
+// and the rail cursor goes with it.
+func TestTheStateRowKeepsTheCursorThroughAWrite(t *testing.T) {
+	m := onStateRow(t, detailed(stateDetail(gh.PRStateOpen, false, canAct), 200, 60))
+
+	if got := markedRailRow(t, m.View()); !isStateRow(got) {
+		t.Fatalf("the cursor is on %q before the write, want the State row", got)
+	}
+
+	// The optimistic close, exactly as the root applies it: the new state, the
+	// permissions from before it, and the write still out.
+	closing := stateDetail(gh.PRStateClosed, false, canAct)
+	closing.StateWriting = true
+	m.SetDetail(closing)
+
+	if got := markedRailRow(t, m.View()); !isStateRow(got) {
+		t.Errorf("the cursor left the State row mid-write, onto %q", got)
+	}
+}
+
+// Once the write answers and the refetch brings the real permissions, a row
+// with nothing left to offer goes back to stating a fact.
+func TestTheStateRowLetsGoOnceTheWriteHasAnswered(t *testing.T) {
+	m := onStateRow(t, detailed(stateDetail(gh.PRStateOpen, false, canAct), 200, 60))
+
+	// Closed, permissions caught up, nothing offered, and nothing in flight.
+	m.SetDetail(stateDetail(gh.PRStateClosed, false, gh.ViewerActions{}))
+
+	if got := markedRailRow(t, m.View()); isStateRow(got) {
+		t.Errorf("the State row is still the cursor with nothing to offer: %q", got)
+	}
+}
+
+// A metadata response outlives the ask that started it. By the time it lands
+// the reader may have opened a menu that needed no fetch, and dropping the
+// label picker over that one would change the choices under their hands between
+// one key and the next.
+func TestRepoMetaNeverOpensAPickerOverAnOpenOne(t *testing.T) {
+	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
+
+	// The label picker is asked for. Nothing opens: its choices are a round trip
+	// away.
+	m, _ = key(m, "enter")
+	if m.Capturing() {
+		t.Fatal("the label picker opened before its choices arrived")
+	}
+
+	// The reader moves on to the State row, whose menu needs no fetch.
+	m = onStateRow(t, m)
+	m, _ = key(m, "enter")
+	if !m.Capturing() {
+		t.Fatal("the state menu did not open")
+	}
+
+	m.SetRepo(loadedRepo())
+
+	if menu := stateMenu(t, m); !strings.Contains(menu, "Convert to draft") {
+		t.Errorf("the metadata response replaced the open menu:\n%s", pickerFrame(m))
+	}
+}

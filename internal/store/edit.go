@@ -24,11 +24,29 @@ type Edit interface {
 	// belonging to this session, never a node id.
 	Key() string
 
+	// Field is which part of the pull request this edit replaces. Two writes
+	// settle in whatever order the network gives them, and only one on the same
+	// field can overwrite the other's answer.
+	Field() editField
+
 	// Apply folds this write over a fetched detail. It must not write into any
 	// slice the detail arrived holding: the caller may already have handed that
 	// slice to a rendered page.
 	Apply(gh.PullRequestDetail) gh.PullRequestDetail
 }
+
+// editField names the part of the pull request an edit replaces.
+//
+// It exists because the queue holds more than one kind. An answer is only ever
+// stale against a later write on the same field: a label set landing while a
+// state change is still out says nothing about the state, and gating one on the
+// other drops an answer nobody is going to send again.
+type editField int
+
+const (
+	fieldLabels editField = iota
+	fieldState
+)
 
 // LabelEdit is a whole label set claimed for a pull request. The picker applies
 // a set rather than a delta, and so does the mutation behind it.
@@ -37,7 +55,8 @@ type LabelEdit struct {
 	labels []gh.Label
 }
 
-func (e LabelEdit) Key() string { return e.key }
+func (e LabelEdit) Key() string      { return e.key }
+func (e LabelEdit) Field() editField { return fieldLabels }
 
 // Apply replaces the label set. Cloned, so a caller that appends to what it is
 // handed cannot write into the slice this edit is still holding.
@@ -57,7 +76,8 @@ type StateEdit struct {
 	to  gh.PRTransition
 }
 
-func (e StateEdit) Key() string { return e.key }
+func (e StateEdit) Key() string      { return e.key }
+func (e StateEdit) Field() editField { return fieldState }
 
 // Apply moves the two fields the transition touches. Nothing to clone: it
 // writes scalars, so there is no slice here for a caller to be handed and then
@@ -92,8 +112,8 @@ func (s *Store) PendingState(id string, to gh.PRTransition) string {
 
 // StateApplied takes GitHub's answer for a lifecycle change and drops the write
 // it settles, on the same terms as LabelsApplied: written into the held detail
-// so the row does not fall back to the fetched state, and skipped entirely
-// while a later edit on the same pull request is still out.
+// so the row does not fall back to the fetched state, and skipped while a later
+// write on the state is still out.
 //
 // It writes no permissions. What the viewer may do next is GitHub's to say, and
 // a locally guessed CanReopen would offer a menu item that opens a write GitHub
@@ -104,13 +124,14 @@ func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
 	}
 
 	held, ok := s.details[id]
-	if !ok || len(s.edits[id]) > 0 {
+	if !ok || s.laterEdit(id, fieldState) {
 		return
 	}
 
 	held.Detail.State = res.State
 	held.Detail.IsDraft = res.IsDraft
 	s.put(id, held)
+	s.markStale(id)
 }
 
 // PendingLabels holds a label set applied here and not yet acknowledged, and
@@ -129,11 +150,15 @@ func (s *Store) PendingLabels(id string, labels []gh.Label) string {
 // next fetch: dropping the edit alone would put the fetched labels back on the
 // screen until something refetched, which reads as the write undoing itself.
 //
-// It writes nothing while a later edit on the same pull request is still out.
-// Two writes settle in whatever order the network gives them, and the earlier
-// one answering last would otherwise overwrite the reader's newer ask with a
-// set they have already moved on from. The fold renders the later edit until it
-// answers for itself.
+// It writes nothing while a later write on the labels is still out. Two settle
+// in whatever order the network gives them, and the earlier one answering last
+// would otherwise overwrite the reader's newer ask with a set they have already
+// moved on from. The fold renders the later edit until it answers for itself.
+//
+// On the labels, not on the pull request. A state change in flight says nothing
+// about what the labels are, and gating on it drops an answer nobody is going
+// to send again: the fold would keep rendering the fetched set, and if the
+// state write then failed there would be no edit left to explain it.
 //
 // No budget to fold: a mutation cannot report the rate limit.
 func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
@@ -142,12 +167,13 @@ func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 	}
 
 	held, ok := s.details[id]
-	if !ok || len(s.edits[id]) > 0 {
+	if !ok || s.laterEdit(id, fieldLabels) {
 		return
 	}
 
 	held.Detail.Labels = res.Labels
 	s.put(id, held)
+	s.markStale(id)
 }
 
 // EditReverted takes a metadata write back off the screen. The caller owns
@@ -162,6 +188,13 @@ func (s *Store) EditReverted(id, key string) { s.dropEdit(id, key) }
 func (s *Store) nextKey() string {
 	s.writes++
 	return "pending-" + strconv.Itoa(s.writes)
+}
+
+// laterEdit reports whether another write on the same field is still out. Every
+// edit left in the queue when one settles was held after it, so its answer is
+// the one the reader is waiting on.
+func (s *Store) laterEdit(id string, f editField) bool {
+	return slices.ContainsFunc(s.edits[id], func(e Edit) bool { return e.Field() == f })
 }
 
 // dropEdit removes one write and reports whether it was there. A response for a

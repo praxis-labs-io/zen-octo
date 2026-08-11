@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -70,16 +71,31 @@ func (m Model) sendState(msg prview.SetStateMsg, key string) tea.Cmd {
 func (m Model) stateLanded(msg stateSetMsg) (tea.Model, tea.Cmd) {
 	m.store.StateApplied(msg.id, msg.key, msg.res)
 
-	cmds := []tea.Cmd{m.toasts.Show(comp.ToastSuccess, stateToast(msg.to))}
+	// GitHub's answer, not the ask. They part company when somebody else moves
+	// the pull request first, and the rail is already showing what came back.
+	held := m.store.Detail(msg.id).Detail.PullRequest
+	landed, _ := comp.PRStateLabel(m.theme, held)
+
+	cmds := []tea.Cmd{m.toasts.Show(comp.ToastSuccess, stateToast(msg.to, held, landed))}
 	if m.showing(msg.id) {
 		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
 	}
+	return m, tea.Batch(append(cmds, m.correctDetail(msg.id))...)
+}
 
-	pr := m.store.Detail(msg.id).Detail.PullRequest
-	if pr.ID != "" && m.store.BeginDetail(msg.id) {
-		cmds = append(cmds, m.fetchDetail(msg.id, pr.HeadRefName))
+// correctDetail asks for the detail again after a write, and is nil when it
+// cannot.
+//
+// A fetch already in flight was asked for before this write, so it will answer
+// with the state from before it. The store drops that response rather than
+// storing it, and this owes another fetch once it has: detailSettled calls back
+// here, and by then BeginDetail will take it.
+func (m Model) correctDetail(id string) tea.Cmd {
+	pr := m.store.Detail(id).Detail.PullRequest
+	if pr.ID == "" || !m.store.BeginDetail(id) {
+		return nil
 	}
-	return m, tea.Batch(cmds...)
+	return m.fetchDetail(id, pr.HeadRefName)
 }
 
 // stateFailed is the revert branch. Nothing was typed, so the fetched state
@@ -94,8 +110,20 @@ func (m Model) stateFailed(msg stateFailedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
 }
 
-// stateToast says what happened, in the tense it happened in.
-func stateToast(to gh.PRTransition) string {
+// stateToast says what happened, naming the move only when the pull request
+// actually made it.
+//
+// The ask and the answer part company whenever somebody moves it first: asking
+// to convert one to a draft that has just been closed in the browser answers
+// CLOSED, and the rail is already showing that. Naming the ask there would
+// contradict the row under it and report a write that did not happen, so the
+// state it landed in is named instead. landed is the word the rail uses, passed
+// in rather than rebuilt, so the two cannot drift.
+func stateToast(to gh.PRTransition, pr gh.PullRequest, landed string) string {
+	if !took(to, pr) {
+		return "Now " + strings.ToLower(landed)
+	}
+
 	switch to {
 	case gh.TransitionReady:
 		return "Marked ready for review"
@@ -106,7 +134,24 @@ func stateToast(to gh.PRTransition) string {
 	case gh.TransitionReopen:
 		return "Reopened"
 	}
-	return "State changed"
+	return "Now " + strings.ToLower(landed)
+}
+
+// took reports whether the pull request ended up where the transition meant to
+// put it. Reopening says nothing about the draft flag, which it gives back
+// whatever it was, so it asks only about the state.
+func took(to gh.PRTransition, pr gh.PullRequest) bool {
+	switch to {
+	case gh.TransitionReady:
+		return pr.State == gh.PRStateOpen && !pr.IsDraft
+	case gh.TransitionDraft:
+		return pr.State == gh.PRStateOpen && pr.IsDraft
+	case gh.TransitionClose:
+		return pr.State == gh.PRStateClosed
+	case gh.TransitionReopen:
+		return pr.State == gh.PRStateOpen
+	}
+	return false
 }
 
 // stateVerb is the same move as the thing that could not be done, so the

@@ -163,3 +163,76 @@ func TestQDoesNotQuitWhileTheStateMenuIsUp(t *testing.T) {
 		t.Errorf("q reached the root and closed the menu:\n%s", out)
 	}
 }
+
+// A detail fetch asked for before the write answers from the state the pull
+// request was in beforehand. Taking it would put the close back on screen
+// undone, and the permissions that come with it would leave the row inert.
+//
+// The answer is held back by hand rather than by a slow fake: the pump drops
+// anything that does not answer within its own window, so a held response is
+// the only way to make one land after something else.
+func TestASyncInFlightDoesNotUndoALandedStateWrite(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	// The sync has to start before the menu opens: a picker owns every key while
+	// it is up, so s pressed over one syncs nothing.
+	m := moving(t, client)
+
+	m, stale := holdBack(m, keyMsg("s"), "detailFetchedMsg")
+	if len(stale) == 0 {
+		t.Fatal("the sync key started no detail fetch")
+	}
+
+	// Close while that response is still on its way.
+	m = press(m, "enter", "j", "enter")
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Closed") {
+		t.Fatalf("the close never reached the rail:\n%s", out)
+	}
+
+	// The sync answers now, carrying the pull request from before the close.
+	m = settle(m, stale...)
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Closed") {
+		t.Errorf("the stale response put the close back undone:\n%s", out)
+	}
+}
+
+// The toast names the state the pull request landed in, not the move that was
+// asked for. They part company when somebody moves it first.
+func TestTheToastNamesWhereItLandedNotWhatWasAsked(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	// Somebody closed it in the browser, so the draft conversion answers CLOSED.
+	client.serveState("PR_412", gh.PRStateClosed, false)
+
+	m := press(openStateMenu(t, client), "enter")
+
+	bar := lastLine(render(t, m))
+	if strings.Contains(bar, "Converted to draft") {
+		t.Errorf("status bar = %q, want it not to claim a move that did not happen", strings.TrimSpace(bar))
+	}
+	if !strings.Contains(strings.ToLower(bar), "closed") {
+		t.Errorf("status bar = %q, want the state it landed in", strings.TrimSpace(bar))
+	}
+}
+
+// A sync pressed while the write's own refetch is out has to report when that
+// refetch lands. The write records no refresh leg by design, so before this the
+// key found a fetch in flight, refused to start one, recorded nothing, and the
+// answer arrived unclaimed. The reader gets no spinner and no toast, and presses
+// the key again.
+func TestSyncWaitsOnTheRefetchAWriteStarted(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	// Convert to draft, and hold back the refetch the write fires.
+	m, refetch := holdBack(openStateMenu(t, client), keyMsg("enter"), "detailFetchedMsg")
+	if len(refetch) == 0 {
+		t.Fatal("the write started no refetch")
+	}
+
+	m = press(m, "s")
+	m = settle(m, refetch...)
+
+	if got := lastLine(render(t, m)); !strings.Contains(got, "Refreshed") {
+		t.Errorf("status bar = %q, want the sync reported when the refetch landed", strings.TrimSpace(got))
+	}
+}

@@ -629,6 +629,41 @@ func immediate(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
+// holdBack settles a message the way settle does, but keeps every message whose
+// type name contains want instead of delivering it. The caller delivers them
+// later, which is how a test makes one response land after another.
+//
+// responses cannot do this for a detail: the key produces a RefreshMsg, and the
+// fetch it starts is a hop further in. Nor can a slow fake, because the pump
+// drops any command that does not answer inside its own window, so the response
+// never arrives at all.
+//
+// Matching on the type name rather than the type is the price of driving the
+// root from outside its package. A rename fails the test loudly, because nothing
+// is held and the caller checks for that.
+func holdBack(m tea.Model, msg tea.Msg, want string) (tea.Model, []tea.Msg) {
+	queue := []tea.Msg{msg}
+	var held []tea.Msg
+
+	for range 64 {
+		if len(queue) == 0 {
+			break
+		}
+		next := queue[0]
+		queue = queue[1:]
+
+		if strings.Contains(fmt.Sprintf("%T", next), want) {
+			held = append(held, next)
+			continue
+		}
+
+		var cmd tea.Cmd
+		m, cmd = m.Update(next)
+		queue = append(queue, immediate(cmd)...)
+	}
+	return m, held
+}
+
 // responses runs a command and keeps the fetch results, dropping the spinner
 // tick that rides in the same batch. It is what lets a test hold one section's
 // answer back and let another land first.

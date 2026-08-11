@@ -629,9 +629,17 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	started := m.detailRefreshing
-	if m.store.BeginDetail(msg.ID) {
+	switch {
+	case m.store.BeginDetail(msg.ID):
 		started.detail = leg{key: msg.ID}
 		cmds = append(cmds, m.fetchDetail(msg.ID, pr.HeadRefName))
+
+	// One is already on its way, which on this screen means a write asked for
+	// it. Wait on that one rather than reporting nothing: the reader pressed the
+	// key and a detail genuinely is in flight, so the spinner and the summary
+	// are both true. Without this the key is silent and gets pressed again.
+	case m.store.Detail(msg.ID).Status == store.StatusLoading:
+		started.detail = leg{key: msg.ID}
 	}
 	if msg.Files && m.store.BeginFiles(msg.ID) {
 		started.files = leg{key: msg.ID}
@@ -862,19 +870,28 @@ func (m Model) fetchDetail(id, headRef string) tea.Cmd {
 // what it had, so without one nothing would say the refetch happened at all.
 func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 	held := m.store.Detail(id)
+
+	// The response that just answered was asked for before a write settled, so
+	// the store dropped it. Ask again, from wherever the reader now is: the
+	// correction belongs to the store rather than to the screen showing it.
+	var owed tea.Cmd
+	if err == nil && m.store.StaleDetail(id) {
+		owed = m.correctDetail(id)
+	}
+
 	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
-		return m, nil
+		return m, owed
 	}
 
 	armed := m.detail.SetDetail(held)
 	if cmd, claimed := m.claim(legDetail, id, err); claimed {
-		return m, tea.Batch(armed, cmd)
+		return m, tea.Batch(armed, cmd, owed)
 	}
 	if err != nil && held.Loaded {
 		return m, tea.Batch(armed,
 			m.toasts.Show(comp.ToastError, "Could not refresh #"+strconv.Itoa(m.detail.PullRequest().Number)))
 	}
-	return m, armed
+	return m, tea.Batch(armed, owed)
 }
 
 // Update applies every message. Nothing else mutates the model.

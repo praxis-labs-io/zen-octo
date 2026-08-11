@@ -38,13 +38,15 @@ type picking struct {
 	field pickField
 	p     comp.Picker
 
-	// choices and states are what the picker was built over, one per field,
-	// held so applying reads the same list it offered. Rebuilding either at
-	// apply time would let a refetch landing while the modal was up change the
-	// set under the reader, and a choice that disappeared between opening and
-	// applying is one the write would silently drop.
+	// choices is what the picker was built over, held so applying reads the
+	// same list it offered. Rebuilding it at apply time would let a refetch
+	// landing while the modal was up change the set under the reader, and a
+	// choice that disappeared between opening and applying is one the write
+	// would silently drop.
+	//
+	// The state menu needs no twin of this. Its ids are the transitions
+	// themselves, so applying reads them straight back off the picker.
 	choices []gh.Label
-	states  []gh.PRTransition
 
 	want pickField
 }
@@ -76,6 +78,14 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 // round trip, and they may have started writing a comment or walked to another
 // pane meanwhile. A modal dropping over a box mid-sentence takes the keyboard
 // with it, because the picker answers keys ahead of the box.
+//
+// A menu opened in the meantime cancels the ask rather than queueing behind it.
+// The state menu needs no fetch, so it can open while this one is still owed,
+// and startPicker clears want along with the rest of picking. That is deliberate
+// and it is the safer of the two: a label picker that arrived late would replace
+// the menu under the reader's hands between one key and the next. There is no
+// third case to worry about, because a picker owns every key while it is up and
+// nothing can ask for another one.
 func (m *Model) SetRepo(r store.Repo) {
 	m.repo = r
 	if m.picking.want == pickNone || !r.Loaded {
@@ -133,8 +143,7 @@ func (m *Model) startPicker(field pickField) {
 			return
 		}
 		m.picking = picking{
-			field:  field,
-			states: choices,
+			field: field,
 			// Nothing pre-checked, and single select: these are moves to make,
 			// not a set to hold. No state offers more than two, well under the
 			// picker's own threshold for a filter row, so the menu gets none.
