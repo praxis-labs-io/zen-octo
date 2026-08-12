@@ -118,7 +118,7 @@ const detailBody = `{
       ]
     },
 
-    "timelineItems": {"nodes": [
+    "timelineItems": {"filteredCount": 14, "nodes": [
       {"__typename": "HeadRefForcePushedEvent", "createdAt": "2026-08-04T12:00:00Z",
        "actor": {"login": "drucial"}},
       {"__typename": "LabeledEvent", "createdAt": "2026-08-04T13:00:00Z",
@@ -298,6 +298,21 @@ func TestEveryMetadataEventNamesWhatItWasDoneTo(t *testing.T) {
 	}
 	for kind := range want {
 		t.Errorf("no %s reached the timeline", kind)
+	}
+}
+
+// Every event type shares one window, and the metadata ones are the ones that
+// fill it. What fell out of it has to be counted off the filtered connection:
+// totalCount is the whole timeline, subscriptions and mentions included, and
+// reading it claims a hundred hidden events on a pull request that has none
+// this build would ever render.
+func TestTheEventsTheWindowCutOffAreCounted(t *testing.T) {
+	// Ten nodes came back against a filtered count of fourteen, so four were
+	// left behind. Two of the ten were dropped on the way in, and neither is
+	// one of those four: a row this build cannot render is still a row GitHub
+	// sent.
+	if got := fetchDetail(t).MoreEvents; got != 4 {
+		t.Errorf("MoreEvents = %d, want 4", got)
 	}
 }
 

@@ -397,12 +397,19 @@ type PullRequestDetail struct {
 	// up to date.
 	BehindBy int
 
-	// MoreComments, MoreThreads and MoreCommits are what the first page did not
-	// reach. A dropped comment that reads as no comment is the failure worth a
-	// field.
+	// MoreComments, MoreThreads, MoreCommits and MoreEvents are what the first
+	// page did not reach. A dropped comment that reads as no comment is the
+	// failure worth a field.
+	//
+	// Events share one window across every type asked for, and the metadata ones
+	// are the high-volume ones: a repository that labels on every push can fill
+	// the hundred and push a merge or a force push out of it. So this counts the
+	// window the item types were filtered to, never the whole timeline, which
+	// holds subscriptions and mentions nothing here ever asks for.
 	MoreComments int
 	MoreThreads  int
 	MoreCommits  int
+	MoreEvents   int
 }
 
 // FileStatus is what happened to a file in the pull request.

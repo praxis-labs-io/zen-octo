@@ -167,6 +167,12 @@ func (m *Model) entries() string {
 	if n := d.MoreThreads; n > 0 {
 		push(wrap(m.faint().Render(comp.Plural(n, "more review thread")+" on GitHub"), width), focusKey{})
 	}
+	// Every event type shares one window, and the metadata ones are the ones
+	// that fill it. Without this a merge falls off a heavily labelled pull
+	// request and the conversation reads as one nobody ever merged.
+	if n := d.MoreEvents; n > 0 {
+		push(wrap(m.faint().Render(comp.Plural(n, "earlier event")+" on GitHub"), width), focusKey{})
+	}
 
 	// The compose card is the last block, always on the page, and the split when
 	// no reply box took it. A reply open on a thread this page does not render

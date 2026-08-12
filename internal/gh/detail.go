@@ -145,6 +145,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
         LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
         REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, BASE_REF_CHANGED_EVENT
       ]) {
+        filteredCount
         nodes {
           __typename
           ... on MergedEvent { createdAt actor { login } }
@@ -383,7 +384,12 @@ type pullRequestResponse struct {
 		// field no other one does: whichever matched fills its own and leaves
 		// the rest zero.
 		TimelineItems struct {
-			Nodes []struct {
+			// The count the item types were filtered to. totalCount is the whole
+			// timeline, subscriptions and mentions included, and reading it would
+			// claim a hundred hidden events on a pull request that has none this
+			// build would ever render.
+			FilteredCount int
+			Nodes         []struct {
 				Typename  string `json:"__typename"`
 				CreatedAt time.Time
 				Actor     actorNode
@@ -474,6 +480,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
 		MoreCommits:  max(0, n.Commits.TotalCount-len(n.Commits.Nodes)),
+		MoreEvents:   max(0, n.TimelineItems.FilteredCount-len(n.TimelineItems.Nodes)),
 		Commits:      commits(resp),
 	}
 

@@ -159,8 +159,13 @@ func pick(n int, one, many string) string {
 // actorName is how a person, a bot or a team reads. Copilot is named for itself
 // rather than by its login, which is the one the rail shows and not a word
 // anybody would think to look for.
+//
+// Matched without case, because GitHub answers with the login in the account's
+// own case rather than the case it was asked in. A reviewer panel and a
+// timeline event report the same bot, and one of them arriving capitalised
+// would put its raw login on screen next to its name.
 func actorName(login string) string {
-	if login == gh.CopilotLogin {
+	if strings.EqualFold(login, gh.CopilotLogin) {
 		return "Copilot"
 	}
 	return comp.Handle(login)

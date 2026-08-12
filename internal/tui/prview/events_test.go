@@ -159,6 +159,31 @@ func TestARequestNamesCopilotAndATeamTheWayTheRailDoes(t *testing.T) {
 	}
 }
 
+// A merge falling off a heavily labelled pull request would leave the
+// conversation reading as one nobody ever merged. The comments and the threads
+// each say what their page did not reach, and the events now do too.
+func TestTheEventsTheWindowCutOffAreSaidToBeThere(t *testing.T) {
+	d := sampleDetail()
+	d.Timeline = []gh.TimelineItem{happening(gh.TimelineLabeled, "bug")}
+	d.Threads = nil
+	d.MoreEvents = 4
+
+	out := stripANSI(detailed(held(d), 200, 60).View())
+	if want := "4 earlier events on GitHub"; !strings.Contains(out, want) {
+		t.Errorf("the conversation is missing %q:\n%s", want, out)
+	}
+}
+
+// GitHub answers with a login in the account's own case rather than the case it
+// was asked in, so the bot's name cannot hang on an exact match.
+func TestCopilotIsNamedWhateverCaseItArrivesIn(t *testing.T) {
+	out := conversationWith(t, happening(gh.TimelineReviewRequested, "Copilot-Pull-Request-Reviewer"))
+
+	if want := "requested a review from Copilot"; !strings.Contains(out, want) {
+		t.Errorf("the conversation is missing %q:\n%s", want, out)
+	}
+}
+
 // An event is something to read, not something to act on, so tab walks past it
 // the way it walks past a push. A run landing between two cards must not become
 // a stop between them.
