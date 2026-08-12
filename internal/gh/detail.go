@@ -41,8 +41,8 @@ query PullRequestDetail($id: ID!, $head: String!) {
       viewerCanClose
       viewerCanReopen
       viewerCanAssign
-      viewerCanDeleteHeadRef
       viewerCanMergeAsAdmin
+      isCrossRepository
       createdAt
       updatedAt
       additions
@@ -292,26 +292,26 @@ type pullRequestResponse struct {
 	}
 
 	Node struct {
-		ID                     string
-		Number                 int
-		Title                  string
-		URL                    string
-		IsDraft                bool
-		State                  string
-		ViewerCanUpdate        bool
-		ViewerCanClose         bool
-		ViewerCanReopen        bool
-		ViewerCanAssign        bool
-		ViewerCanDeleteHeadRef bool
-		ViewerCanMergeAsAdmin  bool
-		CreatedAt              time.Time
-		UpdatedAt              time.Time
-		Additions              int
-		Deletions              int
-		ChangedFiles           int
-		HeadRefName            string
-		BaseRefName            string
-		HeadRefOid             string
+		ID                    string
+		Number                int
+		Title                 string
+		URL                   string
+		IsDraft               bool
+		State                 string
+		ViewerCanUpdate       bool
+		ViewerCanClose        bool
+		ViewerCanReopen       bool
+		ViewerCanAssign       bool
+		ViewerCanMergeAsAdmin bool
+		IsCrossRepository     bool
+		CreatedAt             time.Time
+		UpdatedAt             time.Time
+		Additions             int
+		Deletions             int
+		ChangedFiles          int
+		HeadRefName           string
+		BaseRefName           string
+		HeadRefOid            string
 
 		// Null once the branch is deleted, which is every merged pull request
 		// in a repository that deletes on merge.
@@ -497,18 +497,18 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CreatedAt:      n.CreatedAt,
 			UpdatedAt:      n.UpdatedAt,
 		},
-		Body:         n.Body,
-		Merge:        mergeState(n.Mergeable, n.MergeStateStatus),
-		HeadRefOid:   n.HeadRefOid,
-		MergeCommit:  MergeMessage{Headline: n.MergeHeadline, Body: n.MergeBody},
-		SquashCommit: MergeMessage{Headline: n.SquashHeadline, Body: n.SquashBody},
+		Body:            n.Body,
+		Merge:           mergeState(n.Mergeable, n.MergeStateStatus),
+		HeadRefOid:      n.HeadRefOid,
+		CrossRepository: n.IsCrossRepository,
+		MergeCommit:     MergeMessage{Headline: n.MergeHeadline, Body: n.MergeBody},
+		SquashCommit:    MergeMessage{Headline: n.SquashHeadline, Body: n.SquashBody},
 		Viewer: ViewerActions{
-			CanUpdate:        n.ViewerCanUpdate,
-			CanClose:         n.ViewerCanClose,
-			CanReopen:        n.ViewerCanReopen,
-			CanAssign:        n.ViewerCanAssign,
-			CanDeleteHeadRef: n.ViewerCanDeleteHeadRef,
-			CanMergeAsAdmin:  n.ViewerCanMergeAsAdmin,
+			CanUpdate:       n.ViewerCanUpdate,
+			CanClose:        n.ViewerCanClose,
+			CanReopen:       n.ViewerCanReopen,
+			CanAssign:       n.ViewerCanAssign,
+			CanMergeAsAdmin: n.ViewerCanMergeAsAdmin,
 		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),

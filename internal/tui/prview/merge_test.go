@@ -19,7 +19,6 @@ func mergeableDetail() gh.PullRequestDetail {
 	d.Merge = gh.MergeClean
 	d.HeadRefOid = "9f1c2b7"
 	d.HeadRefID = "REF_88"
-	d.Viewer.CanDeleteHeadRef = true
 	d.MergeCommit = gh.MergeMessage{
 		Headline: "Merge pull request #412 from zen-octo/fix-auth-retry",
 		Body:     "Fix auth retry",
@@ -338,15 +337,40 @@ func TestTheFormOffersNoDeleteWhereTheRepositoryDoesItself(t *testing.T) {
 	}
 }
 
-// GitHub's own answer about what the viewer may do. A row offering a write it
-// will refuse is worse than no row.
-func TestTheFormOffersNoDeleteWithoutThePermission(t *testing.T) {
+// A fork's head is somebody else's branch, and deleting it from here is the one
+// refusal worth making without being asked to.
+func TestTheFormOffersNoDeleteForAForksHead(t *testing.T) {
 	d := mergeableDetail()
-	d.Viewer.CanDeleteHeadRef = false
+	d.CrossRepository = true
 
 	box := formBox(t, openMergeOn(t, d, mergeRepo(allMethods())))
 	if strings.Contains(box, "after merging") {
-		t.Errorf("the form offers a delete GitHub says the viewer may not make:\n%s", box)
+		t.Errorf("the form offers to delete a contributor's own branch:\n%s", box)
+	}
+}
+
+// A branch already gone has nothing to delete, and deleteRef takes an id rather
+// than a name: without one there is nothing to address the call to.
+func TestTheFormOffersNoDeleteWithoutABranch(t *testing.T) {
+	d := mergeableDetail()
+	d.HeadRefID = ""
+
+	box := formBox(t, openMergeOn(t, d, mergeRepo(allMethods())))
+	if strings.Contains(box, "after merging") {
+		t.Errorf("the form offers to delete a branch that is not there:\n%s", box)
+	}
+}
+
+// The ordinary case is offered, and this is the test that says so. It exists
+// because the first version of this gate read viewerCanDeleteHeadRef, which
+// GitHub answers false on every open pull request whatever the account holds:
+// every check around it passed and the row never appeared once in a real
+// session. A row that could never be offered needs a test that it is.
+func TestTheFormOffersTheDeleteOnAnOrdinaryPullRequest(t *testing.T) {
+	box := formBox(t, openMerge(t))
+
+	if !strings.Contains(box, "Delete fix-auth-retry after merging") {
+		t.Errorf("the form does not offer to delete the head branch at all:\n%s", box)
 	}
 }
 

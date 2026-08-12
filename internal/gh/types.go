@@ -393,14 +393,18 @@ type CheckRollup struct {
 // There is no plain viewerCanMerge beside it: an ordinary merge is ungated
 // here, and a refusal comes back from the mutation for the revert branch to
 // answer, the same way a review request does.
+//
+// There is no flag for deleting the head branch either. viewerCanDeleteHeadRef
+// looks like one and answers a different question: it is false on every open
+// pull request, whatever the account holds, and turns true once it closes. Read
+// at the only moment a merge form can be open, it says no every time.
 type ViewerActions struct {
 	CanUpdate bool
 	CanClose  bool
 	CanReopen bool
 	CanAssign bool
 
-	CanDeleteHeadRef bool
-	CanMergeAsAdmin  bool
+	CanMergeAsAdmin bool
 }
 
 // PullRequestDetail embeds the row, so a detail response refreshes the header
@@ -426,6 +430,12 @@ type PullRequestDetail struct {
 	// the branch is gone.
 	HeadRefOid string
 	HeadRefID  string
+
+	// CrossRepository is a head branch living in a fork rather than here. It
+	// stands in for a delete permission GitHub publishes no usable field for:
+	// somebody else's branch is the one case worth refusing outright, and the
+	// rest is left to the call itself to accept or refuse.
+	CrossRepository bool
 
 	// MergeCommit and SquashCommit are what GitHub would write for those two
 	// methods. A rebase has neither, so there is no third field.

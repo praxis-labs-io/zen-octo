@@ -245,6 +245,17 @@ asks for `headRef { id }`; it is null once the branch is gone. Success says
 nothing, because that toast lands a beat behind the merge's own and would take
 the status bar off the more important of the two.
 
+**`viewerCanDeleteHeadRef` does not answer whether the viewer may delete the
+head branch.** It is false on every open pull request, for a repository
+administrator as readily as for a stranger, and turns true the moment the pull
+request closes. The only time a merge form can be open is while it is open, so a
+row gated on that flag never appears once, in any session, for anybody. That
+shipped as far as the runbook. There is no field that does answer it: `Ref` has
+no viewer permission at all. So the row is ungated, on the same terms a review
+request is, and the delete's own failure is what reports a refusal. The one case
+refused up front is `isCrossRepository`, a head living in a fork, because
+deleting a contributor's branch is worth declining without being asked to.
+
 `MergeEdit` settles against `fieldState` rather than a field of its own. A merge
 is a lifecycle move, so a close and a merge in flight together settle
 last-held-wins the way two lifecycle writes do, and the fold marks the detail

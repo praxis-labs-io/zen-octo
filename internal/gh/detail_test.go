@@ -19,7 +19,7 @@ const detailBody = `{
     "isDraft": false, "state": "OPEN",
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "viewerCanAssign": true,
-    "viewerCanDeleteHeadRef": true, "viewerCanMergeAsAdmin": false,
+    "viewerCanMergeAsAdmin": false, "isCrossRepository": false,
     "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-05T11:00:00Z",
     "additions": 42, "deletions": 7, "changedFiles": 3,
     "headRefName": "fix-auth", "baseRefName": "main",
@@ -570,7 +570,7 @@ func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 
 	want := ViewerActions{
 		CanUpdate: true, CanClose: true, CanReopen: false, CanAssign: true,
-		CanDeleteHeadRef: true, CanMergeAsAdmin: false,
+		CanMergeAsAdmin: false,
 	}
 	if res.Detail.Viewer != want {
 		t.Errorf("Viewer = %+v, want %+v", res.Detail.Viewer, want)
@@ -781,7 +781,7 @@ func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 	for _, want := range []string{
 		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
 		"viewerCanReply", "viewerCanResolve", "viewerCanUnresolve", "viewerCanAssign",
-		"viewerCanDeleteHeadRef", "viewerCanMergeAsAdmin",
+		"viewerCanMergeAsAdmin", "isCrossRepository",
 	} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)

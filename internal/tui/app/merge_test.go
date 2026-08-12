@@ -22,7 +22,6 @@ func (f *fakeSearcher) serveMergeable(id string) {
 	held.Merge = gh.MergeClean
 	held.HeadRefOid = "9f1c2b7"
 	held.HeadRefID = "REF_88"
-	held.Viewer.CanDeleteHeadRef = true
 	held.MergeCommit = gh.MergeMessage{Headline: "Merge pull request #412 from zen-octo/fix-auth"}
 	held.SquashCommit = gh.MergeMessage{Headline: "Fix auth retry (#412)"}
 	f.details[id] = held

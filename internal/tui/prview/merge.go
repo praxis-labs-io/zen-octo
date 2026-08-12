@@ -249,8 +249,17 @@ func mergeDefault(methods []gh.MergeMethod) int {
 // A repository that deletes on merge gets no offer. GitHub deletes the branch
 // itself a moment after the merge, and a second call racing that fails on a ref
 // already gone: an error toast about a thing that worked.
+//
+// A fork's head gets none either. It is somebody else's branch, and deleting it
+// from here is the one refusal worth making without being asked to.
+//
+// Nothing else is gated, because GitHub publishes no field that answers the
+// question at the moment it has to be asked. viewerCanDeleteHeadRef reads like
+// one and is false on every open pull request, so a row gated on it never
+// appears at all. This is the review request's shape instead: the row is
+// offered, the call decides, and its failure says the branch is still there.
 func mergeBranch(d gh.PullRequestDetail, methods gh.MergeMethods) string {
-	if methods.DeleteOnMerge || !d.Viewer.CanDeleteHeadRef || d.HeadRefID == "" {
+	if methods.DeleteOnMerge || d.CrossRepository || d.HeadRefID == "" {
 		return ""
 	}
 	return d.HeadRefName
