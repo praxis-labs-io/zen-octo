@@ -208,6 +208,50 @@ confirming refetch can fail, and a row that latched on the first would report a
 finished write as in flight for the rest of the session. `gh.BehindUnknown` is
 the count meanwhile, since zero is already spoken for: it means up to date.
 
+The Merge row is the one control that opens a form rather than a picker: a
+method, a commit message, a branch to delete, and a button. It is a control on a
+clean pull request and on one whose checks are failing, because GitHub's own
+button merges the second: a red check no rule requires is not a rule. Blocked
+and behind go together and only under `viewerCanMergeAsAdmin`, because they are
+the same refusal, a protection rule standing in the way and a flag that lifts
+it; the form says `Bypasses branch protection on main` when it is doing that,
+which is the one merge here overriding something somebody set on purpose.
+Nothing lifts a conflict and nothing merges a draft. Nothing merges an unknown
+either, but that one is a wait rather than an answer: GitHub computes
+mergeability lazily and the query that reads it is what starts the computation,
+so a pull request nothing has looked at recently opens on "Checking" and the row
+is inert. One probe is armed for that, on the first landing in a session alone,
+which is what keeps it to a single extra request rather than a loop.
+
+**The commit message is GitHub's own, per method**, from
+`viewerMergeHeadlineText` and `viewerMergeBodyText`: the repository decides
+whether a squash title is the pull request's or its single commit's, and nothing
+on this side reconstructs that. Switching method rewrites whichever field the
+reader has not touched, because a merge commit and a squash want different
+sentences. A rebase answers empty to both, which is GitHub saying it writes no
+commit of its own, so the form drops the two fields from the render and from the
+ring rather than sending text that gets discarded. `expectedHeadOid` is the
+commit that was on screen, snapshotted when the form opens: a refetch landing
+behind the modal must not change which commit gets merged, and a branch that
+moved comes back refused in GitHub's own words rather than merged unseen.
+
+Deleting the head branch is a second call and it cannot undo the first, so it
+runs off the back of the merge's answer and its failure toasts alone. It is not
+made at all where the repository sets `deleteBranchOnMerge`: GitHub deletes the
+branch itself a moment later, and a call racing that fails on a ref already gone,
+which is an error about a thing that worked. There the row is absent rather than
+ticked. `deleteRef` takes the ref's node id and no name, which is why the detail
+asks for `headRef { id }`; it is null once the branch is gone. Success says
+nothing, because that toast lands a beat behind the merge's own and would take
+the status bar off the more important of the two.
+
+`MergeEdit` settles against `fieldState` rather than a field of its own. A merge
+is a lifecycle move, so a close and a merge in flight together settle
+last-held-wins the way two lifecycle writes do, and the fold marks the detail
+`StateWriting` for free. It moves the state and leaves `mergeStateStatus` alone,
+because the row reads the lifecycle first: a merged pull request says "Merged
+into main" whatever GitHub last answered about what stands in the way.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a

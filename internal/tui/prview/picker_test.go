@@ -37,7 +37,11 @@ func repoUsers() []gh.Actor {
 
 func loadedRepo() store.Repo {
 	return store.Repo{
-		Meta:   gh.RepoMeta{Labels: repoLabels(), Users: repoUsers()},
+		Meta: gh.RepoMeta{
+			Labels:  repoLabels(),
+			Users:   repoUsers(),
+			Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
+		},
 		Status: store.StatusReady,
 		Loaded: true,
 	}

@@ -530,3 +530,57 @@ func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 		t.Errorf("More = %d, want the overflow reported on a repository this size", res.More)
 	}
 }
+
+// TestLiveTheMergeDocumentsMatchTheSchema validates the two writes that end a
+// pull request against the real schema. Nothing is written: both are sent
+// against a node id that does not exist, and a document GitHub cannot parse
+// fails before it ever reaches one that does.
+//
+// expectedHeadOid is why this matters more here than elsewhere. It is a
+// GitObjectID rather than a String, and a variable declared as the wrong scalar
+// is rejected at validation, which is exactly the failure a fake doer cannot
+// see.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheMergeDocumentsMatchTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	for _, method := range []gh.MergeMethod{
+		gh.MergeMethodMerge, gh.MergeMethodSquash, gh.MergeMethodRebase,
+	} {
+		t.Run(string(method), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err := client.Merge(ctx, "NOT_A_NODE", gh.MergeOptions{
+				Method:          method,
+				Headline:        "headline",
+				Body:            "body",
+				ExpectedHeadOid: "0000000000000000000000000000000000000000",
+			})
+			if err == nil {
+				t.Fatal("merging a pull request that does not exist came back as a success")
+			}
+
+			assertValidated(t, err)
+		})
+	}
+
+	t.Run("deleteRef", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := client.DeleteRef(ctx, "NOT_A_NODE"); err == nil {
+			t.Fatal("deleting a branch that does not exist came back as a success")
+		} else {
+			assertValidated(t, err)
+		}
+	})
+}

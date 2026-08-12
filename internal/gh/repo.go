@@ -7,16 +7,16 @@ import (
 	"time"
 )
 
-// repoMetaQuery is what a picker on the detail rail draws its choices from.
+// repoMetaQuery is what the detail rail's controls draw their choices from:
+// labels, the people who can be assigned, and what a merge here may be made of.
 //
-// Labels and the people who can be assigned. The branches and the merge flags
-// belong to pickers that do not exist yet, and asking for them now spends
-// rate-limit points on every open for lists nothing renders. Each lands with
-// the ticket that reads it.
+// Branches are not here and belong nowhere near it. They are a search keyed by
+// what somebody typed rather than a set fetched once, which is Branches in
+// branch.go.
 //
-// The first hundred of each, which is GitHub's own page cap. The detail asks
-// for the same number, so the two sides of a picker are truncated at the same
-// point and a pull request's own labels are all present to be checked. Past
+// The first hundred of each list, which is GitHub's own page cap. The detail
+// asks for the same number, so the two sides of a picker are truncated at the
+// same point and a pull request's own labels are all present to be checked. Past
 // that the union in the screen is the backstop: a choice the picker cannot list
 // is one it must not delete.
 const repoMetaQuery = `
@@ -25,6 +25,10 @@ query RepoMeta($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     labels(first: 100) { nodes { id name } }
     assignableUsers(first: 100) { nodes { id login } }
+    mergeCommitAllowed
+    squashMergeAllowed
+    rebaseMergeAllowed
+    deleteBranchOnMerge
   }
 }`
 
@@ -43,6 +47,11 @@ type repoMetaResponse struct {
 		AssignableUsers struct {
 			Nodes []struct{ ID, Login string }
 		}
+
+		MergeCommitAllowed  bool
+		SquashMergeAllowed  bool
+		RebaseMergeAllowed  bool
+		DeleteBranchOnMerge bool
 	}
 }
 
@@ -72,6 +81,12 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 	meta := RepoMeta{
 		Labels: make([]Label, 0, len(labels)),
 		Users:  make([]Actor, 0, len(users)),
+		Methods: MergeMethods{
+			Merge:         resp.Repository.MergeCommitAllowed,
+			Squash:        resp.Repository.SquashMergeAllowed,
+			Rebase:        resp.Repository.RebaseMergeAllowed,
+			DeleteOnMerge: resp.Repository.DeleteBranchOnMerge,
+		},
 	}
 	for _, n := range labels {
 		meta.Labels = append(meta.Labels, Label{ID: n.ID, Name: n.Name})

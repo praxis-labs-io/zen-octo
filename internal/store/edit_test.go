@@ -991,3 +991,87 @@ func TestInvalidateBranchesLetsTheNextPickerAskAgain(t *testing.T) {
 		t.Error("BeginBranches still refuses after the search was invalidated")
 	}
 }
+
+// A merge lands the pull request before GitHub answers, the way every other
+// write on this rail paints first.
+func TestAPendingMergeRendersBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	s.PendingMerge("PR_1")
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want MERGED", state)
+	}
+}
+
+// A merge is a lifecycle move, so the State row has to wait it out the same way
+// it waits out a close: the state says merged while the permissions still say
+// closable.
+func TestAMergeInFlightReadsAsAStateWrite(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	key := s.PendingMerge("PR_1")
+	if !s.Detail("PR_1").StateWriting {
+		t.Error("StateWriting is not set while a merge is out")
+	}
+
+	s.EditReverted("PR_1", key)
+	if s.Detail("PR_1").StateWriting {
+		t.Error("StateWriting is still set after the merge came back")
+	}
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateOpen {
+		t.Errorf("state = %q, want the fetched state back", state)
+	}
+}
+
+// Both are writes on the one field, so the later ask is what shows and the
+// earlier answer must not overwrite it.
+func TestAnEarlierCloseDoesNotOverwriteAMergeStillOut(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	closing := s.PendingState("PR_1", gh.TransitionClose)
+	s.PendingMerge("PR_1")
+
+	s.StateApplied("PR_1", closing, gh.PRStateResult{State: gh.PRStateClosed})
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want the merge still showing", state)
+	}
+}
+
+func TestMergeAppliedTakesGitHubsAnswerAndAsksForTheRest(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	key := s.PendingMerge("PR_1")
+
+	s.BeginDetail("PR_1") // a refresh asked for before the write settled
+	s.MergeApplied("PR_1", key, gh.MergeResult{State: gh.PRStateMerged})
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want MERGED", state)
+	}
+	// The timeline, the checks and the merge state all move with it and none of
+	// them can be computed here.
+	if !s.StaleDetail("PR_1") {
+		t.Error("a landed merge did not mark the fetch in flight stale")
+	}
+}
+
+// A merge writes a commit onto the base and changes nothing about the
+// difference between the two branches, so the Files tab owes no refetch.
+func TestAMergeDoesNotMarkTheDiffStale(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	s.BeginFiles("PR_1")
+	s.FilesApplied("PR_1", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+
+	key := s.PendingMerge("PR_1")
+	s.MergeApplied("PR_1", key, gh.MergeResult{State: gh.PRStateMerged})
+
+	if s.StaleFiles("PR_1") {
+		t.Error("a merge marked the diff stale, which costs a request for a diff that did not change")
+	}
+}

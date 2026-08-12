@@ -423,7 +423,7 @@ func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 }
 
 // The rail sections the reader can act on are walkable and the rest are not,
-// so tab does not stop on the merge state on its way to the checks.
+// so tab does not stop on the churn or on a merge that cannot be made.
 func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
@@ -443,17 +443,19 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Open", "@nkr", "@drucial", "bug", "Rails Unit Tests / test", "Blocked",
+		"Open", "@nkr", "@drucial", "bug", "Rails Unit Tests / test",
 		"+ Add reviewer", "+ Add assignee", "+ Add label", "behind main",
 	} {
 		if !reached(want) {
 			t.Errorf("tab never reached the %q row", want)
 		}
 	}
-	// The churn is the one row left that only reports. The base beside it says
-	// how far behind the branch is and is still a control, because retargeting
-	// is a change to the branch that number is measured against.
-	for _, skip := range []string{"+42"} {
+
+	// The churn only reports. The merge row is blocked, and this reader is not
+	// an administrator, so there is no merge to open a form for; the base beside
+	// it says how far behind the branch is and is still a control, because
+	// retargeting is a change to the branch that number is measured against.
+	for _, skip := range []string{"+42", "Blocked"} {
 		if reached(skip) {
 			t.Errorf("tab stopped on %q, which there is nothing to do to", skip)
 		}

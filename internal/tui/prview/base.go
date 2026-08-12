@@ -52,6 +52,8 @@ const branchSettleDelay = 150 * time.Millisecond
 // The rail having focus is not the reader still standing on Base: enter starts
 // the search and tab is free the whole time it is out, so without the row
 // itself a modal drops over whatever they walked to and takes the keyboard.
+// Capturing covers the rest of that, including a merge form opened meanwhile,
+// which a picker landing late would replace between one key and the next.
 func (m *Model) SetBranches(b store.Branches) {
 	m.branches = b
 	if !b.Loaded {
@@ -71,7 +73,7 @@ func (m *Model) SetBranches(b store.Branches) {
 	}
 	m.picking.want = pickNone
 
-	if m.Composing() || !m.railVisible() || m.focus != paneRail {
+	if m.Capturing() || !m.railVisible() || m.focus != paneRail {
 		return
 	}
 	if m.railRing.on.kind != focusBase {

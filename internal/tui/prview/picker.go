@@ -24,6 +24,12 @@ const (
 	pickAssignees
 	pickReviewers
 	pickBase
+
+	// pickMerge opens a form rather than a picker. It is in this enum for one
+	// reason: the form cannot be built without knowing which methods the
+	// repository allows, so it waits on the same fetch and resumes down the
+	// same path the three pickers below do.
+	pickMerge
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
@@ -34,7 +40,7 @@ const (
 // search, keyed by what has been typed rather than by the repository, so it
 // waits on its own call and SetBranches is what resumes it.
 func (f pickField) needsRepo() bool {
-	return f == pickLabels || f == pickAssignees || f == pickReviewers
+	return f == pickLabels || f == pickAssignees || f == pickReviewers || f == pickMerge
 }
 
 // picking is the picker over the screen, if any.
@@ -88,8 +94,10 @@ type SetLabelsMsg struct {
 
 // Capturing is whether something on this screen owns the keyboard. The root
 // stands aside when it does, because a picker's filter takes q as a letter the
-// same way a comment box does.
-func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
+// same way a comment box does, and so does a commit message.
+func (m Model) Capturing() bool {
+	return m.Composing() || m.picking.open() || m.merging.open
+}
 
 // SetRepo hands the screen the choices its pickers draw from, and opens the one
 // that was waiting on them.
@@ -112,19 +120,23 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 // leaves want at pickBase, and opening that here builds it over branches this
 // screen has not been handed: a modal listing the current base alone, on which
 // enter does nothing.
-func (m *Model) SetRepo(r store.Repo) {
+func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	m.repo = r
 	if !m.picking.want.needsRepo() || !r.Loaded {
-		return
+		return nil
 	}
 
 	want := m.picking.want
 	m.picking.want = pickNone
 
-	if m.Composing() || !m.railVisible() || m.focus != paneRail {
-		return
+	if m.Capturing() || !m.railVisible() || m.focus != paneRail {
+		return nil
+	}
+	if want == pickMerge {
+		return m.startMerge()
 	}
 	m.startPicker(want)
+	return nil
 }
 
 // openRailPicker opens whatever the rail row under the focus holds. It does
@@ -152,6 +164,8 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		want = pickState
 	case focusBase:
 		want = pickBase
+	case focusMerge:
+		want = pickMerge
 	default:
 		return m, nil
 	}
@@ -174,6 +188,9 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		return m, func() tea.Msg { return NeedBranchesMsg{Repo: repo} }
 	}
 
+	if want == pickMerge {
+		return m, m.startMerge()
+	}
 	m.startPicker(want)
 	return m, nil
 }

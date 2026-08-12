@@ -276,6 +276,11 @@ type Model struct {
 	// picking is the picker over the screen, empty when there is none.
 	picking picking
 
+	// merging is the merge form over the screen, empty when there is none. It
+	// is not a picker: merging is a method, a commit message and a branch to
+	// delete, which is a form, and only one of the two can be up at a time.
+	merging merging
+
 	width  int
 	height int
 }
@@ -479,6 +484,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// picker. Every letter is a letter then, so nothing below this line gets a
 	// look.
 	switch {
+	case m.merging.open:
+		return m.mergeKey(keyMsg)
 	case m.picking.open():
 		return m.pickerKey(keyMsg)
 	case m.compose.typing:
@@ -1201,7 +1208,7 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	return m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...))
+	return m.mergeOverlay(m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...)))
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

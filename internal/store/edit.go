@@ -163,6 +163,59 @@ func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
 	s.markStale(id)
 }
 
+// MergeEdit is a merge claimed for a pull request, before GitHub has said so.
+//
+// It carries no method, unlike every other edit here carrying its value. A
+// merge lands a pull request in one place however it was made, so the method is
+// the caller's business on the way out and nothing this has to fold.
+type MergeEdit struct {
+	key string
+}
+
+func (e MergeEdit) Key() string { return e.key }
+
+// Field is the state, not a field of its own. A merge is a lifecycle move, so a
+// close and a merge in flight together settle last-held-wins the way two
+// lifecycle writes do, and the fold marks the detail StateWriting for free:
+// during the round trip the state says merged while the permissions still say
+// closable, and the State row has to wait that out rather than believe them.
+func (e MergeEdit) Field() editField { return fieldState }
+
+// Apply moves the lifecycle and nothing else. A scalar, so nothing to clone.
+//
+// It leaves the merge state alone. mergeStateStatus is what stands in the way
+// of merging and it says nothing once the merge has happened; the rail reads
+// the lifecycle first, so the row says "Merged" whatever GitHub last answered
+// there. That is also why there is no MergeWriting flag beside StateWriting:
+// the optimistic state is what the row is gated on.
+func (e MergeEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.State = gh.PRStateMerged
+	return d
+}
+
+// PendingMerge holds a merge applied here and not yet acknowledged, and returns
+// the key the response reconciles against.
+func (s *Store) PendingMerge(id string) string {
+	return s.holdEdit(id, func(key string) Edit { return MergeEdit{key: key} })
+}
+
+// MergeApplied takes GitHub's answer for a merge and drops the write it
+// settles, on the terms settleEdit sets out.
+//
+// It marks the detail stale and not the diff. A merge writes a commit onto the
+// base and changes nothing about the difference between the two branches, which
+// is what the Files tab is showing.
+func (s *Store) MergeApplied(id, key string, res gh.MergeResult) {
+	_, held, ok := s.settleEdit(id, key, fieldState)
+	if !ok {
+		return
+	}
+
+	held.Detail.State = res.State
+	s.put(id, held)
+	s.markStale(id)
+}
+
 // BaseEdit is a retarget claimed for a pull request: the branch it now merges
 // into, before GitHub has said so.
 type BaseEdit struct {

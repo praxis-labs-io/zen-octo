@@ -45,6 +45,12 @@ type GitHub interface {
 	SetAssignees(ctx context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error)
 	SetBase(ctx context.Context, prID, base string) (gh.BaseResult, error)
 
+	// Merge and DeleteRef are one intention and two calls. The second cannot
+	// undo the first, which is why it runs off the back of the first's answer
+	// rather than beside it.
+	Merge(ctx context.Context, prID string, opts gh.MergeOptions) (gh.MergeResult, error)
+	DeleteRef(ctx context.Context, refID string) error
+
 	// Branches is a search rather than a read of the repository, and it is the
 	// one call keyed by what somebody typed. RepoMeta beside it is fetched once.
 	Branches(ctx context.Context, repo, query string) (gh.BranchResult, error)
@@ -642,10 +648,12 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	// the picker at all.
 	m.store.InvalidateRepoMeta(pr.Repository)
 	m.store.InvalidateBranches(pr.Repository)
-	m.detail.SetRepo(store.Repo{})
+	// Dropping the held choices opens nothing, so this is always nil. It is
+	// taken rather than discarded because the signature says it may not be, and
+	// a command dropped here is a caret that never blinks.
+	cmds := []tea.Cmd{m.detail.SetRepo(store.Repo{})}
 	m.detail.SetBranches(store.Branches{})
 
-	var cmds []tea.Cmd
 	started := m.detailRefreshing
 	switch {
 	case m.store.BeginDetail(msg.ID):
@@ -980,8 +988,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case detailFetchedMsg:
+		// Before the response replaces what is held: a first landing is what
+		// the probe is armed on, and by the next line there is no telling one
+		// from a refetch.
+		probe := m.probeMergeability(msg.id, msg.res)
+
 		m.store.DetailApplied(msg.id, msg.res)
-		return m.detailSettled(msg.id, nil)
+		model, cmd := m.detailSettled(msg.id, nil)
+		return model, tea.Batch(cmd, probe)
 
 	case detailFailedMsg:
 		m.store.DetailFailed(msg.id, msg.err)
@@ -1095,6 +1109,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case baseFailedMsg:
 		return m.baseFailed(msg)
+
+	case prview.MergeMsg:
+		return m.merge(msg)
+
+	case mergedMsg:
+		return m.mergeLanded(msg)
+
+	case mergeFailedMsg:
+		return m.mergeFailed(msg)
+
+	case refDeleteFailedMsg:
+		return m.refDeleteFailed(msg)
+
+	case mergeProbeMsg:
+		return m.mergeProbe(msg)
 
 	case prview.ResolveThreadMsg:
 		return m.resolveThread(msg)

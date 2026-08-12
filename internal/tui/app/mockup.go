@@ -135,6 +135,12 @@ func (Mock) SetBase(_ context.Context, _, base string) (gh.BaseResult, error) {
 	return gh.BaseResult{BaseRefName: base}, nil
 }
 
+func (Mock) Merge(_ context.Context, _ string, _ gh.MergeOptions) (gh.MergeResult, error) {
+	return gh.MergeResult{State: gh.PRStateMerged}, nil
+}
+
+func (Mock) DeleteRef(_ context.Context, _ string) error { return nil }
+
 // SetAssignees hands back what it was asked for, resolved against the
 // repository's own list, the way SetLabels does.
 func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.AssigneesResult, error) {

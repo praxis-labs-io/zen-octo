@@ -76,7 +76,7 @@ func (m *Model) railBody(width int) string {
 	// other reason they sit at the bottom.
 	section("Checks", m.checkRows(d.Rollup, width))
 	section("Base", m.baseRow(d, width))
-	section("Merge", m.mergeRow(d.Merge, width))
+	section("Merge", m.mergeRow(d, width))
 
 	return strings.Join(blocks, "\n\n")
 }
@@ -386,7 +386,47 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 // mergeRow is whether it can be merged, and what is in the way if it cannot.
 // The ring stops here for the same reason it stops on the state: merging is a
 // change to what this row says, and this is the row that says it.
-func (m Model) mergeRow(s gh.MergeState, width int) []railEntry {
-	label, c := comp.MergeStateLabel(m.theme, s)
+//
+// Only where there is a merge to make. A pull request with conflicts, a draft,
+// and one GitHub has not finished computing all state a fact the ring walks
+// past, the way an empty Checks section does: a key that opens a form for a
+// write GitHub will refuse is worse than no key.
+//
+// Only once the detail has landed, which is the rule every row here holds to.
+// Before that nothing is known, which is not the same as nothing being allowed.
+func (m Model) mergeRow(d gh.PullRequestDetail, width int) []railEntry {
+	// The lifecycle first, because mergeStateStatus says what stands in the way
+	// of merging and has nothing to say once the merge has happened. It is also
+	// what the optimistic write moves, so this is the row going quiet the
+	// moment the key is pressed. The base rather than the bare word, which the
+	// State row above already carries.
+	if d.State == gh.PRStateMerged {
+		return m.railFact("Merged into "+d.BaseRefName, m.theme.Secondary, width)
+	}
+
+	label, c := comp.MergeStateLabel(m.theme, d.Merge)
+	if m.detail.Loaded && !mergeable(d) {
+		return m.railFact(label, c, width)
+	}
 	return m.railControl(focusMerge, label, c, width)
+}
+
+// mergeable is whether this pull request has a merge on offer.
+//
+// Clean is the ordinary case and checks failing is the other one: GitHub's own
+// button merges an UNSTABLE pull request, because a red check that no rule
+// requires is not a rule.
+//
+// Blocked and behind are a protection rule standing in the way, and
+// viewerCanMergeAsAdmin is GitHub saying this account may lift it. They go
+// together rather than apart because they are the same kind of refusal. Nothing
+// lifts a conflict, and nothing merges a draft.
+func mergeable(d gh.PullRequestDetail) bool {
+	switch d.Merge {
+	case gh.MergeClean, gh.MergeUnstable:
+		return true
+	case gh.MergeBlocked, gh.MergeBehind:
+		return d.Viewer.CanMergeAsAdmin
+	}
+	return false
 }
