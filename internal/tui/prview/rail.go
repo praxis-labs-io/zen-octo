@@ -75,7 +75,7 @@ func (m *Model) railBody(width int) string {
 	// The two rows under it are what you read just before merging, which is the
 	// other reason they sit at the bottom.
 	section("Checks", m.checkRows(d.Rollup, width))
-	section("Base", m.baseRow(pr.BaseRefName, d.BehindBy, width))
+	section("Base", m.baseRow(d, width))
 	section("Merge", m.mergeRow(d.Merge, width))
 
 	return strings.Join(blocks, "\n\n")
@@ -338,14 +338,49 @@ func (m Model) authorRow(a gh.Actor, width int) []railEntry {
 	return m.railFact(comp.Handle(a.Login), m.theme.Actor, width)
 }
 
-// baseRow is how far the branch has fallen behind what it is merging into.
-// GitHub says "out-of-date"; the number is the same answer with the size of the
-// problem attached.
-func (m Model) baseRow(base string, behindBy, width int) []railEntry {
-	if behindBy == 0 {
-		return m.railFact("Up to date with "+base, m.theme.Success, width)
+// baseRow is what the pull request merges into and how far it has fallen behind
+// it. GitHub says "out-of-date"; the number is the same answer with the size of
+// the problem attached.
+//
+// A stop on the ring only while there is somewhere to move it to. A merged pull
+// request cannot be retargeted and GitHub refuses the write, so the row states a
+// fact there the way an empty Checks section does. viewerCanUpdate stays true on
+// a merged one, because its title and body are still editable, which is why the
+// state is checked rather than the flag alone.
+//
+// Only once the detail has landed. Before that nothing is known about what the
+// viewer may do, which is not the same as nothing being allowed, and dropping
+// the key early moves every rail stop by one the moment the answer arrives.
+//
+// There is no equivalent of the State row's write guard. The optimistic fold
+// here moves the branch and the count, and touches neither the permissions nor
+// the lifecycle this reads.
+func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
+	base := d.BaseRefName
+
+	text, c := "Up to date with "+base, m.theme.Success
+	switch {
+	// A write still out. The old number was measured against a branch this pull
+	// request no longer targets, and rendering it under the new name is the one
+	// frame worth a third case.
+	case m.detail.BaseWriting:
+		text, c = "Retargeting to "+base, m.theme.Faint
+
+	// The write landed and nothing has counted yet. It is a fact rather than a
+	// wait, and it has to read as one: the refetch behind it can fail, and a row
+	// left saying "Retargeting" would report a finished write as in flight for
+	// the rest of the session.
+	case d.BehindBy == gh.BehindUnknown:
+		text, c = "Merging into "+base, m.theme.Faint
+
+	case d.BehindBy > 0:
+		text, c = comp.Plural(d.BehindBy, "commit")+" behind "+base, m.theme.Warning
 	}
-	return m.railFact(comp.Plural(behindBy, "commit")+" behind "+base, m.theme.Warning, width)
+
+	if m.detail.Loaded && (!d.Viewer.CanUpdate || d.State == gh.PRStateMerged) {
+		return m.railFact(text, c, width)
+	}
+	return m.railControl(focusBase, text, c, width)
 }
 
 // mergeRow is whether it can be merged, and what is in the way if it cannot.

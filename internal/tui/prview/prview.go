@@ -268,6 +268,11 @@ type Model struct {
 	// it survives opening the next one.
 	repo store.Repo
 
+	// branches is the last branch search to answer, held apart from repo for
+	// the reason the store holds it apart: it is keyed by what somebody typed
+	// into the base picker rather than fetched once and kept.
+	branches store.Branches
+
 	// picking is the picker over the screen, empty when there is none.
 	picking picking
 
@@ -385,6 +390,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case CommitSettleMsg:
 		return m, m.settleCommit(msg)
+
+	case BranchSettleMsg:
+		return m, m.settleBranches(msg)
 
 	case editorDoneMsg:
 		return m.editorReturned(msg)

@@ -43,6 +43,11 @@ type GitHub interface {
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
 	SetState(ctx context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error)
 	SetAssignees(ctx context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error)
+	SetBase(ctx context.Context, prID, base string) (gh.BaseResult, error)
+
+	// Branches is a search rather than a read of the repository, and it is the
+	// one call keyed by what somebody typed. RepoMeta beside it is fetched once.
+	Branches(ctx context.Context, repo, query string) (gh.BranchResult, error)
 
 	// The two REST writes, addressed by repository and number rather than by
 	// node id: GraphQL cannot request Copilot, so this pair goes the other way.
@@ -630,8 +635,15 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	// The screen holds its own copy and asks the root only when it has none, so
 	// clearing the store alone would leave it opening pickers over the stale
 	// set it is still carrying. Both have to go.
+	//
+	// The branch search goes with them, for the same reason and one more: below
+	// comp.Picker's filter threshold there is no field to type a fresh search
+	// into, so the sync key is the only way a branch made since startup reaches
+	// the picker at all.
 	m.store.InvalidateRepoMeta(pr.Repository)
+	m.store.InvalidateBranches(pr.Repository)
 	m.detail.SetRepo(store.Repo{})
+	m.detail.SetBranches(store.Branches{})
 
 	var cmds []tea.Cmd
 	started := m.detailRefreshing
@@ -772,20 +784,29 @@ func (m Model) fetchFiles(id, repo string, number, changedFiles int) tea.Cmd {
 // still showing the pull request it was fetched for.
 func (m Model) filesSettled(id string, err error) (tea.Model, tea.Cmd) {
 	held := m.store.Files(id)
+
+	// The response that just answered was measured against a base a retarget
+	// has since moved, and BeginFiles refused the correction while it was out.
+	// Ask again, from wherever the reader now is.
+	var owed tea.Cmd
+	if err == nil {
+		owed = m.correctFiles(id)
+	}
+
 	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
-		return m, nil
+		return m, owed
 	}
 
 	// A jump waiting on this diff lands inside SetFiles and answers here.
 	shown := m.detail.SetFiles(held)
 	if cmd, claimed := m.claim(legFiles, id, err); claimed {
-		return m, tea.Batch(shown, cmd)
+		return m, tea.Batch(shown, cmd, owed)
 	}
 	if err != nil && held.Loaded {
 		toast := m.toasts.Show(comp.ToastError, "Could not refresh the diff for #"+strconv.Itoa(m.detail.PullRequest().Number))
 		return m, tea.Batch(shown, toast)
 	}
-	return m, shown
+	return m, tea.Batch(shown, owed)
 }
 
 // needCommit answers the screen asking for a commit's diff, the same way
@@ -883,6 +904,13 @@ func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 	var owed tea.Cmd
 	if err == nil && m.store.StaleDetail(id) {
 		owed = m.correctDetail(id)
+	}
+
+	// A retarget marked the diff stale and left it for this leg, because the
+	// changed-file count its overflow line is measured against arrives with the
+	// detail. Nil unless something owes one.
+	if err == nil {
+		owed = tea.Batch(owed, m.correctFiles(id))
 	}
 
 	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
@@ -1049,6 +1077,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case stateFailedMsg:
 		return m.stateFailed(msg)
+
+	case prview.NeedBranchesMsg:
+		return m.needBranches(msg)
+
+	case branchesFetchedMsg:
+		return m.branchesLanded(msg)
+
+	case branchesFailedMsg:
+		return m.branchesFailed(msg)
+
+	case prview.SetBaseMsg:
+		return m.setBase(msg)
+
+	case baseSetMsg:
+		return m.baseLanded(msg)
+
+	case baseFailedMsg:
+		return m.baseFailed(msg)
 
 	case prview.ResolveThreadMsg:
 		return m.resolveThread(msg)

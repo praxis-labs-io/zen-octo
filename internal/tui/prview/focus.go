@@ -26,6 +26,7 @@ const (
 	focusAssignee
 	focusLabel
 	focusCheck
+	focusBase
 	focusMerge
 
 	// The add rows sit under what they add to rather than among it. Each opens

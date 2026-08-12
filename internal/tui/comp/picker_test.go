@@ -397,3 +397,105 @@ func TestTheChoicesSitBetweenTwoBlankRows(t *testing.T) {
 		t.Errorf("the row above the hint = %q, want it blank", got)
 	}
 }
+
+// The filter is the search on a picker whose choices come from the server, so
+// replacing the list must not clear the field that caused the fetch. Rebuilding
+// through NewPicker is what this exists to stop.
+func TestReplaceKeepsWhatWasTyped(t *testing.T) {
+	p := comp.NewPicker("Merge into", many(20), nil, false)
+	typeInto(t, &p, "release")
+
+	p.Replace(items("release/1.0", "release/2.0"), "")
+
+	// The placeholder, not the word: every item in the replaced list carries
+	// "release" too, so looking for it finds the list whether the field kept it
+	// or not. An empty field is the one thing that renders this.
+	out := render(p)
+	if strings.Contains(out, "Type to filter") {
+		t.Errorf("the filter row lost what was typed:\n%s", out)
+	}
+	if !p.Filtering() {
+		t.Error("the filter row went away under a shorter list")
+	}
+}
+
+// A list that arrived while the reader was typing is a list they have not
+// looked at. The cursor goes to the top of it, the way it does when the filter
+// itself narrows one.
+func TestReplacePutsTheCursorOnTheFirstNewRow(t *testing.T) {
+	p := comp.NewPicker("Merge into", many(20), nil, false)
+	p.Move(5)
+
+	p.Replace(items("develop", "main"), "")
+
+	if got, want := p.Chosen(), []string{"id-develop"}; !slices.Equal(got, want) {
+		t.Errorf("Chosen = %q, want %q", got, want)
+	}
+}
+
+// A search that matched more than came back has to say so. Silently showing
+// thirty of a hundred and sixty reads as a repository with thirty branches.
+func TestTheNoteRendersBesideTheTitle(t *testing.T) {
+	p := comp.NewPicker("Merge into", items("main"), nil, false)
+	p.Replace(items("release/1.0"), "36 more matches")
+
+	out := render(p)
+	if !strings.Contains(out, "Merge into") {
+		t.Errorf("the title is missing:\n%s", out)
+	}
+	if !strings.Contains(out, "36 more matches") {
+		t.Errorf("the note is missing:\n%s", out)
+	}
+}
+
+// The note is part of the title now, and measuring the title without it clips
+// the count off the border.
+func TestTheModalIsWideEnoughForTheNote(t *testing.T) {
+	p := comp.NewPicker("Merge into", items("main"), nil, false)
+	bare := lipgloss.Width(render(p))
+
+	p.Replace(items("main"), "1284 more · narrow the search further")
+	if noted := lipgloss.Width(render(p)); noted <= bare {
+		t.Errorf("the modal is %d columns with the note and %d without, want it wider", noted, bare)
+	}
+}
+
+// Replacing does not change what the write behind the picker is doing, so what
+// was checked stays checked. An id the new list does not carry matches nothing
+// and marks nothing.
+func TestReplaceKeepsWhatWasChecked(t *testing.T) {
+	p := comp.NewPicker("Merge into", items("main", "develop"), []string{"id-main"}, false)
+	p.Replace(items("develop", "main"), "")
+
+	for _, line := range strings.Split(render(p), "\n") {
+		if !strings.Contains(line, "main") {
+			continue
+		}
+		if !strings.Contains(line, "✓") {
+			t.Errorf("main lost its mark across a replace:\n%s", line)
+		}
+		return
+	}
+	t.Error("main is not in the replaced list")
+}
+
+// The hint sets the width on a short list, and the multi-select one is fifteen
+// columns longer, so without a floor above both the two kinds open at two sizes.
+func TestEveryPickerOpensAtTheSameWidthOverShortContent(t *testing.T) {
+	single := comp.NewPicker("Merge into", items("main", "develop"), []string{"id-main"}, false)
+	multi := comp.NewPicker("Labels", items("bug", "docs"), []string{"id-bug"}, true)
+
+	if got, want := lipgloss.Width(render(single)), lipgloss.Width(render(multi)); got != want {
+		t.Errorf("single-select is %d columns and multi-select is %d, want them equal", got, want)
+	}
+}
+
+func TestAPickerStillGrowsPastTheFloorForLongContent(t *testing.T) {
+	short := comp.NewPicker("Merge into", items("main"), nil, false)
+	long := comp.NewPicker("Merge into",
+		items("feature/eng-9547-marketing-and-dashboard-share-one-globalscss"), nil, false)
+
+	if got, want := lipgloss.Width(render(long)), lipgloss.Width(render(short)); got <= want {
+		t.Errorf("a long branch renders at %d columns and a short one at %d, want it wider", got, want)
+	}
+}

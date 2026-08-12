@@ -110,6 +110,31 @@ func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStat
 	return out, nil
 }
 
+// mockBranches is long enough to earn the picker's filter row, so the search
+// path is exercised rather than just the list.
+var mockBranches = []string{
+	"main", "develop", "release/2.0", "release/1.9", "feature/rail-pickers",
+	"feature/base-retarget", "fix/scroll-arithmetic", "spike/glamour-width",
+}
+
+// Branches filters the fixture the way GitHub does, on a case-insensitive
+// substring of the name, and reports no overflow: the whole list comes back.
+func (Mock) Branches(_ context.Context, _, query string) (gh.BranchResult, error) {
+	out := make([]string, 0, len(mockBranches))
+	for _, b := range mockBranches {
+		if strings.Contains(strings.ToLower(b), strings.ToLower(query)) {
+			out = append(out, b)
+		}
+	}
+	return gh.BranchResult{Query: query, Default: "main", Branches: out}, nil
+}
+
+// SetBase hands back the branch it was asked for. The real one answers with
+// what GitHub recorded, which is the same thing whenever nobody else is writing.
+func (Mock) SetBase(_ context.Context, _, base string) (gh.BaseResult, error) {
+	return gh.BaseResult{BaseRefName: base}, nil
+}
+
 // SetAssignees hands back what it was asked for, resolved against the
 // repository's own list, the way SetLabels does.
 func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.AssigneesResult, error) {

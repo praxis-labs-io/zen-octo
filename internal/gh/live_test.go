@@ -443,3 +443,90 @@ func TestLiveTheStateDocumentsMatchTheSchema(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveTheSetBaseDocumentMatchesTheSchema is the third of the
+// updatePullRequest checks, and the one that needed it most: baseRefName is the
+// only field on that input this client sends as a name rather than a node id,
+// so a document that reached for an id would validate nowhere but here.
+// Nothing is written.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheSetBaseDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.SetBase(ctx, "NOT_A_NODE", "main")
+	if err == nil {
+		t.Fatal("retargeting a pull request that does not exist came back as a success")
+	}
+
+	assertValidated(t, err)
+}
+
+// TestLiveTheBranchSearchMatchesTheSchema runs the real search, because unlike
+// the mutations there is nothing to write and no id to get wrong.
+//
+// It holds two things the schema cannot. GitHub takes an orderBy on refs/heads
+// and ignores it, so the order has to be built here, and the query argument has
+// to match a substring of the name rather than a prefix. Both are load-bearing
+// and both are only observable against a repository with real branches.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// A repository with thousands of branches, which is the case the search
+	// exists for: its first page alphabetically is names nobody would look for.
+	res, err := client.Branches(ctx, "microsoft/vscode", "notebook")
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+
+	if len(res.Branches) == 0 {
+		t.Fatal("the search matched nothing, which this repository cannot be true of")
+	}
+	if res.Default == "" {
+		t.Error("the default branch came back empty")
+	}
+	if res.Query != "notebook" {
+		t.Errorf("Query = %q, want the search it answers", res.Query)
+	}
+
+	// Mid-name, not a prefix. The picker's own filter matches the same way, and
+	// a prefix search would disagree with it on every branch under a handle.
+	var midName bool
+	for _, b := range res.Branches {
+		if !strings.HasPrefix(strings.ToLower(b), "notebook") {
+			midName = true
+		}
+		if !strings.Contains(strings.ToLower(b), "notebook") {
+			t.Errorf("the search returned %q, which does not carry the query", b)
+		}
+	}
+	if !midName {
+		t.Log("every match was a prefix, so this run did not prove the substring rule")
+	}
+
+	if res.More <= 0 {
+		t.Errorf("More = %d, want the overflow reported on a repository this size", res.More)
+	}
+}

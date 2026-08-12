@@ -48,6 +48,7 @@ const (
 	fieldState
 	fieldAssignees
 	fieldReviewers
+	fieldBase
 )
 
 // LabelEdit is a whole label set claimed for a pull request. The picker applies
@@ -160,6 +161,60 @@ func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
 	held.Detail.IsDraft = res.IsDraft
 	s.put(id, held)
 	s.markStale(id)
+}
+
+// BaseEdit is a retarget claimed for a pull request: the branch it now merges
+// into, before GitHub has said so.
+type BaseEdit struct {
+	key  string
+	base string
+}
+
+func (e BaseEdit) Key() string      { return e.key }
+func (e BaseEdit) Field() editField { return fieldBase }
+
+// Apply moves the base and takes the behind-by count with it. Scalars, so
+// nothing to clone.
+//
+// The count goes to BehindUnknown rather than to zero. It is a comparison of
+// two branches that only GitHub can run, the old number was counted against a
+// branch this pull request no longer targets, and zero already means up to
+// date: writing it here would render "Up to date with develop" over a branch
+// forty commits ahead.
+func (e BaseEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.BaseRefName = e.base
+	d.BehindBy = gh.BehindUnknown
+	return d
+}
+
+// PendingBase holds a retarget applied here and not yet acknowledged, and
+// returns the key the response reconciles against.
+func (s *Store) PendingBase(id, base string) string {
+	return s.holdEdit(id, func(key string) Edit { return BaseEdit{key: key, base: base} })
+}
+
+// BaseApplied takes GitHub's answer for a retarget and drops the write it
+// settles, on the terms settleEdit sets out.
+//
+// The unknown count survives the settle, and that is the point of writing it
+// again here. The write has landed and the comparison has not been run: letting
+// the fetched number back would put a count against the old branch under the
+// name of the new one for as long as the refetch takes.
+//
+// The diff is marked stale beside it. A base change rewrites every file in one,
+// and the Files tab asks for a diff once per open, so nothing else would ask
+// again.
+func (s *Store) BaseApplied(id, key string, res gh.BaseResult) {
+	_, held, ok := s.settleEdit(id, key, fieldBase)
+	if !ok {
+		return
+	}
+
+	held.Detail.BaseRefName = res.BaseRefName
+	held.Detail.BehindBy = gh.BehindUnknown
+	s.put(id, held)
+	s.markStale(id)
+	s.markFilesStale(id)
 }
 
 // PendingAssignees holds an assignee set applied here and not yet acknowledged,

@@ -712,3 +712,282 @@ func TestNeitherPeopleWriteReadsAsAStateWrite(t *testing.T) {
 		t.Error("a reviewer or assignee write reads as a lifecycle write")
 	}
 }
+
+const repo = "zen-octo/zen-octo"
+
+func based(base string, behind int) gh.DetailResult {
+	return gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{BaseRefName: base},
+		BehindBy:    behind,
+	}}
+}
+
+func TestAPendingRetargetRendersBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+
+	s.PendingBase("PR_1", "develop")
+
+	if got, want := s.Detail("PR_1").Detail.BaseRefName, "develop"; got != want {
+		t.Errorf("BaseRefName = %q, want %q", got, want)
+	}
+}
+
+// The old count was measured against a branch the pull request no longer
+// targets, and zero already means up to date. Keeping either renders a number
+// that is wrong under a name that is right.
+func TestARetargetTakesTheBehindCountWithIt(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+
+	s.PendingBase("PR_1", "develop")
+
+	if got := s.Detail("PR_1").Detail.BehindBy; got != gh.BehindUnknown {
+		t.Errorf("BehindBy = %d, want BehindUnknown (%d)", got, gh.BehindUnknown)
+	}
+}
+
+// The write has landed and the comparison has not been run. Letting the fetched
+// number back here puts a count against the old branch under the name of the
+// new one, for as long as the refetch takes.
+func TestASettledRetargetStillHasNoCount(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+	key := s.PendingBase("PR_1", "develop")
+
+	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "develop"})
+
+	held := s.Detail("PR_1").Detail
+	if got, want := held.BaseRefName, "develop"; got != want {
+		t.Errorf("BaseRefName = %q, want %q", got, want)
+	}
+	if got := held.BehindBy; got != gh.BehindUnknown {
+		t.Errorf("BehindBy = %d, want BehindUnknown (%d)", got, gh.BehindUnknown)
+	}
+}
+
+// GitHub's answer, not the ask. Somebody retargeting in the browser first is
+// what parts them.
+func TestASettledRetargetTakesTheBranchGitHubNamed(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+	key := s.PendingBase("PR_1", "develop")
+
+	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "release/2.0"})
+
+	if got, want := s.Detail("PR_1").Detail.BaseRefName, "release/2.0"; got != want {
+		t.Errorf("BaseRefName = %q, want %q", got, want)
+	}
+}
+
+func TestARevertedRetargetPutsTheBranchAndItsCountBack(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+	key := s.PendingBase("PR_1", "develop")
+
+	s.EditReverted("PR_1", key)
+
+	held := s.Detail("PR_1").Detail
+	if got, want := held.BaseRefName, "main"; got != want {
+		t.Errorf("BaseRefName = %q, want %q", got, want)
+	}
+	if got, want := held.BehindBy, 3; got != want {
+		t.Errorf("BehindBy = %d, want %d", got, want)
+	}
+}
+
+// Two fields, two writes, no interference. An edit is only ever stale against a
+// later one on its own field.
+func TestARetargetAndALabelSetBothApply(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+
+	s.PendingBase("PR_1", "develop")
+	s.PendingLabels("PR_1", labelSet("bug"))
+
+	held := s.Detail("PR_1")
+	if got, want := held.Detail.BaseRefName, "develop"; got != want {
+		t.Errorf("BaseRefName = %q, want %q", got, want)
+	}
+	if got, want := labelNames(held), []string{"bug"}; !slices.Equal(got, want) {
+		t.Errorf("labels = %q, want %q", got, want)
+	}
+}
+
+func TestABranchSearchIsHeldForThePickerThatAskedForIt(t *testing.T) {
+	s := store.New(configured())
+
+	if !s.BeginBranches(repo, "rel") {
+		t.Fatal("BeginBranches refused a search never run")
+	}
+	s.BranchesApplied(repo, gh.BranchResult{
+		Query: "rel", Default: "main", Branches: []string{"release/2.0"}, More: 4,
+	})
+
+	held := s.Branches(repo)
+	if !held.Loaded {
+		t.Error("the search is not marked loaded")
+	}
+	if got, want := held.Names, []string{"release/2.0"}; !slices.Equal(got, want) {
+		t.Errorf("names = %q, want %q", got, want)
+	}
+	if got, want := held.More, 4; got != want {
+		t.Errorf("More = %d, want %d", got, want)
+	}
+	if got, want := held.Default, "main"; got != want {
+		t.Errorf("Default = %q, want %q", got, want)
+	}
+
+	// Backspacing back onto a search that has answered costs nothing.
+	if s.BeginBranches(repo, "rel") {
+		t.Error("BeginBranches re-ran a search it already holds the answer to")
+	}
+}
+
+func TestBeginBranchesRefusesTheSameSearchTwiceInFlight(t *testing.T) {
+	s := store.New(configured())
+
+	if !s.BeginBranches(repo, "rel") {
+		t.Fatal("the first BeginBranches was refused")
+	}
+	if s.BeginBranches(repo, "rel") {
+		t.Error("BeginBranches started a second request while one was in flight")
+	}
+	// A different question is a different request, even with one out.
+	if !s.BeginBranches(repo, "rele") {
+		t.Error("BeginBranches refused a search for something else")
+	}
+}
+
+// Two searches settle in whatever order the network gives them, which is not
+// the order they were typed. Painting the older one puts a list two keystrokes
+// behind the filter above it.
+func TestAnAnswerToASearchNobodyIsRunningIsDropped(t *testing.T) {
+	s := store.New(configured())
+	s.BeginBranches(repo, "rel")
+	s.BeginBranches(repo, "release")
+
+	s.BranchesApplied(repo, gh.BranchResult{Query: "rel", Branches: []string{"stale"}})
+
+	if held := s.Branches(repo); held.Loaded {
+		t.Errorf("the store took an answer to %q while asking %q", "rel", held.Query)
+	}
+}
+
+// Same reason, other leg. A failure for a search two keystrokes ago would tell
+// the reader the search they are waiting on had failed.
+func TestAFailureForAnOldSearchIsDropped(t *testing.T) {
+	s := store.New(configured())
+	s.BeginBranches(repo, "rel")
+	s.BeginBranches(repo, "release")
+
+	s.BranchesFailed(repo, "rel", errors.New("boom"))
+
+	if got := s.Branches(repo).Err; got != nil {
+		t.Errorf("err = %v, want none: the search still running has not failed", got)
+	}
+}
+
+// A failed search is the one state where the same question is worth asking
+// again: the reader is retrying, not the store forgetting.
+// The retry has to survive an earlier search having worked, which is the only
+// way it comes up: the reader types, one keystroke answers, the next one drops
+// the connection. Reading "has answered at least once" as "has this answer"
+// leaves the picker on the older list with no way to ask again.
+func TestAFailedSearchCanBeRunAgain(t *testing.T) {
+	s := store.New(configured())
+	boom := errors.New("boom")
+
+	s.BeginBranches(repo, "rel")
+	s.BranchesApplied(repo, gh.BranchResult{Query: "rel", Branches: []string{"release/2.0"}})
+
+	s.BeginBranches(repo, "release")
+	s.BranchesFailed(repo, "release", boom)
+
+	if !errors.Is(s.Branches(repo).Err, boom) {
+		t.Errorf("err = %v, want %v", s.Branches(repo).Err, boom)
+	}
+	if !s.BeginBranches(repo, "release") {
+		t.Error("BeginBranches refuses to retry a search that failed")
+	}
+}
+
+// A retarget rewrites every file in the diff, and the Files tab asks for one
+// once per open, so the debt has to be recorded rather than acted on.
+func TestARetargetMarksTheDiffStale(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+	s.BeginFiles("PR_1")
+	s.FilesApplied("PR_1", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+
+	key := s.PendingBase("PR_1", "develop")
+	if s.StaleFiles("PR_1") {
+		t.Error("the diff is stale before the write has landed")
+	}
+
+	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "develop"})
+
+	if !s.StaleFiles("PR_1") {
+		t.Error("a landed retarget did not mark the diff stale")
+	}
+}
+
+// Starting the corrective fetch is what settles the debt.
+func TestBeginningADiffClearsTheStaleMark(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+	key := s.PendingBase("PR_1", "develop")
+	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "develop"})
+
+	if !s.BeginFiles("PR_1") {
+		t.Fatal("BeginFiles refused a diff with nothing in flight")
+	}
+	if s.StaleFiles("PR_1") {
+		t.Error("starting the corrective fetch left the debt outstanding")
+	}
+}
+
+// A fetch already in flight was measured against the old base too, so it cannot
+// settle the debt. The mark stays for the caller to answer once it lands.
+func TestARetargetOverADiffInFlightKeepsTheDebt(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", based("main", 3))
+
+	s.BeginFiles("PR_1") // out, and measured against main
+	key := s.PendingBase("PR_1", "develop")
+	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "develop"})
+
+	if s.BeginFiles("PR_1") {
+		t.Fatal("BeginFiles started a second request while one was in flight")
+	}
+	if !s.StaleFiles("PR_1") {
+		t.Error("the refused correction dropped the debt, so nothing owes the refetch")
+	}
+
+	// The one in flight lands, and the caller can now settle it.
+	s.FilesApplied("PR_1", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+	if !s.StaleFiles("PR_1") {
+		t.Error("the stale answer landing cleared the debt")
+	}
+	if !s.BeginFiles("PR_1") {
+		t.Error("the corrective fetch cannot start once the old one has landed")
+	}
+}
+
+// BeginBranches refuses a query already answered, so without this a branch made
+// in the browser never reaches the picker.
+func TestInvalidateBranchesLetsTheNextPickerAskAgain(t *testing.T) {
+	s := store.New(configured())
+	s.BeginBranches(repo, "")
+	s.BranchesApplied(repo, gh.BranchResult{Branches: []string{"main"}})
+
+	if s.BeginBranches(repo, "") {
+		t.Fatal("setup: BeginBranches re-ran a search it already holds")
+	}
+
+	s.InvalidateBranches(repo)
+
+	if !s.BeginBranches(repo, "") {
+		t.Error("BeginBranches still refuses after the search was invalidated")
+	}
+}

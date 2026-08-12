@@ -56,6 +56,14 @@ type Detail struct {
 	// to decide whether it has anything to offer has to wait this out rather
 	// than believe them.
 	StateWriting bool
+
+	// BaseWriting is the same for a retarget, and it exists to tell two
+	// unknowns apart. The count goes to BehindUnknown when the write is held
+	// and stays there until the refetch answers, so the row cannot read the
+	// number to know whether anything is still in flight. Without this a
+	// refetch that never lands leaves it saying "Retargeting" for the rest of
+	// the session about a write that finished.
+	BaseWriting bool
 }
 
 // Files is one diff: a pull request's, keyed by the same id as its Detail, or
@@ -113,6 +121,7 @@ type Store struct {
 	files    map[string]Files
 	commits  map[string]Files
 	repos    map[string]Repo
+	branches map[string]Branches
 	rate     gh.RateLimit
 	viewer   gh.Actor
 
@@ -136,7 +145,12 @@ type Store struct {
 	// staleFetch marks a detail fetch that was asked for before a write on the
 	// same pull request settled. Its response carries the state from before the
 	// write, so taking it would put the write back on screen undone.
+	//
+	// staleFiles is the same debt for a diff, and it is owed rather than
+	// dropped: a retarget rewrites every file in one, and the Files tab asks
+	// for a diff once per open, so nothing else would ever ask again.
 	staleFetch map[string]bool
+	staleFiles map[string]bool
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -151,6 +165,7 @@ func New(sections []config.Section) Store {
 		files:    make(map[string]Files),
 		commits:  make(map[string]Files),
 		repos:    make(map[string]Repo),
+		branches: make(map[string]Branches),
 	}
 }
 
@@ -248,6 +263,7 @@ func (s Store) Detail(id string) Detail {
 	for _, e := range editing {
 		held.Detail = e.Apply(held.Detail)
 		held.StateWriting = held.StateWriting || e.Field() == fieldState
+		held.BaseWriting = held.BaseWriting || e.Field() == fieldBase
 	}
 
 	timeline, threads := held.Detail.Timeline, held.Detail.Threads
@@ -591,6 +607,26 @@ func (s *Store) markStale(id string) {
 	s.staleFetch[id] = true
 }
 
+// StaleFiles reports whether the diff held for a pull request was measured
+// against a base it no longer has. A caller that can fetch owes one.
+func (s Store) StaleFiles(id string) bool { return s.staleFiles[id] }
+
+// markFilesStale records that a write moved the base out from under the diff.
+//
+// Unconditional, where markStale marks only a fetch in flight. A retarget
+// rewrites every file whether or not anything is out, and a request already on
+// its way was measured against the old base as well, so the answer it brings
+// back is no fresher than what is held.
+func (s *Store) markFilesStale(id string) {
+	if id == "" {
+		return
+	}
+	if s.staleFiles == nil {
+		s.staleFiles = make(map[string]bool)
+	}
+	s.staleFiles[id] = true
+}
+
 // DetailFailed puts a pull request into its error state, keeping whatever it
 // already held. A background refetch that fails must not empty a screen that
 // was reading fine a moment ago.
@@ -621,7 +657,17 @@ func (s Store) Files(id string) Files { return s.files[id] }
 
 // BeginFiles marks a diff in flight and reports whether it started. It refuses
 // one already on its way, so tabbing in and out of Files costs one request.
-func (s *Store) BeginFiles(id string) bool { return beginDiff(&s.files, id) }
+//
+// Starting clears the stale mark, because this fetch is what settles it. A
+// refusal leaves it set, and the caller owes another once the request already
+// out has answered: that one was measured against the old base too.
+func (s *Store) BeginFiles(id string) bool {
+	if !beginDiff(&s.files, id) {
+		return false
+	}
+	delete(s.staleFiles, id)
+	return true
+}
 
 // FilesApplied stores a pull request's diff. No budget to fold: the REST API
 // bills against a separate allowance the GraphQL response knows nothing about.

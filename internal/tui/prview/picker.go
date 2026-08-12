@@ -23,11 +23,16 @@ const (
 	pickState
 	pickAssignees
 	pickReviewers
+	pickBase
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
 // to the detail the screen already holds. Only those cost a round trip before
 // the modal can open; the state menu is built from what is on screen.
+//
+// The base picker costs one too and is still not here. Its choices are a
+// search, keyed by what has been typed rather than by the repository, so it
+// waits on its own call and SetBranches is what resumes it.
 func (f pickField) needsRepo() bool {
 	return f == pickLabels || f == pickAssignees || f == pickReviewers
 }
@@ -101,9 +106,15 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 // the menu under the reader's hands between one key and the next. There is no
 // third case to worry about, because a picker owns every key while it is up and
 // nothing can ask for another one.
+//
+// It reads needsRepo rather than testing want against nothing, because the base
+// picker waits on a different call. Labels asked for and then Base asked for
+// leaves want at pickBase, and opening that here builds it over branches this
+// screen has not been handed: a modal listing the current base alone, on which
+// enter does nothing.
 func (m *Model) SetRepo(r store.Repo) {
 	m.repo = r
-	if m.picking.want == pickNone || !r.Loaded {
+	if !m.picking.want.needsRepo() || !r.Loaded {
 		return
 	}
 
@@ -139,6 +150,8 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		want = pickReviewers
 	case focusState:
 		want = pickState
+	case focusBase:
+		want = pickBase
 	default:
 		return m, nil
 	}
@@ -149,6 +162,16 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		m.picking.want = want
 		repo := m.pr.Repository
 		return m, func() tea.Msg { return NeedRepoMetaMsg{Repo: repo} }
+	}
+
+	// The branch list is a search rather than a cache, so a picker opens over
+	// the search for nothing. Anything else held is the last thing somebody
+	// typed into a picker they have since closed, which is not the list this
+	// one should start on.
+	if want == pickBase && (!m.branches.Loaded || m.branches.Query != "") {
+		m.picking.want = want
+		repo := m.pr.Repository
+		return m, func() tea.Msg { return NeedBranchesMsg{Repo: repo} }
 	}
 
 	m.startPicker(want)
@@ -218,6 +241,26 @@ func (m *Model) startPicker(field pickField) {
 				true,
 			),
 		}
+
+	case pickBase:
+		base := m.railDetail().BaseRefName
+
+		// Single select, and opened on the branch already set, so enter with no
+		// movement is a no-op rather than a retarget onto whatever sorted
+		// newest. No snapshot of the choices beside it: a branch's id is its
+		// name, and the list is replaced under the reader on every keystroke
+		// anyway.
+		p := comp.NewPicker(
+			"Merge into",
+			baseItems(m.branches, m.pr, base, m.theme.Primary),
+			[]string{base},
+			false,
+		)
+		// The opening search can have left branches out too. Said through
+		// SetNote rather than Replace, which would move the cursor off the row
+		// this picker just opened on.
+		p.SetNote(branchNote(m.branches.More))
+		m.picking = picking{field: field, p: p}
 	}
 }
 
@@ -275,6 +318,12 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 
 	if m.picking.p.Insert(keyMsg) {
+		// The filter is the search on this one field. Every keystroke arms its
+		// own wait and the stale ones drop themselves, so a word typed at speed
+		// costs one request rather than one per letter.
+		if m.picking.field == pickBase {
+			return m, m.armBranches()
+		}
 		return m, nil
 	}
 
@@ -301,6 +350,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 		return m.applyAssignees(p)
 	case pickReviewers:
 		return m.applyReviewers(p)
+	case pickBase:
+		return m.applyBase(p)
 	case pickState:
 		return m.applyState(p)
 	}
