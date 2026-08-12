@@ -140,11 +140,15 @@ func (m *Model) entries() string {
 			i += len(run) - 1
 
 		default:
-			// An event this build has no words for renders to nothing, and an
-			// empty block still costs the blank line the join puts after it.
-			if line := m.event(item); line != "" {
+			// A metadata write arrives as one event per label or per person, and
+			// folds back into the one line here for the reason a push does. An
+			// event this build has no words for renders to nothing, and an empty
+			// block still costs the blank line the join puts after it.
+			run := metaRun(d.Timeline[i:])
+			if line := m.happened(run); line != "" {
 				push(line, focusKey{})
 			}
+			i += len(run) - 1
 		}
 	}
 
@@ -559,16 +563,6 @@ func (m *Model) posting(actor gh.Actor, verb string) string {
 		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
 }
 
-// event is one line. Nobody reads a merge twice, and giving it the same block
-// treatment as a comment buries the discussion between them.
-func (m *Model) event(item gh.TimelineItem) string {
-	label, ok := eventLabels[item.Kind]
-	if !ok {
-		return ""
-	}
-	return wrap(m.faint().Render("● ")+m.said(item.Actor, label, m.theme.Faint, item), m.bodyWidth())
-}
-
 // commitRun is the commits that landed together, from the head of a timeline.
 func commitRun(items []gh.TimelineItem) []gh.TimelineItem {
 	for i, item := range items {
@@ -631,15 +625,6 @@ func (m *Model) pushedRow(c gh.Commit) string {
 		return comp.Clip(line, width, m.faint())
 	}
 	return line
-}
-
-var eventLabels = map[gh.TimelineKind]string{
-	gh.TimelineMerged:         "merged this",
-	gh.TimelineClosed:         "closed this",
-	gh.TimelineReopened:       "reopened this",
-	gh.TimelineReadyForReview: "marked this ready for review",
-	gh.TimelineDraft:          "converted this to a draft",
-	gh.TimelineForcePushed:    "force-pushed",
 }
 
 // thread renders a line-anchored discussion in a box of its own, its anchor in

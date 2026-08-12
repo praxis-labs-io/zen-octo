@@ -91,17 +91,12 @@ func pendingReviewers(reviewers []gh.Reviewer) []string {
 	return out
 }
 
-// reviewerItems is the people as choices. Copilot is named for itself rather
-// than by its login, which is the one the rail shows and not a word anybody
-// would think to look for.
+// reviewerItems is the people as choices, named the way the conversation names
+// them when it reports a request going out.
 func (m Model) reviewerItems(users []gh.Actor) []comp.PickerItem {
 	out := make([]comp.PickerItem, 0, len(users))
 	for _, u := range users {
-		name := comp.Handle(u.Login)
-		if u.Login == gh.CopilotLogin {
-			name = "Copilot"
-		}
-		out = append(out, comp.PickerItem{ID: u.Login, Name: name, Color: m.theme.Actor})
+		out = append(out, comp.PickerItem{ID: u.Login, Name: actorName(u.Login), Color: m.theme.Actor})
 	}
 	return out
 }
