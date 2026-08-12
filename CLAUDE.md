@@ -180,6 +180,18 @@ collaborator is given the first and refused the second. There is no flag at all
 for review requests, so those rows are ungated and the revert branch answers a
 refusal.
 
+Every write the rail makes has a timeline event behind it, and the detail query
+asks for all of them: a write nobody can see happen reads as one that did not
+land. They arrive one per label and one per person, so the conversation folds a
+run of them back into the one line, on `TimelineItem.Subject`, which is the
+single field carrying a label's name, a handle, or a branch. An event whose
+subject GitHub nulled is dropped rather than rendered as a verb with nothing
+after it. The fold is not the one a push uses: a run needs the same actor and
+one minute, where a rebase written over a week is still one push. Two review
+requests for the same person an hour apart are two things somebody did, and
+folding on kind alone reads as "requested reviews from Copilot and Copilot",
+which is what PR #20's own history produces.
+
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
 
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.

@@ -79,6 +79,16 @@ const (
 	TimelineReadyForReview TimelineKind = "READY_FOR_REVIEW"
 	TimelineDraft          TimelineKind = "CONVERT_TO_DRAFT"
 	TimelineForcePushed    TimelineKind = "FORCE_PUSHED"
+
+	// The metadata kinds. Each names something the rail can write, and each
+	// carries a Subject saying what it was written to.
+	TimelineLabeled         TimelineKind = "LABELED"
+	TimelineUnlabeled       TimelineKind = "UNLABELED"
+	TimelineAssigned        TimelineKind = "ASSIGNED"
+	TimelineUnassigned      TimelineKind = "UNASSIGNED"
+	TimelineReviewRequested TimelineKind = "REVIEW_REQUESTED"
+	TimelineReviewCancelled TimelineKind = "REVIEW_REQUEST_REMOVED"
+	TimelineBaseChanged     TimelineKind = "BASE_REF_CHANGED"
 )
 
 // Actor is a user, organization, or bot. Author fields are nil on GitHub when
@@ -214,6 +224,14 @@ type TimelineItem struct {
 	Comment   *Comment
 	Review    ReviewState
 	Commit    *Commit
+
+	// Subject is what the event was done to: a label's name, the handle of
+	// somebody assigned or asked for a review, or the branch a base moved to.
+	// Empty on every kind that acts on the pull request as a whole.
+	Subject string
+
+	// Was is the value Subject replaced. Only a base ref change has one.
+	Was string
 }
 
 // Said is the comment behind a comment or a review, and the zero Comment on
@@ -379,12 +397,19 @@ type PullRequestDetail struct {
 	// up to date.
 	BehindBy int
 
-	// MoreComments, MoreThreads and MoreCommits are what the first page did not
-	// reach. A dropped comment that reads as no comment is the failure worth a
-	// field.
+	// MoreComments, MoreThreads, MoreCommits and MoreEvents are what the first
+	// page did not reach. A dropped comment that reads as no comment is the
+	// failure worth a field.
+	//
+	// Events share one window across every type asked for, and the metadata ones
+	// are the high-volume ones: a repository that labels on every push can fill
+	// the hundred and push a merge or a force push out of it. So this counts the
+	// window the item types were filtered to, never the whole timeline, which
+	// holds subscriptions and mentions nothing here ever asks for.
 	MoreComments int
 	MoreThreads  int
 	MoreCommits  int
+	MoreEvents   int
 }
 
 // FileStatus is what happened to a file in the pull request.

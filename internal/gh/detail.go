@@ -12,8 +12,13 @@ import (
 // came from GitHub with the search result, so there is nothing to split and no
 // ambiguity about which repository is meant.
 //
-// The item types are deliberately short. Labeled, assigned, renamed, subscribed
-// and the rest are noise in a terminal, and every one is another fragment.
+// The item types are the lifecycle and the four fields the rail writes. A write
+// nobody can see happen reads as a write that did not land, which is what the
+// metadata types are here to answer. They are the noisy ones, because one
+// picker apply writes a label set as one event per label, and the conversation
+// folds a run of them back into the one line rather than the query dropping
+// them. Renamed, subscribed, mentioned and the rest stay out: nothing here
+// writes them and nobody reads them.
 const pullRequestQuery = `
 query PullRequestDetail($id: ID!, $head: String!) {
   rateLimit { limit cost remaining resetAt }
@@ -136,8 +141,11 @@ query PullRequestDetail($id: ID!, $head: String!) {
 
       timelineItems(last: 100, itemTypes: [
         MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT,
-        READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, HEAD_REF_FORCE_PUSHED_EVENT
+        READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, HEAD_REF_FORCE_PUSHED_EVENT,
+        LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
+        REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, BASE_REF_CHANGED_EVENT
       ]) {
+        filteredCount
         nodes {
           __typename
           ... on MergedEvent { createdAt actor { login } }
@@ -146,6 +154,35 @@ query PullRequestDetail($id: ID!, $head: String!) {
           ... on ReadyForReviewEvent { createdAt actor { login } }
           ... on ConvertToDraftEvent { createdAt actor { login } }
           ... on HeadRefForcePushedEvent { createdAt actor { login } }
+          ... on LabeledEvent { createdAt actor { login } label { name } }
+          ... on UnlabeledEvent { createdAt actor { login } label { name } }
+          ... on AssignedEvent {
+            createdAt actor { login }
+            assignee { ... on User { login } ... on Bot { login } }
+          }
+          ... on UnassignedEvent {
+            createdAt actor { login }
+            assignee { ... on User { login } ... on Bot { login } }
+          }
+          ... on ReviewRequestedEvent {
+            createdAt actor { login }
+            requestedReviewer {
+              ... on User { login }
+              ... on Bot { login }
+              ... on Team { slug organization { login } }
+            }
+          }
+          ... on ReviewRequestRemovedEvent {
+            createdAt actor { login }
+            requestedReviewer {
+              ... on User { login }
+              ... on Bot { login }
+              ... on Team { slug organization { login } }
+            }
+          }
+          ... on BaseRefChangedEvent {
+            createdAt actor { login } previousRefName currentRefName
+          }
         }
       }
 
@@ -178,6 +215,26 @@ query PullRequestDetail($id: ID!, $head: String!) {
 // actorNode is GitHub's nullable actor. It is a pointer everywhere it appears,
 // because a deleted account comes back as null rather than a blank login.
 type actorNode *struct{ Login string }
+
+// reviewerNode is the RequestedReviewer union, and the Assignee union with it.
+// Only one shape comes back filled: a user or a bot has a login, a team has a
+// slug under an organization and no login at all. Nullable for the reason
+// actorNode is.
+type reviewerNode *struct {
+	Login string
+	Slug  string
+
+	Organization struct{ Login string }
+}
+
+// subject is how one of those reads where a handle goes, and empty when GitHub
+// sent nothing to name.
+func subject(n reviewerNode) string {
+	if n == nil {
+		return ""
+	}
+	return cmp.Or(n.Login, teamHandle(n.Organization.Login, n.Slug))
+}
 
 // commentNode is what an issue comment, a review comment and a review body all
 // answer with. It is embedded rather than repeated three times: encoding/json
@@ -257,12 +314,7 @@ type pullRequestResponse struct {
 
 		ReviewRequests struct {
 			Nodes []struct {
-				RequestedReviewer *struct {
-					Login string
-					Slug  string
-
-					Organization struct{ Login string }
-				}
+				RequestedReviewer reviewerNode
 			}
 		}
 
@@ -328,11 +380,25 @@ type pullRequestResponse struct {
 			}
 		}
 
+		// One flat struct for every event type, because each fragment selects a
+		// field no other one does: whichever matched fills its own and leaves
+		// the rest zero.
 		TimelineItems struct {
-			Nodes []struct {
+			// The count the item types were filtered to. totalCount is the whole
+			// timeline, subscriptions and mentions included, and reading it would
+			// claim a hundred hidden events on a pull request that has none this
+			// build would ever render.
+			FilteredCount int
+			Nodes         []struct {
 				Typename  string `json:"__typename"`
 				CreatedAt time.Time
 				Actor     actorNode
+
+				Label             *struct{ Name string }
+				Assignee          reviewerNode
+				RequestedReviewer reviewerNode
+				PreviousRefName   string
+				CurrentRefName    string
 			}
 		}
 
@@ -414,6 +480,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
 		MoreCommits:  max(0, n.Commits.TotalCount-len(n.Commits.Nodes)),
+		MoreEvents:   max(0, n.TimelineItems.FilteredCount-len(n.TimelineItems.Nodes)),
 		Commits:      commits(resp),
 	}
 
@@ -539,11 +606,7 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		// A requested reviewer is a user, a bot or a team, and only one shape is
 		// filled in. Teams have no login; Copilot is a bot, and leaving its
 		// fragment out drops it from the list entirely.
-		if r.RequestedReviewer == nil {
-			continue
-		}
-		login := r.RequestedReviewer.Login
-		name := cmp.Or(login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
+		name := subject(r.RequestedReviewer)
 		if name == "" {
 			continue
 		}
@@ -562,7 +625,8 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		// A team is what is left when no login came back. The handle under it is
 		// built here rather than sent by GitHub, so nothing may write it back
 		// where a login goes.
-		out = append(out, Reviewer{Actor: Actor{Login: name}, Requested: true, Team: login == ""})
+		team := r.RequestedReviewer.Login == ""
+		out = append(out, Reviewer{Actor: Actor{Login: name}, Requested: true, Team: team})
 	}
 	return out
 }
@@ -661,11 +725,30 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 		if !ok {
 			continue
 		}
-		items = append(items, TimelineItem{
-			Kind:      kind,
-			Actor:     login(e.Actor),
-			CreatedAt: e.CreatedAt,
-		})
+		item := TimelineItem{Kind: kind, Actor: login(e.Actor), CreatedAt: e.CreatedAt}
+
+		// An event whose subject GitHub nulled is dropped rather than rendered
+		// without one. The assignee and reviewer unions come back null for a
+		// deleted account, and "assigned" with nobody named says less than the
+		// missing row does.
+		switch kind {
+		case TimelineLabeled, TimelineUnlabeled:
+			if e.Label == nil {
+				continue
+			}
+			item.Subject = e.Label.Name
+		case TimelineAssigned, TimelineUnassigned:
+			if item.Subject = subject(e.Assignee); item.Subject == "" {
+				continue
+			}
+		case TimelineReviewRequested, TimelineReviewCancelled:
+			if item.Subject = subject(e.RequestedReviewer); item.Subject == "" {
+				continue
+			}
+		case TimelineBaseChanged:
+			item.Subject, item.Was = e.CurrentRefName, e.PreviousRefName
+		}
+		items = append(items, item)
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
@@ -675,12 +758,19 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 }
 
 var eventKinds = map[string]TimelineKind{
-	"MergedEvent":             TimelineMerged,
-	"ClosedEvent":             TimelineClosed,
-	"ReopenedEvent":           TimelineReopened,
-	"ReadyForReviewEvent":     TimelineReadyForReview,
-	"ConvertToDraftEvent":     TimelineDraft,
-	"HeadRefForcePushedEvent": TimelineForcePushed,
+	"MergedEvent":               TimelineMerged,
+	"ClosedEvent":               TimelineClosed,
+	"ReopenedEvent":             TimelineReopened,
+	"ReadyForReviewEvent":       TimelineReadyForReview,
+	"ConvertToDraftEvent":       TimelineDraft,
+	"HeadRefForcePushedEvent":   TimelineForcePushed,
+	"LabeledEvent":              TimelineLabeled,
+	"UnlabeledEvent":            TimelineUnlabeled,
+	"AssignedEvent":             TimelineAssigned,
+	"UnassignedEvent":           TimelineUnassigned,
+	"ReviewRequestedEvent":      TimelineReviewRequested,
+	"ReviewRequestRemovedEvent": TimelineReviewCancelled,
+	"BaseRefChangedEvent":       TimelineBaseChanged,
 }
 
 // rollup counts the head commit's checks. GitHub gives the summary state; the

@@ -118,10 +118,29 @@ const detailBody = `{
       ]
     },
 
-    "timelineItems": {"nodes": [
+    "timelineItems": {"filteredCount": 14, "nodes": [
       {"__typename": "HeadRefForcePushedEvent", "createdAt": "2026-08-04T12:00:00Z",
        "actor": {"login": "drucial"}},
-      {"__typename": "LabeledEvent", "createdAt": "2026-08-04T13:00:00Z", "actor": null}
+      {"__typename": "LabeledEvent", "createdAt": "2026-08-04T13:00:00Z",
+       "actor": {"login": "drucial"}, "label": {"name": "bug"}},
+      {"__typename": "UnlabeledEvent", "createdAt": "2026-08-04T13:30:00Z",
+       "actor": {"login": "drucial"}, "label": {"name": "wip"}},
+      {"__typename": "AssignedEvent", "createdAt": "2026-08-04T14:00:00Z",
+       "actor": {"login": "drucial"}, "assignee": {"login": "drucial"}},
+      {"__typename": "UnassignedEvent", "createdAt": "2026-08-04T14:30:00Z",
+       "actor": {"login": "drucial"}, "assignee": null},
+      {"__typename": "ReviewRequestedEvent", "createdAt": "2026-08-04T15:00:00Z",
+       "actor": {"login": "drucial"},
+       "requestedReviewer": {"login": "copilot-pull-request-reviewer"}},
+      {"__typename": "ReviewRequestedEvent", "createdAt": "2026-08-04T15:30:00Z",
+       "actor": {"login": "drucial"},
+       "requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "zen-octo"}}},
+      {"__typename": "ReviewRequestRemovedEvent", "createdAt": "2026-08-04T16:00:00Z",
+       "actor": null, "requestedReviewer": {"login": "nkr"}},
+      {"__typename": "BaseRefChangedEvent", "createdAt": "2026-08-04T16:30:00Z",
+       "actor": {"login": "drucial"},
+       "previousRefName": "develop", "currentRefName": "main"},
+      {"__typename": "RenamedTitleEvent", "createdAt": "2026-08-04T17:00:00Z", "actor": null}
     ]},
 
     "statusCheckRollup": {"nodes": [{"commit": {"statusCheckRollup": {
@@ -230,6 +249,14 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 		{TimelineCommit, ""}, // 7b20ef4, from an email GitHub matched to nobody
 		{TimelineComment, "octobot"},
 		{TimelineForcePushed, "drucial"},
+		{TimelineLabeled, "drucial"},
+		{TimelineUnlabeled, "drucial"},
+		{TimelineAssigned, "drucial"},
+		// The unassign at 14:30 named nobody and is gone.
+		{TimelineReviewRequested, "drucial"},
+		{TimelineReviewRequested, "drucial"},
+		{TimelineReviewCancelled, ""}, // asked for by a deleted account
+		{TimelineBaseChanged, "drucial"},
 		{TimelineReview, "nkr"},
 	}
 
@@ -240,6 +267,78 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 		if got[i].Kind != w.kind || got[i].Actor.Login != w.login {
 			t.Errorf("timeline[%d] = %s by %q, want %s by %q",
 				i, got[i].Kind, got[i].Actor.Login, w.kind, w.login)
+		}
+	}
+}
+
+// Every metadata event names what it was done to. Six fragments select six
+// different fields for it, and a subject read off the wrong one is an event
+// that renders as a verb with nothing after it.
+func TestEveryMetadataEventNamesWhatItWasDoneTo(t *testing.T) {
+	got := fetchDetail(t).Timeline
+
+	want := map[TimelineKind]struct{ subject, was string }{
+		TimelineLabeled:         {subject: "bug"},
+		TimelineUnlabeled:       {subject: "wip"},
+		TimelineAssigned:        {subject: "drucial"},
+		TimelineReviewCancelled: {subject: "nkr"},
+		TimelineBaseChanged:     {subject: "main", was: "develop"},
+	}
+
+	for _, item := range got {
+		w, ok := want[item.Kind]
+		if !ok {
+			continue
+		}
+		if item.Subject != w.subject || item.Was != w.was {
+			t.Errorf("%s names %q (was %q), want %q (was %q)",
+				item.Kind, item.Subject, item.Was, w.subject, w.was)
+		}
+		delete(want, item.Kind)
+	}
+	for kind := range want {
+		t.Errorf("no %s reached the timeline", kind)
+	}
+}
+
+// Every event type shares one window, and the metadata ones are the ones that
+// fill it. What fell out of it has to be counted off the filtered connection:
+// totalCount is the whole timeline, subscriptions and mentions included, and
+// reading it claims a hundred hidden events on a pull request that has none
+// this build would ever render.
+func TestTheEventsTheWindowCutOffAreCounted(t *testing.T) {
+	// Ten nodes came back against a filtered count of fourteen, so four were
+	// left behind. Two of the ten were dropped on the way in, and neither is
+	// one of those four: a row this build cannot render is still a row GitHub
+	// sent.
+	if got := fetchDetail(t).MoreEvents; got != 4 {
+		t.Errorf("MoreEvents = %d, want 4", got)
+	}
+}
+
+// The reviewer union is three shapes and only one comes back filled. A team has
+// no login at all, so reading one drops the request that is hardest to see
+// anywhere else.
+func TestAReviewRequestEventNamesABotAndATeamTheWayTheRailDoes(t *testing.T) {
+	var got []string
+	for _, item := range fetchDetail(t).Timeline {
+		if item.Kind == TimelineReviewRequested {
+			got = append(got, item.Subject)
+		}
+	}
+
+	want := []string{CopilotLogin, "zen-octo/core-maintainers"}
+	if !slices.Equal(got, want) {
+		t.Errorf("review requests name %v, want %v", got, want)
+	}
+}
+
+// An event whose subject GitHub nulled is dropped rather than rendered without
+// one. "unassigned" with nobody named says less than the missing row does.
+func TestAnEventThatNamesNobodyStaysOut(t *testing.T) {
+	for _, item := range fetchDetail(t).Timeline {
+		if item.Kind == TimelineUnassigned {
+			t.Errorf("the timeline carries an unassign naming %q", item.Subject)
 		}
 	}
 }
