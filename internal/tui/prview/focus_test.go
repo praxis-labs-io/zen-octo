@@ -444,13 +444,16 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 
 	for _, want := range []string{
 		"Open", "@nkr", "@drucial", "bug", "Rails Unit Tests / test", "Blocked",
-		"+ Add reviewer", "+ Add assignee", "+ Add label",
+		"+ Add reviewer", "+ Add assignee", "+ Add label", "behind main",
 	} {
 		if !reached(want) {
 			t.Errorf("tab never reached the %q row", want)
 		}
 	}
-	for _, skip := range []string{"behind main", "+42"} {
+	// The churn is the one row left that only reports. The base beside it says
+	// how far behind the branch is and is still a control, because retargeting
+	// is a change to the branch that number is measured against.
+	for _, skip := range []string{"+42"} {
 		if reached(skip) {
 			t.Errorf("tab stopped on %q, which there is nothing to do to", skip)
 		}

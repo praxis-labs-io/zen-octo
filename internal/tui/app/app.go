@@ -43,6 +43,11 @@ type GitHub interface {
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
 	SetState(ctx context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error)
 	SetAssignees(ctx context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error)
+	SetBase(ctx context.Context, prID, base string) (gh.BaseResult, error)
+
+	// Branches is a search rather than a read of the repository, and it is the
+	// one call keyed by what somebody typed. RepoMeta beside it is fetched once.
+	Branches(ctx context.Context, repo, query string) (gh.BranchResult, error)
 
 	// The two REST writes, addressed by repository and number rather than by
 	// node id: GraphQL cannot request Copilot, so this pair goes the other way.
@@ -1049,6 +1054,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case stateFailedMsg:
 		return m.stateFailed(msg)
+
+	case prview.NeedBranchesMsg:
+		return m.needBranches(msg)
+
+	case branchesFetchedMsg:
+		return m.branchesLanded(msg)
+
+	case branchesFailedMsg:
+		return m.branchesFailed(msg)
+
+	case prview.SetBaseMsg:
+		return m.setBase(msg)
+
+	case baseSetMsg:
+		return m.baseLanded(msg)
+
+	case baseFailedMsg:
+		return m.baseFailed(msg)
 
 	case prview.ResolveThreadMsg:
 		return m.resolveThread(msg)

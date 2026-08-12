@@ -113,6 +113,7 @@ type Store struct {
 	files    map[string]Files
 	commits  map[string]Files
 	repos    map[string]Repo
+	branches map[string]Branches
 	rate     gh.RateLimit
 	viewer   gh.Actor
 
@@ -151,6 +152,7 @@ func New(sections []config.Section) Store {
 		files:    make(map[string]Files),
 		commits:  make(map[string]Files),
 		repos:    make(map[string]Repo),
+		branches: make(map[string]Branches),
 	}
 }
 

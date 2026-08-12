@@ -394,7 +394,7 @@ type PullRequestDetail struct {
 	Viewer ViewerActions
 
 	// BehindBy is how many commits the base has that the head does not. Zero is
-	// up to date.
+	// up to date, and BehindUnknown is nobody has counted yet.
 	BehindBy int
 
 	// MoreComments, MoreThreads, MoreCommits and MoreEvents are what the first
@@ -411,6 +411,12 @@ type PullRequestDetail struct {
 	MoreCommits  int
 	MoreEvents   int
 }
+
+// BehindUnknown is BehindBy on a pull request whose base has just moved. The
+// count comes from a comparison only GitHub can run, so a retarget applied
+// optimistically has no honest number until the refetch answers, and zero is
+// already spoken for: it means up to date.
+const BehindUnknown = -1
 
 // FileStatus is what happened to a file in the pull request.
 type FileStatus string
@@ -587,6 +593,37 @@ type AssigneesResult struct {
 type PRStateResult struct {
 	State   PRState
 	IsDraft bool
+}
+
+// BaseResult is the branch a pull request merges into after a retarget, as
+// GitHub recorded it. The name comes back rather than being assumed from the
+// ask: somebody else retargeting first is reported by the toast rather than
+// contradicted by it.
+//
+// It carries no RateLimit, for the reason CommentResult gives. It carries no
+// behind-by count either, because the mutation runs no comparison: that is what
+// the refetch behind the write is for.
+type BaseResult struct {
+	BaseRefName string
+}
+
+// BranchResult is one branch search: what matched, how many matched past the
+// page, and what the repository calls its default.
+//
+// Query is the search this answers. Two searches settle in whatever order the
+// network gives them, so a caller painting one has to be able to tell whether
+// it is still the one being asked.
+type BranchResult struct {
+	Query    string
+	Default  string
+	Branches []string
+
+	// More is what the page did not reach, the same way MoreFiles reports its
+	// own overflow. Narrowing the search is what gets at it; there is no paging
+	// inside a modal.
+	More int
+
+	RateLimit RateLimit
 }
 
 // PullRequest is the shape the rest of the app sees. It is deliberately not

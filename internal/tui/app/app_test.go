@@ -50,14 +50,20 @@ type fakeSearcher struct {
 	assigned    []string
 	reviewed    []string
 	moved       []string
+	retargeted  []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
 	repoMetas   map[string]gh.RepoMeta
 	metaErr     error
-	detailErr   error
-	filesErr    error
-	commitErr   error
-	postErr     error
+	// branchQueries records every search that reached the client, which is what
+	// a test holds the debounce against: five keystrokes, one entry.
+	branchQueries []string
+	branches      []string
+	branchErr     error
+	detailErr     error
+	filesErr      error
+	commitErr     error
+	postErr       error
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
 	// then, so the revert puts back a request that is really gone.
@@ -705,6 +711,14 @@ func (f *querySearcher) SetAssignees(_ context.Context, _ string, _ []string) (g
 	return gh.AssigneesResult{}, nil
 }
 
+func (f *querySearcher) SetBase(_ context.Context, _, _ string) (gh.BaseResult, error) {
+	return gh.BaseResult{}, nil
+}
+
+func (f *querySearcher) Branches(_ context.Context, _, _ string) (gh.BranchResult, error) {
+	return gh.BranchResult{}, nil
+}
+
 func (f *querySearcher) RequestReviews(_ context.Context, _ string, _ int, _ []string) error {
 	return nil
 }
@@ -866,6 +880,17 @@ func press(m tea.Model, keys ...string) tea.Model {
 // carried is delivered by hand.
 func settleOn(m tea.Model, sha string) tea.Model {
 	return settle(m, prview.CommitSettleMsg{SHA: sha})
+}
+
+// settleSearch fires the waits a run of keystrokes armed, in the order they
+// were armed. immediate drops a tea.Tick rather than sleeping on it, so the
+// branch picker's debounce has to be driven by hand the way the commit
+// cursor's is.
+func settleSearch(m tea.Model, queries ...string) tea.Model {
+	for _, q := range queries {
+		m = settle(m, prview.BranchSettleMsg{Query: q})
+	}
+	return m
 }
 
 func keyMsg(k string) tea.KeyPressMsg {
@@ -3037,4 +3062,90 @@ func TestASecondXWhileTheResolveIsOutSendsNothing(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "resolved") {
 		t.Errorf("the second press undid the first on the page:\n%s", out)
 	}
+}
+
+// Branches filters the staged list the way GitHub does, on a case-insensitive
+// substring of the name, and records every search that reached it. A test holds
+// the debounce against that record: a word typed at speed is one entry.
+func (f *fakeSearcher) Branches(_ context.Context, _, query string) (gh.BranchResult, error) {
+	f.mu.Lock()
+	f.branchQueries = append(f.branchQueries, query)
+	staged, err := slices.Clone(f.branches), f.branchErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.BranchResult{}, err
+	}
+
+	out := make([]string, 0, len(staged))
+	for _, b := range staged {
+		if strings.Contains(strings.ToLower(b), strings.ToLower(query)) {
+			out = append(out, b)
+		}
+	}
+	return gh.BranchResult{Query: query, Default: "main", Branches: out}, nil
+}
+
+// failBranches makes every search from here on fail, so a test can drive the
+// leg that leaves the picker holding what it already had.
+func (f *fakeSearcher) failBranches(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchErr = err
+}
+
+// serveBranches stages the branches every search draws from.
+func (f *fakeSearcher) serveBranches(names ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branches = names
+}
+
+func (f *fakeSearcher) searches() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.branchQueries)
+}
+
+// SetBase records the ask and answers with the branch, writing it back onto the
+// staged pull request for the reason SetState does: the refetch the write fires
+// would otherwise report the base from before it, which reads on the rail as
+// the write undoing itself.
+//
+// It reuses postErr and postHold, the way the other writes do.
+func (f *fakeSearcher) SetBase(_ context.Context, prID, base string) (gh.BaseResult, error) {
+	f.mu.Lock()
+	f.retargeted = append(f.retargeted, prID+": "+base)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.BaseResult{}, err
+	}
+
+	f.mu.Lock()
+	for i := range f.prs {
+		if f.prs[i].ID == prID {
+			f.prs[i].BaseRefName = base
+		}
+	}
+	if d, ok := f.details[prID]; ok {
+		d.BaseRefName = base
+		// A retarget rewrites the comparison, and the fixture has to move with
+		// it or the refetch puts the old count back under the new name and the
+		// test cannot tell a correction from a stale frame.
+		d.BehindBy = 0
+		f.details[prID] = d
+	}
+	f.mu.Unlock()
+
+	return gh.BaseResult{BaseRefName: base}, nil
+}
+
+func (f *fakeSearcher) retargets() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.retargeted)
 }

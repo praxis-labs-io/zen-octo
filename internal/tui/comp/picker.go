@@ -22,7 +22,10 @@ const (
 	// read before pressing a key that was always going to be j.
 	pickerFilterFrom = 8
 
-	pickerMinWidth = 24
+	// pickerMinWidth clears the longest hint any picker draws, so single and
+	// multi select open at the same width over short content rather than at the
+	// two their own hints would give them.
+	pickerMinWidth = 40
 	pickerMaxWidth = 56
 
 	// pickerMark is the two cells in front of every choice. Checked or not, the
@@ -59,6 +62,13 @@ type PickerItem struct {
 type Picker struct {
 	title string
 	multi bool
+
+	// note is what the title says about the list as a whole, and it is where a
+	// picker whose choices come from a search reports what the search did not
+	// return. The hint line under the list is already spoken for by how much of
+	// the list sits below the window, and "20 more" and "36 more matches" are
+	// different numbers that must not share a line.
+	note string
 
 	items   []PickerItem
 	checked map[string]bool
@@ -109,6 +119,32 @@ func NewPicker(title string, items []PickerItem, checked []string, multi bool) P
 // Multi reports whether this picker toggles a set or picks one row. The screen
 // reads it to know whether the toggle key means anything here.
 func (p Picker) Multi() bool { return p.multi }
+
+// Replace swaps the choices under the filter, keeping what has been typed and
+// putting the cursor on the first new row.
+//
+// A picker whose list comes from the server needs this. The filter is the
+// search, so every keystroke brings a different set back, and rebuilding
+// through NewPicker would clear the field that caused the fetch.
+//
+// The filter row stays whether or not the new list is short enough to have
+// earned one: a search that narrows the choices to two must not take away the
+// field the reader is typing in. What is checked stays too, since the write
+// behind the picker has not changed, and an id the new list does not carry
+// simply matches nothing.
+func (p *Picker) Replace(items []PickerItem, note string) {
+	p.items, p.note = items, note
+	p.reanchor()
+}
+
+// SetNote says what the title should say about the list as a whole, leaving the
+// list and the cursor where they are.
+//
+// Replace carries one too and cannot stand in for this. A picker opening over a
+// search already answered has something to report before anybody has typed, and
+// replacing the list to say it would move the cursor off the row the picker
+// deliberately opened on.
+func (p *Picker) SetNote(note string) { p.note = note }
 
 // Move walks the cursor. It stops at the ends rather than wrapping: a list
 // behind a filter has no fixed length, and a wrap from an empty result set has
@@ -191,6 +227,10 @@ func (p *Picker) Insert(msg tea.KeyPressMsg) bool {
 // Filtering reports whether this picker shows a filter row, which is what tells
 // the screen whether a bare letter is text or a binding.
 func (p Picker) Filtering() bool { return p.filtering }
+
+// Filter is what has been typed. A picker whose choices come from the server
+// reads it to know what to ask for: there the filter is the search.
+func (p Picker) Filter() string { return p.filter }
 
 // Chosen is what applying selects, by ID. A multi picker gives the whole
 // checked set; a single one gives the row under the cursor, or nothing when the
@@ -284,7 +324,15 @@ func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	rows = append(rows, p.list(th, shown, inner)...)
 	rows = append(rows, "", p.hint(th, shown, inner))
 
-	return Modal(th, p.title, strings.Join(rows, "\n"))
+	return Modal(th, p.heading(), strings.Join(rows, "\n"))
+}
+
+// heading is the title with whatever the list has to say about itself.
+func (p Picker) heading() string {
+	if p.note == "" {
+		return p.title
+	}
+	return p.title + " · " + p.note
 }
 
 // width is what the modal gets inside its border: the widest thing it has to
@@ -295,7 +343,7 @@ func (p Picker) Render(th theme.Theme, frameWidth int) string {
 // one clips "esc cancel" off exactly the long lists where the hint is worth
 // having.
 func (p Picker) width(frameWidth int) int {
-	longest := max(lipgloss.Width(p.title), lipgloss.Width(p.hintText(len(p.items))))
+	longest := max(lipgloss.Width(p.heading()), lipgloss.Width(p.hintText(len(p.items))))
 	for _, it := range p.items {
 		longest = max(longest, lipgloss.Width(it.Name)+lipgloss.Width(pickerMark))
 	}

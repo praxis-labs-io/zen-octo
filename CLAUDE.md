@@ -180,6 +180,29 @@ collaborator is given the first and refused the second. There is no flag at all
 for review requests, so those rows are ungated and the revert branch answers a
 refusal.
 
+The Base row is a control while `viewerCanUpdate` says so **and** the pull
+request is not merged, which is two questions rather than one: the flag stays
+true on a merged pull request, because its title and body are still editable,
+and GitHub refuses the base change anyway. Its branches are the one picker whose
+choices are a search rather than a cache. `refs` takes an `orderBy` and ignores
+it on `refs/heads`, so alphabetical is the only sort GitHub will do and the
+first page of a repository with four thousand branches is names nobody would
+look for; recency is built here from each ref's `committedDate`, and the
+picker's own filter goes over the wire as `refs(query:)`, which matches a
+case-insensitive substring exactly the way `comp.Picker` does. Debounced through
+the pair `armCommit` and `settleCommit` already use, so a word typed at speed
+costs one request. Thirty at a time, with what the search left out said beside
+the picker's title. The repository's default branch is offered first and the
+current base is always offered, because a picker that opens with nothing checked
+puts the cursor on row one and makes enter a retarget onto whatever sorted
+newest; neither is pinned once something has been typed. A retarget refetches
+the whole detail **and** any diff already held, since it rewrites every file in
+one, and the Files tab asks for a diff once per open and would otherwise keep
+showing the changes against a branch the pull request no longer targets. Between
+the write and that answer the count is `gh.BehindUnknown`, and the row says
+"Retargeting to develop" rather than a number measured against the old branch:
+zero is already spoken for, since it means up to date.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a
