@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
@@ -439,5 +441,77 @@ func TestTheFormKeepsItsButtonOnAShortTerminal(t *testing.T) {
 		if last := rows[len(rows)-1]; !strings.Contains(last, "╰") || !strings.Contains(last, "╯") {
 			t.Errorf("at %d rows the modal is clipped and never closes: %q", height, last)
 		}
+	}
+}
+
+// The chord merges from wherever the reader is standing, including out of the
+// commit message, which is the whole reason it exists: in there enter is a
+// newline and the button is four tabs away.
+func TestTheChordMergesFromTheCommitMessage(t *testing.T) {
+	// Onto the message, where enter cannot mean merge.
+	m := press(openMerge(t), "tab", "tab")
+
+	_, cmd := chord(m)
+	got, ok := runCmd(cmd).(prview.MergeMsg)
+	if !ok {
+		t.Fatalf("the chord sent %T, want a MergeMsg", runCmd(cmd))
+	}
+	if got.Options.Method != gh.MergeMethodSquash {
+		t.Errorf("method = %q, want the one the form was left on", got.Options.Method)
+	}
+}
+
+// Enter presses whatever the row holds, and on the delete row that is the
+// checkbox. Space is the other way to it, and a reader who reaches for enter
+// everywhere else should not find one row that ignores it.
+func TestEnterOnTheDeleteRowTogglesIt(t *testing.T) {
+	m := press(openMerge(t), "tab", "tab", "tab", "enter")
+
+	got, ok := merged(t, press(m, "tab"), "enter")
+	if !ok {
+		t.Fatal("enter on the button asked for no merge")
+	}
+	if got.RefID != "" {
+		t.Errorf("RefID = %q, want nothing once enter has unticked the box", got.RefID)
+	}
+}
+
+// On a method row the cursor being there is what chose it, so there is nothing
+// left for enter to confirm. It moves on rather than sitting dead.
+func TestEnterOnAMethodRowMovesOn(t *testing.T) {
+	// Enter from the method row, then type: the keys have to have arrived in
+	// the headline for that to show up.
+	m := press(openMerge(t), "enter", "!")
+
+	box := formBox(t, m)
+	if !strings.Contains(box, "Fix auth retry (#412)!") {
+		t.Errorf("enter on the method row did not move on to the headline:\n%s", box)
+	}
+}
+
+// Tab walks the form and shift+tab walks it back, which is what they mean
+// everywhere else on this screen.
+func TestShiftTabWalksTheFormBackwards(t *testing.T) {
+	// One step back from the method row wraps onto the button.
+	m, _ := openMerge(t).Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+
+	got, ok := merged(t, m, "enter")
+	if !ok {
+		t.Fatal("shift+tab did not reach the button, so enter merged nothing")
+	}
+	if got.ID != "PR_412" {
+		t.Errorf("ID = %q, want the pull request on screen", got.ID)
+	}
+}
+
+// Squash is what the form opens on, and where the repository forbids it the
+// first method it does allow. A default that is not on offer opens a form whose
+// tick is on nothing.
+func TestTheFormFallsBackWhenSquashIsForbidden(t *testing.T) {
+	box := formBox(t, openMergeOn(t, mergeableDetail(),
+		mergeRepo(gh.MergeMethods{Merge: true, Rebase: true})))
+
+	if !chosenMethod(box, "Create a merge commit") {
+		t.Errorf("the form did not fall back to the first method allowed:\n%s", box)
 	}
 }
