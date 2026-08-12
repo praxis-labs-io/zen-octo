@@ -345,7 +345,11 @@ func mockDetail() gh.PullRequestDetail {
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}, State: gh.ReviewStateCommented},
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}},
+			// Marked as a team, which is what the decoder does with one. Without
+			// the flag the reviewer picker reads it as somebody with an
+			// outstanding request and offers to cancel a request that is not
+			// theirs to cancel.
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
 		},
 
 		Rollup: gh.CheckRollup{

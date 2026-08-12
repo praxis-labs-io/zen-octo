@@ -137,16 +137,27 @@ happened.
 
 Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left. A section is its picker: the rows already in it open the same modal as the add row under them, because the modal is where something comes off as well as goes on.
 
-A tick in the Reviewers picker means a review is requested, never that
-somebody is on the pull request. GitHub drops a reviewer from the requests the
-moment they submit, and there is no call that un-submits one, so a reviewer who
-has answered opens unchecked and ticking them asks again, which is what the
-re-request button does in the browser. That write is the one place two calls
-are unavoidable: the endpoint has no spelling meaning "these and nobody else",
-so the screen sends a delta and the app cancels before it asks. A team requested
-for review is kept and never listed, because `assignableUsers` holds none and
-a delta cannot remove what it could not offer; `Reviewer.Team` is what the
-exclusion reads, rather than the slash in a handle this client built itself.
+A tick in the Reviewers picker means a review is requested, never that somebody
+is on the pull request. GitHub drops a reviewer from the requests the moment
+they submit, and there is no call that un-submits one, so a reviewer who has
+answered opens unchecked and ticking them asks again, which is what the
+re-request button does in the browser. `Reviewer.Requested` is what says so, and
+it is not the inverse of `State`: a re-requested reviewer holds a verdict and an
+open request at once, the two connections overlap rather than partition on them,
+and reading an empty state as "waiting" hides the request behind a key that can
+only ask for it again. That write is the one place two calls are unavoidable:
+the endpoint has no spelling meaning "these and nobody else", so the screen
+sends a delta and the app cancels before it asks. Because it is a delta, the
+picker has to list every outstanding request as well as the repository's own
+users: `comp.Picker.Chosen` reports only ids it was given items for, so a
+checked login with no item silently becomes a cancellation, and a review
+requested of anyone past the hundredth assignable user would be dropped by a
+reader who never saw them. A team requested for review is kept and never listed,
+because `assignableUsers` holds none and a delta cannot remove what it could not
+offer; `Reviewer.Team` is what the exclusion reads, rather than the slash in a
+handle this client built itself. It is also the one failure path that refetches:
+a write made of two calls can fail with the first applied, and reverting alone
+would leave the rail claiming a request GitHub has already dropped.
 Copilot answers to a different name in every direction and the two REST verbs
 disagree with each other: `POST` takes `copilot-pull-request-reviewer[bot]` and
 answers 200 while writing nothing to a bare `Copilot`; `DELETE` takes the bare
@@ -162,9 +173,12 @@ either, so it is offered always. A reviewer write refetches the whole detail, si
 the outstanding requests alone and says nothing about who has already reviewed,
 and requesting one rewrites the review decision the header renders. An assignee
 write refetches nothing: it changes nothing the store cannot already see. The
-Assignees rows are a control only while `viewerCanAssign` says so, and there is
-no matching flag for review requests, because assigning needs triage where
-requesting needs write.
+Assignees rows are a control only while `viewerCanAssign` **and**
+`viewerCanUpdate` both say so, because the permission to assign and the
+permission to run the mutation that does it are different answers: a triage
+collaborator is given the first and refused the second. There is no flag at all
+for review requests, so those rows are ungated and the revert branch answers a
+refusal.
 
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
 

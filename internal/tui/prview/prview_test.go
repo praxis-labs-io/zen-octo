@@ -398,7 +398,7 @@ func sampleDetail() gh.PullRequestDetail {
 			// handle is built rather than sent, and no write may spell a login
 			// with it. Without the flag it reads here as somebody with an
 			// outstanding request, which the reviewer picker would then cancel.
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Team: true},
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
 		},
 		Rollup: gh.CheckRollup{
 			State: gh.CheckStateFailure,

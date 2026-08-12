@@ -111,14 +111,25 @@ func reviewerToast(added, removed int) string {
 	return "Reviewers updated"
 }
 
-// reviewersFailed is the revert branch. Nothing was typed, so the fetched panel
-// going back on the rail is the whole of it.
+// reviewersFailed is the revert branch, and it refetches where the other write
+// paths do not.
+//
+// Reverting alone would be a lie here. This is the one write made of two calls,
+// so a failure can arrive with the first already applied: the cancellation
+// lands, the request is refused, and the fetched panel put back on the rail
+// then claims a review is still wanted from somebody GitHub has already
+// dropped. The confirmation read makes that the ordinary shape of a failure
+// rather than a rare one, because it fails a request whose POST landed.
+//
+// The refetch does not paint over the reason. It registers no refresh leg, so
+// nothing raises a second toast, and the error stays up while the rail corrects
+// itself underneath it.
 func (m Model) reviewersFailed(msg reviewersFailedMsg) (tea.Model, tea.Cmd) {
-	m.store.EditReverted(msg.id, msg.key)
+	m.store.ReviewersReverted(msg.id, msg.key)
 
-	toast := m.toasts.Show(comp.ToastError, "Could not change the reviewers: "+msg.err.Error())
-	if !m.showing(msg.id) {
-		return m, toast
+	cmds := []tea.Cmd{m.toasts.Show(comp.ToastError, "Could not change the reviewers: "+msg.err.Error())}
+	if m.showing(msg.id) {
+		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
 	}
-	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+	return m, tea.Batch(append(cmds, m.correctDetail(msg.id))...)
 }

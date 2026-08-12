@@ -270,7 +270,13 @@ func (m Model) fit(style lipgloss.Style, name string, room int) string {
 // It is the one row in the section that is nothing but an offer.
 func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
 	actors := d.Assignees
-	assignable := !m.detail.Loaded || d.Viewer.CanAssign
+
+	// Both flags, because the write needs both. Assigning is CanAssign's to
+	// permit, but the mutation behind it is updatePullRequest, which GitHub
+	// governs with CanUpdate: a triage collaborator is answered true for the
+	// first and false for the second, and would be offered a control that can
+	// only come back refused.
+	assignable := !m.detail.Loaded || (d.Viewer.CanAssign && d.Viewer.CanUpdate)
 
 	out := make([]railEntry, 0, len(actors)+1)
 	for _, a := range actors {

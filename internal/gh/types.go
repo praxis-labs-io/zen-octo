@@ -271,6 +271,12 @@ const (
 // Unresolved is how many of their review threads are still open. A reviewer who
 // only commented is still waiting on something if any of them are.
 //
+// Requested is whether a review is outstanding from them right now. It is not
+// the inverse of State: submitting a review clears the request, but the review
+// can then be asked for again, and such a reviewer carries a verdict and an
+// open request at once. A caller reading "no state means waiting" gets that
+// pair wrong in both directions, which is why this is its own field.
+//
 // Team marks a review requested of a team rather than a person. Login is then
 // the synthetic "org/slug" handle teamHandle builds, which no write accepts
 // where a login goes: the REST endpoint takes teams in a separate array. It is
@@ -280,6 +286,7 @@ type Reviewer struct {
 	Actor      Actor
 	State      ReviewState
 	Unresolved int
+	Requested  bool
 	Team       bool
 }
 

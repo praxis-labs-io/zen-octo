@@ -533,14 +533,25 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		}
 		login := r.RequestedReviewer.Login
 		name := cmp.Or(login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
-		if _, seen := at[name]; name == "" || seen {
+		if name == "" {
 			continue
 		}
+
+		// Somebody already on the list from a review they submitted, whose
+		// review has since been asked for again. They keep the verdict they
+		// gave and gain the open request, because they genuinely have both.
+		// Skipping them here, which is what a plain dedupe does, loses the only
+		// evidence that anyone is still waiting on them.
+		if i, seen := at[name]; seen {
+			out[i].Requested = true
+			continue
+		}
+
 		at[name] = len(out)
 		// A team is what is left when no login came back. The handle under it is
 		// built here rather than sent by GitHub, so nothing may write it back
 		// where a login goes.
-		out = append(out, Reviewer{Actor: Actor{Login: name}, Team: login == ""})
+		out = append(out, Reviewer{Actor: Actor{Login: name}, Requested: true, Team: login == ""})
 	}
 	return out
 }

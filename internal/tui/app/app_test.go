@@ -450,9 +450,13 @@ func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int
 	id := f.idOf(number)
 	held := f.details[id]
 	for _, l := range logins {
-		if !slices.ContainsFunc(held.Reviewers, func(r gh.Reviewer) bool { return r.Actor.Login == l }) {
-			held.Reviewers = append(held.Reviewers, gh.Reviewer{Actor: gh.Actor{Login: l}})
+		// Somebody already on the panel from a review they gave keeps it and
+		// gains the request, which is what the decoder does with a re-request.
+		if at := slices.IndexFunc(held.Reviewers, func(r gh.Reviewer) bool { return r.Actor.Login == l }); at >= 0 {
+			held.Reviewers[at].Requested = true
+			continue
 		}
+		held.Reviewers = append(held.Reviewers, gh.Reviewer{Actor: gh.Actor{Login: l}, Requested: true})
 	}
 	f.details[id] = held
 	return nil
@@ -476,8 +480,16 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 	defer f.mu.Unlock()
 	id := f.idOf(number)
 	held := f.details[id]
-	held.Reviewers = slices.DeleteFunc(slices.Clone(held.Reviewers), func(r gh.Reviewer) bool {
-		return r.State == "" && !r.Team && slices.Contains(logins, r.Actor.Login)
+	// Cancelling clears the request and nothing else. Somebody who has already
+	// given a verdict keeps it and stays on the panel.
+	panel := slices.Clone(held.Reviewers)
+	for i := range panel {
+		if panel[i].Requested && !panel[i].Team && slices.Contains(logins, panel[i].Actor.Login) {
+			panel[i].Requested = false
+		}
+	}
+	held.Reviewers = slices.DeleteFunc(panel, func(r gh.Reviewer) bool {
+		return !r.Requested && r.State == "" && !r.Team
 	})
 	f.details[id] = held
 	return nil

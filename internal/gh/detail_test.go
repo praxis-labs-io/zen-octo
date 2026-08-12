@@ -182,16 +182,26 @@ func TestPullRequestMapsResponseToDomainTypes(t *testing.T) {
 // A submitted review takes its author off reviewRequests, so the panel is the
 // two lists together. Copilot reviews and then vanishes from the requests,
 // which is how it went missing.
+//
+// Off, and back on if the review is asked for again. Somebody can hold a
+// verdict and an open request at the same time, so the two lists overlap rather
+// than partition, and the reviewer they name once carries both facts.
 func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 	want := []Reviewer{
 		// nkr reviewed twice, and the last word is the one that counts. The
 		// open thread on the first review is still theirs.
-		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1},
+		//
+		// They are on reviewRequests as well, which is a re-request: a verdict
+		// given and a review wanted again, both true at once. Requested is a
+		// field of its own for exactly this, because an empty State cannot say
+		// it and a dedupe that drops the second mention loses the only evidence
+		// anyone is still waiting.
+		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1, Requested: true},
 		// A bot and a team, neither of which has answered yet. The team is
 		// marked as one: its handle is built here rather than sent, so nothing
 		// may write it back where a login goes.
-		{Actor: Actor{Login: "copilot-pull-request-reviewer"}},
-		{Actor: Actor{Login: "zen-octo/core-maintainers"}, Team: true},
+		{Actor: Actor{Login: "copilot-pull-request-reviewer"}, Requested: true},
+		{Actor: Actor{Login: "zen-octo/core-maintainers"}, Requested: true, Team: true},
 	}
 
 	got := fetchDetail(t).Reviewers

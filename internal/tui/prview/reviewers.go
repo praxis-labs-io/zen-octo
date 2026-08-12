@@ -46,18 +46,37 @@ type SetReviewersMsg struct {
 // anyone with read access can be asked, and the assignable list is narrower
 // than that, so what it leaves out is a request nobody could start rather than
 // one GitHub would take.
-func reviewerChoices(users []gh.Actor, pr gh.PullRequest) []gh.Actor {
+//
+// Then anyone already being waited on that the repository's page did not reach.
+// This is the union labelChoices builds, and it matters more here than there,
+// because this picker applies a delta rather than a set: the picker checks a
+// login, Chosen reports only ids it was given items for, and a checked login
+// with no item silently becomes a cancellation. An outside collaborator or
+// anyone past the hundredth assignable user would have their review request
+// dropped by a reader who never saw them offered.
+func reviewerChoices(users []gh.Actor, pr gh.PullRequest, panel []gh.Reviewer) []gh.Actor {
 	out := []gh.Actor{{Login: gh.CopilotLogin}}
 	for _, u := range users {
 		if u.Login != pr.Author.Login {
 			out = append(out, u)
 		}
 	}
+
+	for _, login := range pendingReviewers(panel) {
+		if !slices.ContainsFunc(out, func(c gh.Actor) bool { return c.Login == login }) {
+			out = append(out, gh.Actor{Login: login})
+		}
+	}
 	return out
 }
 
-// pendingReviewers is who a review is currently being waited on from: everyone
-// on the panel with no verdict yet, which is what an empty State means.
+// pendingReviewers is who a review is currently being waited on from.
+//
+// It reads Requested rather than an empty State. The two are not each other's
+// inverse: submitting a review clears the request and the review can then be
+// asked for again, so somebody can carry a verdict and an open request at once.
+// Reading the state would leave that request invisible, with no way to cancel
+// it and a tick that asks for a review already pending.
 //
 // Teams are left out, and that is what keeps them safe. The picker offers users
 // alone, so a team could never be checked, and counting one here would put it
@@ -65,7 +84,7 @@ func reviewerChoices(users []gh.Actor, pr gh.PullRequest) []gh.Actor {
 func pendingReviewers(reviewers []gh.Reviewer) []string {
 	var out []string
 	for _, r := range reviewers {
-		if !r.Team && r.State == "" {
+		if !r.Team && r.Requested {
 			out = append(out, r.Actor.Login)
 		}
 	}
@@ -129,27 +148,36 @@ func missing(a, b []string) []string {
 // out: the panel it had, minus the requests this cancels, plus a row for
 // everyone newly asked.
 //
-// Anyone who has already answered is kept whatever the picker says, and so is
-// every team. Neither is something this write can take off: cancelling reaches
-// only an outstanding request, and a submitted review stays on the panel until
-// somebody dismisses it somewhere else entirely.
+// A verdict already given stays whatever the picker says, and so does every
+// team. Neither is something this write can take off: cancelling reaches an
+// outstanding request and nothing else, and a submitted review stays on the
+// panel until somebody dismisses it somewhere else entirely. What moves on such
+// a row is the request beside the verdict, which is why the two are separate
+// fields.
 //
-// Re-requesting one of them therefore changes nothing here, which is right.
-// GitHub keeps showing the verdict too, so a row flipping to "waiting" would be
-// a state the refetch is about to contradict.
+// A row that was only a request and is no longer wanted goes altogether. There
+// is nothing left of it once the request is cancelled.
 func nextPanel(held []gh.Reviewer, want []string) []gh.Reviewer {
 	out := make([]gh.Reviewer, 0, len(held)+len(want))
-	on := make(map[string]bool, len(out))
+	on := make(map[string]bool, len(held)+len(want))
 
 	for _, r := range held {
-		if r.Team || r.State != "" || slices.Contains(want, r.Actor.Login) {
-			out = append(out, r)
-			on[r.Actor.Login] = true
+		switch {
+		case r.Team:
+		case slices.Contains(want, r.Actor.Login):
+			r.Requested = true
+		case r.State != "":
+			r.Requested = false
+		default:
+			continue
 		}
+		out = append(out, r)
+		on[r.Actor.Login] = true
 	}
+
 	for _, login := range want {
 		if !on[login] {
-			out = append(out, gh.Reviewer{Actor: gh.Actor{Login: login}})
+			out = append(out, gh.Reviewer{Actor: gh.Actor{Login: login}, Requested: true})
 		}
 	}
 	return out

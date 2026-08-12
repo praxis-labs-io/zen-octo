@@ -89,7 +89,7 @@ func TestCancellingAReviewRequestSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveRepoMeta(gh.RepoMeta{Users: repoUserSet()})
-	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}})
+	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, Requested: true}})
 
 	m := press(loaded(t, client, 160, 40), "enter", "2", "tab", "tab", "enter")
 	m = press(m, "down", "space", "enter") // uncheck @nkr
@@ -169,7 +169,7 @@ func TestSwappingReviewersCancelsBeforeItAsks(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveRepoMeta(gh.RepoMeta{Users: repoUserSet()})
-	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}})
+	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, Requested: true}})
 
 	m := press(loaded(t, client, 160, 40), "enter", "2", "tab", "tab", "enter")
 	m = press(m, "space", "down", "space", "enter") // check Copilot, uncheck @nkr
@@ -186,33 +186,34 @@ func TestSwappingReviewersCancelsBeforeItAsks(t *testing.T) {
 	}
 }
 
-// The half-landed failure. The cancellation goes through and the request does
-// not, so the revert puts back a reviewer who is really gone and the rail
-// overstates what survived.
+// The half-landed failure, and the reason this write refetches where the others
+// do not. The cancellation goes through and the request is refused, so the
+// fetched panel the revert puts back claims a review is still wanted from
+// somebody GitHub has already dropped.
 //
-// That is the trade the write makes, and the toast is what makes it readable:
-// it carries the reason rather than a summary, and nothing refetches on this
-// path, so the reason stays on screen instead of being painted over by a
-// correction the reader never asked for.
-func TestAReviewerWriteThatFailsHalfwayKeepsTheReasonOnScreen(t *testing.T) {
+// Reverting alone would leave that on screen until the reader happened to sync.
+// The refetch replaces it with what GitHub actually holds, and it does not
+// paint over the reason: it registers no refresh leg, so nothing raises a
+// second toast and the error is still the last thing said.
+func TestAReviewerWriteThatFailsHalfwayCorrectsTheRail(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), requestErr: errors.New("422 Unprocessable Entity")}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveRepoMeta(gh.RepoMeta{Users: repoUserSet()})
-	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}})
+	client.serveReviewers("PR_412", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, Requested: true}})
 
 	m := press(loaded(t, client, 160, 40), "enter", "2", "tab", "tab", "enter")
 	before := len(client.opened())
-	m = press(m, "space", "down", "space", "enter")
+	m = press(m, "space", "down", "space", "enter") // request Copilot, cancel @nkr
 
 	if !strings.Contains(lastLine(render(t, m)), "422 Unprocessable Entity") {
-		t.Errorf("status bar = %q, want the reason on it", strings.TrimSpace(lastLine(render(t, m))))
+		t.Errorf("status bar = %q, want the reason still on it", strings.TrimSpace(lastLine(render(t, m))))
 	}
-	if got := len(client.opened()); got != before {
-		t.Errorf("the detail was refetched %d times on the failure path, want none", got-before)
+	if got := len(client.opened()); got <= before {
+		t.Errorf("the detail was fetched %d more times, want the failure to correct the rail", got-before)
 	}
-	// The cancellation did land, so the fetched panel the revert puts back is
-	// now wrong. It is the sync that corrects it, not this write.
-	if out := stripANSI(render(t, m)); !strings.Contains(out, "@nkr") {
-		t.Errorf("the reverted panel dropped the reviewer the failed write had shown:\n%s", out)
+	// The cancellation landed, so @nkr really is gone. The rail says so rather
+	// than putting back a request nobody holds.
+	if out := stripANSI(render(t, m)); strings.Contains(out, "@nkr") {
+		t.Errorf("the rail still claims a review request the failed write cancelled:\n%s", out)
 	}
 }

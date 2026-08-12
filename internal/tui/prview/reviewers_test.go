@@ -83,7 +83,7 @@ func TestTheReviewerPickerChecksWhoIsStillBeingWaitedOn(t *testing.T) {
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{
 		{Actor: gh.Actor{Login: "octobot"}, State: gh.ReviewStateApproved},
-		{Actor: gh.Actor{Login: "nkr"}},
+		{Actor: gh.Actor{Login: "nkr"}, Requested: true},
 	}
 
 	m := onRailRow(t, detailed(held(d), 200, 60), "+ Add reviewer")
@@ -122,7 +122,7 @@ func TestCheckingAReviewerAsksForTheReview(t *testing.T) {
 // Unchecking an outstanding request cancels it, and nothing else moves.
 func TestUncheckingAReviewerCancelsTheRequest(t *testing.T) {
 	d := sampleDetail()
-	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}}
+	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, Requested: true}}
 
 	m := onRailRow(t, detailed(held(d), 200, 60), "+ Add reviewer")
 	m, _ = key(m, "enter")
@@ -216,5 +216,86 @@ func TestRequestingAReviewAgainFromSomebodyWhoAnswered(t *testing.T) {
 	// contradict.
 	if len(got.Panel) != 1 || got.Panel[0].State != gh.ReviewStateApproved {
 		t.Errorf("panel = %+v, want the approval kept", got.Panel)
+	}
+}
+
+// The picker applies a delta, and Chosen reports only ids it was handed items
+// for, so a checked login with no item silently becomes a cancellation. The
+// repository's page is a first hundred and a review can be requested of anyone
+// with read access, so the two lists genuinely differ.
+func TestThePickerListsAPendingReviewerTheRepositoryPageMissed(t *testing.T) {
+	d := sampleDetail()
+	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "ghost"}, Requested: true}}
+
+	m := onRailRow(t, detailed(held(d), 200, 60), "+ Add reviewer")
+	m, _ = key(m, "enter")
+	m.SetRepo(loadedRepo())
+
+	box := menuBox(t, m, "Reviewers")
+	if !strings.Contains(box, "@ghost") {
+		t.Fatalf("a pending reviewer the repository's page did not reach is missing:\n%s", box)
+	}
+	for _, line := range strings.Split(box, "\n") {
+		if strings.Contains(line, "@ghost") && !strings.Contains(line, "✓") {
+			t.Errorf("the extra reviewer is listed but not checked:\n%s", box)
+		}
+	}
+
+	// Ticking somebody else must not cancel them on the way past.
+	m = press(m, "space") // Copilot, the first row
+	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
+	if !ok {
+		t.Fatalf("enter sent %T, want a SetReviewersMsg", asked(t, m, "enter"))
+	}
+	if slices.Contains(got.Remove, "ghost") {
+		t.Errorf("Remove = %q, want the unlisted reviewer left alone", got.Remove)
+	}
+}
+
+// A verdict and an open request are both true at once after a re-request, and
+// the panel carries them on one row. Reading "no state means waiting" hides the
+// request: nothing can cancel it, and ticking asks again for a review already
+// pending.
+func TestAReRequestedReviewerOpensCheckedAndCanBeCancelled(t *testing.T) {
+	d := sampleDetail()
+	d.Reviewers = []gh.Reviewer{
+		{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateApproved, Requested: true},
+	}
+
+	m := onRailRow(t, detailed(held(d), 200, 60), "+ Add reviewer")
+	m, _ = key(m, "enter")
+	m.SetRepo(loadedRepo())
+
+	for _, line := range strings.Split(menuBox(t, m, "Reviewers"), "\n") {
+		if strings.Contains(line, "@nkr") && !strings.Contains(line, "✓") {
+			t.Fatalf("a reviewer with an outstanding re-request opened unchecked:\n%s", line)
+		}
+	}
+
+	m = press(m, "down", "space") // untick @nkr
+
+	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
+	if !ok {
+		t.Fatalf("enter sent %T, want a SetReviewersMsg", asked(t, m, "enter"))
+	}
+	if want := []string{"nkr"}; !slices.Equal(got.Remove, want) {
+		t.Errorf("Remove = %q, want %q", got.Remove, want)
+	}
+	// The verdict survives the cancellation. Only the request was theirs to take.
+	if len(got.Panel) != 1 || got.Panel[0].State != gh.ReviewStateApproved || got.Panel[0].Requested {
+		t.Errorf("panel = %+v, want the approval kept and the request cleared", got.Panel)
+	}
+}
+
+// Assigning is CanAssign's to permit, but the mutation behind it is
+// updatePullRequest, which GitHub governs with CanUpdate. A triage collaborator
+// is answered true for the first and false for the second.
+func TestTheAssigneeSectionIsInertWithoutTheUpdatePermission(t *testing.T) {
+	d := sampleDetail()
+	d.Viewer.CanAssign = true
+	d.Viewer.CanUpdate = false
+
+	if strings.Contains(stripANSI(detailed(held(d), 200, 60).View()), "+ Add assignee") {
+		t.Error("the add row is offered where updatePullRequest would be refused")
 	}
 }

@@ -285,6 +285,23 @@ func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 // saying why: the store cannot tell a rejected write from a lost one.
 func (s *Store) EditReverted(id, key string) { s.dropEdit(id, key) }
 
+// ReviewersReverted takes a failed reviewer write off the screen and marks the
+// fetch in flight stale.
+//
+// Its own method because that write is the one that can fail with part of it
+// already applied: requesting and cancelling are separate calls, so a failure
+// on the second leaves the first standing on GitHub. Every other write is all
+// or nothing, and reverting one says the pull request never moved.
+//
+// The caller owes a refetch either way. This only makes sure the answer it
+// takes was asked for after the failure rather than before it.
+func (s *Store) ReviewersReverted(id, key string) {
+	if _, ok := s.dropEdit(id, key); !ok {
+		return
+	}
+	s.markStale(id)
+}
+
 // nextKey mints the name a response reconciles against: a sequence rather than
 // a clock, so the same run of keystrokes produces the same keys every time.
 //
