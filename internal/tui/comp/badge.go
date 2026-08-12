@@ -134,17 +134,39 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 }
 
 // ReviewerColor is where one reviewer stands, for a caller with room for a mark
-// but not for the words. Three answers, because a rail row has one cell to say
-// them in: green is done with it, red is waiting on a change, muted has not
-// weighed in.
+// but not for the words. Four answers, because a rail row has one cell to say
+// them in:
+//
+//	red    something of theirs is open and in the way
+//	amber  in flight: their answer is wanted and has not come
+//	green  they are happy with it
+//	muted  they are not holding anything up
 //
 // An open thread reads as red whatever the verdict was. Someone who left three
-// unanswered questions and called it a comment is waiting on the same thing as
+// unanswered questions and called it a comment is holding up the same thing as
 // someone who asked for changes.
+//
+// A changes-requested review with no threads under it stays red however long it
+// sits. There is nothing to resolve, so nothing can record that it was dealt
+// with, and going quiet on it would say it had been.
+//
+// Amber outranks green, which is what makes a re-request visible. An approval
+// somebody has been asked to give again is stale, and leaving it green is the
+// version of this that shows nothing at all when the key is pressed. It also
+// covers a changes-requested review whose every thread is now resolved: not
+// blocking any more, not agreed either, and waiting on them to look again.
 func ReviewerColor(th theme.Theme, r gh.Reviewer) color.Color {
+	blocked := r.Unresolved > 0 ||
+		(r.State == gh.ReviewStateChangesRequested && r.Threads == 0)
+
+	addressed := r.State == gh.ReviewStateChangesRequested &&
+		r.Threads > 0 && r.Unresolved == 0
+
 	switch {
-	case r.State == gh.ReviewStateChangesRequested, r.Unresolved > 0:
+	case blocked:
 		return th.Error
+	case r.Requested, addressed:
+		return th.Warning
 	case r.State == gh.ReviewStateApproved:
 		return th.Success
 	}

@@ -511,15 +511,26 @@ func reviewers(n pullRequestResponse) []Reviewer {
 	// A reviewer who only commented is still waiting on something if any of
 	// their threads are open, which is the difference between "had a look" and
 	// "asked for a change".
+	//
+	// Every thread is counted, not only the open ones. A reviewer with all of
+	// theirs resolved and one who opened none both leave Unresolved at zero, and
+	// they are opposite answers: the first has had every point met, the second
+	// has had nothing done about the changes they asked for in prose.
 	for _, t := range n.Node.ReviewThreads.Nodes {
-		if t.IsResolved || len(t.Comments.Nodes) == 0 {
+		if len(t.Comments.Nodes) == 0 {
 			continue
 		}
 		review := t.Comments.Nodes[0].PullRequestReview
 		if review == nil {
 			continue
 		}
-		if i, seen := at[byReview[review.ID]]; seen {
+		i, seen := at[byReview[review.ID]]
+		if !seen {
+			continue
+		}
+
+		out[i].Threads++
+		if !t.IsResolved {
 			out[i].Unresolved++
 		}
 	}

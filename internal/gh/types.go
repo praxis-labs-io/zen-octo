@@ -268,8 +268,14 @@ const (
 // State is empty when the request is still outstanding. It is not a review's
 // own state until they submit one.
 //
-// Unresolved is how many of their review threads are still open. A reviewer who
-// only commented is still waiting on something if any of them are.
+// Unresolved is how many of their review threads are still open, and Threads is
+// how many they opened at all. A reviewer who only commented is still waiting on
+// something if any of them are open.
+//
+// The total is there to tell "every point addressed" from "there was nothing to
+// address". Both leave Unresolved at zero, and they are opposite answers: one is
+// a reviewer whose asks have all been met, the other is one who asked for
+// changes in prose with nothing to resolve, and nothing has been done about it.
 //
 // Requested is whether a review is outstanding from them right now. It is not
 // the inverse of State: submitting a review clears the request, but the review
@@ -286,6 +292,7 @@ type Reviewer struct {
 	Actor      Actor
 	State      ReviewState
 	Unresolved int
+	Threads    int
 	Requested  bool
 	Team       bool
 }

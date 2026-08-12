@@ -196,7 +196,7 @@ func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 		// field of its own for exactly this, because an empty State cannot say
 		// it and a dedupe that drops the second mention loses the only evidence
 		// anyone is still waiting.
-		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1, Requested: true},
+		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1, Threads: 2, Requested: true},
 		// A bot and a team, neither of which has answered yet. The team is
 		// marked as one: its handle is built here rather than sent, so nothing
 		// may write it back where a login goes.
@@ -813,5 +813,26 @@ func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
 	// empty box on the screen.
 	if threads[1].Hunk != nil {
 		t.Errorf("Hunk = %+v, want nil where GitHub sent none", threads[1].Hunk)
+	}
+}
+
+// Every thread is attributed, not only the open ones. A reviewer whose asks
+// have all been met and one who opened none both leave Unresolved at zero, and
+// the rail reads them as opposite answers, so the total is what tells them
+// apart.
+func TestAReviewersThreadsAreCountedResolvedOrNot(t *testing.T) {
+	var nkr Reviewer
+	for _, r := range fetchDetail(t).Reviewers {
+		if r.Actor.Login == "nkr" {
+			nkr = r
+		}
+	}
+
+	// Two threads under nkr's reviews: one open on REV_1, one resolved on REV_2.
+	if nkr.Threads != 2 {
+		t.Errorf("Threads = %d, want both of them counted", nkr.Threads)
+	}
+	if nkr.Unresolved != 1 {
+		t.Errorf("Unresolved = %d, want the open one alone", nkr.Unresolved)
 	}
 }

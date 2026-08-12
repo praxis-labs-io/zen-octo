@@ -1475,7 +1475,7 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 	}{
 		{row: "● @nkr", state: "waiting on a change", color: theme.RosePineMoon.Error},
 		{row: "● @octobot", state: "done with it", color: theme.RosePineMoon.Success},
-		{row: "● @zen-octo/maintainers", state: "asked, not answered", color: theme.RosePineMoon.Faint},
+		{row: "● @zen-octo/maintainers", state: "in flight", color: theme.RosePineMoon.Warning},
 	}
 	for i, w := range want {
 		if got := rows[at+1+i]; got != w.row {
@@ -1488,8 +1488,8 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 	}
 }
 
-// Three colors, because a rail row has one cell to say it in. Someone who left
-// unanswered questions and called it a comment is waiting on the same thing as
+// Four colors, because a rail row has one cell to say it in. Someone who left
+// unanswered questions and called it a comment is holding up the same thing as
 // someone who asked for changes.
 func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 	tests := []struct {
