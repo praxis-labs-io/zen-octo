@@ -98,7 +98,17 @@ func (m Model) branchesLanded(msg branchesFetchedMsg) (tea.Model, tea.Cmd) {
 
 // branchesFailed says so and leaves whatever the picker was showing. A modal
 // blanked by a dropped connection reads as a repository with no branches.
+//
+// A failure for a search the reader has typed past says nothing about the one
+// they are waiting on, so it is dropped here as well as in the store. Toasting
+// it anyway reports the current search as dead while it is still on its way
+// back, which is the same lie the stale-answer guard prevents in the other
+// direction.
 func (m Model) branchesFailed(msg branchesFailedMsg) (tea.Model, tea.Cmd) {
+	if m.store.Branches(msg.repo).Query != msg.query {
+		return m, nil
+	}
+
 	m.store.BranchesFailed(msg.repo, msg.query, msg.err)
 	return m, m.toasts.Show(comp.ToastError, "Could not read the branches: "+msg.err.Error())
 }
