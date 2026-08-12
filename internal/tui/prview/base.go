@@ -44,14 +44,14 @@ const branchSettleDelay = 150 * time.Millisecond
 // SetBranches hands the screen a branch search, and opens or refills the picker
 // that asked for it.
 //
-// Two arrivals, one door. A picker waiting to open takes the same path SetRepo
-// takes and on the same terms: only while the reader is still standing where
-// they asked, because a modal dropping over a comment box mid-sentence takes
-// the keyboard with it.
+// A picker already up gets its list replaced. That is a different move from
+// opening one: the filter is the search, so rebuilding through NewPicker would
+// clear the field that caused the fetch.
 //
-// A picker already up gets its list replaced instead. That is a different move
-// from opening one: the filter is the search, so rebuilding through NewPicker
-// would clear the field that caused the fetch.
+// A picker waiting to open takes the same terms SetRepo takes, and one more.
+// The rail having focus is not the reader still standing on Base: enter starts
+// the search and tab is free the whole time it is out, so without the row
+// itself a modal drops over whatever they walked to and takes the keyboard.
 func (m *Model) SetBranches(b store.Branches) {
 	m.branches = b
 	if !b.Loaded {
@@ -72,6 +72,9 @@ func (m *Model) SetBranches(b store.Branches) {
 	m.picking.want = pickNone
 
 	if m.Composing() || !m.railVisible() || m.focus != paneRail {
+		return
+	}
+	if m.railRing.on.kind != focusBase {
 		return
 	}
 	m.startPicker(pickBase)
@@ -126,11 +129,14 @@ func (m Model) settleBranches(msg BranchSettleMsg) tea.Cmd {
 // accident.
 //
 // The head is dropped because GitHub refuses a pull request onto itself, and a
-// row that can only fail is worse than no row.
+// row that can only fail is worse than no row. Never the branch already set,
+// though, whatever it is called. A pull request from a fork carries the head's
+// name and not its repository, so a contributor's main merging into this one's
+// main matches here on the name alone; dropping it would leave the picker with
+// nothing checked and enter would retarget onto whatever sorted first.
 //
-// The current base is kept whatever the search says, so the picker always opens
-// on something checked. Without it the cursor falls to the first row and enter
-// retargets onto whatever sorted newest.
+// Keeping the current base is what holds that line generally: the picker always
+// opens on something checked, whatever the search returned.
 func baseItems(b store.Branches, pr gh.PullRequest, base string, c color.Color) []comp.PickerItem {
 	names := make([]string, 0, len(b.Names)+2)
 	if b.Query == "" && b.Default != "" {
@@ -143,9 +149,10 @@ func baseItems(b store.Branches, pr gh.PullRequest, base string, c color.Color) 
 
 	out := make([]comp.PickerItem, 0, len(names))
 	for _, n := range names {
-		if n == pr.HeadRefName || slices.ContainsFunc(out, func(it comp.PickerItem) bool {
-			return it.ID == n
-		}) {
+		if n != base && n == pr.HeadRefName {
+			continue
+		}
+		if slices.ContainsFunc(out, func(it comp.PickerItem) bool { return it.ID == n }) {
 			continue
 		}
 		out = append(out, comp.PickerItem{ID: n, Name: n, Color: c})

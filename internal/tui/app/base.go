@@ -42,11 +42,22 @@ type branchesFailedMsg struct {
 // needBranches answers the screen asking for a branch search. The screen cannot
 // fetch, so typing into the base picker reaches the root as a message and the
 // request starts here.
+//
+// A search already answered is handed straight over rather than dropped. The
+// store outlives the screen and every pull request opens a fresh one holding no
+// branches, so the second one asking for the search the first already ran gets
+// a refusal from BeginBranches and, without this, nothing at all: no request,
+// no SetBranches, and a Base key that does nothing for the rest of that screen.
 func (m Model) needBranches(msg prview.NeedBranchesMsg) (tea.Model, tea.Cmd) {
-	if !m.store.BeginBranches(msg.Repo, msg.Query) {
-		return m, nil
+	if m.store.BeginBranches(msg.Repo, msg.Query) {
+		return m, m.fetchBranches(msg.Repo, msg.Query)
 	}
-	return m, m.fetchBranches(msg.Repo, msg.Query)
+
+	held := m.store.Branches(msg.Repo)
+	if held.Loaded && held.Query == msg.Query && m.showingRepo(msg.Repo) {
+		m.detail.SetBranches(held)
+	}
+	return m, nil
 }
 
 func (m Model) fetchBranches(repo, query string) tea.Cmd {
@@ -69,11 +80,18 @@ func (m Model) fetchBranches(repo, query string) tea.Cmd {
 // Only to a screen showing that repository, for the reason repoMetaLanded gives:
 // a response outlives the screen that asked for it, and one repository's
 // branches offered against another are a list of writes GitHub refuses.
+//
+// And only when the store took it. Two searches settle in whatever order the
+// network gives them, so an answer to the older one is dropped there; pushing
+// the held record regardless would repaint the picker with that older list
+// under the newer query, which is the one shape the store's own guard exists to
+// prevent.
 func (m Model) branchesLanded(msg branchesFetchedMsg) (tea.Model, tea.Cmd) {
 	m.store.BranchesApplied(msg.repo, msg.res)
 
-	if m.showingRepo(msg.repo) {
-		m.detail.SetBranches(m.store.Branches(msg.repo))
+	held := m.store.Branches(msg.repo)
+	if held.Query == msg.res.Query && m.showingRepo(msg.repo) {
+		m.detail.SetBranches(held)
 	}
 	return m, nil
 }
@@ -112,14 +130,14 @@ func (m Model) sendBase(msg prview.SetBaseMsg, key string) tea.Cmd {
 // baseLanded takes GitHub's answer and then asks for everything the retarget
 // invalidated, which is most of the screen.
 //
-// The detail, because a base change rewrites the behind-by count, the commit
-// list, the changed-file count, the mergeability and the timeline, and the store
-// can compute none of them.
+// A base change rewrites the behind-by count, the commit list, the changed-file
+// count, the mergeability and the timeline, and the store can compute none of
+// them. It rewrites the diff too, and BaseApplied has marked that stale.
 //
-// The diff, because it is every file that differs from a branch this pull
-// request no longer targets. That one is the easiest to miss: the Files tab asks
-// for a diff once per open, so nothing would ask again until the reader pressed
-// the sync key while standing on that tab.
+// Only the detail is asked for here. The diff waits for it, because the count
+// the diff's overflow line is measured against comes back with it: fetching
+// both at once would render "37 more files on GitHub" over a three-file diff.
+// detailSettled is what fires the second leg.
 //
 // The toast names GitHub's answer rather than the ask. They part company when
 // somebody retargets in the browser first, and the rail is already showing what
@@ -131,19 +149,26 @@ func (m Model) baseLanded(msg baseSetMsg) (tea.Model, tea.Cmd) {
 	if m.showing(msg.id) {
 		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
 	}
-	return m, tea.Batch(append(cmds, m.correctDetail(msg.id), m.correctFiles(msg.id))...)
+	return m, tea.Batch(append(cmds, m.correctDetail(msg.id))...)
 }
 
-// correctFiles asks for the diff again after a write that rewrote it, and is
-// nil when there is none held.
+// correctFiles asks for the diff again once a write has moved the base under
+// it, and is nil when nothing owes one.
 //
-// A reader who never opened the Files tab has nothing to correct: the first open
-// fetches whatever is true by then. One who did is holding a diff against the
-// old base, and the tab will not ask a second time on its own.
+// A reader who never opened the Files tab has nothing to correct: the first
+// open fetches whatever is true by then. One who did is holding a diff against
+// the old base, and the tab asks once per open, so nothing else would ask again.
+//
+// A fetch already in flight is not the answer either. It was measured against
+// the old base too, so a refusal from BeginFiles leaves the mark set and
+// filesSettled calls back here once that one has landed.
 //
 // It registers no refresh leg, for the reason correctDetail gives.
 func (m Model) correctFiles(id string) tea.Cmd {
-	if !m.store.Files(id).Loaded || !m.store.BeginFiles(id) {
+	if !m.store.StaleFiles(id) || !m.store.Files(id).Loaded {
+		return nil
+	}
+	if !m.store.BeginFiles(id) {
 		return nil
 	}
 	pr := m.store.Detail(id).Detail.PullRequest

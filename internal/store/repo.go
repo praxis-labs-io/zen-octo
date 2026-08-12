@@ -172,6 +172,14 @@ func (s *Store) BranchesFailed(repo, query string, err error) {
 	s.putBranches(repo, held)
 }
 
+// InvalidateBranches drops the search a repository last answered, so the next
+// picker asks again. This is what makes the sync key reach branches: without it
+// BeginBranches refuses the opening search for the rest of the session, and a
+// branch created in the browser never appears. On a repository small enough
+// that comp.Picker draws no filter row there is no search to type either, so a
+// restart is the only other way to reach it.
+func (s *Store) InvalidateBranches(repo string) { delete(s.branches, repo) }
+
 // putBranches writes a search, building the map if this Store was made without
 // New, for the reason putRepo gives.
 func (s *Store) putBranches(repo string, b Branches) {

@@ -607,8 +607,8 @@ type BaseResult struct {
 	BaseRefName string
 }
 
-// BranchResult is one branch search: what matched, how many matched past the
-// page, and what the repository calls its default.
+// BranchResult is one branch search: what matched on the page fetched, how many
+// matched past it, and what the repository calls its default.
 //
 // Query is the search this answers. Two searches settle in whatever order the
 // network gives them, so a caller painting one has to be able to tell whether

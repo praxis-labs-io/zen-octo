@@ -10,11 +10,12 @@ import (
 
 // branchPage is how many branches one search returns.
 //
-// Thirty rather than GitHub's hundred because the list comes back newest first
-// and is answered at its top. A branch further down than that is reached by
-// typing rather than by scrolling: the picker is thirty columns wide and shows
-// ten rows at a time, so a longer page buys a scrollbar over a list the reader
-// is already filtering.
+// The page is alphabetical, because that is the only order GitHub will apply,
+// and a bigger one does not fix that: taking a hundred of vscode's four
+// thousand still takes them from the front of the alphabet. What reaches a
+// branch outside the page is narrowing the search, never scrolling, so the page
+// is sized to be scanned rather than paged through. The picker shows ten rows
+// at a time.
 const branchPage = 30
 
 // branchQuery is the repository's branches matching a substring of their name.
@@ -25,12 +26,19 @@ const branchPage = 30
 // comp.Picker filters by, which is what lets the two compose instead of
 // disagreeing. An empty string matches every branch.
 //
-// The commit date comes back per ref because the sort happens here. refs takes
-// an orderBy and ignores it on refs/heads: asking for TAG_COMMIT_DATE answers
-// 200 with the names in neither commit order nor a stable one, and ALPHABETICAL
-// is the only sort the connection honours. Alphabetical is a list where the
-// branch somebody wants is wherever its name happens to fall, which on a
-// repository with four thousand branches is a first page of nothing.
+// The commit date comes back per ref because the sort happens here, and it is
+// worth knowing exactly how much that sort buys. refs takes an orderBy and
+// ignores it on refs/heads: asking for TAG_COMMIT_DATE answers 200 with the
+// names in neither commit order nor a stable one, so ALPHABETICAL is the only
+// order the connection will apply. GitHub then pages before this client sees
+// anything, which means the sort below orders the page and cannot choose it.
+//
+// So on a repository whose matches fit in one page the list really is newest
+// first; past that it is the front of the alphabet, newest first among itself.
+// Ordering the whole of vscode by date would cost a request per hundred
+// branches, forty-eight of them, to fill a modal showing ten rows. Narrowing
+// the search is what reaches the rest, and the note beside the title is what
+// says so.
 //
 // totalCount is the whole match, not the page, so it is what the overflow is
 // measured against.
@@ -87,9 +95,13 @@ func (n branchNode) committed() time.Time {
 	return n.Target.CommittedDate
 }
 
-// Branches searches a repository's branches, newest commit first. repo is
-// "owner/name", which is what PullRequest.Repository carries; query is a
-// substring of the branch name, empty for all of them.
+// Branches searches a repository's branches. repo is "owner/name", which is
+// what PullRequest.Repository carries; query is a substring of the branch name,
+// empty for all of them.
+//
+// One page, newest commit first within it. GitHub pages alphabetically before
+// this sees anything, so the order is the whole truth only when the match fits
+// in a page; More is what says it did not.
 //
 // A repository the token cannot see comes back as a null node rather than an
 // error, so that is a failure here and not an empty result: a picker offering

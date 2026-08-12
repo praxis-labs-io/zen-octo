@@ -200,6 +200,10 @@ func (s *Store) PendingBase(id, base string) string {
 // again here. The write has landed and the comparison has not been run: letting
 // the fetched number back would put a count against the old branch under the
 // name of the new one for as long as the refetch takes.
+//
+// The diff is marked stale beside it. A base change rewrites every file in one,
+// and the Files tab asks for a diff once per open, so nothing else would ask
+// again.
 func (s *Store) BaseApplied(id, key string, res gh.BaseResult) {
 	_, held, ok := s.settleEdit(id, key, fieldBase)
 	if !ok {
@@ -210,6 +214,7 @@ func (s *Store) BaseApplied(id, key string, res gh.BaseResult) {
 	held.Detail.BehindBy = gh.BehindUnknown
 	s.put(id, held)
 	s.markStale(id)
+	s.markFilesStale(id)
 }
 
 // PendingAssignees holds an assignee set applied here and not yet acknowledged,

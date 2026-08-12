@@ -121,11 +121,18 @@ func NewPicker(title string, items []PickerItem, checked []string, multi bool) P
 func (p Picker) Multi() bool { return p.multi }
 
 // Replace swaps the choices under the filter, keeping what has been typed and
-// putting the cursor on the first new row.
+// keeping the cursor on the row it was on when that row survives.
 //
 // A picker whose list comes from the server needs this. The filter is the
 // search, so every keystroke brings a different set back, and rebuilding
 // through NewPicker would clear the field that caused the fetch.
+//
+// The cursor is held by id rather than reanchored, which is the opposite of
+// what a filter keystroke does and for the opposite reason. Typing is the
+// reader narrowing a list and looking at what is left; a response landing is
+// not something they did. Moving onto a row while the request is still out and
+// having it answer under them would send the write to whichever branch the new
+// list sorted first. Only a row the answer no longer carries goes to the top.
 //
 // The filter row stays whether or not the new list is short enough to have
 // earned one: a search that narrows the choices to two must not take away the
@@ -133,8 +140,24 @@ func (p Picker) Multi() bool { return p.multi }
 // behind the picker has not changed, and an id the new list does not carry
 // simply matches nothing.
 func (p *Picker) Replace(items []PickerItem, note string) {
+	var on string
+	if it, ok := p.at(); ok {
+		on = it.ID
+	}
+
 	p.items, p.note = items, note
 	p.reanchor()
+
+	if on == "" {
+		return
+	}
+	for i, it := range p.shown() {
+		if it.ID == on {
+			p.cursor = i
+			p.scroll()
+			return
+		}
+	}
 }
 
 // SetNote says what the title should say about the list as a whole, leaving the

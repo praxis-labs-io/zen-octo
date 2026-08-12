@@ -106,9 +106,15 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 // the menu under the reader's hands between one key and the next. There is no
 // third case to worry about, because a picker owns every key while it is up and
 // nothing can ask for another one.
+//
+// It reads needsRepo rather than testing want against nothing, because the base
+// picker waits on a different call. Labels asked for and then Base asked for
+// leaves want at pickBase, and opening that here builds it over branches this
+// screen has not been handed: a modal listing the current base alone, on which
+// enter does nothing.
 func (m *Model) SetRepo(r store.Repo) {
 	m.repo = r
-	if m.picking.want == pickNone || !r.Loaded {
+	if !m.picking.want.needsRepo() || !r.Loaded {
 		return
 	}
 

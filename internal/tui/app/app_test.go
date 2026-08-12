@@ -60,10 +60,14 @@ type fakeSearcher struct {
 	branchQueries []string
 	branches      []string
 	branchErr     error
-	detailErr     error
-	filesErr      error
-	commitErr     error
-	postErr       error
+	diffCounts    []int
+	// retargetedFiles is what the pull request touches once its base has moved,
+	// zero to leave the count alone.
+	retargetedFiles int
+	detailErr       error
+	filesErr        error
+	commitErr       error
+	postErr         error
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
 	// then, so the revert puts back a request that is really gone.
@@ -218,6 +222,9 @@ func (f *fakeSearcher) opened() []string {
 func (f *fakeSearcher) PullRequestFiles(_ context.Context, repo string, number, changed int) (gh.FilesResult, error) {
 	f.mu.Lock()
 	f.diffs = append(f.diffs, repo+"#"+strconv.Itoa(number))
+	// The count the caller measured overflow against, recorded apart from the
+	// path so a test can hold a refetch to the fresh one.
+	f.diffCounts = append(f.diffCounts, changed)
 	files, err := f.files[number], f.filesErr
 	f.mu.Unlock()
 
@@ -242,6 +249,13 @@ func (f *fakeSearcher) failFiles(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.filesErr = err
+}
+
+// diffAsks is the changed-file count each diff request was made with, in order.
+func (f *fakeSearcher) diffAsks() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.diffCounts)
 }
 
 // fetched is the pull requests the model asked a diff for, in order.
@@ -3129,6 +3143,12 @@ func (f *fakeSearcher) SetBase(_ context.Context, prID, base string) (gh.BaseRes
 	for i := range f.prs {
 		if f.prs[i].ID == prID {
 			f.prs[i].BaseRefName = base
+			// A retarget rewrites what the pull request contains, so the count
+			// the diff's overflow is measured against moves with it. A test
+			// holds the refetch to the new one.
+			if f.retargetedFiles > 0 {
+				f.prs[i].ChangedFiles = f.retargetedFiles
+			}
 		}
 	}
 	if d, ok := f.details[prID]; ok {

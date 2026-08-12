@@ -360,11 +360,19 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 
 	text, c := "Up to date with "+base, m.theme.Success
 	switch {
-	// A retarget applied here and not yet counted. The old number was measured
-	// against a branch this pull request no longer targets, and rendering it
-	// under the new name is the one frame worth a third case.
-	case d.BehindBy == gh.BehindUnknown:
+	// A write still out. The old number was measured against a branch this pull
+	// request no longer targets, and rendering it under the new name is the one
+	// frame worth a third case.
+	case m.detail.BaseWriting:
 		text, c = "Retargeting to "+base, m.theme.Faint
+
+	// The write landed and nothing has counted yet. It is a fact rather than a
+	// wait, and it has to read as one: the refetch behind it can fail, and a row
+	// left saying "Retargeting" would report a finished write as in flight for
+	// the rest of the session.
+	case d.BehindBy == gh.BehindUnknown:
+		text, c = "Merging into "+base, m.theme.Faint
+
 	case d.BehindBy > 0:
 		text, c = comp.Plural(d.BehindBy, "commit")+" behind "+base, m.theme.Warning
 	}

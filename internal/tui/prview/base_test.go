@@ -232,20 +232,38 @@ func TestASearchWithMoreMatchesSaysSo(t *testing.T) {
 	}
 }
 
-// A retarget applied here has no honest count until the refetch answers, and
-// the old number was measured against a branch this pull request no longer
-// targets.
-func TestTheBaseRowSaysNothingAboutACountItDoesNotHave(t *testing.T) {
+// retargeting is a detail mid-write: the branch moved, nothing has counted it.
+func retargeting(writing bool) store.Detail {
 	d := sampleDetail()
 	d.BaseRefName = "develop"
 	d.BehindBy = gh.BehindUnknown
 
-	out := stripANSI(detailed(held(d), 200, 60).View())
-	if want := "Retargeting to develop"; !strings.Contains(out, want) {
-		t.Errorf("the rail is missing %q:\n%s", want, out)
-	}
-	if strings.Contains(out, "behind develop") {
-		t.Errorf("the rail counts commits against a branch nobody has compared:\n%s", out)
+	out := held(d)
+	out.BaseWriting = writing
+	return out
+}
+
+// The old number was measured against a branch this pull request no longer
+// targets, so there is nothing honest to put in its place until the refetch
+// answers.
+func TestTheBaseRowSaysNothingAboutACountItDoesNotHave(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		writing bool
+		want    string
+	}{
+		{"the write is out", true, "Retargeting to develop"},
+		{"the write has landed", false, "Merging into develop"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out := stripANSI(detailed(retargeting(c.writing), 200, 60).View())
+			if !strings.Contains(out, c.want) {
+				t.Errorf("the rail is missing %q:\n%s", c.want, out)
+			}
+			if strings.Contains(out, "behind develop") {
+				t.Errorf("the rail counts commits against a branch nobody compared:\n%s", out)
+			}
+		})
 	}
 }
 
@@ -303,5 +321,80 @@ func TestTheBaseRowIsAFactWithoutWriteAccess(t *testing.T) {
 func TestTheBaseRowIsAControlOnAnOpenPullRequest(t *testing.T) {
 	if stops := railStops(t, sampleDetail()); !slices.Contains(stops, "4 commits behind main") {
 		t.Errorf("tab never stopped on the Base row: %q", stops)
+	}
+}
+
+// A pull request from a fork carries the head's name and not its repository, so
+// a contributor's main merging into this one matches the head filter by name
+// alone. Dropped, the picker opens with nothing checked and enter retargets onto
+// whatever sorted first.
+func TestAForkPullRequestStillOffersTheBaseItsHeadIsNamedAfter(t *testing.T) {
+	d := sampleDetail()
+	d.HeadRefName = "main" // the fork's own main
+	d.BaseRefName = "main"
+
+	m := onRailRow(t, detailed(held(d), 200, 60), "4 commits behind main")
+	m, _ = key(m, "enter")
+	m.SetBranches(repoBranches("develop", "release/2.0"))
+
+	if box := menuBox(t, m, "Merge into"); !strings.Contains(box, "main") {
+		t.Errorf("the branch this pull request targets is not offered:\n%s", box)
+	}
+	if _, cmd := key(m, "enter"); runCmd(cmd) != nil {
+		t.Errorf("enter with no movement sent %#v, want nothing", runCmd(cmd))
+	}
+}
+
+// A search answering is not something the reader did. Moving onto a row while
+// the request is out and having it reanchor underneath sends the write to
+// whichever branch the new list sorted first.
+func TestASearchLandingLeavesTheCursorOnTheRowItWasOn(t *testing.T) {
+	m := openBase(t, repoBranches("develop", "main", "release/2.0", "release/1.9",
+		"feature/rail", "feature/base", "spike/glamour", "fix/scroll"))
+
+	m = press(m, "down") // off main, onto develop
+	m.SetBranches(store.Branches{
+		Default: "main",
+		Names:   []string{"release/2.0", "develop", "main", "feature/rail"},
+		Status:  store.StatusReady, Loaded: true,
+	})
+
+	got := asked(t, m, "enter")
+	msg, ok := got.(prview.SetBaseMsg)
+	if !ok {
+		t.Fatalf("enter sent %T, want a SetBaseMsg", got)
+	}
+	if msg.Base != "develop" {
+		t.Errorf("the answer moved the cursor: enter wrote %q, want develop", msg.Base)
+	}
+}
+
+// The rail keeping focus is not the reader still standing on Base. Enter starts
+// the search and tab is free the whole time it is out.
+func TestASearchLandingAfterTabbingAwayOpensNothing(t *testing.T) {
+	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
+	m, _ = key(m, "enter")
+
+	m = press(m, "tab")
+	m.SetBranches(repoBranches())
+
+	if out := stripANSI(m.View()); strings.Contains(out, "Merge into") {
+		t.Errorf("the modal dropped over a row the reader had walked to:\n%s", out)
+	}
+}
+
+// Labels asked for, then Base asked for. The repository answers first and must
+// not open the picker waiting on branches it has not been handed.
+func TestRepoMetaLandingDoesNotOpenTheBranchPicker(t *testing.T) {
+	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
+	m, _ = key(m, "enter") // want = pickLabels
+
+	m = onRailRow(t, m, "4 commits behind main")
+	m, _ = key(m, "enter") // want = pickBase
+
+	m.SetRepo(loadedRepo())
+
+	if out := stripANSI(m.View()); strings.Contains(out, "Merge into") {
+		t.Errorf("repo metadata opened a picker waiting on a branch search:\n%s", out)
 	}
 }

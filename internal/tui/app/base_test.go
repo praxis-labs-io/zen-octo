@@ -249,3 +249,79 @@ func TestAFailedBranchSearchSaysSoAndKeepsTheList(t *testing.T) {
 		t.Errorf("status bar = %q, want the reason on it", strings.TrimSpace(bar))
 	}
 }
+
+// The store outlives the screen and every pull request opens a fresh one holding
+// no branches, so the second one to ask for a search the first already ran gets
+// a refusal from BeginBranches. Dropped there, the Base key does nothing for the
+// rest of that screen.
+func TestASecondPullRequestOpensTheBranchPickerToo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveDetail("PR_408", "Bumps the deps.")
+	client.serveBranches("develop", "main", "release/2.0")
+
+	m := press(toBaseRow(t, client), "enter")
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merge into") {
+		t.Fatalf("setup: the first picker did not open:\n%s", out)
+	}
+
+	// One esc closes the modal, the second hands focus back to the conversation,
+	// the third leaves the detail. Then down to the second pull request and in.
+	m = press(m, "esc", "esc", "esc", "j", "enter")
+	if bar := lastLine(render(t, m)); !strings.Contains(bar, "#408") {
+		t.Fatalf("setup: landed on %q, want the second pull request", strings.TrimSpace(bar))
+	}
+
+	m = press(m, "2", "tab", "tab", "tab", "tab", "tab", "enter")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merge into") {
+		t.Errorf("the Base key is dead on the second pull request:\n%s", out)
+	}
+}
+
+// BeginBranches refuses a query already answered, so without invalidation a
+// branch created in the browser never appears. Below the picker's filter
+// threshold there is no search to type either, so the sync key is the only way.
+func TestTheSyncKeyReachesTheBranchList(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveBranches("develop", "main")
+
+	m := press(press(toBaseRow(t, client), "enter"), "esc")
+	client.serveBranches("develop", "main", "hotfix/urgent")
+
+	// esc left the cursor on Base, so the sync and then enter is the whole of it.
+	m = press(m, "s")
+	m = press(m, "enter")
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "hotfix/urgent") {
+		t.Errorf("the sync key did not reach the branch list:\n%s", out)
+	}
+}
+
+// The refetch is measured against the count that came back with the detail, not
+// the one from before the base moved. Fetching both at once renders "37 more
+// files on GitHub" over a three-file diff.
+func TestTheDiffRefetchUsesThePostRetargetFileCount(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveBranches("develop", "main", "release/2.0")
+	client.serveFiles(412, sampleFiles())
+	client.retargetedFiles = 9
+
+	m := press(loaded(t, client, 160, 44), "enter", "]", "]", "]")
+	if got := client.diffAsks(); len(got) != 1 || got[0] != 3 {
+		t.Fatalf("setup: diff asks = %v, want one for the staged count of 3", got)
+	}
+
+	m = press(m, "[", "[", "[", "2", "tab", "tab", "tab", "tab", "tab", "enter")
+	press(m, "j", "enter")
+
+	got := client.diffAsks()
+	if len(got) != 2 {
+		t.Fatalf("diff asks = %v, want the retarget to have refetched once", got)
+	}
+	if got[1] != 9 {
+		t.Errorf("the refetch measured against %d files, want the post-retarget 9", got[1])
+	}
+}
