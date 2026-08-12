@@ -1,6 +1,7 @@
 package prview_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
 // mergeableDetail is the sample with a merge on offer: clean, with the head
@@ -432,7 +434,7 @@ func TestTheFormCapturesTheKeyboard(t *testing.T) {
 // what will not fit, and what sits at the foot of this modal is the only way to
 // merge on a terminal that cannot send the chord.
 func TestTheFormKeepsItsButtonOnAShortTerminal(t *testing.T) {
-	for _, height := range []int{60, 30, 24, 20, 18} {
+	for _, height := range []int{60, 30, 24, 20, 19} {
 		m := onRailRow(t, detailed(held(mergeableDetail()), 200, height), "Ready to merge")
 		m, _ = key(m, "enter")
 		m.SetRepo(mergeRepo(allMethods()))
@@ -539,3 +541,97 @@ func TestTheFormFallsBackWhenSquashIsForbidden(t *testing.T) {
 		t.Errorf("the form did not fall back to the first method allowed:\n%s", box)
 	}
 }
+
+// The form is the same width over every pull request. The branch name is the
+// one variable-length thing on it, and measured into the width it drags the
+// modal out over the conversation behind it.
+func TestALongBranchNameDoesNotWidenTheForm(t *testing.T) {
+	short := mergeableDetail()
+	short.HeadRefName = "fix"
+
+	long := mergeableDetail()
+	long.HeadRefName = "feature/zno-48-m4-merge-from-the-rail-and-then-some-more-besides"
+
+	got := formBox(t, openMergeOn(t, long, mergeRepo(allMethods())))
+	want := formBox(t, openMergeOn(t, short, mergeRepo(allMethods())))
+
+	if wide, narrow := boxWidth(got), boxWidth(want); wide != narrow {
+		t.Errorf("the form is %d columns over a long branch and %d over a short one", wide, narrow)
+	}
+
+	// Truncated rather than dropped: the row still says what it does, and the
+	// branch still starts with enough of itself to recognise.
+	if !strings.Contains(got, "after merging") {
+		t.Errorf("the row lost the words saying what it does:\n%s", got)
+	}
+	if !strings.Contains(got, "Delete feature/zno-48") {
+		t.Errorf("the branch lost the head of its name:\n%s", got)
+	}
+}
+
+// boxWidth is how wide a cut-out modal is, in columns.
+func boxWidth(box string) int {
+	var wide int
+	for _, row := range strings.Split(box, "\n") {
+		wide = max(wide, len([]rune(stripANSI(row))))
+	}
+	return wide
+}
+
+// The chosen method is the one that will be used, so it is the one that reads.
+// At equal weight the tick is the only thing carrying the answer, and it is two
+// cells wide.
+//
+// It reads the colour off the frame rather than the cut-out box, because the
+// box is cut from a frame with the escapes already stripped out of it.
+func TestOnlyTheChosenMethodIsNotMuted(t *testing.T) {
+	frame := openMerge(t).View()
+
+	faint, primary := fgSeq(theme.RosePineMoon.Faint), fgSeq(theme.RosePineMoon.Primary)
+
+	if got := colorBefore(t, frame, "Squash and merge"); got != primary {
+		t.Errorf("the chosen method renders in %s, want the primary colour %s", got, primary)
+	}
+	for _, muted := range []string{"Create a merge commit", "Rebase and merge"} {
+		if got := colorBefore(t, frame, muted); got != faint {
+			t.Errorf("%q renders in %s, want it muted at %s", muted, got, faint)
+		}
+	}
+
+	// The heading names its block the way the boxes below name theirs, so it
+	// carries a pane title's weight rather than a caption's.
+	if got := colorBefore(t, frame, "Method"); got != primary {
+		t.Errorf("the Method heading renders in %s, want the box titles' %s", got, primary)
+	}
+}
+
+// colorBefore is the foreground colour a run of text is rendered in: the last
+// one set before it and never reset in between.
+func colorBefore(t *testing.T, frame, needle string) string {
+	t.Helper()
+
+	at := strings.Index(frame, needle)
+	if at < 0 {
+		t.Fatalf("%q is nowhere in the frame", needle)
+	}
+
+	var color string
+	for _, m := range sgr.FindAllStringSubmatch(frame[:at], -1) {
+		for _, part := range strings.Split(m[1], ";") {
+			if part == "0" {
+				color = ""
+			}
+		}
+		// The five parts of the colour and no more. Lipgloss packs bold into the
+		// same escape, and a heading that is bold as well as coloured must not
+		// read as a different colour for it.
+		if at := strings.Index(m[1], "38;2;"); at >= 0 {
+			if parts := strings.Split(m[1][at:], ";"); len(parts) >= 5 {
+				color = strings.Join(parts[:5], ";")
+			}
+		}
+	}
+	return color
+}
+
+var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)

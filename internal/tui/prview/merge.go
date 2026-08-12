@@ -29,10 +29,15 @@ type MergeMsg struct {
 }
 
 const (
-	// mergeMinWidth clears the hint line, so the form opens at one width over a
-	// short commit headline and a long one rather than at two.
+	// mergeMinWidth clears the hint line and the button beside it, which is the
+	// widest row the form is obliged to draw whole. Nothing variable-length is
+	// measured against it, so this is the width the form opens at every time.
+	//
+	// mergeMaxWidth is the ceiling for a frame narrow enough to matter and
+	// nothing else. It matches the picker's, so the two modals never open at
+	// visibly different widths over the same pull request.
 	mergeMinWidth = 46
-	mergeMaxWidth = 72
+	mergeMaxWidth = 56
 
 	// mergeBodyRows is how much of the commit message the box shows at once,
 	// and the first thing to give way on a short terminal. A squash body is one
@@ -40,12 +45,12 @@ const (
 	mergeBodyRows = 6
 
 	// mergeBodyFloor is as small as the box goes before the modal starts
-	// clipping instead. Two lines is enough to see that there is a message.
-	mergeBodyFloor = 2
-
-	// mergeLabelWidth is the column the method rows hang off, so the tick and
-	// the names line up under the caption rather than beside it.
-	mergeLabelWidth = 9
+	// clipping instead. One line, because the box borders its own text now and
+	// those two rows have to come from somewhere. Nineteen rows is the shortest
+	// frame the form fits at all, and only at this floor; below that it clips and
+	// there is nothing left to give. A single line still scrolls, and still says
+	// there is a message there.
+	mergeBodyFloor = 1
 
 	mergeButton    = "Merge"
 	mergeButtonPad = 2
@@ -475,18 +480,16 @@ func (m Model) mergeOverlay(frame string) string {
 func (f *merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 	width := f.width(frameWidth)
 	f.body.SetHeight(f.bodyHeight(frameHeight))
-	f.body.SetWidth(width)
-	f.headline.SetWidth(width)
+	f.body.SetWidth(fieldText(width))
+	f.headline.SetWidth(fieldText(width))
 
 	rows := append([]string{""}, f.methodRows(th, width)...)
 
 	if f.writes() {
-		rows = append(rows, "", mergeCaption(th, "Headline", f.on() == mergeHeadlineRow, width))
-		rows = append(rows, mergePad(f.headline.View(), width, lipgloss.NewStyle()))
-		rows = append(rows, "", mergeCaption(th, "Message", f.on() == mergeBodyRow, width))
-		for _, line := range strings.Split(f.body.View(), "\n") {
-			rows = append(rows, mergePad(line, width, lipgloss.NewStyle()))
-		}
+		rows = append(rows, "")
+		rows = append(rows, f.field(th, "Headline", f.headline.View(), 1, width, mergeHeadlineRow)...)
+		rows = append(rows, "")
+		rows = append(rows, f.field(th, "Message", f.body.View(), f.body.Height(), width, mergeBodyRow)...)
 	}
 
 	if f.branch != "" {
@@ -502,15 +505,22 @@ func (f *merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 	return comp.Modal(th, "Merge #"+strconv.Itoa(f.number), strings.Join(rows, "\n"))
 }
 
-// width is what the modal gets inside its border: the widest thing it has to
-// show, held between a floor and a ceiling and never wider than the frame.
+// width is what the modal gets inside its border: the widest row it has to draw
+// whole, held between a floor and a ceiling and never wider than the frame.
+//
+// Whole is the word doing the work. Only the fixed rows are measured, which is
+// the footer and the method names, so the form is the same width over every
+// pull request. The branch name is the one variable-length thing on it and it is
+// truncated to the row instead: measured here, a long feature branch drags the
+// whole modal out past the conversation behind it, and a branch is a name the
+// header two panes over is already carrying in full.
+//
+// The commit message is not measured either, for a different reason: both boxes
+// scroll their own text, so neither has a width it needs.
 func (f merging) width(frameWidth int) int {
 	longest := lipgloss.Width(mergeHint) + lipgloss.Width(mergeButton) + 2*mergeButtonPad
 	for _, method := range f.methods {
-		longest = max(longest, mergeLabelWidth+lipgloss.Width(mergeMark+mergeName(method)))
-	}
-	if f.branch != "" {
-		longest = max(longest, lipgloss.Width(mergeMark+f.deleteText()))
+		longest = max(longest, lipgloss.Width(mergeMark+mergeName(method)))
 	}
 
 	want := min(max(longest, mergeMinWidth), mergeMaxWidth)
@@ -529,13 +539,16 @@ func (f merging) bodyHeight(frameHeight int) int {
 		return mergeBodyRows
 	}
 
-	// Everything the form draws except the message itself: two border rows, the
-	// row it opens with, the method rows, the two captions and the two blanks
-	// over them, the headline, and the blank and the footer at the foot. Then
-	// the delete row and the warning where there are any, each with its own
-	// blank. Counted rather than measured, because the height has to be decided
-	// before the box it decides is rendered.
-	chrome := 2 + 1 + len(f.methods) + 4 + 1 + 2
+	// Everything the form draws except the message itself: the modal's two
+	// border rows, the row it opens with, the Method heading and its rows, a
+	// blank and the
+	// title box's three rows, a blank and the message box's own two borders,
+	// then the blank and the footer at the foot. After that the delete row and
+	// the warning where there are any, each with its own blank.
+	//
+	// Counted rather than measured, because the height has to be decided before
+	// the box it decides is rendered.
+	chrome := 2 + 1 + 1 + len(f.methods) + 1 + 3 + 1 + 2 + 2
 	if f.branch != "" {
 		chrome += 2
 	}
@@ -545,56 +558,79 @@ func (f merging) bodyHeight(frameHeight int) int {
 	return min(mergeBodyRows, max(mergeBodyFloor, frameHeight-chrome))
 }
 
-// methodRows is the choices with the tick on the one that will be used. Every
-// cell in the lit row sets the background itself: a styled run ends in a reset
-// that clears it, so painting the joined row afterwards would color the first
-// cell and nothing else.
+// methodRows is the choices under their heading, with the tick on the one that
+// will be used.
+//
+// The heading sits above them rather than in a column beside them, which is
+// where the boxes below carry theirs. A label in the left margin buys nothing
+// and pushes every name in nine columns from the edge the rest of the form
+// starts at.
+//
+// Every cell in the lit row sets the background itself: a styled run ends in a
+// reset that clears it, so painting the joined row afterwards would color the
+// first cell and nothing else.
 func (f merging) methodRows(th theme.Theme, width int) []string {
-	out := make([]string, 0, len(f.methods))
+	plain := lipgloss.NewStyle()
+
+	// The heading reads as the boxes' titles do, because it names its block the
+	// same way they name theirs.
+	heading := plain.Foreground(th.Primary).Bold(true).Render("Method")
+
+	out := make([]string, 0, len(f.methods)+1)
+	out = append(out, mergePad(heading, width, plain))
+
 	for i, method := range f.methods {
-		base := lipgloss.NewStyle()
-		if i == f.at && f.on() == mergeMethodRow {
+		chosen := i == f.at
+
+		base := plain
+		if chosen && f.on() == mergeMethodRow {
 			base = base.Background(th.SelectedBackground)
 		}
 
-		caption := ""
-		if i == 0 {
-			caption = "Method"
-		}
-		lead := base.Foreground(th.Faint).Render(mergeColumn(caption))
-
-		mark := base.Foreground(th.Faint).Render(mergeGap)
-		if i == f.at {
-			mark = base.Foreground(th.Success).Render(mergeMark)
+		// The chosen one is the one that will be used, so it is the one that
+		// reads. The rest are muted: three names at equal weight make the tick
+		// the only thing carrying the answer, and it is two cells wide.
+		mark, c := base.Foreground(th.Faint).Render(mergeGap), th.Faint
+		if chosen {
+			mark, c = base.Foreground(th.Success).Render(mergeMark), th.Primary
 		}
 
-		name := base.Foreground(th.Primary).Render(mergeName(method))
-		out = append(out, mergePad(lead+mark+name, width, base))
+		out = append(out, mergePad(mark+base.Foreground(c).Render(mergeName(method)), width, base))
 	}
 	return out
 }
 
-// mergeColumn is a caption padded out to the column the method rows hang off.
-func mergeColumn(s string) string {
-	if len(s) >= mergeLabelWidth {
-		return s + " "
-	}
-	return s + strings.Repeat(" ", mergeLabelWidth-len(s))
+// field frames a text box, titled with what it holds and bordered like every
+// other region on this screen.
+//
+// The border is where a text field says it has the keyboard. A background
+// cannot: it ends at the widget's own reset and would paint the padding alone.
+// The pane already colours itself by focus, so the two boxes read the same way
+// the panes behind them do.
+func (f merging) field(th theme.Theme, title, content string, lines, width int, row mergeRowKind) []string {
+	pane := comp.NewPane(th).Title(title).Focus(f.on() == row).Size(width, lines+2)
+	padded := lipgloss.NewStyle().Padding(0, 1).Render(content)
+	return strings.Split(pane.Render(padded), "\n")
 }
 
-// mergeCaption names a text field, and says whether it has the keyboard. The
-// caption carries that rather than the field: a background set behind a widget
-// ends at the widget's own reset and paints the padding alone.
-func mergeCaption(th theme.Theme, text string, lit bool, width int) string {
-	c := th.Faint
-	if lit {
-		c = th.Secondary
-	}
-	plain := lipgloss.NewStyle()
-	return mergePad(plain.Foreground(c).Render(text), width, plain)
-}
+// fieldText is the room a boxed field leaves its own text: the modal's row,
+// less the box's borders and the padding inside them.
+func fieldText(width int) int { return max(1, width-4) }
 
-func (f merging) deleteText() string { return "Delete " + f.branch + " after merging" }
+// deleteText names the branch and what is going to happen to it. The branch
+// keeps its head and loses its tail when there is not room for both, which is
+// how every other name on this screen is cut: the words after it say what the
+// row does, and losing those instead would leave a row that only names a branch.
+func (f merging) deleteText(room int) string {
+	text := "Delete " + f.branch + " after merging"
+	if lipgloss.Width(text) <= room {
+		return text
+	}
+
+	tail := " after merging"
+	branch := max(1, room-lipgloss.Width("Delete ")-lipgloss.Width(tail)-1)
+	return "Delete " + lipgloss.NewStyle().MaxWidth(branch).Render(f.branch) + "…" + tail
+}
 
 func (f merging) deleteRow(th theme.Theme, width int) string {
 	base := lipgloss.NewStyle()
@@ -606,7 +642,9 @@ func (f merging) deleteRow(th theme.Theme, width int) string {
 	if f.del {
 		mark = base.Foreground(th.Success).Render(mergeMark)
 	}
-	return mergePad(mark+base.Foreground(th.Primary).Render(f.deleteText()), width, base)
+
+	text := f.deleteText(width - lipgloss.Width(mergeMark))
+	return mergePad(mark+base.Foreground(th.Primary).Render(text), width, base)
 }
 
 // footer is the keys that work from here and the button, on one row.
