@@ -335,6 +335,33 @@ func TestLiveTheSetLabelsDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
+// TestLiveTheSetAssigneesDocumentMatchesTheSchema is the SetLabels test's twin,
+// and exists for the same reason: both ride updatePullRequest, so a wrong field
+// name in either is caught by the schema rather than by a reader pressing the
+// key. Nothing is written.
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveTheSetAssigneesDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.SetAssignees(ctx, "NOT_A_NODE", []string{"NOT_A_USER"})
+	if err == nil {
+		t.Fatal("assigning a pull request that does not exist came back as a success")
+	}
+
+	assertValidated(t, err)
+}
+
 // TestLiveTheRepoMetaQueryMatchesTheSchema reads rather than writes, so it runs
 // against a real repository and proves every field resolves. It asserts the
 // shape rather than the contents: labels and branches change under it.
@@ -367,6 +394,19 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 	for _, l := range res.Meta.Labels {
 		if l.ID == "" {
 			t.Errorf("label %q came back with no node id, which the write path needs", l.Name)
+		}
+	}
+
+	// The assignee write sets people by node id and has no spelling that takes
+	// a login, so a user without one is a row the picker can show and never
+	// apply. Every repository has at least the viewer here, which is why this
+	// one can assert the list is not empty where the labels cannot.
+	if len(res.Meta.Users) == 0 {
+		t.Error("no assignable users came back, so the query is not selecting them")
+	}
+	for _, u := range res.Meta.Users {
+		if u.ID == "" {
+			t.Errorf("user %q came back with no node id, which the write path needs", u.Login)
 		}
 	}
 }

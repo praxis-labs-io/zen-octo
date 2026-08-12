@@ -387,12 +387,18 @@ func sampleDetail() gh.PullRequestDetail {
 		PullRequest: samplePR(),
 		Body:        "Caps the backoff at 30s, matching the fetch timeout.",
 
-		Labels:    []gh.Label{{ID: "LA_1", Name: "bug"}},
-		Assignees: []gh.Actor{{Login: "drucial"}},
+		Labels: []gh.Label{{ID: "LA_1", Name: "bug"}},
+		// With the node id, which the picker checks by: an assignee decoded
+		// without one opens the picker with nobody selected.
+		Assignees: []gh.Actor{{ID: "U_1", Login: "drucial"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "octobot"}, State: gh.ReviewStateApproved},
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}},
+			// Marked as a team, which is what the decoder does with one: its
+			// handle is built rather than sent, and no write may spell a login
+			// with it. Without the flag it reads here as somebody with an
+			// outstanding request, which the reviewer picker would then cancel.
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
 		},
 		Rollup: gh.CheckRollup{
 			State: gh.CheckStateFailure,
@@ -408,9 +414,10 @@ func sampleDetail() gh.PullRequestDetail {
 		BehindBy: 4,
 
 		// The sample is the viewer's own open pull request, so the state menu
-		// has both moves an open one takes. CanReopen is GitHub's answer for an
-		// open one: there is nothing to reopen.
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+		// has both moves an open one takes and the Assignees section is theirs
+		// to change. CanReopen is GitHub's answer for an open one: there is
+		// nothing to reopen.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 
 		Timeline: []gh.TimelineItem{
 			commented("octobot", ago(3*time.Hour), "Coverage held at 84.2%."),
@@ -1468,7 +1475,7 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 	}{
 		{row: "● @nkr", state: "waiting on a change", color: theme.RosePineMoon.Error},
 		{row: "● @octobot", state: "done with it", color: theme.RosePineMoon.Success},
-		{row: "● @zen-octo/maintainers", state: "asked, not answered", color: theme.RosePineMoon.Faint},
+		{row: "● @zen-octo/maintainers", state: "in flight", color: theme.RosePineMoon.Warning},
 	}
 	for i, w := range want {
 		if got := rows[at+1+i]; got != w.row {
@@ -1481,8 +1488,8 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 	}
 }
 
-// Three colors, because a rail row has one cell to say it in. Someone who left
-// unanswered questions and called it a comment is waiting on the same thing as
+// Four colors, because a rail row has one cell to say it in. Someone who left
+// unanswered questions and called it a comment is holding up the same thing as
 // someone who asked for changes.
 func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 	tests := []struct {

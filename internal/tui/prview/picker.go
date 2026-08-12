@@ -21,12 +21,16 @@ const (
 	pickNone pickField = iota
 	pickLabels
 	pickState
+	pickAssignees
+	pickReviewers
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
 // to the detail the screen already holds. Only those cost a round trip before
 // the modal can open; the state menu is built from what is on screen.
-func (f pickField) needsRepo() bool { return f == pickLabels }
+func (f pickField) needsRepo() bool {
+	return f == pickLabels || f == pickAssignees || f == pickReviewers
+}
 
 // picking is the picker over the screen, if any.
 //
@@ -38,15 +42,26 @@ type picking struct {
 	field pickField
 	p     comp.Picker
 
-	// choices is what the picker was built over, held so applying reads the
-	// same list it offered. Rebuilding it at apply time would let a refetch
-	// landing while the modal was up change the set under the reader, and a
-	// choice that disappeared between opening and applying is one the write
-	// would silently drop.
+	// labels and users are what the picker was built over, held so applying
+	// reads the same list it offered. Rebuilding either at apply time would let
+	// a refetch landing while the modal was up change the set under the reader,
+	// and a choice that disappeared between opening and applying is one the
+	// write would silently drop.
 	//
-	// The state menu needs no twin of this. Its ids are the transitions
+	// One per field rather than one list of something they have in common. They
+	// are different types and each apply path wants its own back whole: the rail
+	// draws a label from its name and a person from their login.
+	//
+	// The state menu needs no twin of these. Its ids are the transitions
 	// themselves, so applying reads them straight back off the picker.
-	choices []gh.Label
+	labels []gh.Label
+	users  []gh.Actor
+
+	// reviewers is the panel the reviewer picker was built against, held for
+	// the same reason and needed for a second one: that write applies a delta,
+	// so the set it is a delta from has to be the set the reader was looking at
+	// when they ticked.
+	reviewers []gh.Reviewer
 
 	want pickField
 }
@@ -110,10 +125,18 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A row in a section and the row that adds to it open the same picker. The
+	// picker is the section: it is where something is taken off as well as put
+	// on, so pointing at one of them is as good an ask as pointing at the add
+	// row under them.
 	var want pickField
 	switch m.railRing.on.kind {
 	case focusLabel, focusAddLabel:
 		want = pickLabels
+	case focusAssignee, focusAddAssignee:
+		want = pickAssignees
+	case focusReviewer, focusAddReviewer:
+		want = pickReviewers
 	case focusState:
 		want = pickState
 	default:
@@ -154,12 +177,44 @@ func (m *Model) startPicker(field pickField) {
 		on := m.railDetail().Labels
 		choices := labelChoices(m.repo.Meta.Labels, on)
 		m.picking = picking{
-			field:   field,
-			choices: choices,
+			field:  field,
+			labels: choices,
 			p: comp.NewPicker(
 				"Labels",
 				labelItems(choices, m.theme.Secondary),
-				labelIDs(on),
+				idsOf(on, labelID),
+				true,
+			),
+		}
+
+	case pickAssignees:
+		on := m.railDetail().Assignees
+		choices := assigneeChoices(m.repo.Meta.Users, on)
+		m.picking = picking{
+			field: field,
+			users: choices,
+			p: comp.NewPicker(
+				"Assignees",
+				m.assigneeItems(choices),
+				idsOf(on, actorID),
+				true,
+			),
+		}
+
+	case pickReviewers:
+		panel := m.railDetail().Reviewers
+		choices := reviewerChoices(m.repo.Meta.Users, m.pr, panel)
+		m.picking = picking{
+			field:     field,
+			users:     choices,
+			reviewers: panel,
+			p: comp.NewPicker(
+				"Reviewers",
+				m.reviewerItems(choices),
+				// Who is being waited on, not who is on the panel. A tick
+				// means a review is requested, so somebody who has already
+				// answered opens unchecked and ticking them asks again.
+				pendingReviewers(panel),
 				true,
 			),
 		}
@@ -189,14 +244,6 @@ func labelItems(labels []gh.Label, accent color.Color) []comp.PickerItem {
 	out := make([]comp.PickerItem, 0, len(labels))
 	for _, l := range labels {
 		out = append(out, comp.PickerItem{ID: l.ID, Name: l.Name, Color: accent})
-	}
-	return out
-}
-
-func labelIDs(labels []gh.Label) []string {
-	out := make([]string, 0, len(labels))
-	for _, l := range labels {
-		out = append(out, l.ID)
 	}
 	return out
 }
@@ -250,6 +297,10 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 	switch p.field {
 	case pickLabels:
 		return m.applyLabels(p)
+	case pickAssignees:
+		return m.applyAssignees(p)
+	case pickReviewers:
+		return m.applyReviewers(p)
 	case pickState:
 		return m.applyState(p)
 	}
@@ -262,8 +313,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 // an unchanged picker is how a reader backs out of one they opened by mistake,
 // and it should cost neither a request nor a toast.
 func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
-	labels := labelsByID(p.choices, p.p.Chosen())
-	if sameLabels(labels, m.railDetail().Labels) {
+	labels := byID(p.labels, p.p.Chosen(), labelID)
+	if sameByID(labels, m.railDetail().Labels, labelID) {
 		return m, nil
 	}
 
@@ -271,44 +322,67 @@ func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
 	return m, func() tea.Msg { return SetLabelsMsg{ID: id, Labels: labels} }
 }
 
-// labelsByID is the chosen ids back as whole labels, in the repository's own
-// order. The rail renders a name and a color, so the ids alone would leave the
-// optimistic row with nothing to draw.
-func labelsByID(all []gh.Label, ids []string) []gh.Label {
+// A picker deals in ids and the rail draws whole things, so every field needs
+// the same three moves between them. They are written once over any element
+// type rather than once per field: the pair for labels and the pair for people
+// were identical but for the type, comments included, and a fix to the id
+// comparison in one is a fix nothing would carry to the other. The base and
+// merge pickers want them too.
+//
+// The id is a function rather than an interface because the two spellings
+// differ: a label and an assignee are chosen by node id, a reviewer by login.
+
+// idsOf is the ids of what a pull request already carries, which is what a
+// picker opens checked.
+func idsOf[T any](items []T, id func(T) string) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, id(it))
+	}
+	return out
+}
+
+// byID is the chosen ids back as whole choices, in the order they were offered.
+// The rail renders a name, so the ids alone would leave the optimistic row with
+// nothing to draw.
+func byID[T any](all []T, ids []string, id func(T) string) []T {
 	want := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		want[id] = true
+	for _, i := range ids {
+		want[i] = true
 	}
 
-	out := make([]gh.Label, 0, len(ids))
-	for _, l := range all {
-		if want[l.ID] {
-			out = append(out, l)
+	out := make([]T, 0, len(ids))
+	for _, c := range all {
+		if want[id(c)] {
+			out = append(out, c)
 		}
 	}
 	return out
 }
 
-// sameLabels compares the two as sets of ids, never as sequences. They come
-// from different connections: the chosen set is in the repository's order and
-// the pull request's is in its own, neither query asks for an ordering, and
+// sameByID compares two sets by id, never as sequences. They come from
+// different connections: the chosen set is in the repository's order and the
+// pull request's is in its own, neither query asks for an ordering, and
 // comparing by position would call an untouched picker a change and fire the
-// write this check exists to prevent.
-func sameLabels(a, b []gh.Label) bool {
+// write the check exists to prevent.
+func sameByID[T any](a, b []T, id func(T) string) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	seen := make(map[string]bool, len(a))
-	for _, l := range a {
-		seen[l.ID] = true
+	for _, x := range a {
+		seen[id(x)] = true
 	}
-	for _, l := range b {
-		if !seen[l.ID] {
+	for _, y := range b {
+		if !seen[id(y)] {
 			return false
 		}
 	}
 	return true
 }
+
+func labelID(l gh.Label) string { return l.ID }
+func actorID(a gh.Actor) string { return a.ID }
 
 // pickerOverlay composites the picker over a rendered frame. It is drawn here
 // rather than at the root because the root does not know a picker is open, and

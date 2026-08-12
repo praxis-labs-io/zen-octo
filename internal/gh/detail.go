@@ -28,6 +28,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
       viewerCanUpdate
       viewerCanClose
       viewerCanReopen
+      viewerCanAssign
       createdAt
       updatedAt
       additions
@@ -45,7 +46,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
       baseRef { compare(headRef: $head) { behindBy } }
 
       labels(first: 100) { nodes { id name } }
-      assignees(first: 10) { nodes { login } }
+      assignees(first: 10) { nodes { id login } }
       reviewRequests(first: 10) {
         nodes {
           requestedReviewer {
@@ -227,6 +228,7 @@ type pullRequestResponse struct {
 		ViewerCanUpdate bool
 		ViewerCanClose  bool
 		ViewerCanReopen bool
+		ViewerCanAssign bool
 		CreatedAt       time.Time
 		UpdatedAt       time.Time
 		Additions       int
@@ -249,7 +251,9 @@ type pullRequestResponse struct {
 		Labels struct {
 			Nodes []struct{ ID, Name string }
 		}
-		Assignees struct{ Nodes []struct{ Login string } }
+		Assignees struct {
+			Nodes []struct{ ID, Login string }
+		}
 
 		ReviewRequests struct {
 			Nodes []struct {
@@ -405,6 +409,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CanUpdate: n.ViewerCanUpdate,
 			CanClose:  n.ViewerCanClose,
 			CanReopen: n.ViewerCanReopen,
+			CanAssign: n.ViewerCanAssign,
 		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
@@ -416,7 +421,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Labels = append(detail.Labels, Label{ID: l.ID, Name: l.Name})
 	}
 	for _, a := range n.Assignees.Nodes {
-		detail.Assignees = append(detail.Assignees, Actor{Login: a.Login})
+		detail.Assignees = append(detail.Assignees, Actor{ID: a.ID, Login: a.Login})
 	}
 	detail.Reviewers = reviewers(resp)
 
@@ -506,15 +511,26 @@ func reviewers(n pullRequestResponse) []Reviewer {
 	// A reviewer who only commented is still waiting on something if any of
 	// their threads are open, which is the difference between "had a look" and
 	// "asked for a change".
+	//
+	// Every thread is counted, not only the open ones. A reviewer with all of
+	// theirs resolved and one who opened none both leave Unresolved at zero, and
+	// they are opposite answers: the first has had every point met, the second
+	// has had nothing done about the changes they asked for in prose.
 	for _, t := range n.Node.ReviewThreads.Nodes {
-		if t.IsResolved || len(t.Comments.Nodes) == 0 {
+		if len(t.Comments.Nodes) == 0 {
 			continue
 		}
 		review := t.Comments.Nodes[0].PullRequestReview
 		if review == nil {
 			continue
 		}
-		if i, seen := at[byReview[review.ID]]; seen {
+		i, seen := at[byReview[review.ID]]
+		if !seen {
+			continue
+		}
+
+		out[i].Threads++
+		if !t.IsResolved {
 			out[i].Unresolved++
 		}
 	}
@@ -526,12 +542,27 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		if r.RequestedReviewer == nil {
 			continue
 		}
-		name := cmp.Or(r.RequestedReviewer.Login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
-		if _, seen := at[name]; name == "" || seen {
+		login := r.RequestedReviewer.Login
+		name := cmp.Or(login, teamHandle(r.RequestedReviewer.Organization.Login, r.RequestedReviewer.Slug))
+		if name == "" {
 			continue
 		}
+
+		// Somebody already on the list from a review they submitted, whose
+		// review has since been asked for again. They keep the verdict they
+		// gave and gain the open request, because they genuinely have both.
+		// Skipping them here, which is what a plain dedupe does, loses the only
+		// evidence that anyone is still waiting on them.
+		if i, seen := at[name]; seen {
+			out[i].Requested = true
+			continue
+		}
+
 		at[name] = len(out)
-		out = append(out, Reviewer{Actor: Actor{Login: name}})
+		// A team is what is left when no login came back. The handle under it is
+		// built here rather than sent by GitHub, so nothing may write it back
+		// where a login goes.
+		out = append(out, Reviewer{Actor: Actor{Login: name}, Requested: true, Team: login == ""})
 	}
 	return out
 }

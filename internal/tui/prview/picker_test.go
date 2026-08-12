@@ -23,9 +23,21 @@ func repoLabels() []gh.Label {
 	}
 }
 
+// repoUsers is who the repository will let you assign. The first is the one the
+// fixture pull request already carries, and the author is among them: GitHub
+// lists them as assignable and refuses them as a reviewer, which is the one
+// difference between the two pickers built over this list.
+func repoUsers() []gh.Actor {
+	return []gh.Actor{
+		{ID: "U_1", Login: "drucial"},
+		{ID: "U_2", Login: "nkr"},
+		{ID: "U_3", Login: "octobot"},
+	}
+}
+
 func loadedRepo() store.Repo {
 	return store.Repo{
-		Meta:   gh.RepoMeta{Labels: repoLabels()},
+		Meta:   gh.RepoMeta{Labels: repoLabels(), Users: repoUsers()},
 		Status: store.StatusReady,
 		Loaded: true,
 	}
@@ -248,13 +260,14 @@ func TestThePickerColorsLabelsFromTheTheme(t *testing.T) {
 	}
 }
 
-// Enter on a rail row with no picker behind it does nothing. Author and Changes
-// state a fact, and there is nothing to do to them.
+// Enter on a rail row with no picker behind it does nothing. A check is
+// something a workflow runs rather than something to put on the pull request,
+// so the row is walkable and there is nothing to open on it.
 func TestEnterOnARowWithNoPickerDoesNothing(t *testing.T) {
-	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "@nkr")
+	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "Rails Unit Tests / test")
 
 	if got := asked(t, m, "enter"); got != nil {
-		t.Errorf("enter on a reviewer sent %T, want nothing until reviewers land", got)
+		t.Errorf("enter on a check sent %T, want nothing", got)
 	}
 }
 

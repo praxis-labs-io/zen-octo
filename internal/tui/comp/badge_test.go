@@ -1,6 +1,7 @@
 package comp_test
 
 import (
+	"image/color"
 	"testing"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -67,5 +68,47 @@ func TestPRStateLabelFallsBackToTheDraftFlag(t *testing.T) {
 	got, _ := comp.PRStateLabel(theme.RosePineMoon, gh.PullRequest{IsDraft: true})
 	if got != "Draft" {
 		t.Errorf("PRStateLabel = %q, want %q", got, "Draft")
+	}
+}
+
+// The rail has one cell to say where a reviewer stands, so the color is the
+// whole of the meaning. The pairs that share a color are the ones worth reading
+// twice: an outstanding request and a set of resolved asks are both in flight,
+// and a changes-requested review with nothing to resolve is as blocking on its
+// last day as its first.
+func TestReviewerColorSaysWhichWayTheBallIsGoing(t *testing.T) {
+	th := theme.RosePineMoon
+
+	tests := []struct {
+		name string
+		r    gh.Reviewer
+		want color.Color
+	}{
+		{"never answered", gh.Reviewer{}, th.Faint},
+		{"commented, nothing open", gh.Reviewer{State: gh.ReviewStateCommented, Threads: 2}, th.Faint},
+		{"approved", gh.Reviewer{State: gh.ReviewStateApproved}, th.Success},
+
+		{"a review is requested", gh.Reviewer{Requested: true}, th.Warning},
+		// The re-request has to show, or pressing the key looks like nothing.
+		{"approved, asked again", gh.Reviewer{State: gh.ReviewStateApproved, Requested: true}, th.Warning},
+		{"commented, asked again", gh.Reviewer{State: gh.ReviewStateCommented, Requested: true}, th.Warning},
+		// Every point met, no verdict since. Not blocking, not agreed.
+		{"changes requested, all resolved", gh.Reviewer{State: gh.ReviewStateChangesRequested, Threads: 3}, th.Warning},
+
+		{"open thread", gh.Reviewer{State: gh.ReviewStateCommented, Threads: 2, Unresolved: 1}, th.Error},
+		{"changes requested, one left", gh.Reviewer{State: gh.ReviewStateChangesRequested, Threads: 3, Unresolved: 1}, th.Error},
+		// Prose with nothing to resolve. Nothing can record that it was dealt
+		// with, so going quiet on it would claim it had been.
+		{"changes requested, no threads", gh.Reviewer{State: gh.ReviewStateChangesRequested}, th.Error},
+		// Blocking outranks in flight: asking again does not clear what is open.
+		{"open thread, asked again", gh.Reviewer{State: gh.ReviewStateCommented, Threads: 1, Unresolved: 1, Requested: true}, th.Error},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := comp.ReviewerColor(th, tt.r); got != tt.want {
+				t.Errorf("ReviewerColor = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

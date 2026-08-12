@@ -13,18 +13,38 @@ import (
 )
 
 // fakeREST answers a REST call with canned JSON or a canned error.
+//
+// It records the body as well as the method and the path, because the writes
+// carry one and what is in it is the whole of what they do. A read passes nil,
+// which records as empty.
 type fakeREST struct {
 	body string
 	err  error
 
 	gotMethod string
 	gotPath   string
+	gotBody   string
 }
 
-func (f *fakeREST) DoWithContext(_ context.Context, method, path string, _ io.Reader, response any) error {
+func (f *fakeREST) DoWithContext(_ context.Context, method, path string, body io.Reader, response any) error {
 	f.gotMethod, f.gotPath = method, path
+
+	f.gotBody = ""
+	if body != nil {
+		sent, err := io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+		f.gotBody = string(sent)
+	}
+
 	if f.err != nil {
 		return f.err
+	}
+	// A caller that reads nothing back passes no destination, the way the
+	// delete does. go-gh leaves one untouched on a 204 for the same reason.
+	if response == nil {
+		return nil
 	}
 	return json.Unmarshal([]byte(f.body), response)
 }

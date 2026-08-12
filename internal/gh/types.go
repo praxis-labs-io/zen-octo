@@ -83,7 +83,13 @@ const (
 
 // Actor is a user, organization, or bot. Author fields are nil on GitHub when
 // the account is deleted, so Login can legitimately be empty.
+//
+// ID is the node id, and it is empty wherever the query had no use for one,
+// which is every author field. It is asked for on the two lists a picker
+// writes back: updatePullRequest sets assignees by id and has no spelling that
+// takes a login.
 type Actor struct {
+	ID    string
 	Login string
 }
 
@@ -262,12 +268,33 @@ const (
 // State is empty when the request is still outstanding. It is not a review's
 // own state until they submit one.
 //
-// Unresolved is how many of their review threads are still open. A reviewer who
-// only commented is still waiting on something if any of them are.
+// Unresolved is how many of their review threads are still open, and Threads is
+// how many they opened at all. A reviewer who only commented is still waiting on
+// something if any of them are open.
+//
+// The total is there to tell "every point addressed" from "there was nothing to
+// address". Both leave Unresolved at zero, and they are opposite answers: one is
+// a reviewer whose asks have all been met, the other is one who asked for
+// changes in prose with nothing to resolve, and nothing has been done about it.
+//
+// Requested is whether a review is outstanding from them right now. It is not
+// the inverse of State: submitting a review clears the request, but the review
+// can then be asked for again, and such a reviewer carries a verdict and an
+// open request at once. A caller reading "no state means waiting" gets that
+// pair wrong in both directions, which is why this is its own field.
+//
+// Team marks a review requested of a team rather than a person. Login is then
+// the synthetic "org/slug" handle teamHandle builds, which no write accepts
+// where a login goes: the REST endpoint takes teams in a separate array. It is
+// a field rather than a slash in the login, so a caller that must leave teams
+// alone says so instead of sniffing for one.
 type Reviewer struct {
 	Actor      Actor
 	State      ReviewState
 	Unresolved int
+	Threads    int
+	Requested  bool
+	Team       bool
 }
 
 // Check is one entry behind the rollup, whether GitHub calls it a check run or
@@ -316,10 +343,16 @@ type CheckRollup struct {
 // markPullRequestReadyForReview or convertPullRequestToDraft; this is the
 // nearest one, and it is true for exactly the accounts those two accept, the
 // author and anyone with write access.
+//
+// There is no CanRequestReviews beside CanAssign, because GitHub publishes no
+// field for it. The two are not the same permission either: assigning needs
+// triage access and requesting a review needs write, so borrowing this one for
+// both would hide a control that works.
 type ViewerActions struct {
 	CanUpdate bool
 	CanClose  bool
 	CanReopen bool
+	CanAssign bool
 }
 
 // PullRequestDetail embeds the row, so a detail response refreshes the header
@@ -479,11 +512,19 @@ type SearchResult struct {
 // the repository rather than to any one pull request, changes on the scale of
 // days, and is fetched once per repository per session.
 //
-// Labels alone so far. The assignable users, the branches and the merge methods
-// each arrive with the picker that reads them, rather than being fetched ahead
-// of a caller and billed to every open in the meantime.
+// Labels and the assignable users. The branches and the merge methods each
+// arrive with the picker that reads them, rather than being fetched ahead of a
+// caller and billed to every open in the meantime.
+//
+// Users is who may be assigned, and it is also what the reviewer picker offers.
+// GitHub has no "requestable reviewers" connection, and the two sets differ
+// only at the margins: anyone with read access can be asked for a review, and
+// the assignable list is everyone with triage. The narrower list is the safe
+// one to guess with, because a name it leaves out is a write nobody could have
+// started rather than one GitHub refuses.
 type RepoMeta struct {
 	Labels []Label
+	Users  []Actor
 }
 
 // RepoMetaResult is one repository-metadata response: the choices and what they
@@ -501,6 +542,15 @@ type RepoMetaResult struct {
 // It carries no RateLimit, for the reason CommentResult gives.
 type LabelsResult struct {
 	Labels []Label
+}
+
+// AssigneesResult is a pull request's assignees as GitHub recorded them after a
+// write, for the reason LabelsResult gives: the picker applies a whole set and
+// the rail renders one.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type AssigneesResult struct {
+	Assignees []Actor
 }
 
 // PRStateResult is where a pull request sits after a transition, as GitHub

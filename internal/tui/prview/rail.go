@@ -68,7 +68,7 @@ func (m *Model) railBody(width int) string {
 	section("State", m.stateRow(d, width))
 	section("Author", m.authorRow(pr.Author, width))
 	section("Reviewers", m.reviewerRows(d.Reviewers, width))
-	section("Assignees", m.actorRows(d.Assignees, width))
+	section("Assignees", m.actorRows(d, width))
 	section("Labels", m.labelRows(d.Labels, width))
 	section("Changes", m.changeRow(pr, width))
 	// Checks runs to any length, so it goes below everything of a fixed size.
@@ -256,16 +256,49 @@ func (m Model) fit(style lipgloss.Style, name string, room int) string {
 	return clipTo(style.Render(name), room, style.Foreground(m.theme.Faint))
 }
 
-func (m Model) actorRows(actors []gh.Actor, width int) []railEntry {
+// actorRows names who the pull request is assigned to, and is a stop on the ring
+// only while the reader may change that. GitHub answers viewerCanAssign for
+// exactly the accounts addAssignee accepts, and a row offering a write it will
+// refuse is worse than a row stating a fact.
+//
+// Only once the detail has landed, the same guard stateRow keeps. Before it
+// arrives nothing is known about what the viewer may do, which is not the same
+// as nothing being allowed, and dropping the keys early would move every stop
+// under them the moment the answer came.
+//
+// The add row goes with the keys rather than staying as a dead "+ Add assignee".
+// It is the one row in the section that is nothing but an offer.
+func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
+	actors := d.Assignees
+
+	// Both flags, because the write needs both. Assigning is CanAssign's to
+	// permit, but the mutation behind it is updatePullRequest, which GitHub
+	// governs with CanUpdate: a triage collaborator is answered true for the
+	// first and false for the second, and would be offered a control that can
+	// only come back refused.
+	assignable := !m.detail.Loaded || (d.Viewer.CanAssign && d.Viewer.CanUpdate)
+
 	out := make([]railEntry, 0, len(actors)+1)
 	for _, a := range actors {
-		key := focusKey{kind: focusAssignee, id: a.Login}
+		var key focusKey
+		if assignable {
+			key = focusKey{kind: focusAssignee, id: a.Login}
+		}
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
 				m.fit(base.Foreground(m.theme.Actor), comp.Handle(a.Login), railNameRoom(width, 0)), width),
 			key: key,
 		})
+	}
+
+	if !assignable {
+		// A section with nobody in it and no way to add one has nothing to say,
+		// so it says that rather than leaving a blank where rows go.
+		if len(out) == 0 {
+			return m.railFact("None", m.theme.Faint, width)
+		}
+		return out
 	}
 	return append(out, m.addRow(focusAddAssignee, "Add assignee", width))
 }

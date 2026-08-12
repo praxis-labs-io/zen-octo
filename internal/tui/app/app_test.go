@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -46,6 +47,8 @@ type fakeSearcher struct {
 	replied     []string
 	settled     []string
 	labelled    []string
+	assigned    []string
+	reviewed    []string
 	moved       []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
@@ -55,6 +58,10 @@ type fakeSearcher struct {
 	filesErr    error
 	commitErr   error
 	postErr     error
+	// requestErr fails the second half of a reviewer write alone, which is the
+	// one shape postErr cannot stage: the cancellation has already landed by
+	// then, so the revert puts back a request that is really gone.
+	requestErr  error
 	commitHold  time.Duration
 	postHold    time.Duration
 	gotLimit    int
@@ -128,11 +135,12 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 		f.details = make(map[string]gh.PullRequestDetail)
 	}
 	// Staged as the viewer's own open pull request. Without the flags the rail's
-	// State row has nothing to offer and stops being somewhere tab lands, which
-	// would move every rail row in these tests up by one.
+	// State row has nothing to offer and the Assignees section loses its add
+	// row, and either one stops being somewhere tab lands, which would move
+	// every rail row in these tests up by one.
 	f.details[id] = gh.PullRequestDetail{
 		Body:   body,
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 	}
 }
 
@@ -145,6 +153,30 @@ func (f *fakeSearcher) serveLabels(id string, labels []gh.Label) {
 	}
 	held := f.details[id]
 	held.Labels = labels
+	f.details[id] = held
+}
+
+// serveAssignees stages who one pull request is assigned to.
+func (f *fakeSearcher) serveAssignees(id string, assignees []gh.Actor) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Assignees = assignees
+	f.details[id] = held
+}
+
+// serveReviewers stages the reviewer panel one pull request carries.
+func (f *fakeSearcher) serveReviewers(id string, reviewers []gh.Reviewer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.details == nil {
+		f.details = make(map[string]gh.PullRequestDetail)
+	}
+	held := f.details[id]
+	held.Reviewers = reviewers
 	f.details[id] = held
 }
 
@@ -355,6 +387,134 @@ func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []stri
 	return gh.LabelsResult{Labels: out}, nil
 }
 
+// SetAssignees is SetLabels for people: it records the ask and answers with the
+// staged repository's own users, dropping an id it does not carry the way the
+// real one drops somebody who lost access since the picker was filled.
+//
+// It writes the answer back onto the staged detail, the way SetState writes
+// onto f.prs. Assignees live on the detail rather than on the row, so this is
+// the channel a refetch would read them back through.
+func (f *fakeSearcher) SetAssignees(_ context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error) {
+	f.mu.Lock()
+	f.assigned = append(f.assigned, prID+": "+strings.Join(assigneeIDs, ","))
+	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Users, f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.AssigneesResult{}, err
+	}
+
+	out := make([]gh.Actor, 0, len(assigneeIDs))
+	for _, u := range known {
+		if slices.Contains(assigneeIDs, u.ID) {
+			out = append(out, u)
+		}
+	}
+
+	f.mu.Lock()
+	if held, ok := f.details[prID]; ok {
+		held.Assignees = out
+		f.details[prID] = held
+	}
+	f.mu.Unlock()
+
+	return gh.AssigneesResult{Assignees: out}, nil
+}
+
+// assigneeWrites is the assignee sets the model asked for, in order.
+func (f *fakeSearcher) assigneeWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.assigned)
+}
+
+// RequestReviews records the ask and puts each login on the staged panel as
+// somebody being waited on, so the refetch the write fires reports it rather
+// than the panel from before. It reuses postErr and postHold the way the other
+// writes do.
+func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int, logins []string) error {
+	f.mu.Lock()
+	f.reviewed = append(f.reviewed, "+"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
+	err, hold := cmp.Or(f.requestErr, f.postErr), f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+	if err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.idOf(number)
+	held := f.details[id]
+	for _, l := range logins {
+		// Somebody already on the panel from a review they gave keeps it and
+		// gains the request, which is what the decoder does with a re-request.
+		if at := slices.IndexFunc(held.Reviewers, func(r gh.Reviewer) bool { return r.Actor.Login == l }); at >= 0 {
+			held.Reviewers[at].Requested = true
+			continue
+		}
+		held.Reviewers = append(held.Reviewers, gh.Reviewer{Actor: gh.Actor{Login: l}, Requested: true})
+	}
+	f.details[id] = held
+	return nil
+}
+
+// RemoveReviewRequests records the ask and takes each login off the staged
+// panel, but only where no verdict has been submitted: cancelling reaches an
+// outstanding request and nothing else, which is what the real endpoint does.
+func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, number int, logins []string) error {
+	f.mu.Lock()
+	f.reviewed = append(f.reviewed, "-"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+	if err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.idOf(number)
+	held := f.details[id]
+	// Cancelling clears the request and nothing else. Somebody who has already
+	// given a verdict keeps it and stays on the panel.
+	panel := slices.Clone(held.Reviewers)
+	for i := range panel {
+		if panel[i].Requested && !panel[i].Team && slices.Contains(logins, panel[i].Actor.Login) {
+			panel[i].Requested = false
+		}
+	}
+	held.Reviewers = slices.DeleteFunc(panel, func(r gh.Reviewer) bool {
+		return !r.Requested && r.State == "" && !r.Team
+	})
+	f.details[id] = held
+	return nil
+}
+
+// idOf is the node id of the pull request with this number. The two reviewer
+// calls address one by repository and number, which is how REST names it, and
+// everything the fake stages is keyed by id.
+func (f *fakeSearcher) idOf(number int) string {
+	for _, pr := range f.prs {
+		if pr.Number == number {
+			return pr.ID
+		}
+	}
+	return ""
+}
+
+// reviewerWrites is the reviewer changes the model asked for, in order, each
+// marked with the direction it went.
+func (f *fakeSearcher) reviewerWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.reviewed)
+}
+
 // SetState answers with where the transition lands, so a test reads the rail
 // rather than the fake's own bookkeeping. It reuses postErr and postHold, the
 // way SetLabels does, so a test stages one failure for whichever write it is
@@ -539,6 +699,18 @@ func (f *querySearcher) SetLabels(_ context.Context, _ string, _ []string) (gh.L
 
 func (f *querySearcher) SetState(_ context.Context, _ string, _ gh.PRTransition) (gh.PRStateResult, error) {
 	return gh.PRStateResult{}, nil
+}
+
+func (f *querySearcher) SetAssignees(_ context.Context, _ string, _ []string) (gh.AssigneesResult, error) {
+	return gh.AssigneesResult{}, nil
+}
+
+func (f *querySearcher) RequestReviews(_ context.Context, _ string, _ int, _ []string) error {
+	return nil
+}
+
+func (f *querySearcher) RemoveReviewRequests(_ context.Context, _ string, _ int, _ []string) error {
+	return nil
 }
 
 func testConfig() *config.Config {

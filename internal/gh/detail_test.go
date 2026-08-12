@@ -18,6 +18,7 @@ const detailBody = `{
     "url": "https://github.com/zen-octo/zen-octo/pull/412",
     "isDraft": false, "state": "OPEN",
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
+    "viewerCanAssign": true,
     "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-05T11:00:00Z",
     "additions": 42, "deletions": 7, "changedFiles": 3,
     "headRefName": "fix-auth", "baseRefName": "main",
@@ -30,7 +31,7 @@ const detailBody = `{
     "repository": {"nameWithOwner": "zen-octo/zen-octo"},
 
     "labels": {"nodes": [{"name": "bug", "color": "d73a4a"}]},
-    "assignees": {"nodes": [{"login": "drucial"}]},
+    "assignees": {"nodes": [{"id": "U_1", "login": "drucial"}]},
     "reviewRequests": {"nodes": [
       {"requestedReviewer": {"login": "nkr"}},
       {"requestedReviewer": {"login": "copilot-pull-request-reviewer"}},
@@ -170,7 +171,9 @@ func TestPullRequestMapsResponseToDomainTypes(t *testing.T) {
 	if len(d.Labels) != 1 || d.Labels[0].Name != "bug" {
 		t.Errorf("Labels = %+v, want [bug]", d.Labels)
 	}
-	if len(d.Assignees) != 1 || d.Assignees[0].Login != "drucial" {
+	// The id as well as the login: the assignee picker checks by id, and a set
+	// decoded without one applies as a set with nobody in it.
+	if len(d.Assignees) != 1 || d.Assignees[0] != (Actor{ID: "U_1", Login: "drucial"}) {
 		t.Errorf("Assignees = %+v, want [drucial]", d.Assignees)
 	}
 
@@ -179,14 +182,26 @@ func TestPullRequestMapsResponseToDomainTypes(t *testing.T) {
 // A submitted review takes its author off reviewRequests, so the panel is the
 // two lists together. Copilot reviews and then vanishes from the requests,
 // which is how it went missing.
+//
+// Off, and back on if the review is asked for again. Somebody can hold a
+// verdict and an open request at the same time, so the two lists overlap rather
+// than partition, and the reviewer they name once carries both facts.
 func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 	want := []Reviewer{
 		// nkr reviewed twice, and the last word is the one that counts. The
 		// open thread on the first review is still theirs.
-		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1},
-		// A bot and a team, neither of which has answered yet.
-		{Actor: Actor{Login: "copilot-pull-request-reviewer"}},
-		{Actor: Actor{Login: "zen-octo/core-maintainers"}},
+		//
+		// They are on reviewRequests as well, which is a re-request: a verdict
+		// given and a review wanted again, both true at once. Requested is a
+		// field of its own for exactly this, because an empty State cannot say
+		// it and a dedupe that drops the second mention loses the only evidence
+		// anyone is still waiting.
+		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1, Threads: 2, Requested: true},
+		// A bot and a team, neither of which has answered yet. The team is
+		// marked as one: its handle is built here rather than sent, so nothing
+		// may write it back where a login goes.
+		{Actor: Actor{Login: "copilot-pull-request-reviewer"}, Requested: true},
+		{Actor: Actor{Login: "zen-octo/core-maintainers"}, Requested: true, Team: true},
 	}
 
 	got := fetchDetail(t).Reviewers
@@ -448,7 +463,7 @@ func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
 
-	want := ViewerActions{CanUpdate: true, CanClose: true, CanReopen: false}
+	want := ViewerActions{CanUpdate: true, CanClose: true, CanReopen: false, CanAssign: true}
 	if res.Detail.Viewer != want {
 		t.Errorf("Viewer = %+v, want %+v", res.Detail.Viewer, want)
 	}
@@ -601,7 +616,7 @@ func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
 func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 	for _, want := range []string{
 		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
-		"viewerCanReply", "viewerCanResolve", "viewerCanUnresolve",
+		"viewerCanReply", "viewerCanResolve", "viewerCanUnresolve", "viewerCanAssign",
 	} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)
@@ -798,5 +813,26 @@ func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
 	// empty box on the screen.
 	if threads[1].Hunk != nil {
 		t.Errorf("Hunk = %+v, want nil where GitHub sent none", threads[1].Hunk)
+	}
+}
+
+// Every thread is attributed, not only the open ones. A reviewer whose asks
+// have all been met and one who opened none both leave Unresolved at zero, and
+// the rail reads them as opposite answers, so the total is what tells them
+// apart.
+func TestAReviewersThreadsAreCountedResolvedOrNot(t *testing.T) {
+	var nkr Reviewer
+	for _, r := range fetchDetail(t).Reviewers {
+		if r.Actor.Login == "nkr" {
+			nkr = r
+		}
+	}
+
+	// Two threads under nkr's reviews: one open on REV_1, one resolved on REV_2.
+	if nkr.Threads != 2 {
+		t.Errorf("Threads = %d, want both of them counted", nkr.Threads)
+	}
+	if nkr.Unresolved != 1 {
+		t.Errorf("Unresolved = %d, want the open one alone", nkr.Unresolved)
 	}
 }

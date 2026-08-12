@@ -95,9 +95,9 @@ A body of work big enough to need milestones gets its own finite epic project, n
 
 ### Shipping
 
-Feature-complete work ships via the `ship-feature` skill at `.claude/skills/ship-feature/SKILL.md`: `make all` green, push, draft PR, Copilot + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
+Feature-complete work ships via the global `ship-feature` skill: `make all` green, push, draft PR, Copilot + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
 
-**That file is a copy, and the copy is deliberate.** The source of truth lives in Drew's global skills; every repo carries a real copy rather than a symlink, because a cloud session clones this repo alone and a link into a sibling checkout would dangle. Propagation is manual. Never edit the copy here: the next copy-out discards the change silently. Edit the source, then copy it in.
+**This repo carries no copy of it.** It did until 2026-08-11, so that a session cloning this repo alone would still have the skill. Manual propagation is what actually happened instead: the copy drifted, shadowed the live one, and spent over a week prescribing a Copilot review request that never worked. A stale copy is worse than an absent skill, because nothing about it reads as stale. A session that cannot see the global skill should say so rather than follow a copy nobody maintains.
 
 ### Specs and plans
 
@@ -135,7 +135,50 @@ hang off a field the store cannot compute. It borrows no refresh leg doing it,
 or the sync's summary toast lands behind the one that already said what
 happened.
 
-Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left.
+Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left. A section is its picker: the rows already in it open the same modal as the add row under them, because the modal is where something comes off as well as goes on.
+
+A tick in the Reviewers picker means a review is requested, never that somebody
+is on the pull request. GitHub drops a reviewer from the requests the moment
+they submit, and there is no call that un-submits one, so a reviewer who has
+answered opens unchecked and ticking them asks again, which is what the
+re-request button does in the browser. `Reviewer.Requested` is what says so, and
+it is not the inverse of `State`: a re-requested reviewer holds a verdict and an
+open request at once, the two connections overlap rather than partition on them,
+and reading an empty state as "waiting" hides the request behind a key that can
+only ask for it again. That write is the one place two calls are unavoidable:
+the endpoint has no spelling meaning "these and nobody else", so the screen
+sends a delta and the app cancels before it asks. Because it is a delta, the
+picker has to list every outstanding request as well as the repository's own
+users: `comp.Picker.Chosen` reports only ids it was given items for, so a
+checked login with no item silently becomes a cancellation, and a review
+requested of anyone past the hundredth assignable user would be dropped by a
+reader who never saw them. A team requested for review is kept and never listed,
+because `assignableUsers` holds none and a delta cannot remove what it could not
+offer; `Reviewer.Team` is what the exclusion reads, rather than the slash in a
+handle this client built itself. It is also the one failure path that refetches:
+a write made of two calls can fail with the first applied, and reverting alone
+would leave the rail claiming a request GitHub has already dropped.
+Copilot answers to a different name in every direction and the two REST verbs
+disagree with each other: `POST` takes `copilot-pull-request-reviewer[bot]` and
+answers 200 while writing nothing to a bare `Copilot`; `DELETE` takes the bare
+`Copilot` and 422s on the `[bot]` form, which it resolves to a Bot and then
+rejects for not being a User; GraphQL reports `copilot-pull-request-reviewer`,
+and that one is canonical everywhere above `internal/gh`. **The `POST` response
+never lists the bot at all**, landed or not, so `requested_reviewers` cannot
+tell a success from the silent no-op and reading it rejects every Copilot
+request there is. That shipped once. The confirmation is a GraphQL
+`reviewRequests` read, which is the only place a bot request is visible, and it
+is what makes those two 200s distinguishable. Copilot cannot be discovered
+either, so it is offered always. A reviewer write refetches the whole detail, since the endpoint reports
+the outstanding requests alone and says nothing about who has already reviewed,
+and requesting one rewrites the review decision the header renders. An assignee
+write refetches nothing: it changes nothing the store cannot already see. The
+Assignees rows are a control only while `viewerCanAssign` **and**
+`viewerCanUpdate` both say so, because the permission to assign and the
+permission to run the mutation that does it are different answers: a triage
+collaborator is given the first and refused the second. There is no flag at all
+for review requests, so those rows are ungated and the revert branch answers a
+refusal.
 
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
 
@@ -146,6 +189,8 @@ Beside those it keeps one set of choices per repository, keyed by `owner/name`: 
 It also holds the writes still in flight, keyed by pull request and folded in on the way out of `Detail`: a comment onto the timeline, a reply into the review thread it answers, a resolve over the thread it settles, and an `Edit` over the metadata it replaces. Beside the fetched detail rather than inside it: a refetch replaces a timeline wholesale, and one fetched before the mutation answered is not evidence the mutation failed. Written in, an optimistic comment would vanish on the next refresh with nothing to say why. A thread the refetch no longer carries has nowhere to hang a reply, and the reply waits out of sight rather than the store inventing a thread GitHub did not send.
 
 Folding a reply clones both slice levels. A thread's comments are their own slice, still the held one after the threads are cloned, and a thread with spare capacity takes the append in place: a detail already handed out then changes under whoever is holding it, which on this screen is a rendered conversation. A resolve needs the outer clone alone, and it folds through the same one the reply used: cloning again from the held slice throws the reply away. It writes the state and never the permissions, because a locally flipped `CanUnresolve` offers a key that opens a write GitHub rejects. It marks the thread pending, and the key goes inert on a marked one: two resolves out at once settle in the order the responses arrive, which is not the order they were pressed.
+
+An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 
 Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
 

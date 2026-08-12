@@ -63,10 +63,19 @@ var mockLabels = []gh.Label{
 	{ID: "LA_MOCK_9", Name: "question"},
 }
 
-// RepoMeta hands back a set wide enough to exercise the picker's filter row,
-// which only appears once a list outgrows what fits on screen.
+// mockUsers is who the repository will let you assign. The first is the one the
+// mock pull request already carries, so the picker opens with them checked.
+var mockUsers = []gh.Actor{
+	{ID: "U_MOCK_1", Login: "drucial"},
+	{ID: "U_MOCK_2", Login: "nkr"},
+	{ID: "U_MOCK_3", Login: "octobot"},
+}
+
+// RepoMeta hands back a label set wide enough to exercise the picker's filter
+// row, which only appears once a list outgrows what fits on screen, and a
+// people list short enough to show the same picker without one.
 func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
-	return gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: mockLabels}}, nil
+	return gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: mockLabels, Users: mockUsers}}, nil
 }
 
 // SetLabels hands back what it was asked for, resolved against the repository's
@@ -100,6 +109,24 @@ func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStat
 	}
 	return out, nil
 }
+
+// SetAssignees hands back what it was asked for, resolved against the
+// repository's own list, the way SetLabels does.
+func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.AssigneesResult, error) {
+	out := make([]gh.Actor, 0, len(assigneeIDs))
+	for _, u := range mockUsers {
+		if slices.Contains(assigneeIDs, u.ID) {
+			out = append(out, u)
+		}
+	}
+	return gh.AssigneesResult{Assignees: out}, nil
+}
+
+// RequestReviews and RemoveReviewRequests answer without recording anything.
+// The fixture renders the screen rather than modelling GitHub, and Mock has
+// value receivers with nowhere to keep a panel.
+func (Mock) RequestReviews(context.Context, string, int, []string) error       { return nil }
+func (Mock) RemoveReviewRequests(context.Context, string, int, []string) error { return nil }
 
 // SetThreadResolved hands the toggle straight back, with the permissions the
 // real one flips: a thread just resolved can only be unresolved.
@@ -314,11 +341,15 @@ func mockDetail() gh.PullRequestDetail {
 		// a window over it with room to spare would let an append write into the
 		// labels every other mock call hands out.
 		Labels:    mockLabels[:3:3],
-		Assignees: []gh.Actor{{Login: "drucial"}},
+		Assignees: []gh.Actor{mockUsers[0]},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}, State: gh.ReviewStateCommented},
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}},
+			// Marked as a team, which is what the decoder does with one. Without
+			// the flag the reviewer picker reads it as somebody with an
+			// outstanding request and offers to cancel a request that is not
+			// theirs to cancel.
+			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
 		},
 
 		Rollup: gh.CheckRollup{
@@ -337,8 +368,9 @@ func mockDetail() gh.PullRequestDetail {
 		BehindBy: 4,
 
 		// The viewer wrote it, so the state menu has both moves an open pull
-		// request takes. CanReopen is what GitHub answers for one already open.
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true},
+		// request takes and the Assignees section is theirs to change.
+		// CanReopen is what GitHub answers for one already open.
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 
 		Commits: mockCommits(),
 

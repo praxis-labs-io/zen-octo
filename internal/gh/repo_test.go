@@ -3,6 +3,7 @@ package gh
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,10 @@ const repoMetaBody = `{
     "labels": {"nodes": [
       {"id": "LA_1", "name": "bug", "color": "d73a4a"},
       {"id": "LA_2", "name": "enhancement", "color": "a2eeef"}
+    ]},
+    "assignableUsers": {"nodes": [
+      {"id": "U_1", "login": "drucial"},
+      {"id": "U_2", "login": "nkr"}
     ]}
   }
 }`
@@ -32,6 +37,9 @@ func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 	}
 	if !strings.Contains(f.gotQuery, "labels(first: 100)") {
 		t.Error("query does not ask for the repository's labels")
+	}
+	if !strings.Contains(f.gotQuery, "assignableUsers(first: 100)") {
+		t.Error("query does not ask for the repository's assignable users")
 	}
 }
 
@@ -61,9 +69,24 @@ func TestRepoMetaMapsTheLabels(t *testing.T) {
 	}
 }
 
-// The query asks for labels and nothing else. Every extra connection is billed
-// to the reader on the first picker open, so a field arrives with the picker
-// that reads it.
+func TestRepoMetaMapsTheAssignableUsers(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	want := []Actor{{ID: "U_1", Login: "drucial"}, {ID: "U_2", Login: "nkr"}}
+	if !slices.Equal(res.Meta.Users, want) {
+		t.Errorf("users = %+v, want %+v", res.Meta.Users, want)
+	}
+}
+
+// The query asks for what a picker renders and nothing else. Every extra
+// connection is billed to the reader on the first picker open, so a field
+// arrives with the picker that reads it. assignableUsers left this list when
+// the reviewer and assignee pickers landed.
 func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -71,7 +94,7 @@ func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
-	for _, unread := range []string{"assignableUsers", "refs(", "mergeCommitAllowed", "deleteBranchOnMerge"} {
+	for _, unread := range []string{"refs(", "mergeCommitAllowed", "deleteBranchOnMerge"} {
 		if strings.Contains(f.gotQuery, unread) {
 			t.Errorf("the query asks for %s, which nothing renders", unread)
 		}
