@@ -1269,7 +1269,11 @@ func (m Model) render() string {
 	if body := m.screenView(); body != "" {
 		parts = append(parts, body)
 	}
-	parts = append(parts, m.status.Render(m.statusLeft(), m.statusRight()))
+	if message := m.statusMessage(); message != "" {
+		parts = append(parts, m.status.RenderMessage(m.statusHints(), message))
+	} else {
+		parts = append(parts, m.status.Render(m.statusHints(), m.statusReadout()))
+	}
 
 	frame := strings.Join(parts, "\n")
 	if !m.showHelp {
@@ -1284,34 +1288,47 @@ func (m Model) noticeLine() string {
 	return lipgloss.NewStyle().Foreground(m.theme.Warning).Render(m.notice)
 }
 
-// statusLeft carries a toast while one is showing and the keymap hints the rest
-// of the time.
-func (m Model) statusLeft() string {
+// statusHints is the left of the bar, and it is the hints whatever else is
+// happening. They used to give way for a toast; a message on the right leaves
+// the keys where the reader's eye already learned to find them.
+func (m Model) statusHints() string {
+	if m.screen == screenDetail {
+		return m.help.ShortHelpView(m.detail.Keys().ShortHelp())
+	}
+	return m.help.ShortHelpView(m.list.Keys().ShortHelp())
+}
+
+// statusMessage is what the right side says happened, and empty when nothing
+// has. A refresh on the detail screen leaves the content where it is, so the
+// bar is the only place that can say it is running.
+func (m Model) statusMessage() string {
 	if !m.toasts.Empty() {
 		return m.toasts.Render(m.theme)
 	}
-	// A refresh on the detail screen leaves the content where it is, so the bar
-	// is the only place anything can say it is happening. The hints give way for
-	// the duration, the same as they do for a toast.
 	if m.detailRefreshing.running() {
 		return m.refreshSpin.Render("Refreshing")
 	}
-	switch m.screen {
-	case screenDetail:
-		return m.help.ShortHelpView(m.detail.Keys().ShortHelp())
-	default:
-		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
-	}
+	return ""
 }
 
-func (m Model) statusRight() string {
+// statusReadout is the right side the rest of the time: what is on screen, and
+// the remaining budget once it has run low enough to be worth reading.
+//
+// The list screen contributes nothing to it. Its section title is already the
+// current tab in the top border, and naming it twice spends the line on a fact
+// the reader is looking straight at.
+func (m Model) statusReadout() string {
 	right := make([]string, 0, 2)
 	// Limit is zero until a response lands. Gating on it rather than on
 	// Remaining is what lets an exhausted budget still read as zero.
 	if rate := m.store.Rate(); rate.Limit > 0 {
-		right = append(right, m.status.Budget(rate.Remaining))
+		if budget := m.status.Budget(rate.Remaining); budget != "" {
+			right = append(right, budget)
+		}
 	}
-	right = append(right, m.status.Context(m.contextLabel()))
+	if m.screen == screenDetail {
+		right = append(right, m.status.Context(m.contextLabel()))
+	}
 	return strings.Join(right, m.status.Context(" · "))
 }
 

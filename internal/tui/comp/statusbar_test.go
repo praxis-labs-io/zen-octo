@@ -85,11 +85,39 @@ func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
 	}
 }
 
+// A toast is the only account there is of a write that failed, so it is the one
+// thing on this line that must survive a narrow terminal. The hints beside it
+// go on working whether or not they are on screen.
+func TestRenderMessageKeepsTheMessageAndCutsTheHints(t *testing.T) {
+	const message = "Could not request a review from @drucial"
+
+	got := bar().Size(46).RenderMessage("j/k move · ⏎ open · [/] tab · q quit", message)
+
+	if !strings.Contains(got, message) {
+		t.Errorf("RenderMessage() = %q, want the whole message kept", got)
+	}
+	if strings.Contains(got, "q quit") {
+		t.Errorf("RenderMessage() = %q, want the hints cut to make room", got)
+	}
+}
+
+// A message wider than the bar has nowhere to go but the line it is on. Leaving
+// the hints their two cells pushed it past the frame.
+func TestRenderMessageClipsAMessageWiderThanTheBar(t *testing.T) {
+	const width = 30
+
+	got := bar().Size(width).RenderMessage("j/k move · q quit", strings.Repeat("long ", 20))
+
+	if w := lipgloss.Width(got); w > width {
+		t.Errorf("RenderMessage() is %d wide, want no more than %d: %q", w, width, got)
+	}
+}
+
 func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	s := bar()
 
-	if got := s.Budget(4821); !strings.Contains(got, fgSeq(theme.RosePineMoon.Muted)) {
-		t.Error("a healthy budget is not rendered faint")
+	if got := s.Budget(4821); got != "" {
+		t.Errorf("Budget(4821) = %q, want nothing while the pool is healthy", got)
 	}
 	if got := s.Budget(120); !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {
 		t.Error("a low budget is not rendered as a warning")

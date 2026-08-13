@@ -1366,9 +1366,9 @@ func TestTabSwitchesSectionWithoutRefetching(t *testing.T) {
 }
 
 func TestTheStatusBarCarriesTheRateLimit(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821}}
+	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 421}}
 
-	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "4821") {
+	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "421") {
 		t.Errorf("view = %q, want the remaining budget in the status bar", out)
 	}
 }
@@ -1387,6 +1387,38 @@ func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 	out := render(t, settle(m, keyMsg("s")))
 	if !strings.Contains(out, "Refreshed 2 sections") {
 		t.Errorf("view = %q, want the refresh to report what came back", out)
+	}
+}
+
+// A toast used to take the hints' place. It sits at the other end of the line
+// now, so the keys stay where the reader's eye already found them.
+func TestAToastLandsOnTheRightAndLeavesTheHintsAlone(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+
+	bar := stripANSI(lastLine(render(t, settle(m, keyMsg("s")))))
+
+	toast := strings.Index(bar, "Refreshed")
+	hints := strings.Index(bar, "j/k move")
+	if toast < 0 || hints < 0 {
+		t.Fatalf("status bar = %q, want both the toast and the hints on it", strings.TrimSpace(bar))
+	}
+	if toast < hints {
+		t.Errorf("status bar = %q, want the toast to the right of the hints", strings.TrimSpace(bar))
+	}
+}
+
+// The section title is the current tab in the top border. Naming it again on
+// the bar spent the line on a fact the reader is looking straight at.
+func TestTheListBarNamesNeitherTheSectionNorAHealthyBudget(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821}}
+
+	bar := stripANSI(lastLine(render(t, loaded(t, client, 120, 40))))
+
+	if strings.Contains(bar, "My PRs") {
+		t.Errorf("status bar = %q, want the section named only by the tab", strings.TrimSpace(bar))
+	}
+	if strings.Contains(bar, "4821") {
+		t.Errorf("status bar = %q, want a healthy budget left off", strings.TrimSpace(bar))
 	}
 }
 
@@ -1601,19 +1633,19 @@ func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	client := &querySearcher{results: map[string]gh.SearchResult{
 		// The lower number lands first, so a status bar reading the newest
-		// response rather than the lowest shows 4820 and reads as a budget that
+		// response rather than the lowest shows 420 and reads as a budget that
 		// went back up.
 		"is:open is:pr author:@me": {
 			PullRequests: samplePRs(),
-			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 4819, ResetAt: window},
+			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 419, ResetAt: window},
 		},
 		"is:open is:pr review-requested:@me": {
-			RateLimit: gh.RateLimit{Limit: 5000, Remaining: 4820, ResetAt: window},
+			RateLimit: gh.RateLimit{Limit: 5000, Remaining: 420, ResetAt: window},
 		},
 	}}
 
 	out := render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40}))
-	if !strings.Contains(out, "4819") {
+	if !strings.Contains(out, "419") {
 		t.Errorf("view = %q, want the lowest remaining across the responses", out)
 	}
 }
@@ -1701,11 +1733,11 @@ func TestTheViewerIsAskedForAtStartup(t *testing.T) {
 		err: errors.New("every section is down"),
 		viewer: gh.ViewerResult{
 			Viewer:    gh.Actor{Login: "drucial"},
-			RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4999},
+			RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 499},
 		},
 	}
 
-	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "4999") {
+	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "499") {
 		t.Errorf("view = %q, want the budget the viewer response carried", out)
 	}
 }
@@ -1924,14 +1956,14 @@ func TestAFirstOpenSaysItIsLoading(t *testing.T) {
 func TestOpeningMovesTheBudget(t *testing.T) {
 	client := &fakeSearcher{
 		prs:  samplePRs(),
-		rate: gh.RateLimit{Limit: 5000, Remaining: 4700, ResetAt: time.Now().Add(time.Hour)},
+		rate: gh.RateLimit{Limit: 5000, Remaining: 400, ResetAt: time.Now().Add(time.Hour)},
 	}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	m := loaded(t, client, 160, 40)
-	client.rate = gh.RateLimit{Limit: 5000, Remaining: 4697, ResetAt: client.rate.ResetAt}
+	client.rate = gh.RateLimit{Limit: 5000, Remaining: 397, ResetAt: client.rate.ResetAt}
 
-	if out := render(t, press(m, "enter")); !strings.Contains(out, "4697") {
+	if out := render(t, press(m, "enter")); !strings.Contains(out, "397") {
 		t.Errorf("frame = %q, want the budget the detail response carried", out)
 	}
 }

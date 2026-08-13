@@ -784,6 +784,72 @@ func TestAnEmptySectionSaysSoRatherThanShowingNothing(t *testing.T) {
 	}
 }
 
+// A message is the only thing in the pane when there are no rows, so it sits in
+// the middle of it. In the corner it reads as the first row of a list that is
+// still filling in.
+func TestAMessageWithNoRowsBehindItSitsInTheMiddleOfThePane(t *testing.T) {
+	const width, height = 120, 12
+
+	tests := []struct {
+		name     string
+		sections []store.Section
+		want     string
+	}{
+		{
+			name:     "empty",
+			sections: ready([]string{"My PRs"}, nil),
+			want:     "Nothing matches this section.",
+		},
+		{
+			name:     "loading",
+			sections: []store.Section{{Section: config.Section{Title: "My PRs"}, Status: store.StatusLoading}},
+			want:     "Loading pull requests",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := list.New(theme.RosePineMoon)
+			m.SetSize(width, height)
+			m.SetSections(tt.sections)
+
+			lines := strings.Split(stripANSI(m.View()), "\n")
+			at := -1
+			for i, line := range lines {
+				if strings.Contains(line, tt.want) {
+					at = i
+					break
+				}
+			}
+			if at < 0 {
+				t.Fatalf("no %q in the frame\n%s", tt.want, strings.Join(lines, "\n"))
+			}
+
+			// The pane spends a line on each border, so the content rows run from
+			// line one. An odd number of them cannot split evenly, which is what
+			// the line of slack is for.
+			above, below := at-1, (height-2)-at
+			if abs(above-below) > 1 {
+				t.Errorf("%q has %d rows above it and %d below, want it centred\n%s",
+					tt.want, above, below, strings.Join(lines, "\n"))
+			}
+
+			text := strings.Trim(lines[at], "│")
+			gap := len(text) - len(strings.TrimLeft(text, " "))
+			if right := len(text) - len(strings.TrimRight(text, " ")); gap == 0 || abs(gap-right) > 1 {
+				t.Errorf("%q sits %d in from the left and %d from the right, want it centred", tt.want, gap, right)
+			}
+		})
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 // A pane too short for the blank lines above a group still shows the group's
 // name over its first row. Counting those blanks against the header dropped
 // the header with them.
