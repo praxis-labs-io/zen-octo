@@ -4,102 +4,10 @@ import (
 	"slices"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/keys"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
-
-// replier is the box r opens under a review thread. It is a second composer
-// rather than the compose card retargeted: one textarea drawn at two places is
-// one buffer, and opening a reply would then wipe out a top-level comment half
-// written at the foot of the page.
-//
-// Unlike the compose card it is summoned. It exists only while it is open, so
-// the box is on the page exactly when it has the keyboard.
-type replier struct {
-	composer
-
-	// thread is the review thread the box is open on, empty when it is closed.
-	thread string
-
-	// from is the comment the box was opened from, and where focus goes when it
-	// closes. Not the reply that was written: that card is a placeholder keyed by
-	// an id minted locally, and the highlight would vanish on its own the moment
-	// GitHub answered with the real one.
-	from focusKey
-
-	// drafts is what was written into a box and not posted, by thread. Closing
-	// the box takes it off the page, and a reader who pressed esc to look at the
-	// code above their answer has not thrown the answer away.
-	drafts map[string]string
-}
-
-// replyRows is the writing the box shows at once. Half the compose card's,
-// because a reply is an answer rather than an opening argument and the thread it
-// answers is on the screen above it. $EDITOR is there for the ones that need
-// more.
-const replyRows = 4
-
-func newReplier(th theme.Theme) replier {
-	c := newComposer(th)
-	c.area.Placeholder = "Leave a reply"
-	c.area.SetHeight(replyRows)
-	return replier{composer: c}
-}
-
-// open points the box at a thread, filling it with whatever was left there.
-func (r *replier) open(threadID string, from focusKey) tea.Cmd {
-	r.thread, r.from = threadID, from
-	r.area.SetValue(r.drafts[threadID])
-	r.area.MoveToEnd()
-	return r.start()
-}
-
-// close takes the box off the page, keeping the words against the thread they
-// were written for.
-func (r *replier) close() {
-	r.keep(r.thread, "")
-	r.thread = ""
-	r.area.Reset()
-	r.stop()
-}
-
-// keep holds words for a thread, behind whatever is already held for it. Two
-// answers to one thread run together is a mess the reader can cut apart, and it
-// is the smaller loss: everything else on this screen can be fetched again.
-func (r *replier) keep(threadID, body string) {
-	if threadID == "" {
-		return
-	}
-
-	if threadID == r.thread {
-		body = joinDraft(body, r.body())
-	} else {
-		body = joinDraft(r.drafts[threadID], body)
-	}
-
-	if body == "" {
-		delete(r.drafts, threadID)
-		return
-	}
-	if r.drafts == nil {
-		r.drafts = make(map[string]string)
-	}
-	r.drafts[threadID] = body
-}
-
-func joinDraft(first, second string) string {
-	switch {
-	case first == "":
-		return second
-	case second == "":
-		return first
-	}
-	return first + "\n\n" + second
-}
 
 // quote puts a comment in the buffer with the cursor under it, the way the
 // browser's quote reply does. The raw body goes in, not the rendered markdown: a
@@ -136,14 +44,15 @@ func quoted(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// replyFocus is what the open box answers to in the ring. Tab never walks onto
-// it: the box has the keyboard from the moment it appears, and tab is the post
-// button then. It is in the ring so the page can be scrolled to keep it in view.
-func (m Model) replyFocus() focusKey {
-	return focusKey{kind: focusReply, id: m.reply.thread}
+// replyKey is what a box answering a thread is open on, and the stop it takes
+// in the ring. Tab never walks onto it: the box has the keyboard from the
+// moment it appears. It is in the ring so the page can be scrolled to keep it
+// in view.
+func replyKey(threadID string) focusKey {
+	return focusKey{kind: focusReply, id: threadID}
 }
 
-// threadWithReply is a thread and, when a box is open on it, the box under it.
+// threadWithReply is a thread and, when a box is answering it, the box under it.
 //
 // The box is a card of its own rather than a block inside the thread's. A
 // thread card holds what people said; the box is where you say something, which
@@ -151,9 +60,12 @@ func (m Model) replyFocus() focusKey {
 // keeps the two apart on the page and out of each other's way in the code: no
 // gutter to dodge, no rule to draw, and the accent lands on whichever of the two
 // the keys are going to.
+//
+// An edit inside the thread needs none of this. It is drawn where the words it
+// replaces were, so the thread renders it and this sees one card as usual.
 func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
 	v := m.thread(t, width, true)
-	if m.reply.thread != t.ID {
+	if m.inline.at != replyKey(t.ID) {
 		return v
 	}
 
@@ -165,23 +77,24 @@ func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
 	at := strings.Count(v.block, "\n") + 1
 	block := v.block + "\n" + box
 
-	return rendered{block: block, stops: tile(block, []focusItem{
-		{focusKey: threadKey(t)},
-		{focusKey: m.replyFocus(), start: at},
-	})}
+	return rendered{
+		block: block,
+		stops: tile(block, []focusItem{
+			{focusKey: threadKey(t)},
+			{focusKey: replyKey(t.ID), start: at},
+		}),
+		boxAt: at + m.cardLead(width, replyRows+1),
+	}
 }
 
 // replyCard is the box, rendered through the same card every comment renders
 // through, so an answer being written sits among the answers already made.
 func (m *Model) replyCard(width int) string {
-	key := m.replyFocus()
+	key := replyKey(m.inline.at.id)
 
 	inner := m.cardWidth(width)
-	m.reply.setWidth(inner)
-
 	head := m.said(m.who, "write a reply", m.theme.Subtle, gh.TimelineItem{})
-	body := m.reply.area.View() + "\n\n" + m.reply.button(m.theme, inner, m.lit(key))
-	return m.card(head, body, width, m.lit(key), "")
+	return m.card(head, m.inlineBox(inner, replyRows, boxChrome), width, m.lit(key), "")
 }
 
 // within is the comment a quote reply would take from a thread, and the one the
@@ -335,13 +248,13 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	// and esc leaves them there too.
 	m.compose.stop()
 
-	from := m.convRing.on
-	cmd := m.reply.open(t.ID, from)
+	at := replyKey(t.ID)
+	cmd := m.inline.open(at, m.convRing.on, "", replyWords)
 	if quote {
-		m.reply.quote(c.Body)
+		m.inline.quote(c.Body)
 	}
 
-	m.convRing.on = m.replyFocus()
+	m.convRing.on = at
 	m.conv.ok = false
 
 	// Opening scrolls the same shortest way typing does, and for a stronger
@@ -349,101 +262,29 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	// it: the code, the comments, and the one being answered all sit above the
 	// box, so topping it leaves the reader writing a reply to something they can
 	// no longer see.
-	m.showReply()
-	return m, cmd
-}
-
-// closeReply hands the keyboard back and takes the box off the page. Focus goes
-// back to the comment it was opened from, so esc leaves the reader where they
-// were rather than nowhere.
-func (m Model) closeReply() (Model, tea.Cmd) {
-	from := m.reply.from
-	m.reply.close()
-
-	m.convRing.on = from
-	m.conv.ok = false
-	m.syncContent()
-	return m, nil
-}
-
-// replyKey is every key while the box has the keyboard. It answers the handful
-// that belong to it and hands the rest to the text.
-func (m Model) replyKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
-	k := keys.Detail
-
-	switch {
-	case key.Matches(keyMsg, k.Back):
-		return m.closeReply()
-
-	case key.Matches(keyMsg, k.Editor):
-		return m, m.reply.editorCmd()
-
-	case key.Matches(keyMsg, keys.Form.Next), key.Matches(keyMsg, keys.Form.Prev):
-		cmd := m.reply.step()
-		m.syncContent()
-		return m, cmd
-
-	case key.Matches(keyMsg, k.Post):
-		return m.postReply()
-
-	case key.Matches(keyMsg, k.Activate) && m.reply.onPost:
-		return m.postReply()
-	}
-
-	var cmd tea.Cmd
-	m.reply.area, cmd = m.reply.area.Update(keyMsg)
-	m.showReply()
+	m.showInline()
 	return m, cmd
 }
 
 // postReply hands the buffer to the root and closes the box.
 func (m Model) postReply() (Model, tea.Cmd) {
-	body := m.reply.body()
+	body := m.inline.body()
 	if body == "" {
 		return m, nil
 	}
 
-	id, thread, from := m.pr.ID, m.reply.thread, m.reply.from
+	id, thread, from := m.pr.ID, m.inline.at.id, m.inline.from
 
 	// Emptied before the close, because closing files whatever is in the box as
 	// the thread's draft. These words are on their way to GitHub, and a draft of
 	// them would come back the next time the box opened here.
-	m.reply.area.Reset()
-	m.reply.close()
+	m.inline.area.Reset()
+	m.inline.close()
 
 	m.convRing.on = from
 	m.conv.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostReplyMsg{ID: id, ThreadID: thread, Body: body} }
-}
-
-// showReply rebuilds the page and keeps the box in view.
-//
-// It moves the shortest distance, which is the wrong move everywhere else on
-// this screen and the right one here. A key that lands on a block is taking the
-// reader somewhere, so the block goes to the top row with its own content under
-// it. A keystroke inside a box is not taking them anywhere: the eye is on a
-// caret that has not moved, and hauling the page to put the box on the top row
-// because a character was typed is the worse of the two wrongs.
-//
-// The caret needs no arithmetic of its own. The box is a fixed height and the
-// textarea scrolls inside it, so a box in view is a caret in view.
-func (m *Model) showReply() {
-	m.syncContent()
-
-	at := m.convRing.index()
-	if at < 0 {
-		return
-	}
-	it := m.convRing.items[at]
-
-	top, height := bodyTop(&m.view), m.view.Height()
-	switch {
-	case it.start < top:
-		m.view.SetYOffset(contentLead + it.start)
-	case it.start+it.lines > top+height:
-		m.view.SetYOffset(contentLead + it.start + it.lines - height)
-	}
 }
 
 // RestoreReply puts a reply that failed to post back where it was written. The
@@ -455,28 +296,43 @@ func (m *Model) showReply() {
 // stealing the caret mid-sentence to report old news is worse than the toast
 // that reports it. The words wait as the thread's draft either way.
 func (m *Model) RestoreReply(threadID, body string) tea.Cmd {
-	m.conv.ok = false
-	m.reply.keep(threadID, body)
+	return m.restore(replyKey(threadID), body, replyWords,
+		func() bool { return m.hasThread(threadID) },
+		func() focusKey { return threadFocus(m.detail.Detail.Threads, threadID) })
+}
 
-	if m.reply.thread == threadID {
-		m.reply.area.SetValue(m.reply.drafts[threadID])
-		m.reply.area.MoveToEnd()
-		m.showReply()
+// restore is the tail of both RestoreReply and RestoreEdit: file the words
+// against what they were written for, and reopen the box on them where the
+// reader is still standing somewhere it can appear.
+//
+// The box already open on this target takes the words straight back, caret and
+// all: nobody has moved, and the failure is about what is under their hands.
+//
+// It opens on no fallback text, unlike a key press. The words came back from a
+// write that failed and were just filed as the draft, so an edit reopens on
+// what the reader typed rather than on the comment they typed it over.
+func (m *Model) restore(at focusKey, body string, w words,
+	present func() bool, from func() focusKey,
+) tea.Cmd {
+	m.conv.ok = false
+	m.inline.keep(at, body)
+
+	if m.inline.at == at {
+		m.inline.area.SetValue(m.inline.drafts[at])
+		m.inline.area.MoveToEnd()
+		m.showInline()
 		return nil
 	}
 
-	if m.writing() != nil || !m.canCompose() || !m.hasThread(threadID) {
+	if m.writing() != nil || !m.canCompose() || !present() {
 		m.syncContent()
 		return nil
 	}
 
-	cmd := m.reply.open(threadID, threadFocus(m.detail.Detail.Threads, threadID))
-	m.convRing.on = m.replyFocus()
+	cmd := m.inline.open(at, from(), "", w)
+	m.convRing.on = at
 	m.focus = paneMain
-	m.syncContent()
-
-	top := bodyTop(&m.view)
-	m.view.SetYOffset(contentLead + m.convRing.show(top, m.view.Height()))
+	m.showInline()
 	return cmd
 }
 

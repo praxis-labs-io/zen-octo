@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
 	"slices"
 	"strconv"
@@ -196,6 +197,43 @@ func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error
 			CanReact:        true,
 		},
 	}, nil
+}
+
+// UpdateComment hands the new body back under the id it was given, which is
+// what GitHub does for a rewrite: the comment keeps its node.
+//
+// The time is now rather than the one the comment was written at. The fixture
+// does not hold the comment it is editing, and the card shows a time either
+// way; the real one answers with what GitHub recorded.
+func (Mock) UpdateComment(_ context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error) {
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind:            kind,
+			ID:              id,
+			Author:          gh.Actor{Login: mockViewer},
+			CreatedAt:       time.Now(),
+			Body:            body,
+			ViewerDidAuthor: true,
+			CanEdit:         true,
+			CanDelete:       true,
+			CanReact:        true,
+		},
+	}, nil
+}
+
+// DeleteComment refuses a review's body the way the real one does, so the
+// mockup cannot make a key look live that is not.
+func (Mock) DeleteComment(_ context.Context, kind gh.CommentKind, _ string) error {
+	if kind == gh.CommentReview {
+		return fmt.Errorf("deleting a comment: a %q comment cannot be deleted", kind)
+	}
+	return nil
+}
+
+// SetBody hands back the description it was asked for, the way SetBase hands
+// back the branch.
+func (Mock) SetBody(_ context.Context, _, body string) (gh.BodyResult, error) {
+	return gh.BodyResult{Body: body}, nil
 }
 
 // mockReplies numbers the replies this mockup has taken. Atomic because a write

@@ -30,6 +30,12 @@ const (
 	// repository allows, so it waits on the same fetch and resumes down the
 	// same path the three pickers below do.
 	pickMerge
+
+	// pickDelete is the confirm over a comment D was pressed on. It is a picker
+	// of two rows rather than a widget of its own: the modal, the keys, the
+	// escape and the accent are all the picker's already, and a question with
+	// two answers is a list with two rows.
+	pickDelete
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
@@ -73,6 +79,11 @@ type picking struct {
 	// so the set it is a delta from has to be the set the reader was looking at
 	// when they ticked.
 	reviewers []gh.Reviewer
+
+	// on is the comment the delete confirm was opened over, held for the reason
+	// the three above are: a refetch landing behind the modal must not change
+	// what enter deletes.
+	on target
 
 	want pickField
 
@@ -390,6 +401,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 		return m.applyBase(p)
 	case pickState:
 		return m.applyState(p)
+	case pickDelete:
+		return m.applyDelete(p)
 	}
 	return m, nil
 }

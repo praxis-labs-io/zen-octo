@@ -137,9 +137,13 @@ type Store struct {
 	// for the same reason. It is a slice rather than one edit per field because
 	// two writes on one field can be out at once, and the later one wins only
 	// if the order they were held in survives.
+	// rewrites is the same for a comment edited or deleted, sharing the counter
+	// for the same reason. Its writes reach into the timeline and the threads
+	// rather than adding to them, which is what keeps it apart from pending.
 	pending   map[string][]Pending
 	resolving map[string][]Resolution
 	edits     map[string][]Edit
+	rewrites  map[string][]CommentWrite
 	writes    int
 
 	// staleFetch marks a detail fetch that was asked for before a write on the
@@ -253,7 +257,8 @@ func (s *Store) Failed(i int, err error) {
 func (s Store) Detail(id string) Detail {
 	held := s.details[id]
 	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
-	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 {
+	rewriting := s.rewrites[id]
+	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 && len(rewriting) == 0 {
 		return held
 	}
 
@@ -268,6 +273,13 @@ func (s Store) Detail(id string) Detail {
 
 	timeline, threads := held.Detail.Timeline, held.Detail.Threads
 	var freshTimeline, freshThreads bool
+
+	// Rewrites go before the appends. They act on comments GitHub already has,
+	// so there is nothing among the pending ones for them to find, and running
+	// them first keeps a delete from having to skip past a placeholder holding a
+	// key rather than a node id.
+	timeline, threads, freshTimeline, freshThreads = foldWrites(
+		rewriting, timeline, threads, freshTimeline, freshThreads)
 
 	for _, p := range waiting {
 		if p.ThreadID == "" {

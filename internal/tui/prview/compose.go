@@ -21,13 +21,34 @@ import (
 // in blind, and $EDITOR is for the times that is not enough.
 const composeRows = 8
 
-// postLabel is what the button says. The padding around it is the button: a
-// filled surface reads as something to press, where a bare word reads as a
-// caption.
-const postLabel = "Post"
-
 // postPad is the room either side of the label inside the button.
 const postPad = 2
+
+// words is what one box calls itself: what an empty one invites, what its
+// button says, the word the hint gives the key that sends it, and what leaving
+// does. A comment is posted and left; a comment being rewritten is updated and
+// cancelled, and calling that "post" would read as a second comment about to
+// appear.
+//
+// The padding around the label is the button: a filled surface reads as
+// something to press, where a bare word reads as a caption.
+type words struct {
+	placeholder string
+	button      string
+	send        string
+	back        string
+}
+
+var (
+	commentWords = words{placeholder: "Leave a comment", button: "Post", send: "post", back: "done"}
+	replyWords   = words{placeholder: "Leave a reply", button: "Post", send: "post", back: "done"}
+
+	// An edit opens on the comment it is rewriting, so the only way to see this
+	// placeholder is to clear the box. Discard rather than done or close:
+	// nothing is kept, and the key that drops a rewrite should say so before it
+	// is pressed.
+	updateWords = words{placeholder: "Empty, so far", button: "Save", send: "save", back: "discard"}
+)
 
 // composer is where a comment gets written: the last card in the conversation,
 // under everything already said, which is where GitHub puts it and where the
@@ -45,6 +66,11 @@ type composer struct {
 
 	typing bool
 
+	// words is what this box calls its button and the keys around it. The
+	// compose card only ever posts; the summoned box is told when it opens,
+	// because the same widget answers for a reply and for an edit.
+	words words
+
 	// onPost is whether the button holds focus rather than the text. Enter
 	// posts from the button and nowhere else: in the text it is a newline, and
 	// a key that sends a half-written comment is worse than one more keystroke.
@@ -59,8 +85,8 @@ type composer struct {
 
 func newComposer(th theme.Theme) composer {
 	area := textarea(th, composeRows)
-	area.Placeholder = "Leave a comment"
-	return composer{area: area}
+	area.Placeholder = commentWords.placeholder
+	return composer{area: area, words: commentWords}
 }
 
 // textarea is a text box in this screen's colours, at the height the caller
@@ -94,6 +120,79 @@ func textarea(th theme.Theme, rows int) area.Model {
 // body is what has been written, with the surrounding whitespace off. A comment
 // of nothing but newlines is not one to post.
 func (c composer) body() string { return strings.TrimSpace(c.area.Value()) }
+
+// rows is how many lines the writing takes at this width, which is what a box
+// that grows with what is typed into it is sized by.
+//
+// Counted by hand rather than taken from LineCount, which is the logical count:
+// the textarea folds a long line rather than scrolling sideways, so a paragraph
+// is worth as many rows as it wraps onto, and a box sized by the other number
+// sits a row short of what it is showing.
+func (c composer) rows(width int) int { return wrappedRows(c.area.Value(), width) }
+
+// caretRow is which of those rows the caret is on, counted the same way and
+// less whatever the textarea has scrolled inside itself. It is where the page
+// has to look to keep the caret in sight, and it is the only thing that can:
+// a box grows with what is typed into it, so it can be taller than the window
+// and the card holding it says nothing about where in it the caret sits.
+func (c composer) caretRow(width int) int {
+	lines := strings.Split(c.area.Value(), "\n")
+	row := min(max(c.area.Line(), 0), len(lines)-1)
+
+	n := 0
+	if row > 0 {
+		n = wrappedRows(strings.Join(lines[:row], "\n"), width)
+	}
+	return n + c.area.LineInfo().RowOffset - c.area.ScrollYOffset()
+}
+
+// wrappedRows is how many rows text folds onto at a width, folded where the
+// textarea folds it.
+//
+// On word boundaries, which is the only count worth taking: a character count
+// puts a word straddling the edge on the row it does not fit on, and a line
+// exactly the width of the box is one row by that arithmetic and two on the
+// screen. Either way the box is sized short of its own writing and scrolls
+// where it was supposed to grow.
+func wrappedRows(text string, width int) int {
+	if width < 1 {
+		return strings.Count(text, "\n") + 1
+	}
+	return strings.Count(wrap(text, width), "\n") + 1
+}
+
+// boxRows is the height a box gets: what it is standing in for, or the writing
+// in it, whichever is more, and never more than the pane can show at once.
+//
+// Growing with the content is what stops a box being a window onto its own
+// text. The floor is what it opens at, which is eight rows of invitation on the
+// compose card and however tall the words were on an edit.
+//
+// The ceiling beats the floor, and it is the button that makes it necessary
+// rather than the writing. A box taller than the pane takes the foot of its own
+// card off the screen, and the foot is where the control that sends the words
+// is: the reader is then writing into something with no visible end and no way
+// out but a chord they cannot see named. Past the ceiling the textarea scrolls
+// inside itself, which keeps its own caret in view.
+//
+// chrome is what the card around the box costs, and it is the caller's because
+// only the render site knows how deep the box sits.
+func (m Model) boxRows(c composer, floor, width, chrome int) int {
+	room := max(1, m.view.Height()-chrome)
+	return min(max(floor, c.rows(width)), room)
+}
+
+// boxChrome is what a card spends around a box: two borders, a heading, a rule,
+// the row the button and its hints ride on, and the blank line the block after
+// it wants.
+const boxChrome = 6
+
+// threadChrome is what a comment inside a thread pays on top of that: the
+// thread's own border, heading and rule, the byline over the comment, and the
+// blank line between it and the comment after. A box that spent the pane as
+// though it were a card of its own would push the thread's foot off the screen
+// with the button on it.
+const threadChrome = 6
 
 // start puts the keyboard in the text. The card is already on the page; this is
 // the difference between looking at it and writing in it.
@@ -157,10 +256,24 @@ func (m *Model) composeCard(width int) rendered {
 
 	inner := m.cardWidth(width)
 	m.compose.setWidth(inner)
+	m.compose.area.SetHeight(m.boxRows(m.compose, composeRows, inner, boxChrome))
 
 	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
 	block := m.card(head, body, width, m.lit(key), "")
-	return rendered{block: block, stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}}}
+
+	// Only while it has the keyboard. The card is on the page either way, and a
+	// box line recorded for one nobody is typing in would be the last block on
+	// the page overwriting whichever box actually holds the caret.
+	boxAt := 0
+	if m.compose.typing {
+		boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
+	}
+
+	return rendered{
+		block: block,
+		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt: boxAt,
+	}
 }
 
 // button is the post control, on the last row of the card and against its right
@@ -186,7 +299,7 @@ func (c composer) button(th theme.Theme, width int, focused bool) string {
 		style = style.Foreground(th.Inverted).Background(th.Accent)
 	}
 
-	button := style.Render(postLabel)
+	button := style.Render(c.words.button)
 
 	// The hint gives way first. A narrow card that keeps both overflows, and the
 	// pane clips from the right, which takes the button rather than the words
@@ -215,26 +328,26 @@ func (c composer) hint(focused bool) string {
 		return keys.Detail.Comment.Help().Key + " to write"
 	}
 
-	post := "tab · ⏎ post"
+	send := "tab · ⏎ " + c.words.send
 	if c.chords {
-		post = keys.Detail.Post.Help().Key + " post"
+		send = keys.Detail.Post.Help().Key + " " + c.words.send
 	}
 	return strings.Join([]string{
-		post,
+		send,
 		keys.Detail.Editor.Help().Key + " editor",
-		keys.Detail.Back.Help().Key + " done",
+		keys.Detail.Back.Help().Key + " " + c.words.back,
 	}, " · ")
 }
 
 // Composing reports whether a box has the keyboard. The root reads it before
 // its own bindings: q is a letter in there, and the only way out of that is for
 // the root to stand aside.
-func (m Model) Composing() bool { return m.compose.typing || m.reply.typing }
+func (m Model) Composing() bool { return m.compose.typing || m.inline.typing }
 
 // SetChords says whether the terminal can send ctrl+enter. Only the hints read
 // it: the binding is live either way, and on a terminal that cannot send the
 // chord the key simply never arrives.
-func (m *Model) SetChords(v bool) { m.compose.chords, m.reply.chords = v, v }
+func (m *Model) SetChords(v bool) { m.compose.chords, m.inline.chords = v, v }
 
 // SetViewer names who a comment will be from, for the box's heading.
 //
@@ -351,6 +464,7 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 func (m *Model) showCompose() {
 	m.syncContent()
 	m.view.GotoBottom()
+	m.showCaret()
 }
 
 // post hands the buffer to the root and empties the box. An empty buffer is
