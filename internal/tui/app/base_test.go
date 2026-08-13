@@ -268,8 +268,9 @@ func TestASecondPullRequestOpensTheBranchPickerToo(t *testing.T) {
 	// One esc closes the modal, the second hands focus back to the conversation,
 	// the third leaves the detail. Then down to the second pull request and in.
 	m = press(m, "esc", "esc", "esc", "j", "enter")
-	if bar := lastLine(render(t, m)); !strings.Contains(bar, "#408") {
-		t.Fatalf("setup: landed on %q, want the second pull request", strings.TrimSpace(bar))
+	// The header is what names the pull request now that the bar does not.
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "#408") {
+		t.Fatalf("setup: did not land on the second pull request:\n%s", out)
 	}
 
 	m = press(m, "2", "j", "j", "j", "j", "enter")

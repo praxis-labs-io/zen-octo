@@ -1311,42 +1311,20 @@ func (m Model) statusMessage() string {
 	return ""
 }
 
-// statusReadout is the right side the rest of the time: what is on screen, and
-// the remaining budget once it has run low enough to be worth reading.
+// statusReadout is the right side the rest of the time, and the remaining
+// budget is all of it: a number worth reading only once it has run low.
 //
-// The list screen contributes nothing to it. Its section title is already the
-// current tab in the top border, and naming it twice spends the line on a fact
-// the reader is looking straight at.
+// Neither screen names itself here any more. The list's section is the current
+// tab in the top border and the detail's pull request is in its own header, so
+// both were spending the line on a fact already on the screen, and the side
+// they were spending it on is where a toast lands.
 func (m Model) statusReadout() string {
-	right := make([]string, 0, 2)
 	// Limit is zero until a response lands. Gating on it rather than on
 	// Remaining is what lets an exhausted budget still read as zero.
 	if rate := m.store.Rate(); rate.Limit > 0 {
-		if budget := m.status.Budget(rate.Remaining); budget != "" {
-			right = append(right, budget)
-		}
+		return m.status.Budget(rate.Remaining)
 	}
-	if m.screen == screenDetail {
-		right = append(right, m.status.Context(m.contextLabel()))
-	}
-	return strings.Join(right, m.status.Context(" · "))
-}
-
-// contextLabel names what is on screen. The detail screen gets the repository
-// as well as the number: the number alone says which pull request only if you
-// already know which repository you opened it from, and the tabs past the
-// conversation carry nothing else that answers it.
-func (m Model) contextLabel() string {
-	if m.screen != screenDetail {
-		return m.list.Section().Title
-	}
-
-	pr := m.detail.PullRequest()
-	label := "#" + strconv.Itoa(pr.Number)
-	if pr.Repository != "" {
-		label += " " + pr.Repository
-	}
-	return label
+	return ""
 }
 
 // helpBody is the overlay's content, and says so when the frame cannot hold it.

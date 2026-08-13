@@ -2613,18 +2613,23 @@ func TestLeavingTheDetailStopsTheRefreshSpinner(t *testing.T) {
 	}
 }
 
-// Naming the repository made the right side of the status bar long enough to
-// stop fitting beside the detail screen's help line, and the bar used to drop
-// that side whole rather than clip it, taking the number with it.
-func TestTheDetailStatusBarKeepsTheNumberAtEveryWidth(t *testing.T) {
+// The detail screen names its pull request in its own header, so the bar was
+// spending the line on a fact already on the screen, and spending it on the
+// side a toast lands on.
+func TestTheDetailStatusBarCarriesNothingButItsHints(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	for _, width := range []int{100, 120, 160, 200} {
 		// The number is in the header too, so only the bar's own line answers.
 		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
-		if !strings.Contains(bar, "#412") {
-			t.Errorf("width %d: the status bar lost the pull request number: %q", width, bar)
+		for _, unwanted := range []string{"#412", "zen-octo/zen-octo"} {
+			if strings.Contains(bar, unwanted) {
+				t.Errorf("width %d: the status bar still carries %q: %q", width, unwanted, strings.TrimSpace(bar))
+			}
+		}
+		if !strings.Contains(bar, "j/k move") {
+			t.Errorf("width %d: the status bar has no hints on it: %q", width, strings.TrimSpace(bar))
 		}
 	}
 }
@@ -2674,26 +2679,6 @@ func sampleFiles() []gh.ChangedFile {
 			},
 		}},
 	}}
-}
-
-// The number alone says which pull request only if you already know which
-// repository you opened it from, and the tabs past the conversation carry
-// nothing else that answers it.
-func TestTheStatusBarNamesTheRepositoryOnTheDetailScreen(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs()}
-	m := press(loaded(t, client, 160, 40), "enter")
-
-	last := lastLine(render(t, m))
-	if !strings.Contains(last, "#412 zen-octo/zen-octo") {
-		t.Errorf("status bar = %q, want the number and the repository", strings.TrimSpace(last))
-	}
-
-	// The list names its section instead; a repository there would be wrong as
-	// often as right, since a section can span any number of them.
-	back := lastLine(render(t, press(m, "esc")))
-	if strings.Contains(back, "zen-octo/zen-octo") {
-		t.Errorf("the list's status bar carries a repository: %q", strings.TrimSpace(back))
-	}
 }
 
 func lastLine(frame string) string {

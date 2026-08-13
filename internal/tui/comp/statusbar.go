@@ -95,8 +95,3 @@ func (s StatusBar) Budget(remaining int) string {
 	}
 	return lipgloss.NewStyle().Foreground(s.theme.Warning).Render("◆ " + strconv.Itoa(remaining))
 }
-
-// Context renders the trailing label naming what is on screen.
-func (s StatusBar) Context(label string) string {
-	return lipgloss.NewStyle().Foreground(s.theme.MutedOrSubtle()).Render(label)
-}
