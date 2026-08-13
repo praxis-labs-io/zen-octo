@@ -24,6 +24,12 @@ const (
 	pickAssignees
 	pickReviewers
 	pickBase
+
+	// pickMerge opens a form rather than a picker. It is in this enum for one
+	// reason: the form cannot be built without knowing which methods the
+	// repository allows, so it waits on the same fetch and resumes down the
+	// same path the three pickers below do.
+	pickMerge
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
@@ -34,7 +40,7 @@ const (
 // search, keyed by what has been typed rather than by the repository, so it
 // waits on its own call and SetBranches is what resumes it.
 func (f pickField) needsRepo() bool {
-	return f == pickLabels || f == pickAssignees || f == pickReviewers
+	return f == pickLabels || f == pickAssignees || f == pickReviewers || f == pickMerge
 }
 
 // picking is the picker over the screen, if any.
@@ -69,6 +75,10 @@ type picking struct {
 	reviewers []gh.Reviewer
 
 	want pickField
+
+	// wantOn is the rail row that ask came from, so the answer landing late can
+	// tell a reader still standing there from one who has tabbed on.
+	wantOn focusKey
 }
 
 func (p picking) open() bool { return p.field != pickNone }
@@ -88,8 +98,10 @@ type SetLabelsMsg struct {
 
 // Capturing is whether something on this screen owns the keyboard. The root
 // stands aside when it does, because a picker's filter takes q as a letter the
-// same way a comment box does.
-func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
+// same way a comment box does, and so does a commit message.
+func (m Model) Capturing() bool {
+	return m.Composing() || m.picking.open() || m.merging.open
+}
 
 // SetRepo hands the screen the choices its pickers draw from, and opens the one
 // that was waiting on them.
@@ -112,19 +124,38 @@ func (m Model) Capturing() bool { return m.Composing() || m.picking.open() }
 // leaves want at pickBase, and opening that here builds it over branches this
 // screen has not been handed: a modal listing the current base alone, on which
 // enter does nothing.
-func (m *Model) SetRepo(r store.Repo) {
+func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	m.repo = r
 	if !m.picking.want.needsRepo() || !r.Loaded {
-		return
+		return nil
 	}
 
-	want := m.picking.want
-	m.picking.want = pickNone
+	want, on := m.picking.want, m.picking.wantOn
+	m.picking.want, m.picking.wantOn = pickNone, focusKey{}
 
-	if m.Composing() || !m.railVisible() || m.focus != paneRail {
-		return
+	if m.Capturing() || !m.railVisible() || m.focus != paneRail {
+		return nil
+	}
+
+	// And only where they are still standing on the row they asked from. The
+	// rail having focus is not that: the fetch is a round trip and tab is free
+	// the whole time it is out, so without this the answer drops a modal over
+	// whichever row they walked to. SetBranches guards the base picker the same
+	// way, and it matters more here than it did there, because what lands late
+	// is a form that merges.
+	//
+	// The row rather than its kind, because a section and the row that adds to
+	// it open the same picker: a reader who asked from one label and walked to
+	// another has walked away.
+	if m.railRing.on != on {
+		return nil
+	}
+
+	if want == pickMerge {
+		return m.startMerge()
 	}
 	m.startPicker(want)
+	return nil
 }
 
 // openRailPicker opens whatever the rail row under the focus holds. It does
@@ -152,6 +183,8 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		want = pickState
 	case focusBase:
 		want = pickBase
+	case focusMerge:
+		want = pickMerge
 	default:
 		return m, nil
 	}
@@ -159,7 +192,7 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	// The choices are the repository's, not this pull request's, so they
 	// outlive the screen and are asked for once.
 	if want.needsRepo() && !m.repo.Loaded {
-		m.picking.want = want
+		m.picking.want, m.picking.wantOn = want, m.railRing.on
 		repo := m.pr.Repository
 		return m, func() tea.Msg { return NeedRepoMetaMsg{Repo: repo} }
 	}
@@ -174,6 +207,9 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		return m, func() tea.Msg { return NeedBranchesMsg{Repo: repo} }
 	}
 
+	if want == pickMerge {
+		return m, m.startMerge()
+	}
 	m.startPicker(want)
 	return m, nil
 }

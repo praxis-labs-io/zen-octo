@@ -76,7 +76,7 @@ func (m *Model) railBody(width int) string {
 	// other reason they sit at the bottom.
 	section("Checks", m.checkRows(d.Rollup, width))
 	section("Base", m.baseRow(d, width))
-	section("Merge", m.mergeRow(d.Merge, width))
+	section("Merge", m.mergeRow(d, width))
 
 	return strings.Join(blocks, "\n\n")
 }
@@ -352,9 +352,12 @@ func (m Model) authorRow(a gh.Actor, width int) []railEntry {
 // viewer may do, which is not the same as nothing being allowed, and dropping
 // the key early moves every rail stop by one the moment the answer arrives.
 //
-// There is no equivalent of the State row's write guard. The optimistic fold
-// here moves the branch and the count, and touches neither the permissions nor
-// the lifecycle this reads.
+// It keeps the State row's write guard, though a retarget does not need one:
+// that fold moves the branch and the count and touches neither the permissions
+// nor the lifecycle read here. A merge does. It sets the state to merged before
+// GitHub has answered, and without the guard this row turns into a fact in the
+// same frame the Merge row does, so a reader standing on either loses their
+// place on the ring to a write they have only just started.
 func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 	base := d.BaseRefName
 
@@ -377,7 +380,7 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 		text, c = comp.Plural(d.BehindBy, "commit")+" behind "+base, m.theme.Warning
 	}
 
-	if m.detail.Loaded && (!d.Viewer.CanUpdate || d.State == gh.PRStateMerged) {
+	if m.detail.Loaded && !m.detail.StateWriting && (!d.Viewer.CanUpdate || d.State == gh.PRStateMerged) {
 		return m.railFact(text, c, width)
 	}
 	return m.railControl(focusBase, text, c, width)
@@ -386,7 +389,67 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 // mergeRow is whether it can be merged, and what is in the way if it cannot.
 // The ring stops here for the same reason it stops on the state: merging is a
 // change to what this row says, and this is the row that says it.
-func (m Model) mergeRow(s gh.MergeState, width int) []railEntry {
-	label, c := comp.MergeStateLabel(m.theme, s)
-	return m.railControl(focusMerge, label, c, width)
+//
+// Only where there is a merge to make. A pull request with conflicts, a draft,
+// and one GitHub has not finished computing all state a fact the ring walks
+// past, the way an empty Checks section does: a key that opens a form for a
+// write GitHub will refuse is worse than no key.
+//
+// Only once the detail has landed, which is the rule every row here holds to.
+// Before that nothing is known, which is not the same as nothing being allowed.
+//
+// And never while a lifecycle write is out, which is the guard the State row
+// keeps and for the same reason. The optimistic merge moves the state under
+// this row, so without it the key vanishes between the press and the answer,
+// taking the ring stop out from under the reader standing on this very row: the
+// highlight goes, and the next tab re-anchors to the top of the rail rather
+// than stepping to the row below.
+func (m Model) mergeRow(d gh.PullRequestDetail, width int) []railEntry {
+	// What it says and whether it is a control are two questions, and the
+	// optimistic merge answers them differently. The lifecycle decides the
+	// words, because mergeStateStatus says what stands in the way of merging
+	// and has nothing to say once the merge has happened; the base goes with
+	// them rather than the bare word, which the State row above already
+	// carries. So the row reads as merged the moment the key is pressed.
+	text, c := comp.MergeStateLabel(m.theme, d.Merge)
+	if d.State == gh.PRStateMerged {
+		text, c = "Merged into "+d.BaseRefName, m.theme.Secondary
+	}
+
+	// The key is the other question, and during the write it stays. Enter is
+	// inert meanwhile, on startMerge's own guard, which is the arrangement the
+	// State row keeps for the same reason.
+	if m.detail.Loaded && !m.detail.StateWriting && !mergeable(d) {
+		return m.railFact(text, c, width)
+	}
+	return m.railControl(focusMerge, text, c, width)
+}
+
+// mergeable is whether this pull request has a merge on offer.
+//
+// Clean is the ordinary case and checks failing is the other one: GitHub's own
+// button merges an UNSTABLE pull request, because a red check that no rule
+// requires is not a rule.
+//
+// Blocked and behind are a protection rule standing in the way, and
+// viewerCanMergeAsAdmin is GitHub saying this account may lift it. They go
+// together rather than apart because they are the same kind of refusal. Nothing
+// lifts a conflict, and nothing merges a draft.
+//
+// The lifecycle is read first, and not merely for being merged. GitHub answers
+// CLEAN on a closed pull request as readily as on an open one, and a close
+// applied here moves the state and deliberately leaves the merge status alone,
+// so reading the status by itself keeps a live "Ready to merge" control on a
+// pull request nothing is going to merge.
+func mergeable(d gh.PullRequestDetail) bool {
+	if d.State != gh.PRStateOpen {
+		return false
+	}
+	switch d.Merge {
+	case gh.MergeClean, gh.MergeUnstable:
+		return true
+	case gh.MergeBlocked, gh.MergeBehind:
+		return d.Viewer.CanMergeAsAdmin
+	}
+	return false
 }

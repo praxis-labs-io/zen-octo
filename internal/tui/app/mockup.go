@@ -74,8 +74,16 @@ var mockUsers = []gh.Actor{
 // RepoMeta hands back a label set wide enough to exercise the picker's filter
 // row, which only appears once a list outgrows what fits on screen, and a
 // people list short enough to show the same picker without one.
+// The merge methods are all three, so the form opens here at all: a zero
+// MergeMethods forbids every one of them, and startMerge refuses to open a
+// modal with nothing to choose. Deleting on merge is off, so the delete row is
+// on the form too.
 func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
-	return gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: mockLabels, Users: mockUsers}}, nil
+	return gh.RepoMetaResult{Meta: gh.RepoMeta{
+		Labels:  mockLabels,
+		Users:   mockUsers,
+		Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
+	}}, nil
 }
 
 // SetLabels hands back what it was asked for, resolved against the repository's
@@ -134,6 +142,12 @@ func (Mock) Branches(_ context.Context, _, query string) (gh.BranchResult, error
 func (Mock) SetBase(_ context.Context, _, base string) (gh.BaseResult, error) {
 	return gh.BaseResult{BaseRefName: base}, nil
 }
+
+func (Mock) Merge(_ context.Context, _ string, _ gh.MergeOptions) (gh.MergeResult, error) {
+	return gh.MergeResult{State: gh.PRStateMerged}, nil
+}
+
+func (Mock) DeleteRef(_ context.Context, _ string) error { return nil }
 
 // SetAssignees hands back what it was asked for, resolved against the
 // repository's own list, the way SetLabels does.

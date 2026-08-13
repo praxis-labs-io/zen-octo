@@ -19,9 +19,11 @@ const detailBody = `{
     "isDraft": false, "state": "OPEN",
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "viewerCanAssign": true,
+    "viewerCanMergeAsAdmin": false, "isCrossRepository": false,
     "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-05T11:00:00Z",
     "additions": 42, "deletions": 7, "changedFiles": 3,
     "headRefName": "fix-auth", "baseRefName": "main",
+    "headRefOid": "9f1c2b7", "headRef": {"id": "REF_88"},
     "reviewDecision": "CHANGES_REQUESTED",
     "mergeable": "MERGEABLE",
     "mergeStateStatus": "BLOCKED",
@@ -29,6 +31,10 @@ const detailBody = `{
     "body": "Caps the backoff.",
     "author": {"login": "drucial"},
     "repository": {"nameWithOwner": "zen-octo/zen-octo"},
+    "mergeHeadline": "Merge pull request #412 from zen-octo/fix-auth",
+    "mergeBody": "Fix auth retry",
+    "squashHeadline": "Fix auth retry (#412)",
+    "squashBody": "* Cap the backoff\n\n* Add a test",
 
     "labels": {"nodes": [{"name": "bug", "color": "d73a4a"}]},
     "assignees": {"nodes": [{"id": "U_1", "login": "drucial"}]},
@@ -562,9 +568,68 @@ func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 		t.Fatalf("PullRequest() error = %v, want nil", err)
 	}
 
-	want := ViewerActions{CanUpdate: true, CanClose: true, CanReopen: false, CanAssign: true}
+	want := ViewerActions{
+		CanUpdate: true, CanClose: true, CanReopen: false, CanAssign: true,
+		CanMergeAsAdmin: false,
+	}
 	if res.Detail.Viewer != want {
 		t.Errorf("Viewer = %+v, want %+v", res.Detail.Viewer, want)
+	}
+}
+
+// The merge form sends the oid as the commit it means and the ref id as the
+// branch to delete afterwards. Neither is recoverable from anything else on the
+// detail: the oid is not the last commit in the list once a rebase reorders it,
+// and deleteRef takes no branch name at all.
+func TestPullRequestReadsTheHeadCommitAndItsBranch(t *testing.T) {
+	d := fetchDetail(t)
+
+	if got, want := d.HeadRefOid, "9f1c2b7"; got != want {
+		t.Errorf("HeadRefOid = %q, want %q", got, want)
+	}
+	if got, want := d.HeadRefID, "REF_88"; got != want {
+		t.Errorf("HeadRefID = %q, want %q", got, want)
+	}
+}
+
+// GitHub nulls headRef once the branch is gone, which is every merged pull
+// request in a repository that deletes on merge. That has to leave the id empty
+// rather than fail the parse: the whole detail would go with it.
+func TestPullRequestSurvivesADeletedHeadBranch(t *testing.T) {
+	body := strings.Replace(detailBody, `"headRef": {"id": "REF_88"}`, `"headRef": null`, 1)
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+	if err != nil {
+		t.Fatalf("PullRequest() error = %v, want nil", err)
+	}
+	if got := res.Detail.HeadRefID; got != "" {
+		t.Errorf("HeadRefID = %q, want empty on a deleted branch", got)
+	}
+}
+
+// GitHub's own commit message per method, which is the whole reason the form
+// does not compute one: the repository decides whether a squash title is the
+// pull request's or its single commit's.
+func TestPullRequestReadsTheMergeMessages(t *testing.T) {
+	d := fetchDetail(t)
+
+	merge := MergeMessage{
+		Headline: "Merge pull request #412 from zen-octo/fix-auth",
+		Body:     "Fix auth retry",
+	}
+	if got := d.MergeMessage(MergeMethodMerge); got != merge {
+		t.Errorf("MergeMessage(MERGE) = %+v, want %+v", got, merge)
+	}
+
+	squash := MergeMessage{Headline: "Fix auth retry (#412)", Body: "* Cap the backoff\n\n* Add a test"}
+	if got := d.MergeMessage(MergeMethodSquash); got != squash {
+		t.Errorf("MergeMessage(SQUASH) = %+v, want %+v", got, squash)
+	}
+
+	// A rebase writes no commit of its own, so the form drops both fields and
+	// this must not hand back the merge commit's text to fill them.
+	if got := d.MergeMessage(MergeMethodRebase); got != (MergeMessage{}) {
+		t.Errorf("MergeMessage(REBASE) = %+v, want empty", got)
 	}
 }
 
@@ -716,6 +781,7 @@ func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 	for _, want := range []string{
 		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
 		"viewerCanReply", "viewerCanResolve", "viewerCanUnresolve", "viewerCanAssign",
+		"viewerCanMergeAsAdmin", "isCrossRepository",
 	} {
 		if !strings.Contains(pullRequestQuery, want) {
 			t.Errorf("the query does not ask for %q", want)

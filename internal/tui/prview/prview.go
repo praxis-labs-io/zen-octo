@@ -276,6 +276,11 @@ type Model struct {
 	// picking is the picker over the screen, empty when there is none.
 	picking picking
 
+	// merging is the merge form over the screen, empty when there is none. It
+	// is not a picker: merging is a method, a commit message and a branch to
+	// delete, which is a form, and only one of the two can be up at a time.
+	merging merging
+
 	width  int
 	height int
 }
@@ -410,6 +415,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// terminal wraps a middle-click or a cmd+v in, and the clipboard read its
 		// own ctrl+v asks for. Neither reaches handleKey, so while a box has the
 		// keyboard anything this screen does not recognise goes to it.
+		//
+		// The merge form holds two boxes of its own and is checked first,
+		// because it owns the keyboard whenever it is up. Its caret comes
+		// through here too: the blink is a message rather than a key, and a
+		// field that never receives one has a caret that never blinks.
+		if m.merging.open {
+			return m, m.merging.update(msg)
+		}
+
 		box := m.writing()
 		if box == nil {
 			return m, nil
@@ -479,6 +493,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// picker. Every letter is a letter then, so nothing below this line gets a
 	// look.
 	switch {
+	case m.merging.open:
+		return m.mergeKey(keyMsg)
 	case m.picking.open():
 		return m.pickerKey(keyMsg)
 	case m.compose.typing:
@@ -986,6 +1002,10 @@ func (m Model) Rail() RailPreference {
 func (m *Model) SetSize(width, height int) {
 	m.width, m.height = width, height
 	m.layout()
+
+	// The form sizes its own boxes and cannot do it while rendering: View is
+	// reached through value receivers, so a width set there is set on a copy.
+	m.merging.resize(width, height)
 }
 
 // layout sizes the panes for the current frame, tab, and rail state.
@@ -1201,7 +1221,7 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	return m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...))
+	return m.mergeOverlay(m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...)))
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

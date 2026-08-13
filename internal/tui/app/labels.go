@@ -46,7 +46,7 @@ func (m Model) needRepoMeta(repo string) (tea.Model, tea.Cmd) {
 		// Already held, and the screen asked because it had not been handed
 		// them yet. Nothing to fetch, so hand them over now.
 		if held := m.store.Repo(repo); held.Loaded && m.showingRepo(repo) {
-			m.detail.SetRepo(held)
+			return m, m.detail.SetRepo(held)
 		}
 		return m, nil
 	}
@@ -78,7 +78,7 @@ func (m Model) repoMetaLanded(msg repoMetaFetchedMsg) (tea.Model, tea.Cmd) {
 	m.store.RepoMetaApplied(msg.repo, msg.res)
 
 	if m.showingRepo(msg.repo) {
-		m.detail.SetRepo(m.store.Repo(msg.repo))
+		return m, m.detail.SetRepo(m.store.Repo(msg.repo))
 	}
 	return m, nil
 }

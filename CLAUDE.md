@@ -208,6 +208,71 @@ confirming refetch can fail, and a row that latched on the first would report a
 finished write as in flight for the rest of the session. `gh.BehindUnknown` is
 the count meanwhile, since zero is already spoken for: it means up to date.
 
+The Merge row is the one control that opens a form rather than a picker: a
+method, a commit message, a branch to delete, and a button. It is a control on a
+clean pull request and on one whose checks are failing, because GitHub's own
+button merges the second: a red check no rule requires is not a rule. Blocked
+and behind go together and only under `viewerCanMergeAsAdmin`, because they are
+the same refusal, a protection rule standing in the way and a flag that lifts
+it; the form says `Bypasses branch protection on main` when it is doing that,
+which is the one merge here overriding something somebody set on purpose.
+Nothing lifts a conflict and nothing merges a draft. Nothing merges an unknown
+either, but that one is a wait rather than an answer: GitHub computes
+mergeability lazily and the query that reads it is what starts the computation,
+so a pull request nothing has looked at recently opens on "Checking" and the row
+is inert. One probe is armed for that, on the first landing in a session alone,
+which is what keeps it to a single extra request rather than a loop.
+
+**The commit message is GitHub's own, per method**, from
+`viewerMergeHeadlineText` and `viewerMergeBodyText`: the repository decides
+whether a squash title is the pull request's or its single commit's, and nothing
+on this side reconstructs that. Switching method rewrites whichever field the
+reader has not touched, because a merge commit and a squash want different
+sentences. A rebase answers empty to both, which is GitHub saying it writes no
+commit of its own, so the form drops the two fields from the render and from the
+ring rather than sending text that gets discarded. `expectedHeadOid` is the
+commit that was on screen, snapshotted when the form opens: a refetch landing
+behind the modal must not change which commit gets merged, and a branch that
+moved comes back refused in GitHub's own words rather than merged unseen.
+
+Deleting the head branch is a second call and it cannot undo the first, so it
+runs off the back of the merge's answer and its failure toasts alone. It is not
+made at all where the repository sets `deleteBranchOnMerge`: GitHub deletes the
+branch itself a moment later, and a call racing that fails on a ref already gone,
+which is an error about a thing that worked. There the row is absent rather than
+ticked. `deleteRef` takes the ref's node id and no name, which is why the detail
+asks for `headRef { id }`; it is null once the branch is gone. Success says
+nothing, because that toast lands a beat behind the merge's own and would take
+the status bar off the more important of the two.
+
+**`viewerCanDeleteHeadRef` does not answer whether the viewer may delete the
+head branch.** It is false on every open pull request, for a repository
+administrator as readily as for a stranger, and turns true the moment the pull
+request closes. The only time a merge form can be open is while it is open, so a
+row gated on that flag never appears once, in any session, for anybody. That
+shipped as far as the runbook. There is no field that does answer it: `Ref` has
+no viewer permission at all. So the row is ungated, on the same terms a review
+request is, and the delete's own failure is what reports a refusal. The one case
+refused up front is `isCrossRepository`, a head living in a fork, because
+deleting a contributor's branch is worth declining without being asked to.
+
+`MergeEdit` settles against `fieldState` rather than a field of its own. A merge
+is a lifecycle move, so a close and a merge in flight together settle
+last-held-wins the way two lifecycle writes do, and the fold marks the detail
+`StateWriting` for free. It moves the state and leaves `mergeStateStatus` alone,
+because the row reads the lifecycle first: a merged pull request says "Merged
+into main" whatever GitHub last answered about what stands in the way.
+
+A refused merge is the one revert here that refetches, because the refusal is
+evidence about the screen rather than about the pull request. The commonest one
+is the head having moved since the detail was fetched, and there the fetched row
+is the very thing that lost the merge: putting "Ready to merge" straight back
+says the branch is as it was and invites the same press again. `EditRevertedStale`
+is what both it and the reviewer write go through, dropping the edit and marking
+the fetch in flight stale so an answer asked for before the failure cannot be
+believed. Every other write is all or nothing, and reverting one of those says
+the pull request never moved, which needs no request to confirm.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a
@@ -256,4 +321,6 @@ Each of these looks like working code and produces a broken frame.
 - **A text box inside a scrolling pane rebuilds the whole page on every keystroke.** Cards are re-bordered one by one, so a long thread costs 27ms a character with the markdown cache hitting perfectly. Nothing around the box can change while it has the keyboard, so build the head and the tail once and join a fresh box between them.
 - **The page splits at the outermost block holding the box, not at the block that holds it.** A review renders its own card and every thread it opened as one string with a branch gutter down the side, so cutting between two of them means splicing `├─`, `│ ` and `╰─` back together at the right variant. Cut either side of the whole review instead.
 - **Scrolling the shortest distance is right wherever a box is involved, and wrong everywhere else.** A key that lands on a block is taking the reader somewhere, so the block goes to the top row. A box is different twice over. A character typed is not taking them anywhere, and hauling the page for it is the worse of the two wrongs. Opening one is worse still: the box sits under what it answers, so moving it to the top row scrolls the thread off the screen and leaves the reader writing a reply to something they can no longer see. The caret needs no arithmetic of its own, because the box is a fixed height and the textarea scrolls inside it, so a box in view is a caret in view.
+- **A text input sized during a render is sized on a copy.** `View` is reached through value receivers all the way down, so a `SetWidth` there is thrown away with the copy, and the real widget keeps a width of zero: it renders from the first character, never scrolls, and every keystroke past the visible edge is invisible while the caret sits off the box. Size the fields when the thing opens and when the screen resizes, never while drawing.
+- **A text input recomputes its visible window only when the caret leaves it.** Writing a longer value and then putting the caret inside the window the old one had leaves that window exactly where it was, so the box goes on showing as many characters as the short value did. Ending first and coming back is what forces the recompute. A fixture whose two values are the same length proves none of this.
 - **A block that answers the line above it cannot go to the top row either.** The rule holds past the compose box. A review thread in the diff hangs under the code it was written against, so a jump that tops the card scrolls that code away and lands the reader on a comment about something they cannot see. Open a few lines above it instead, and never above the file's own heading, which reads as the wrong file until the eye finds the border.

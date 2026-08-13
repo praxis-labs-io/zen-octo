@@ -991,3 +991,131 @@ func TestInvalidateBranchesLetsTheNextPickerAskAgain(t *testing.T) {
 		t.Error("BeginBranches still refuses after the search was invalidated")
 	}
 }
+
+// A merge lands the pull request before GitHub answers, the way every other
+// write on this rail paints first.
+func TestAPendingMergeRendersBeforeItLands(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	s.PendingMerge("PR_1")
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want MERGED", state)
+	}
+}
+
+// A merge is a lifecycle move, so the State row has to wait it out the same way
+// it waits out a close: the state says merged while the permissions still say
+// closable.
+func TestAMergeInFlightReadsAsAStateWrite(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	key := s.PendingMerge("PR_1")
+	if !s.Detail("PR_1").StateWriting {
+		t.Error("StateWriting is not set while a merge is out")
+	}
+
+	s.EditReverted("PR_1", key)
+	if s.Detail("PR_1").StateWriting {
+		t.Error("StateWriting is still set after the merge came back")
+	}
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateOpen {
+		t.Errorf("state = %q, want the fetched state back", state)
+	}
+}
+
+// Both are writes on the one field, so the later ask is what shows and the
+// earlier answer must not overwrite it.
+func TestAnEarlierCloseDoesNotOverwriteAMergeStillOut(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	closing := s.PendingState("PR_1", gh.TransitionClose)
+	s.PendingMerge("PR_1")
+
+	s.StateApplied("PR_1", closing, gh.PRStateResult{State: gh.PRStateClosed})
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want the merge still showing", state)
+	}
+}
+
+func TestMergeAppliedTakesGitHubsAnswerAndAsksForTheRest(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	key := s.PendingMerge("PR_1")
+
+	s.BeginDetail("PR_1") // a refresh asked for before the write settled
+	s.MergeApplied("PR_1", key, gh.MergeResult{State: gh.PRStateMerged})
+
+	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
+		t.Errorf("state = %q, want MERGED", state)
+	}
+	// The timeline, the checks and the merge state all move with it and none of
+	// them can be computed here.
+	if !s.StaleDetail("PR_1") {
+		t.Error("a landed merge did not mark the fetch in flight stale")
+	}
+}
+
+// A merge writes a commit onto the base and changes nothing about the
+// difference between the two branches, so the Files tab owes no refetch.
+func TestAMergeDoesNotMarkTheDiffStale(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+	s.BeginFiles("PR_1")
+	s.FilesApplied("PR_1", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+
+	key := s.PendingMerge("PR_1")
+	s.MergeApplied("PR_1", key, gh.MergeResult{State: gh.PRStateMerged})
+
+	if s.StaleFiles("PR_1") {
+		t.Error("a merge marked the diff stale, which costs a request for a diff that did not change")
+	}
+}
+
+// A write whose failure says the screen is behind GitHub owes a refetch, and
+// the answer it takes has to be one asked for after the failure. A response
+// already in flight was asked for before it and carries the same stale picture
+// the write just tripped over.
+func TestARevertThatOwesARefetchMarksTheFetchInFlightStale(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		hold func(s *store.Store) string
+	}{
+		{"a merge", func(s *store.Store) string { return s.PendingMerge("PR_1") }},
+		{"a reviewer write", func(s *store.Store) string {
+			return s.PendingReviewers("PR_1", []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}}})
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := store.New(configured())
+			s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+			key := tt.hold(&s)
+			s.BeginDetail("PR_1") // asked for before the write came back
+			s.EditRevertedStale("PR_1", key)
+
+			if !s.StaleDetail("PR_1") {
+				t.Error("the fetch in flight is not marked stale, so the caller will believe it")
+			}
+		})
+	}
+}
+
+// An ordinary revert says the pull request never moved, so there is nothing to
+// ask again for and no reason to spend the request.
+func TestAnOrdinaryRevertOwesNoRefetch(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
+
+	key := s.PendingState("PR_1", gh.TransitionClose)
+	s.BeginDetail("PR_1")
+	s.EditReverted("PR_1", key)
+
+	if s.StaleDetail("PR_1") {
+		t.Error("a plain revert marked the fetch stale and bought a request nothing needed")
+	}
+}

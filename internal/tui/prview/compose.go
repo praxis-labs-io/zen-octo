@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textarea"
+	area "charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -41,7 +41,7 @@ const postPad = 2
 // onto it the way it walks onto any card, and until enter it is a card like the
 // rest, so j still scrolls.
 type composer struct {
-	area textarea.Model
+	area area.Model
 
 	typing bool
 
@@ -58,27 +58,37 @@ type composer struct {
 }
 
 func newComposer(th theme.Theme) composer {
-	area := textarea.New()
+	area := textarea(th, composeRows)
 	area.Placeholder = "Leave a comment"
-	area.ShowLineNumbers = false
-	area.Prompt = ""
+	return composer{area: area}
+}
 
-	// The default is four hundred characters, which is a short review comment.
-	area.CharLimit = 0
+// textarea is a text box in this screen's colours, at the height the caller
+// wants. Both boxes here and the merge form's commit message want the same
+// thing, and the styles are set the same way twice: over the focused and the
+// blurred state alike, because a blurred box still renders its text and the
+// library's default palette is not this theme's.
+//
+// Every default it overrides is one that would show. The prompt and the line
+// numbers are chrome a comment does not want, and the character limit is four
+// hundred out of the box, which is a short review comment.
+func textarea(th theme.Theme, rows int) area.Model {
+	box := area.New()
+	box.ShowLineNumbers = false
+	box.Prompt = ""
+	box.CharLimit = 0
+	box.SetHeight(rows)
 
-	area.SetHeight(composeRows)
-
-	styles := area.Styles()
-	for _, state := range []*textarea.StyleState{&styles.Focused, &styles.Blurred} {
+	styles := box.Styles()
+	for _, state := range []*area.StyleState{&styles.Focused, &styles.Blurred} {
 		state.Base = lipgloss.NewStyle()
 		state.Text = lipgloss.NewStyle().Foreground(th.Primary)
 		state.Placeholder = lipgloss.NewStyle().Foreground(th.Faint)
 		state.CursorLine = lipgloss.NewStyle()
 		state.EndOfBuffer = lipgloss.NewStyle().Foreground(th.Faint)
 	}
-	area.SetStyles(styles)
-
-	return composer{area: area}
+	box.SetStyles(styles)
+	return box
 }
 
 // body is what has been written, with the surrounding whitespace off. A comment

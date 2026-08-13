@@ -19,6 +19,13 @@ import (
 // folds a run of them back into the one line rather than the query dropping
 // them. Renamed, subscribed, mentioned and the rest stay out: nothing here
 // writes them and nobody reads them.
+//
+// The two viewerMerge fields are GitHub's own commit message per method, asked
+// for so the merge form opens holding what GitHub would write rather than
+// something reconstructed here: the repository decides whether a squash title
+// is the pull request's or its single commit's, and nothing on this side can
+// tell. REBASE is not asked for because it answers empty, which is GitHub
+// saying a rebase writes no commit of its own.
 const pullRequestQuery = `
 query PullRequestDetail($id: ID!, $head: String!) {
   rateLimit { limit cost remaining resetAt }
@@ -34,6 +41,8 @@ query PullRequestDetail($id: ID!, $head: String!) {
       viewerCanClose
       viewerCanReopen
       viewerCanAssign
+      viewerCanMergeAsAdmin
+      isCrossRepository
       createdAt
       updatedAt
       additions
@@ -41,12 +50,19 @@ query PullRequestDetail($id: ID!, $head: String!) {
       changedFiles
       headRefName
       baseRefName
+      headRefOid
+      headRef { id }
       reviewDecision
       mergeable
       mergeStateStatus
       body
       author { login }
       repository { nameWithOwner }
+
+      mergeHeadline: viewerMergeHeadlineText(mergeType: MERGE)
+      mergeBody: viewerMergeBodyText(mergeType: MERGE)
+      squashHeadline: viewerMergeHeadlineText(mergeType: SQUASH)
+      squashBody: viewerMergeBodyText(mergeType: SQUASH)
 
       baseRef { compare(headRef: $head) { behindBy } }
 
@@ -276,23 +292,35 @@ type pullRequestResponse struct {
 	}
 
 	Node struct {
-		ID              string
-		Number          int
-		Title           string
-		URL             string
-		IsDraft         bool
-		State           string
-		ViewerCanUpdate bool
-		ViewerCanClose  bool
-		ViewerCanReopen bool
-		ViewerCanAssign bool
-		CreatedAt       time.Time
-		UpdatedAt       time.Time
-		Additions       int
-		Deletions       int
-		ChangedFiles    int
-		HeadRefName     string
-		BaseRefName     string
+		ID                    string
+		Number                int
+		Title                 string
+		URL                   string
+		IsDraft               bool
+		State                 string
+		ViewerCanUpdate       bool
+		ViewerCanClose        bool
+		ViewerCanReopen       bool
+		ViewerCanAssign       bool
+		ViewerCanMergeAsAdmin bool
+		IsCrossRepository     bool
+		CreatedAt             time.Time
+		UpdatedAt             time.Time
+		Additions             int
+		Deletions             int
+		ChangedFiles          int
+		HeadRefName           string
+		BaseRefName           string
+		HeadRefOid            string
+
+		// Null once the branch is deleted, which is every merged pull request
+		// in a repository that deletes on merge.
+		HeadRef *struct{ ID string }
+
+		MergeHeadline  string
+		MergeBody      string
+		SquashHeadline string
+		SquashBody     string
 
 		ReviewDecision   string
 		Mergeable        string
@@ -469,13 +497,18 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CreatedAt:      n.CreatedAt,
 			UpdatedAt:      n.UpdatedAt,
 		},
-		Body:  n.Body,
-		Merge: mergeState(n.Mergeable, n.MergeStateStatus),
+		Body:            n.Body,
+		Merge:           mergeState(n.Mergeable, n.MergeStateStatus),
+		HeadRefOid:      n.HeadRefOid,
+		CrossRepository: n.IsCrossRepository,
+		MergeCommit:     MergeMessage{Headline: n.MergeHeadline, Body: n.MergeBody},
+		SquashCommit:    MergeMessage{Headline: n.SquashHeadline, Body: n.SquashBody},
 		Viewer: ViewerActions{
-			CanUpdate: n.ViewerCanUpdate,
-			CanClose:  n.ViewerCanClose,
-			CanReopen: n.ViewerCanReopen,
-			CanAssign: n.ViewerCanAssign,
+			CanUpdate:       n.ViewerCanUpdate,
+			CanClose:        n.ViewerCanClose,
+			CanReopen:       n.ViewerCanReopen,
+			CanAssign:       n.ViewerCanAssign,
+			CanMergeAsAdmin: n.ViewerCanMergeAsAdmin,
 		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),
@@ -525,6 +558,12 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 
 	if ref := n.BaseRef; ref != nil && ref.Compare != nil {
 		detail.BehindBy = ref.Compare.BehindBy
+	}
+
+	// A branch already deleted leaves the id empty, which is what says there is
+	// nothing left to delete.
+	if ref := n.HeadRef; ref != nil {
+		detail.HeadRefID = ref.ID
 	}
 
 	detail.Timeline = timeline(resp, detail.Commits)

@@ -51,6 +51,11 @@ type fakeSearcher struct {
 	reviewed    []string
 	moved       []string
 	retargeted  []string
+	merged      []gh.MergeOptions
+	// mergeState is what GitHub answers with, MERGED unless a test says
+	// otherwise: any pull request comes back as a success from the real one.
+	mergeState  gh.PRState
+	deletedRefs []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
 	repoMetas   map[string]gh.RepoMeta
@@ -71,7 +76,12 @@ type fakeSearcher struct {
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
 	// then, so the revert puts back a request that is really gone.
-	requestErr  error
+	requestErr error
+
+	// deleteErr fails the branch delete alone, which postErr cannot stage: the
+	// merge has landed by then, and the pull request stays merged whatever
+	// happens to the branch.
+	deleteErr   error
 	commitHold  time.Duration
 	postHold    time.Duration
 	gotLimit    int
@@ -148,8 +158,15 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 	// State row has nothing to offer and the Assignees section loses its add
 	// row, and either one stops being somewhere tab lands, which would move
 	// every rail row in these tests up by one.
+	//
+	// UNKNOWN rather than the zero value, because that is what the real client
+	// answers for a mergeability GitHub has not worked out: mergeState folds
+	// everything it does not recognise onto it, so an empty string never
+	// reaches the app and a fixture carrying one would not be a fixture of
+	// anything.
 	f.details[id] = gh.PullRequestDetail{
 		Body:   body,
+		Merge:  gh.MergeUnknown,
 		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 	}
 }
@@ -728,6 +745,12 @@ func (f *querySearcher) SetAssignees(_ context.Context, _ string, _ []string) (g
 func (f *querySearcher) SetBase(_ context.Context, _, _ string) (gh.BaseResult, error) {
 	return gh.BaseResult{}, nil
 }
+
+func (f *querySearcher) Merge(_ context.Context, _ string, _ gh.MergeOptions) (gh.MergeResult, error) {
+	return gh.MergeResult{}, nil
+}
+
+func (f *querySearcher) DeleteRef(_ context.Context, _ string) error { return nil }
 
 func (f *querySearcher) Branches(_ context.Context, _, _ string) (gh.BranchResult, error) {
 	return gh.BranchResult{}, nil
@@ -3168,4 +3191,61 @@ func (f *fakeSearcher) retargets() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.retargeted)
+}
+
+// Merge records what it was asked for and lands the staged pull request, for
+// the reason SetBase writes the branch back: the refetch the write fires would
+// otherwise report the state from before it, which reads on the rail as the
+// write undoing itself.
+//
+// It reuses postErr and postHold, the way the other writes do.
+func (f *fakeSearcher) Merge(_ context.Context, prID string, opts gh.MergeOptions) (gh.MergeResult, error) {
+	f.mu.Lock()
+	f.merged = append(f.merged, opts)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.MergeResult{}, err
+	}
+
+	f.mu.Lock()
+	for i := range f.prs {
+		if f.prs[i].ID == prID {
+			f.prs[i].State = gh.PRStateMerged
+		}
+	}
+	if d, ok := f.details[prID]; ok {
+		d.State = gh.PRStateMerged
+		f.details[prID] = d
+	}
+	f.mu.Unlock()
+
+	state := f.mergeState
+	if state == "" {
+		state = gh.PRStateMerged
+	}
+	return gh.MergeResult{State: state}, nil
+}
+
+func (f *fakeSearcher) DeleteRef(_ context.Context, refID string) error {
+	f.mu.Lock()
+	f.deletedRefs = append(f.deletedRefs, refID)
+	err := f.deleteErr
+	f.mu.Unlock()
+	return err
+}
+
+func (f *fakeSearcher) merges() []gh.MergeOptions {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.merged)
+}
+
+func (f *fakeSearcher) deletes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.deletedRefs)
 }

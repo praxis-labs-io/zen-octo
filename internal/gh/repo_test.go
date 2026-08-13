@@ -18,7 +18,11 @@ const repoMetaBody = `{
     "assignableUsers": {"nodes": [
       {"id": "U_1", "login": "drucial"},
       {"id": "U_2", "login": "nkr"}
-    ]}
+    ]},
+    "mergeCommitAllowed": false,
+    "squashMergeAllowed": true,
+    "rebaseMergeAllowed": true,
+    "deleteBranchOnMerge": true
   }
 }`
 
@@ -83,10 +87,32 @@ func TestRepoMetaMapsTheAssignableUsers(t *testing.T) {
 	}
 }
 
-// The query asks for what a picker renders and nothing else. Every extra
-// connection is billed to the reader on the first picker open, so a field
-// arrives with the picker that reads it. assignableUsers left this list when
-// the reviewer and assignee pickers landed.
+func TestRepoMetaMapsTheMergeMethods(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	want := MergeMethods{Merge: false, Squash: true, Rebase: true, DeleteOnMerge: true}
+	if res.Meta.Methods != want {
+		t.Errorf("methods = %+v, want %+v", res.Meta.Methods, want)
+	}
+	// A method the repository forbids must read as forbidden rather than as a
+	// field nobody asked for: the form offers exactly what Allows answers true.
+	if res.Meta.Methods.Allows(MergeMethodMerge) {
+		t.Error("Allows(MERGE) is true on a repository that forbids merge commits")
+	}
+	if !res.Meta.Methods.Allows(MergeMethodSquash) {
+		t.Error("Allows(SQUASH) is false on a repository that permits squashing")
+	}
+}
+
+// The query asks for what the rail renders and nothing else. Every extra
+// connection is billed to the reader on the first control they open, so a field
+// arrives with the control that reads it. Branches never join it: they are a
+// search keyed by what somebody typed, not a set fetched once per repository.
 func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -94,10 +120,8 @@ func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
-	for _, unread := range []string{"refs(", "mergeCommitAllowed", "deleteBranchOnMerge"} {
-		if strings.Contains(f.gotQuery, unread) {
-			t.Errorf("the query asks for %s, which nothing renders", unread)
-		}
+	if strings.Contains(f.gotQuery, "refs(") {
+		t.Error("the query asks for refs, which belong to a search rather than this cache")
 	}
 }
 

@@ -280,6 +280,28 @@ const (
 	MergeHasHooks MergeState = "HAS_HOOKS"
 )
 
+// MergeMethod is how a merge is made. The three GitHub takes, spelled the way
+// its enum spells them.
+type MergeMethod string
+
+const (
+	MergeMethodMerge  MergeMethod = "MERGE"
+	MergeMethodSquash MergeMethod = "SQUASH"
+	MergeMethodRebase MergeMethod = "REBASE"
+)
+
+// MergeMessage is the commit message GitHub would write for one merge method.
+//
+// It comes from GitHub rather than from anything computed here. The repository
+// decides whether a squash title is the pull request's or its single commit's,
+// and whether the body is the pull request's or a list of the commits, so no
+// combination of fields on this side reconstructs it. Both are empty for a
+// rebase, which is GitHub saying a rebase writes no commit of its own.
+type MergeMessage struct {
+	Headline string
+	Body     string
+}
+
 // Reviewer is someone GitHub lists on the pull request's reviewers panel:
 // either they have reviewed, or a review has been requested of them.
 //
@@ -366,11 +388,23 @@ type CheckRollup struct {
 // field for it. The two are not the same permission either: assigning needs
 // triage access and requesting a review needs write, so borrowing this one for
 // both would hide a control that works.
+//
+// CanMergeAsAdmin is whether the viewer may merge over branch protection.
+// There is no plain viewerCanMerge beside it: an ordinary merge is ungated
+// here, and a refusal comes back from the mutation for the revert branch to
+// answer, the same way a review request does.
+//
+// There is no flag for deleting the head branch either. viewerCanDeleteHeadRef
+// looks like one and answers a different question: it is false on every open
+// pull request, whatever the account holds, and turns true once it closes. Read
+// at the only moment a merge form can be open, it says no every time.
 type ViewerActions struct {
 	CanUpdate bool
 	CanClose  bool
 	CanReopen bool
 	CanAssign bool
+
+	CanMergeAsAdmin bool
 }
 
 // PullRequestDetail embeds the row, so a detail response refreshes the header
@@ -389,6 +423,24 @@ type PullRequestDetail struct {
 	Rollup   CheckRollup
 
 	Merge MergeState
+
+	// HeadRefOid is the commit at the tip of the head branch when this was
+	// fetched, which is what a merge sends as the commit it means. HeadRefID is
+	// that branch's node id, which is what deleting it takes; it is empty once
+	// the branch is gone.
+	HeadRefOid string
+	HeadRefID  string
+
+	// CrossRepository is a head branch living in a fork rather than here. It
+	// stands in for a delete permission GitHub publishes no usable field for:
+	// somebody else's branch is the one case worth refusing outright, and the
+	// rest is left to the call itself to accept or refuse.
+	CrossRepository bool
+
+	// MergeCommit and SquashCommit are what GitHub would write for those two
+	// methods. A rebase has neither, so there is no third field.
+	MergeCommit  MergeMessage
+	SquashCommit MergeMessage
 
 	// Viewer is what the signed-in account may do to this pull request.
 	Viewer ViewerActions
@@ -410,6 +462,18 @@ type PullRequestDetail struct {
 	MoreThreads  int
 	MoreCommits  int
 	MoreEvents   int
+}
+
+// MergeMessage is what GitHub would commit for one method, and the zero value
+// for a rebase, which writes no commit of its own.
+func (d PullRequestDetail) MergeMessage(m MergeMethod) MergeMessage {
+	switch m {
+	case MergeMethodMerge:
+		return d.MergeCommit
+	case MergeMethodSquash:
+		return d.SquashCommit
+	}
+	return MergeMessage{}
 }
 
 // BehindUnknown is BehindBy on a pull request whose base has just moved. The
@@ -554,8 +618,33 @@ type SearchResult struct {
 // one to guess with, because a name it leaves out is a write nobody could have
 // started rather than one GitHub refuses.
 type RepoMeta struct {
-	Labels []Label
-	Users  []Actor
+	Labels  []Label
+	Users   []Actor
+	Methods MergeMethods
+}
+
+// MergeMethods is what a repository permits a merge to be made of, and what it
+// does to the head branch afterwards.
+type MergeMethods struct {
+	Merge, Squash, Rebase bool
+
+	// DeleteOnMerge is the repository deleting the head branch itself, some
+	// moments after the merge lands. A client that also asks races that and
+	// fails on a ref already gone, which is an error about a thing that worked.
+	DeleteOnMerge bool
+}
+
+// Allows reports whether one method is on offer.
+func (m MergeMethods) Allows(method MergeMethod) bool {
+	switch method {
+	case MergeMethodMerge:
+		return m.Merge
+	case MergeMethodSquash:
+		return m.Squash
+	case MergeMethodRebase:
+		return m.Rebase
+	}
+	return false
 }
 
 // RepoMetaResult is one repository-metadata response: the choices and what they
@@ -605,6 +694,30 @@ type PRStateResult struct {
 // the refetch behind the write is for.
 type BaseResult struct {
 	BaseRefName string
+}
+
+// MergeOptions is one merge as the reader set it up.
+//
+// Headline and Body are empty for a rebase, which takes neither, and may be
+// empty for the other two: GitHub writes its own default when they are not
+// sent, and that default is the same text the form opened holding.
+type MergeOptions struct {
+	Method   MergeMethod
+	Headline string
+	Body     string
+
+	// ExpectedHeadOid is the commit the reader was looking at. GitHub refuses
+	// the merge when the branch has moved since, which is the point of sending
+	// it: merging a commit nobody has seen is the failure worth a round trip.
+	ExpectedHeadOid string
+}
+
+// MergeResult is where a pull request sits after a merge, as GitHub recorded
+// it.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type MergeResult struct {
+	State PRState
 }
 
 // BranchResult is one branch search: what matched on the page fetched, how many
