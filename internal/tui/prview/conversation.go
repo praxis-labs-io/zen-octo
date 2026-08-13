@@ -358,6 +358,8 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 
 	head := m.said(item.Actor, "commented", m.theme.Subtle, item)
 	switch {
+	case m.boxOn(key):
+		head = m.editHead("comment")
 	case said.Pending:
 		head = m.pendingHead(item.Actor, "commented", "posting")
 	case said.Editing:
@@ -372,6 +374,13 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
 		boxAt: m.cardBoxAt(key, width, content),
 	}
+}
+
+// editHead is the heading a card takes while the box is over it: who is writing
+// and what they are rewriting. The card's own byline goes for as long as the
+// box is up, because the card has stopped showing what somebody said.
+func (m *Model) editHead(what string) string {
+	return m.said(m.who, "edit this "+what, m.theme.Subtle, gh.TimelineItem{})
 }
 
 // bodyOrBox is a block's words, or the box in their place while they are being
@@ -398,7 +407,10 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	if written.Editing {
+	switch {
+	case m.boxOn(key):
+		head = m.editHead("review")
+	case written.Editing:
 		head = m.pendingHead(item.Actor, label, "saving")
 	}
 	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key)
@@ -522,12 +534,13 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	return hintLine(width, parts...)
 }
 
-// writeHints is what a comment answers to: the two keys that rewrite it, each
-// named only where GitHub will take the press. One already answering for a
-// write names neither, because the keys are inert on it until it settles.
+// writeHints is what a comment answers to: the two keys that rewrite it, named
+// only on the reader's own writing and only where GitHub will take the press.
+// One already answering for a write names neither, because the keys are inert
+// on it until it settles.
 func writeHints(c gh.Comment) []string {
 	k := keys.Detail
-	if c.Pending || c.Editing {
+	if !c.ViewerDidAuthor || c.Pending || c.Editing {
 		return nil
 	}
 
@@ -564,7 +577,7 @@ func (m Model) descriptionHints(key focusKey, d gh.PullRequestDetail, width int)
 	}
 
 	parts := m.quoteParts(d.Body)
-	if d.Viewer.CanUpdate {
+	if m.ownDescription() {
 		parts = append(parts, keys.Detail.Edit.Help().Key+" edit")
 	}
 	return hintLine(width, parts...)
@@ -677,6 +690,9 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Subtle, gh.TimelineItem{CreatedAt: d.CreatedAt})
+	if m.boxOn(key) {
+		head = m.editHead("description")
+	}
 
 	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key)
 	block := m.card(head, content, width, m.lit(key), m.descriptionHints(key, d, width))
@@ -879,6 +895,9 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	for _, c := range t.Comments {
 		ck := threadCommentKey(c)
 		byline := wrap(m.byline(c), inner)
+		if m.boxOn(ck) {
+			byline = wrap(m.editHead("comment"), inner)
+		}
 		body := m.bodyOrBox(c.Body, inner, "No comment.", ck)
 		start := push(gutter(byline+"\n\n"+body, c.ID == within))
 

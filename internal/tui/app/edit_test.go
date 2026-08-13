@@ -33,6 +33,18 @@ func (f *fakeSearcher) serveComment(id, commentID, body string) {
 	f.details[id] = held
 }
 
+// serveOwnDescription stages the pull request as the viewer's own writing. The
+// description carries no viewerDidAuthor, so whose it is comes from the login,
+// and the viewer is asked for once at startup.
+func (f *fakeSearcher) serveOwnDescription(id, login string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	held := f.details[id]
+	held.Author = gh.Actor{Login: login}
+	f.details[id] = held
+}
+
 // onComment opens the pull request and walks the ring onto its one comment: the
 // description is the first stop and the comment is the second.
 func onComment(t *testing.T, client *fakeSearcher) tea.Model {
@@ -173,8 +185,9 @@ func TestCancellingTheConfirmWritesNothing(t *testing.T) {
 // The description is the first stop on the ring, and it is written through the
 // pull request rather than through a comment.
 func TestEditingTheDescriptionWritesThePullRequest(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs()}
+	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveOwnDescription("PR_412", "drucial")
 
 	m := press(loaded(t, client, 160, 40), "enter", "}")
 	m = press(write(press(m, "e"), " And the retry count."), "ctrl+enter")
@@ -194,8 +207,13 @@ func TestEditingTheDescriptionWritesThePullRequest(t *testing.T) {
 }
 
 func TestAFailedDescriptionEditKeepsTheWords(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
+	client := &fakeSearcher{
+		prs:     samplePRs(),
+		postErr: errors.New("502 Bad Gateway"),
+		viewer:  gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}},
+	}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveOwnDescription("PR_412", "drucial")
 
 	m := press(loaded(t, client, 160, 40), "enter", "}")
 	m = press(write(press(m, "e"), " And the retry count."), "ctrl+enter")

@@ -50,9 +50,12 @@ type target struct {
 
 // editable is what e would open on, or false where there is nothing to edit.
 //
-// The permission is GitHub's answer rather than a guess from the author's
-// login: a maintainer may rewrite anybody's comment in their own repository,
-// and somebody who has lost write access may not rewrite their own.
+// Both questions have to answer yes. GitHub says whether the viewer may, and
+// viewerCanUpdate is true on everybody's comment in a repository the viewer
+// maintains; whose writing it is is the second question, and rewriting somebody
+// else's words under their name is not something this client offers however
+// entitled the token is. viewerDidAuthor is GitHub's answer to that one too,
+// rather than a login compared here.
 //
 // A comment already answering for a write is not one to open. Two rewrites out
 // at once settle in the order the responses arrive, which is not the order they
@@ -64,17 +67,28 @@ func (m Model) editable() (target, bool) {
 	}
 
 	if w.kind == "" {
-		// The description goes through updatePullRequest, and viewerCanUpdate is
-		// the flag that mutation tracks.
-		return w, m.detail.Detail.Viewer.CanUpdate
+		return w, m.ownDescription()
 	}
 
 	c, ok := m.heldComment(w)
-	return w, ok && c.CanEdit && !c.Pending && !c.Editing
+	return w, ok && c.ViewerDidAuthor && c.CanEdit && !c.Pending && !c.Editing
+}
+
+// ownDescription is whether the description is the viewer's own writing and
+// GitHub will take the write.
+//
+// A pull request carries no viewerDidAuthor, so this is the one place the
+// question is answered by comparing logins. An unknown viewer answers no: the
+// login is asked for once at startup, and a client that could not learn who it
+// is has no business rewriting somebody's opening argument.
+func (m Model) ownDescription() bool {
+	d := m.detail.Detail
+	return d.Viewer.CanUpdate && m.who.Login != "" && m.who.Login == d.Author.Login
 }
 
 // deletable is what D would open the confirm on, or false where there is
-// nothing to delete.
+// nothing to delete. Whose writing it is counts here for the reason it counts
+// above, and more so: this one cannot be undone.
 //
 // Two blocks are refused here that editable takes. The description is not a
 // comment and cannot be removed at all. A review's body reports
@@ -88,7 +102,7 @@ func (m Model) deletable() (target, bool) {
 	}
 
 	c, ok := m.heldComment(w)
-	return w, ok && c.CanDelete && !c.Pending && !c.Editing
+	return w, ok && c.ViewerDidAuthor && c.CanDelete && !c.Pending && !c.Editing
 }
 
 // onRing is the block the focus is holding, whatever may be done to it.

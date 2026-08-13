@@ -244,7 +244,13 @@ func (m *Model) showCaret() {
 		return
 	}
 
-	caret := m.boxLine + box.caretRow(box.area.Width())
+	// Clamped to the rows the box is showing. The caret is drawn inside the box
+	// and cannot be outside it: past the cap the textarea scrolls within itself,
+	// and a count taken before it has repositioned would send the page chasing a
+	// line that is not on it.
+	row := min(max(box.caretRow(box.area.Width()), 0), max(0, box.area.Height()-1))
+
+	caret := m.boxLine + row
 	top, height := bodyTop(&m.view), m.view.Height()
 	if height <= 0 {
 		return

@@ -17,9 +17,10 @@ const (
 	tabReview      = 3
 )
 
-// writable is the fixture with GitHub's permissions on it. The sample carries
-// none, which is a viewer who may read and nothing else, so every key here
-// would be inert without this.
+// writable is the fixture as the reader's own writing, with GitHub's
+// permissions on it. The sample carries neither, which is somebody looking at a
+// conversation they had no part in, so every key here would be inert without
+// this.
 //
 // The review's own body is deletable and its comment is not, which is the pair
 // the delete key has to tell apart: GitHub answers true on both and has a call
@@ -30,20 +31,26 @@ func writable() gh.PullRequestDetail {
 	for _, item := range d.Timeline {
 		switch item.Kind {
 		case gh.TimelineComment:
-			item.Comment.CanEdit, item.Comment.CanDelete = true, true
+			mine(item.Comment)
 			// Three paragraphs, so the card has a height an opening box could
 			// change.
 			item.Comment.Body += "\n\nThe cap holds through a retry storm.\n\nRunbook updated."
 		case gh.TimelineReview:
-			item.Comment.CanEdit, item.Comment.CanDelete = true, true
+			mine(item.Comment)
 		}
 	}
 
 	for i := range d.Threads[0].Comments {
-		d.Threads[0].Comments[i].CanEdit = true
-		d.Threads[0].Comments[i].CanDelete = true
+		mine(&d.Threads[0].Comments[i])
 	}
 	return d
+}
+
+// mine marks a comment as the reader's own, which GitHub will take a rewrite
+// of. Both answers come from GitHub and both are needed: a maintainer may edit
+// anybody's comment and this client offers that on nobody's.
+func mine(c *gh.Comment) {
+	c.ViewerDidAuthor, c.CanEdit, c.CanDelete = true, true, true
 }
 
 // editing walks the ring to a block and opens the box over it.
@@ -52,7 +59,15 @@ func editing(n int) prview.Model {
 }
 
 func onWritable(n int) prview.Model {
-	return walked(detailed(held(writable()), 200, 60), n)
+	return walked(viewing(writable(), 200, 60), n)
+}
+
+// viewing is the screen with the viewer named, which is what the description
+// reads to know whose writing it is: a pull request carries no viewerDidAuthor.
+func viewing(d gh.PullRequestDetail, width, height int) prview.Model {
+	m := detailed(held(d), width, height)
+	m.SetViewer(gh.Actor{Login: "drucial"})
+	return m
 }
 
 // The box goes where the words were, inside the card they were in. A comment
@@ -61,8 +76,8 @@ func onWritable(n int) prview.Model {
 func TestTheEditBoxOpensInPlaceOfTheWordsItReplaces(t *testing.T) {
 	out := stripANSI(editing(tabComment).View())
 
-	head := strings.Index(out, "octobot · commented")
-	box := strings.Index(out, "Update")
+	head := strings.Index(out, "edit this comment")
+	box := strings.Index(out, "Save")
 	foot := strings.Index(out, "write a comment")
 
 	switch {
@@ -74,10 +89,10 @@ func TestTheEditBoxOpensInPlaceOfTheWordsItReplaces(t *testing.T) {
 		t.Error("the box is at the foot of the page rather than in the card")
 	}
 
-	// The card keeps its heading, so the reader can see whose words they are
-	// rewriting.
-	if !strings.Contains(out, "octobot · commented") {
-		t.Error("the card lost its heading when the box opened")
+	// The heading says what is happening to the card, the way the box at the
+	// foot of the page says what is being written there.
+	if !strings.Contains(out, "edit this comment") {
+		t.Errorf("the card does not say it is being edited:\n%s", out)
 	}
 	// The words are in the box rather than rendered under it.
 	if !strings.Contains(out, "Coverage held at 84.2%") {
@@ -116,7 +131,7 @@ func TestTheEditBoxGrowsWithWhatIsTypedIntoIt(t *testing.T) {
 // The compose card holds whatever was typed into it. If the two shared one
 // buffer, opening this box would throw a half-written comment away.
 func TestOpeningTheEditBoxKeepsAHalfWrittenComment(t *testing.T) {
-	m := typed(press(detailed(held(writable()), 200, 60), "c"), "half a thought")
+	m := typed(press(viewing(writable(), 200, 60), "c"), "half a thought")
 	m = press(m, "esc")
 
 	// The ring is on the compose card, so one step is the description and two
@@ -134,11 +149,32 @@ func TestOpeningTheEditBoxKeepsAHalfWrittenComment(t *testing.T) {
 	}
 }
 
-// A box grows with what is typed into it, so it can be taller than the window
-// it is drawn in. The caret has to be on the screen anyway: the page follows it
-// rather than the card it sits in, which is the one place on this screen the
-// scroll is not about a block.
-func TestTheCaretStaysOnTheScreenInABoxTallerThanTheWindow(t *testing.T) {
+// The box stops growing at the pane. Past that the card's foot goes off the
+// screen, and the foot is where the control that saves the words is: a reader
+// writing into something with no visible end has no way out but a chord nothing
+// on screen has named.
+func TestABoxNeverGrowsPastThePane(t *testing.T) {
+	d := writable()
+	for _, item := range d.Timeline {
+		if item.Kind == gh.TimelineComment {
+			item.Comment.Body = strings.Repeat("A line of it.\n\n", 40)
+		}
+	}
+
+	m := press(walked(viewing(d, 200, 24), tabComment), "e")
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "edit this comment") {
+		t.Errorf("the card's heading is off the screen:\n%s", out)
+	}
+	if !strings.Contains(out, "Save") {
+		t.Errorf("the card's foot is off the screen:\n%s", out)
+	}
+}
+
+// The line being written is on the screen wherever the box is: under the cap
+// the textarea scrolls inside itself, and above it the page follows the caret.
+func TestTheCaretStaysOnTheScreenInALongComment(t *testing.T) {
 	d := writable()
 	for _, item := range d.Timeline {
 		if item.Kind == gh.TimelineComment {
@@ -148,7 +184,7 @@ func TestTheCaretStaysOnTheScreenInABoxTallerThanTheWindow(t *testing.T) {
 
 	// A window shorter than the comment, so the box opens taller than the pane
 	// and the caret lands at the end of it.
-	m := press(walked(detailed(held(d), 200, 24), tabComment), "e")
+	m := press(walked(viewing(d, 200, 24), tabComment), "e")
 	m = typed(m, "the caret is here")
 
 	if out := stripANSI(m.View()); !strings.Contains(out, "the caret is here") {
@@ -158,7 +194,7 @@ func TestTheCaretStaysOnTheScreenInABoxTallerThanTheWindow(t *testing.T) {
 
 // The compose card grows the same way, and its caret is kept the same way.
 func TestTheCommentBoxGrowsAndKeepsItsCaretOnTheScreen(t *testing.T) {
-	m := press(detailed(held(writable()), 200, 24), "c")
+	m := press(viewing(writable(), 200, 24), "c")
 	m = typed(m, strings.Repeat("A line of it.\n", 30)+"the caret is here")
 
 	if out := stripANSI(m.View()); !strings.Contains(out, "the caret is here") {
@@ -286,16 +322,55 @@ func TestEditIsInertOnACommentAlreadyBeingWritten(t *testing.T) {
 		}
 	}
 
-	m := walked(detailed(held(d), 200, 60), tabComment)
+	m := walked(viewing(d, 200, 60), tabComment)
 	before := m.View()
 	if after := press(m, "e").View(); after != before {
 		t.Errorf("e opened a box on a comment with a write already out:\n%s", stripANSI(after))
 	}
 }
 
+// A maintainer may rewrite anybody's comment as far as GitHub is concerned.
+// This client offers that on nobody's: the words are somebody else's, and
+// editing them would put them under their name.
+func TestNeitherKeyTouchesSomebodyElsesComment(t *testing.T) {
+	d := writable()
+	for _, item := range d.Timeline {
+		if item.Kind == gh.TimelineComment {
+			item.Comment.ViewerDidAuthor = false
+		}
+	}
+
+	m := walked(viewing(d, 200, 60), tabComment)
+	before := m.View()
+
+	if after := press(m, "e").View(); after != before {
+		t.Errorf("e opened a box on somebody else's comment:\n%s", stripANSI(after))
+	}
+	if after := press(m, "D").View(); after != before {
+		t.Errorf("D opened a confirm over somebody else's comment:\n%s", stripANSI(after))
+	}
+	if out := stripANSI(before); strings.Contains(out, "D delete") {
+		t.Error("the card names keys it does not answer to")
+	}
+}
+
+// The description is not a comment and carries no viewerDidAuthor, so whose it
+// is comes from the login. A pull request somebody else opened is theirs.
+func TestTheDescriptionIsOnlyEditableByWhoeverOpenedIt(t *testing.T) {
+	d := writable()
+	d.Author = gh.Actor{Login: "nkr"}
+
+	m := walked(viewing(d, 200, 60), tabDescription)
+	before := m.View()
+
+	if after := press(m, "e").View(); after != before {
+		t.Errorf("e opened a box on somebody else's description:\n%s", stripANSI(after))
+	}
+}
+
 // The key reads the ring, so it does nothing with nothing focused.
 func TestEditNeedsSomethingFocused(t *testing.T) {
-	m := detailed(held(writable()), 200, 60)
+	m := viewing(writable(), 200, 60)
 
 	if after := press(m, "e").View(); after != m.View() {
 		t.Error("e opened a box with nothing focused")
@@ -410,10 +485,12 @@ func TestTheCardsHintsGiveWayToTheBoxs(t *testing.T) {
 	if strings.Contains(out, "D delete") {
 		t.Error("the card still names the keys it answered to before the box opened")
 	}
-	if !strings.Contains(out, "esc cancel") {
+	// Discard rather than done: nothing is kept, and the key that drops a
+	// rewrite says so before it is pressed.
+	if !strings.Contains(out, "esc discard") {
 		t.Errorf("the box does not name the key that closes it:\n%s", out)
 	}
-	if !strings.Contains(out, "⏎ update") {
+	if !strings.Contains(out, "⏎ save") {
 		t.Errorf("the box does not name the key that saves it:\n%s", out)
 	}
 }
@@ -446,7 +523,7 @@ func TestTheFrameHoldsItsSizeWithAnEditBoxOpen(t *testing.T) {
 func TestTheEditBoxTakesEveryOtherKeyAsText(t *testing.T) {
 	m := typed(editing(tabComment), "q")
 
-	if !strings.Contains(stripANSI(m.View()), "Update") {
+	if !strings.Contains(stripANSI(m.View()), "Save") {
 		t.Error("q closed the box rather than being typed into it")
 	}
 
@@ -471,7 +548,7 @@ func TestAFailedEditPutsTheWordsBackInTheBox(t *testing.T) {
 	if !strings.Contains(out, "Updated.") {
 		t.Errorf("the words did not come back:\n%s", out)
 	}
-	if !strings.Contains(out, "Update") {
+	if !strings.Contains(out, "Save") {
 		t.Error("the box did not reopen on the comment")
 	}
 }

@@ -44,8 +44,10 @@ var (
 	replyWords   = words{placeholder: "Leave a reply", button: "Post", send: "post", back: "done"}
 
 	// An edit opens on the comment it is rewriting, so the only way to see this
-	// one is to clear the box, where it says what saving an empty one would do.
-	updateWords = words{placeholder: "Empty, so far", button: "Update", send: "update", back: "cancel"}
+	// placeholder is to clear the box. Discard rather than done or close:
+	// nothing is kept, and the key that drops a rewrite should say so before it
+	// is pressed.
+	updateWords = words{placeholder: "Empty, so far", button: "Save", send: "save", back: "discard"}
 )
 
 // composer is where a comment gets written: the last card in the conversation,
@@ -164,18 +166,27 @@ func wrappedRows(line string, width int) int {
 }
 
 // boxRows is the height a box gets: what it is standing in for, or the writing
-// in it, whichever is more.
+// in it, whichever is more, and never more than the pane can show at once.
 //
 // Growing with the content is what stops a box being a window onto its own
 // text. The floor is what it opens at, which is eight rows of invitation on the
 // compose card and however tall the words were on an edit.
 //
-// There is no ceiling. A box taller than the pane is fine to write in as long
-// as the caret is on the screen, and keeping it there is the scroll's job
-// rather than something to solve by cropping what the reader can see.
+// The ceiling beats the floor, and it is the button that makes it necessary
+// rather than the writing. A box taller than the pane takes the foot of its own
+// card off the screen, and the foot is where the control that sends the words
+// is: the reader is then writing into something with no visible end and no way
+// out but a chord they cannot see named. Past the ceiling the textarea scrolls
+// inside itself, which keeps its own caret in view.
 func (m Model) boxRows(c composer, floor, width int) int {
-	return max(floor, c.rows(width))
+	room := max(1, m.view.Height()-boxChrome)
+	return min(max(floor, c.rows(width)), room)
 }
+
+// boxChrome is what a card spends around a box: two borders, a heading, a rule,
+// the row the button and its hints ride on, and the blank line the block after
+// it wants.
+const boxChrome = 6
 
 // start puts the keyboard in the text. The card is already on the page; this is
 // the difference between looking at it and writing in it.
