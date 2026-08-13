@@ -127,20 +127,31 @@ func (m Model) refDeleteFailed(msg refDeleteFailedMsg) (tea.Model, tea.Cmd) {
 	return m, m.toasts.Show(comp.ToastError, "Merged, but "+msg.branch+" is still there: "+msg.err.Error())
 }
 
-// mergeFailed is the revert branch. Nothing was typed and no branch was
-// touched, so the fetched state going back on the rail is the whole of it.
+// mergeFailed is the revert branch, and it refetches, which is what tells it
+// apart from every other one here.
 //
-// The toast carries GitHub's own sentence rather than a house one. A merge
-// refused because the branch moved comes back as "Head branch was modified.
-// Review and try the merge again", which already says what to do about it.
+// A refused merge is evidence about the screen rather than about the pull
+// request. The commonest refusal is the head having moved since the detail was
+// fetched, and there the fetched row is the very thing that lost the merge:
+// putting "Ready to merge" straight back says the branch is as it was and
+// invites the same press again. The rest are the same shape, a rule or a
+// permission the screen is a round trip behind on. So the state comes off and
+// the detail is asked for again.
+//
+// The toast carries GitHub's own sentence rather than a house one. A stale head
+// comes back as "Head branch was modified. Review and try the merge again",
+// which already says what to do about it.
 func (m Model) mergeFailed(msg mergeFailedMsg) (tea.Model, tea.Cmd) {
-	m.store.EditReverted(msg.id, msg.key)
+	m.store.EditRevertedStale(msg.id, msg.key)
 
-	toast := m.toasts.Show(comp.ToastError, "Could not merge: "+msg.err.Error())
-	if !m.showing(msg.id) {
-		return m, toast
+	cmds := []tea.Cmd{
+		m.toasts.Show(comp.ToastError, "Could not merge: "+msg.err.Error()),
+		m.correctDetail(msg.id),
 	}
-	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+	if m.showing(msg.id) {
+		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // probeMergeability asks for the detail again a moment after one that came back

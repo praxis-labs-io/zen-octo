@@ -393,17 +393,23 @@ func (s *Store) LabelsApplied(id, key string, res gh.LabelsResult) {
 // saying why: the store cannot tell a rejected write from a lost one.
 func (s *Store) EditReverted(id, key string) { s.dropEdit(id, key) }
 
-// ReviewersReverted takes a failed reviewer write off the screen and marks the
-// fetch in flight stale.
+// EditRevertedStale takes a failed write off the screen and marks the fetch in
+// flight stale, for the writes whose failure is itself evidence that what is
+// held no longer matches GitHub.
 //
-// Its own method because that write is the one that can fail with part of it
-// already applied: requesting and cancelling are separate calls, so a failure
-// on the second leaves the first standing on GitHub. Every other write is all
-// or nothing, and reverting one says the pull request never moved.
+// Two of them. A reviewer write can fail with part of it already applied,
+// because requesting and cancelling are separate calls and the second can fail
+// over the first. A merge is refused for reasons that are all about the screen
+// being out of date, the head having moved since it was fetched most of all, so
+// putting the fetched row back and saying nothing leaves the reader looking at
+// the same stale answer that just lost them the merge.
 //
-// The caller owes a refetch either way. This only makes sure the answer it
+// Everything else is all or nothing, and reverting one of those says the pull
+// request never moved, which is true and needs no refetch.
+//
+// The caller owes the refetch either way. This only makes sure the answer it
 // takes was asked for after the failure rather than before it.
-func (s *Store) ReviewersReverted(id, key string) {
+func (s *Store) EditRevertedStale(id, key string) {
 	if _, ok := s.dropEdit(id, key); !ok {
 		return
 	}

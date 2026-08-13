@@ -125,7 +125,7 @@ func reviewerToast(added, removed int) string {
 // nothing raises a second toast, and the error stays up while the rail corrects
 // itself underneath it.
 func (m Model) reviewersFailed(msg reviewersFailedMsg) (tea.Model, tea.Cmd) {
-	m.store.ReviewersReverted(msg.id, msg.key)
+	m.store.EditRevertedStale(msg.id, msg.key)
 
 	cmds := []tea.Cmd{m.toasts.Show(comp.ToastError, "Could not change the reviewers: "+msg.err.Error())}
 	if m.showing(msg.id) {

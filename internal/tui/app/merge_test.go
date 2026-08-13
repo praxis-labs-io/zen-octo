@@ -217,3 +217,20 @@ func TestTheProbeAsksNothingOnceTheAnswerIsIn(t *testing.T) {
 		t.Errorf("the detail was fetched %d more times, want none", got-before)
 	}
 }
+
+// A refused merge says the screen is behind GitHub, and the commonest reason it
+// is refused says exactly which part: the head moved after the detail was
+// fetched. Putting the fetched row back and asking nothing leaves the reader
+// looking at the answer that just lost them the merge.
+func TestAFailedMergeAsksForTheDetailAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.postErr = errors.New("Head branch was modified. Review and try the merge again.")
+
+	m := openMergeForm(t, client)
+	before := len(client.opened())
+	pressMerge(m)
+
+	if got := len(client.opened()); got <= before {
+		t.Errorf("the detail was fetched %d more times, want another after the refusal", got-before)
+	}
+}
