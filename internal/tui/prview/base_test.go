@@ -278,7 +278,7 @@ func railStops(t *testing.T, d gh.PullRequestDetail) []string {
 	m := press(detailed(held(d), 200, 60), "2")
 	var out []string
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		row := markedRailRow(t, m.View())
 		if slices.Contains(out, row) {
 			break
@@ -370,12 +370,14 @@ func TestASearchLandingLeavesTheCursorOnTheRowItWasOn(t *testing.T) {
 }
 
 // The rail keeping focus is not the reader still standing on Base. Enter starts
-// the search and tab is free the whole time it is out.
-func TestASearchLandingAfterTabbingAwayOpensNothing(t *testing.T) {
+// the search and the ring is free the whole time it is out.
+func TestASearchLandingAfterWalkingAwayOpensNothing(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
 	m, _ = key(m, "enter")
 
-	m = press(m, "tab")
+	// Up, because Base is the last control on this rail and the cursor stops
+	// there rather than coming back round.
+	m = press(m, "k")
 	m.SetBranches(repoBranches())
 
 	if out := stripANSI(m.View()); strings.Contains(out, "Merge into") {

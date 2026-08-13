@@ -1,6 +1,8 @@
 package comp
 
 import (
+	"image/color"
+
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -22,7 +24,7 @@ type Spinner struct {
 // NewSpinner returns a stopped spinner. Tick starts it.
 func NewSpinner(th theme.Theme) Spinner {
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
+	sp.Style = lipgloss.NewStyle().Foreground(th.Accent)
 	return Spinner{theme: th, model: sp}
 }
 
@@ -43,9 +45,17 @@ func (s *Spinner) Advance(msg spinner.TickMsg, loading bool) tea.Cmd {
 
 // Render is the glyph and what it is waiting on. An empty label is the glyph
 // alone.
-func (s Spinner) Render(label string) string {
+func (s Spinner) Render(label string) string { return s.render(label, s.theme.Subtle) }
+
+// RenderAccent is Render for the status bar, where the label carries the accent
+// instead of receding. The line beside it is the key hints, and a label in the
+// grey they are rendered in reads as one more of them rather than as something
+// happening.
+func (s Spinner) RenderAccent(label string) string { return s.render(label, s.theme.Accent) }
+
+func (s Spinner) render(label string, c color.Color) string {
 	if label == "" {
 		return s.model.View()
 	}
-	return s.model.View() + " " + lipgloss.NewStyle().Foreground(s.theme.Faint).Render(label)
+	return s.model.View() + " " + lipgloss.NewStyle().Foreground(c).Render(label)
 }

@@ -27,19 +27,23 @@ func stateDetail(state gh.PRState, draft bool, v gh.ViewerActions) store.Detail 
 	return held(d)
 }
 
-// onStateRow tabs the rail to the State row, which is named by its glyph and
+// onStateRow walks the rail to the State row, which is named by its glyph and
 // its label rather than by the label alone, so it is matched by substring.
 func onStateRow(t *testing.T, m prview.Model) prview.Model {
 	t.Helper()
 
-	m = press(m, "2") // the rail is the second pane on the conversation tab
+	// Back to the first control before walking down. The cursor stops at each
+	// end rather than coming back round, so a caller already standing below the
+	// State row would never reach it.
+	m = press(m, "2")
+	m = press(m, strings.Fields(strings.Repeat("k ", 30))...)
 	for range 30 {
-		m = press(m, "tab")
 		if isStateRow(markedRailRow(t, m.View())) {
 			return m
 		}
+		m = press(m, "j")
 	}
-	t.Fatal("tab never reached the State row")
+	t.Fatal("the cursor never reached the State row")
 	return m
 }
 
@@ -59,16 +63,17 @@ func isStateRow(row string) bool {
 	return slices.Contains([]string{"Open", "Draft", "Closed", "Merged"}, strings.TrimSpace(row[size:]))
 }
 
-// reachesStateRow is whether tab ever stops on the State row at all.
+// reachesStateRow is whether the cursor ever stops on the State row at all.
 func reachesStateRow(t *testing.T, m prview.Model) bool {
 	t.Helper()
 
 	m = press(m, "2")
+	m = press(m, strings.Fields(strings.Repeat("k ", 30))...)
 	for range 30 {
-		m = press(m, "tab")
 		if isStateRow(markedRailRow(t, m.View())) {
 			return true
 		}
+		m = press(m, "j")
 	}
 	return false
 }
@@ -342,7 +347,7 @@ func TestTheStateMenuHasNoFilterRow(t *testing.T) {
 func TestTheStateMenuNamesItsOwnKeys(t *testing.T) {
 	menu := stateMenu(t, openStateMenu(t, stateDetail(gh.PRStateOpen, false, canAct)))
 
-	if !strings.Contains(menu, "enter pick") {
+	if !strings.Contains(menu, "⏎ pick") {
 		t.Errorf("the menu does not name enter as the pick:\n%s", menu)
 	}
 	if strings.Contains(menu, "space toggle") {

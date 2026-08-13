@@ -332,32 +332,63 @@ func (m Model) View() string {
 // nothing, because a zero would claim it is empty; one that has keeps its count
 // through a reload, rather than blanking the whole strip for the fetch. A
 // failure takes the badge, because that is the news on that tab.
+//
+// A count is bracketed and the failure mark is not: parentheses read as holding
+// a quantity, and "(!)" reads like one that came back strange.
 func badge(s store.Section) string {
 	switch {
 	case s.Status == store.StatusFailed:
 		return "!"
 	case s.Loaded:
-		return strconv.Itoa(len(s.PRs))
+		return "(" + strconv.Itoa(len(s.PRs)) + ")"
 	}
 	return ""
 }
 
+// body is the rows once they are there, and a single block saying why they are
+// not when they aren't. That block is centred: it is the only thing in the
+// pane, and a sentence in the top-left corner of an empty frame reads as the
+// first row of a list still filling in.
 func (m Model) body() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	section := m.activeSection()
 
+	var block string
 	switch {
 	case section.Status == store.StatusFailed:
 		label := lipgloss.NewStyle().Foreground(m.theme.Error).Bold(true).Render("Failed to load")
 		// Scope errors carry a multi-line fix; keep the newlines the error wrote.
-		return label + "\n" + faint.Render(section.Err.Error())
+		block = label + "\n" + faint.Render(section.Err.Error())
 	case section.Status != store.StatusReady:
-		return m.spinner.Render("Loading pull requests")
+		block = m.spinner.Render("Loading pull requests")
 	case m.rows.len() == 0:
-		return faint.Render("Nothing matches this section.")
+		block = faint.Render("Nothing matches this section.")
 	default:
 		return m.view.View()
 	}
+	return centered(block, m.pane.InnerWidth(), m.pane.InnerHeight())
+}
+
+// centered puts a block in the middle of the pane. It moves the block as a
+// unit rather than centring line by line, so the fix under a scope error stays
+// under the words it belongs to instead of floating to its own column.
+//
+// It pads above and never below. The pane pads its own content out to the rows
+// it has, so trailing blanks here would only be counted twice.
+func centered(block string, width, height int) string {
+	lines := strings.Split(block, "\n")
+
+	widest := 0
+	for _, line := range lines {
+		widest = max(widest, lipgloss.Width(line))
+	}
+	left := strings.Repeat(" ", max(0, (width-widest)/2))
+	for i, line := range lines {
+		lines[i] = left + line
+	}
+
+	above := make([]string, max(0, (height-len(lines))/2))
+	return strings.Join(append(above, lines...), "\n")
 }
 
 func (m Model) footer() string {

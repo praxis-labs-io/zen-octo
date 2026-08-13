@@ -873,19 +873,20 @@ func BenchmarkMoveTheCursorOnALargeDiff(b *testing.B) {
 
 // The spans the jump keys read outlive a tab switch, and one viewport serves
 // every tab, so a stale one scrolls the conversation to a diff offset.
-func TestBraceDoesNothingOffTheFilesTab(t *testing.T) {
-	m := detailed(held(sampleDetail()), 200, 30)
-	m.SetFiles(loadedFiles(sampleFiles(), 0))
+func TestTheBraceWalksTheRingOnTheConversationWhateverTheDiffRecorded(t *testing.T) {
+	loaded := func() prview.Model {
+		m := detailed(held(sampleDetail()), 200, 30)
+		m.SetFiles(loadedFiles(sampleFiles(), 0))
+		return m
+	}
 
 	// Round the tabs once so the diff renders and records its spans.
-	m = press(m, "]", "]", "]", "]")
+	toured := press(loaded(), "]", "]", "]", "]")
 
-	before := m.View()
-	if got := press(m, "}").View(); got != before {
-		t.Error("} moved the conversation using the diff's spans")
-	}
-	if got := press(m, "{").View(); got != before {
-		t.Error("{ moved the conversation using the diff's spans")
+	for _, k := range []string{"}", "{"} {
+		if got, want := press(toured, k).View(), press(loaded(), k).View(); got != want {
+			t.Errorf("%q on the conversation does not match a screen that never opened the diff", k)
+		}
 	}
 }
 

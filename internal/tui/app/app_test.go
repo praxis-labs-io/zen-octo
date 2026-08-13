@@ -995,7 +995,7 @@ func TestEveryTabCarriesItsOwnCount(t *testing.T) {
 
 	top := strings.Split(stripANSI(render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 160, Height: 40}))), "\n")[0]
 
-	for _, want := range []string{"My PRs 5", "Needs My Review 2"} {
+	for _, want := range []string{"My PRs (5)", "Needs My Review (2)"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q in it", top, want)
 		}
@@ -1226,6 +1226,43 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	}
 }
 
+// The bar pairs two opposed keys under one verb, which no single binding can
+// say. It is the one place the hints are not read straight off a declaration,
+// so it is the one place they can drift from the keys that actually work.
+func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
+	tests := []struct {
+		name  string
+		frame func(*testing.T) string
+		want  []string
+	}{
+		{
+			name: "list",
+			frame: func(t *testing.T) string {
+				return lastLine(render(t, loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40)))
+			},
+			want: []string{"j/k move", "⏎ open", "[/] tab", "q quit"},
+		},
+		{
+			name: "detail",
+			frame: func(t *testing.T) string {
+				return lastLine(render(t, press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "enter")))
+			},
+			want: []string{"j/k move", "[/] tab", "d details", "esc back"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bar := stripANSI(tt.frame(t))
+			for _, want := range tt.want {
+				if !strings.Contains(bar, want) {
+					t.Errorf("status bar = %q, want %q in it", strings.TrimSpace(bar), want)
+				}
+			}
+		})
+	}
+}
+
 func TestTheRailCollapsesOnANarrowTerminal(t *testing.T) {
 	// "Author" is a rail section heading. The pane title reads "Details", which
 	// also appears in the status bar hints, and the header spells the login with
@@ -1329,9 +1366,9 @@ func TestTabSwitchesSectionWithoutRefetching(t *testing.T) {
 }
 
 func TestTheStatusBarCarriesTheRateLimit(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821}}
+	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 421}}
 
-	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "4821") {
+	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "421") {
 		t.Errorf("view = %q, want the remaining budget in the status bar", out)
 	}
 }
@@ -1350,6 +1387,110 @@ func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 	out := render(t, settle(m, keyMsg("s")))
 	if !strings.Contains(out, "Refreshed 2 sections") {
 		t.Errorf("view = %q, want the refresh to report what came back", out)
+	}
+}
+
+// A toast used to take the hints' place. It sits at the other end of the line
+// now, so the keys stay where the reader's eye already found them.
+func TestAToastLandsOnTheRightAndLeavesTheHintsAlone(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+
+	bar := stripANSI(lastLine(render(t, settle(m, keyMsg("s")))))
+
+	toast := strings.Index(bar, "Refreshed")
+	hints := strings.Index(bar, "j/k move")
+	if toast < 0 || hints < 0 {
+		t.Fatalf("status bar = %q, want both the toast and the hints on it", strings.TrimSpace(bar))
+	}
+	if toast < hints {
+		t.Errorf("status bar = %q, want the toast to the right of the hints", strings.TrimSpace(bar))
+	}
+}
+
+// The bar is one line on four tabs that hold different things. A hint for a key
+// that is inert on the tab under it is worse than no hint: the reader presses
+// it, nothing happens, and the whole line stops being worth reading.
+func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	tests := []struct {
+		name       string
+		to         []string
+		want, gone []string
+	}{
+		{
+			name: "conversation",
+			want: []string{"{/} block", "o expand", "d details"},
+		},
+		{
+			name: "commits",
+			to:   []string{"]"},
+			want: []string{"{/} block"},
+			gone: []string{"o expand", "d details"},
+		},
+		{
+			name: "checks",
+			to:   []string{"]", "]"},
+			gone: []string{"{/} block", "o expand", "d details"},
+		},
+		{
+			name: "files",
+			to:   []string{"]", "]", "]"},
+			want: []string{"{/} block", "o expand"},
+			gone: []string{"d details"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(loaded(t, client, 160, 40), append([]string{"enter"}, tt.to...)...)
+			bar := stripANSI(lastLine(render(t, m)))
+
+			for _, want := range append(tt.want, "j/k move", "[/] tab") {
+				if !strings.Contains(bar, want) {
+					t.Errorf("status bar = %q, want %q on it", strings.TrimSpace(bar), want)
+				}
+			}
+			for _, gone := range tt.gone {
+				if strings.Contains(bar, gone) {
+					t.Errorf("status bar = %q, want %q off it: the key is inert here", strings.TrimSpace(bar), gone)
+				}
+			}
+		})
+	}
+}
+
+// A picker has taken the keys the line names and carries a hint line of its
+// own, so the bar stands down rather than spending its width on keys that
+// stopped working when the modal opened.
+func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveRepoMeta(gh.RepoMeta{Labels: []gh.Label{{ID: "L_bug", Name: "bug"}}})
+
+	m := press(loaded(t, client, 160, 40), "enter", "2", "j", "j", "j", "enter")
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Add label") {
+		t.Fatalf("setup: the label picker did not open:\n%s", out)
+	}
+
+	if bar := stripANSI(lastLine(render(t, m))); strings.Contains(bar, "d details") {
+		t.Errorf("status bar = %q, want the screen's hints off it while a picker is up", strings.TrimSpace(bar))
+	}
+}
+
+// The section title is the current tab in the top border. Naming it again on
+// the bar spent the line on a fact the reader is looking straight at.
+func TestTheListBarNamesNeitherTheSectionNorAHealthyBudget(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821}}
+
+	bar := stripANSI(lastLine(render(t, loaded(t, client, 120, 40))))
+
+	if strings.Contains(bar, "My PRs") {
+		t.Errorf("status bar = %q, want the section named only by the tab", strings.TrimSpace(bar))
+	}
+	if strings.Contains(bar, "4821") {
+		t.Errorf("status bar = %q, want a healthy budget left off", strings.TrimSpace(bar))
 	}
 }
 
@@ -1564,19 +1705,19 @@ func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	client := &querySearcher{results: map[string]gh.SearchResult{
 		// The lower number lands first, so a status bar reading the newest
-		// response rather than the lowest shows 4820 and reads as a budget that
+		// response rather than the lowest shows 420 and reads as a budget that
 		// went back up.
 		"is:open is:pr author:@me": {
 			PullRequests: samplePRs(),
-			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 4819, ResetAt: window},
+			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 419, ResetAt: window},
 		},
 		"is:open is:pr review-requested:@me": {
-			RateLimit: gh.RateLimit{Limit: 5000, Remaining: 4820, ResetAt: window},
+			RateLimit: gh.RateLimit{Limit: 5000, Remaining: 420, ResetAt: window},
 		},
 	}}
 
 	out := render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40}))
-	if !strings.Contains(out, "4819") {
+	if !strings.Contains(out, "419") {
 		t.Errorf("view = %q, want the lowest remaining across the responses", out)
 	}
 }
@@ -1664,11 +1805,11 @@ func TestTheViewerIsAskedForAtStartup(t *testing.T) {
 		err: errors.New("every section is down"),
 		viewer: gh.ViewerResult{
 			Viewer:    gh.Actor{Login: "drucial"},
-			RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4999},
+			RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 499},
 		},
 	}
 
-	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "4999") {
+	if out := render(t, loaded(t, client, 120, 40)); !strings.Contains(out, "499") {
 		t.Errorf("view = %q, want the budget the viewer response carried", out)
 	}
 }
@@ -1887,14 +2028,14 @@ func TestAFirstOpenSaysItIsLoading(t *testing.T) {
 func TestOpeningMovesTheBudget(t *testing.T) {
 	client := &fakeSearcher{
 		prs:  samplePRs(),
-		rate: gh.RateLimit{Limit: 5000, Remaining: 4700, ResetAt: time.Now().Add(time.Hour)},
+		rate: gh.RateLimit{Limit: 5000, Remaining: 400, ResetAt: time.Now().Add(time.Hour)},
 	}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	m := loaded(t, client, 160, 40)
-	client.rate = gh.RateLimit{Limit: 5000, Remaining: 4697, ResetAt: client.rate.ResetAt}
+	client.rate = gh.RateLimit{Limit: 5000, Remaining: 397, ResetAt: client.rate.ResetAt}
 
-	if out := render(t, press(m, "enter")); !strings.Contains(out, "4697") {
+	if out := render(t, press(m, "enter")); !strings.Contains(out, "397") {
 		t.Errorf("frame = %q, want the budget the detail response carried", out)
 	}
 }
@@ -2544,18 +2685,23 @@ func TestLeavingTheDetailStopsTheRefreshSpinner(t *testing.T) {
 	}
 }
 
-// Naming the repository made the right side of the status bar long enough to
-// stop fitting beside the detail screen's help line, and the bar used to drop
-// that side whole rather than clip it, taking the number with it.
-func TestTheDetailStatusBarKeepsTheNumberAtEveryWidth(t *testing.T) {
+// The detail screen names its pull request in its own header, so the bar was
+// spending the line on a fact already on the screen, and spending it on the
+// side a toast lands on.
+func TestTheDetailStatusBarCarriesNothingButItsHints(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	for _, width := range []int{100, 120, 160, 200} {
 		// The number is in the header too, so only the bar's own line answers.
 		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
-		if !strings.Contains(bar, "#412") {
-			t.Errorf("width %d: the status bar lost the pull request number: %q", width, bar)
+		for _, unwanted := range []string{"#412", "zen-octo/zen-octo"} {
+			if strings.Contains(bar, unwanted) {
+				t.Errorf("width %d: the status bar still carries %q: %q", width, unwanted, strings.TrimSpace(bar))
+			}
+		}
+		if !strings.Contains(bar, "j/k move") {
+			t.Errorf("width %d: the status bar has no hints on it: %q", width, strings.TrimSpace(bar))
 		}
 	}
 }
@@ -2605,26 +2751,6 @@ func sampleFiles() []gh.ChangedFile {
 			},
 		}},
 	}}
-}
-
-// The number alone says which pull request only if you already know which
-// repository you opened it from, and the tabs past the conversation carry
-// nothing else that answers it.
-func TestTheStatusBarNamesTheRepositoryOnTheDetailScreen(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs()}
-	m := press(loaded(t, client, 160, 40), "enter")
-
-	last := lastLine(render(t, m))
-	if !strings.Contains(last, "#412 zen-octo/zen-octo") {
-		t.Errorf("status bar = %q, want the number and the repository", strings.TrimSpace(last))
-	}
-
-	// The list names its section instead; a repository there would be wrong as
-	// often as right, since a section can span any number of them.
-	back := lastLine(render(t, press(m, "esc")))
-	if strings.Contains(back, "zen-octo/zen-octo") {
-		t.Errorf("the list's status bar carries a repository: %q", strings.TrimSpace(back))
-	}
 }
 
 func lastLine(frame string) string {
@@ -2887,7 +3013,7 @@ func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	m := press(loaded(t, client, 160, 40), "enter", "tab", "tab", "r")
+	m := press(loaded(t, client, 160, 40), "enter", "}", "}", "r")
 	return write(m, body)
 }
 
@@ -2974,7 +3100,7 @@ func settling(t *testing.T, client *fakeSearcher) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	return press(loaded(t, client, 160, 40), "enter", "tab", "tab")
+	return press(loaded(t, client, 160, 40), "enter", "}", "}")
 }
 
 // The card collapsing is the acknowledgement, the same way the optimistic

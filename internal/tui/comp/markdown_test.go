@@ -69,7 +69,7 @@ func TestHeadingsTakeTheThemeAndNotGlamoursOwn(t *testing.T) {
 
 	out := m.Render("# Heading\n\nA paragraph.", 60)
 
-	r, g, b, _ := th.Secondary.RGBA()
+	r, g, b, _ := th.Accent.RGBA()
 	want := fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 	if !strings.Contains(out, want) {
 		t.Errorf("no heading in the theme's accent: %q", out)

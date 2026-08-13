@@ -240,7 +240,7 @@ func (m *Model) startPicker(field pickField) {
 			labels: choices,
 			p: comp.NewPicker(
 				"Labels",
-				labelItems(choices, m.theme.Secondary),
+				labelItems(choices, m.theme.Accent),
 				idsOf(on, labelID),
 				true,
 			),
@@ -288,7 +288,7 @@ func (m *Model) startPicker(field pickField) {
 		// anyway.
 		p := comp.NewPicker(
 			"Merge into",
-			baseItems(m.branches, m.pr, base, m.theme.Primary),
+			baseItems(m.branches, m.pr, base, m.theme.Text),
 			[]string{base},
 			false,
 		)

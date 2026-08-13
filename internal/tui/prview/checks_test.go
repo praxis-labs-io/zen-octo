@@ -104,7 +104,7 @@ func TestTheWorkflowMarkerTakesTheWorstStateInIt(t *testing.T) {
 		"passing": th.Success,
 		"failing": th.Error,
 		"running": th.Warning,
-		"skipped": th.Faint,
+		"skipped": th.Subtle,
 	}
 
 	tests := []struct {

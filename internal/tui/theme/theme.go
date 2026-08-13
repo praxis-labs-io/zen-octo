@@ -21,11 +21,14 @@ type Theme struct {
 	// it. Empty falls back to Chroma's own default.
 	Syntax string
 
-	// Text
-	Primary   color.Color
-	Secondary color.Color
-	Faint     color.Color
-	Inverted  color.Color
+	// Text, brightest first. Subtle is text a reader still reads: a row's
+	// repository line, a count beside a heading. Muted is chrome they glance
+	// at: a key hint, a pane's footer, the label naming what is on screen.
+	Text     color.Color
+	Accent   color.Color
+	Subtle   color.Color
+	Muted    color.Color
+	Inverted color.Color
 
 	// Semantic
 	Success color.Color
@@ -45,44 +48,53 @@ type Theme struct {
 	AddedBackground   color.Color
 	RemovedBackground color.Color
 
-	// Borders
-	Border          color.Color
-	BorderSecondary color.Color
-	BorderFaint     color.Color
+	// Borders, brightest first, on the same ladder the text colors use.
+	Border       color.Color
+	BorderSubtle color.Color
+	BorderMuted  color.Color
 }
 
-// InvertedOrPrimary is the text color to use on top of a filled surface.
-func (t Theme) InvertedOrPrimary() color.Color {
+// InvertedOrText is the text color to use on top of a filled surface.
+func (t Theme) InvertedOrText() color.Color {
 	if t.Inverted != nil {
 		return t.Inverted
 	}
-	return t.Primary
+	return t.Text
 }
 
-// BorderSecondaryOrBorder falls back for themes that define one border color.
-func (t Theme) BorderSecondaryOrBorder() color.Color {
-	if t.BorderSecondary != nil {
-		return t.BorderSecondary
+// MutedOrSubtle falls back for themes that define one grey.
+func (t Theme) MutedOrSubtle() color.Color {
+	if t.Muted != nil {
+		return t.Muted
+	}
+	return t.Subtle
+}
+
+// BorderSubtleOrBorder falls back for themes that define one border color.
+func (t Theme) BorderSubtleOrBorder() color.Color {
+	if t.BorderSubtle != nil {
+		return t.BorderSubtle
 	}
 	return t.Border
 }
 
-// BorderFaintOrSecondary falls back through the border ladder.
-func (t Theme) BorderFaintOrSecondary() color.Color {
-	if t.BorderFaint != nil {
-		return t.BorderFaint
+// BorderMutedOrSubtle falls back through the border ladder.
+func (t Theme) BorderMutedOrSubtle() color.Color {
+	if t.BorderMuted != nil {
+		return t.BorderMuted
 	}
-	return t.BorderSecondaryOrBorder()
+	return t.BorderSubtleOrBorder()
 }
 
-// RosePineMoon is the default. The values match the gh-dash palette Drew
-// already runs, so the two look the same side by side.
+// RosePineMoon is the default. Every value is a Rose Pine Moon one, named here
+// by the role it plays: text, iris, subtle, muted, and the three highlights.
 var RosePineMoon = Theme{
 	Name:               "rose-pine-moon",
 	Syntax:             "rose-pine-moon",
-	Primary:            lipgloss.Color("#e0def4"),
-	Secondary:          lipgloss.Color("#c4a7e7"),
-	Faint:              lipgloss.Color("#a5a1bc"),
+	Text:               lipgloss.Color("#e0def4"),
+	Accent:             lipgloss.Color("#c4a7e7"),
+	Subtle:             lipgloss.Color("#908caa"),
+	Muted:              lipgloss.Color("#6e6a86"),
 	Inverted:           lipgloss.Color("#232136"),
 	Success:            lipgloss.Color("#9ccfd8"),
 	Warning:            lipgloss.Color("#f6c177"),
@@ -93,8 +105,8 @@ var RosePineMoon = Theme{
 	AddedBackground:    lipgloss.Color("#26383c"),
 	RemovedBackground:  lipgloss.Color("#3c2635"),
 	Border:             lipgloss.Color("#56526e"),
-	BorderSecondary:    lipgloss.Color("#44415a"),
-	BorderFaint:        lipgloss.Color("#393552"),
+	BorderSubtle:       lipgloss.Color("#44415a"),
+	BorderMuted:        lipgloss.Color("#393552"),
 }
 
 // Default names the theme used when config asks for one that doesn't exist.

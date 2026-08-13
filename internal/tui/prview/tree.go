@@ -133,24 +133,24 @@ func renderRow(th theme.Theme, r row, width int, selected bool) string {
 	case r.dir:
 		marker = "▾ "
 	}
-	lead += base.Foreground(th.Faint).Render(marker)
+	lead += base.Foreground(th.Subtle).Render(marker)
 
-	name := base.Foreground(th.Primary)
+	name := base.Foreground(th.Text)
 	if r.dir {
-		name = base.Foreground(th.Secondary)
+		name = base.Foreground(th.Accent)
 	}
 
 	room := max(0, width-lipgloss.Width(lead))
 	label := name.Render(r.label)
 	if lipgloss.Width(label) > room {
-		label = comp.Clip(label, room, base.Foreground(th.Faint))
+		label = comp.Clip(label, room, base.Foreground(th.Subtle))
 	}
 
 	line := lead + label
 	// A column too narrow for the indent alone overflows everything above it,
 	// and the pane would clip it mid-cell with nothing to say it had.
 	if lipgloss.Width(line) > width {
-		return comp.Clip(line, width, base.Foreground(th.Faint))
+		return comp.Clip(line, width, base.Foreground(th.Subtle))
 	}
 	return line + base.Render(strings.Repeat(" ", width-lipgloss.Width(line)))
 }

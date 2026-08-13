@@ -22,14 +22,14 @@ const jumpHeight = 24
 func jumping(t *testing.T, n int) prview.Model {
 	t.Helper()
 
-	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), n)
+	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), n)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 	return m
 }
 
 // onTab is whether the strip reads this tab as the current one.
 func onTab(frame, name string) bool {
-	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Primary)+"m"+name)
+	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
 }
 
 // landed is what every jump has to produce: the code the thread was written
@@ -72,7 +72,7 @@ func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 // The diff costs a request of its own, so the first v on a cold tab asks for it
 // and lands when it arrives.
 func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
-	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
+	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
 	next, cmd := key(m, "v")
 	if cmd == nil {
@@ -140,7 +140,7 @@ func TestVOnAThreadWithNoLineDoesNothing(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[3].Line = 0
 
-	m := tabbed(detailed(held(d), 200, jumpHeight), tabOther)
+	m := walked(detailed(held(d), 200, jumpHeight), tabOther)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
 	if got := asked(t, m, "v"); got != nil {
@@ -160,7 +160,7 @@ func TestVIsInertWithNothingFocused(t *testing.T) {
 // The reader moved on while the diff was out. Hauling the page to where they no
 // longer are is the one thing every key on this screen refuses to do.
 func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
-	m := press(tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
+	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
 	m = press(m, "[", "[", "[")
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -173,7 +173,7 @@ func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
 // A diff that never arrived has nothing to land in, and the pane already says
 // why. The jump has to let go of it, or the next diff to arrive lands late.
 func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
-	m := press(tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
+	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
 	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("network is down")})
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -191,7 +191,7 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	d.Threads[3].Path = "internal/tui/prview/files.go"
 	d.Threads[3].Line = 2
 
-	m := tabbed(detailed(held(d), 200, jumpHeight), tabOther)
+	m := walked(detailed(held(d), 200, jumpHeight), tabOther)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
 	out := stripANSI(press(m, "v").View())
@@ -219,7 +219,7 @@ func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) 
 // A diff that failed is asked for again rather than landed on. The pane carries
 // no retry of its own, and pressing v is the reader asking to see the code.
 func TestVAsksAgainForADiffThatFailed(t *testing.T) {
-	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
+	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
 	// The tab has been opened once already and the fetch came back empty.
 	m = press(m, "]", "]", "]")
@@ -259,7 +259,7 @@ func tallFiles() []gh.ChangedFile {
 // The column can only be scrolled once it holds the rows. Scrolled against the
 // tree as it was folded, the offset clamps and the cursor lands off screen.
 func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
-	m := tabbed(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
+	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 	m.SetFiles(loadedFiles(tallFiles(), 0))
 
 	// Up to the one directory and fold it, which takes every file out of the

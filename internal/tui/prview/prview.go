@@ -563,31 +563,34 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevWithin):
 		return m.stepWithin(-1)
 
-	case key.Matches(keyMsg, k.FocusNext):
-		m.stepFocus(1)
-	case key.Matches(keyMsg, k.FocusPrev):
-		m.stepFocus(-1)
-
 	case key.Matches(keyMsg, k.NextTab):
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	// A file belongs to whichever tab is showing a diff. The spans outlive a
-	// tab switch, so without the guard the conversation scrolls to wherever the
-	// diff last had a file.
-	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
+	// A block is whatever this tab is made of. On a diff it is a file, and the
+	// tab is what decides: the spans outlive a tab switch, so without the guard
+	// the conversation scrolls to wherever the diff last had one.
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabFiles:
 		m.jumpFile(1)
 		follow = false
-	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabFiles:
 		m.jumpFile(-1)
 		follow = false
-	case key.Matches(keyMsg, k.NextFile) && m.tab == tabCommits:
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
 		follow = false
-	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabCommits:
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
 		follow = false
+
+	// The rail is a list of controls rather than blocks of anything, and it
+	// answers to the movement keys instead. Leaving the braces on it as well
+	// would give one pane two ways to do the same thing and teach neither.
+	case key.Matches(keyMsg, k.NextBlock) && !m.railDriving():
+		m.stepFocus(1)
+	case key.Matches(keyMsg, k.PrevBlock) && !m.railDriving():
+		m.stepFocus(-1)
 
 	case key.Matches(keyMsg, k.PaneLeft):
 		m.focusPane(m.focus - 1)
@@ -674,11 +677,23 @@ func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// move is a row in the left column and a line everywhere else. The column is
-// the only pane with something to point at.
+// move is a row in the left column, a row on the rail, and a line everywhere
+// else. Both of those point at something; the panes holding prose do not.
+//
+// The rail's cursor stops at each end rather than coming back round, and hands
+// the key to the pane there. Wrapping is what a page of cards wants, where the
+// ring is the whole of the content; the rail is a list of controls inside a
+// pane that holds facts as well, and a cursor that jumped from the last control
+// to the first would move the reader a screen away from what they were reading.
+// Scrolling instead is the honest answer to a key with nowhere to put a cursor,
+// though bringing the focused control into view leaves the rail at its end
+// anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
-	if m.sideDriving() {
+	switch {
+	case m.sideDriving():
 		m.moveSide(delta)
+		return
+	case m.railDriving() && m.stepFocus(delta):
 		return
 	}
 	if delta > 0 {
@@ -691,12 +706,26 @@ func (m *Model) move(delta int) {
 // jumped is the same split for the keys that move further than a line, and
 // reports whether it took the key. In the column they move the cursor: a column
 // scrolled away from its own cursor answers nothing.
+//
+// The rail is not in it. Those keys go to the ends of a pane, and the rail has
+// rows past its last control that are the reason a reader presses them.
 func (m *Model) jumped(rows int) bool {
 	if !m.sideDriving() {
 		return false
 	}
 	m.moveSide(rows)
 	return true
+}
+
+// railDriving is whether the line keys belong to the rail's cursor. Its rows
+// are a list of controls rather than paragraphs of anything, so they are walked
+// the way the column beside them is: the cursor moves and the pane follows it.
+//
+// A rail with no walkable row keeps the scrolling keys. Every row can be inert
+// at once, on a pull request nobody may change, and the rail is taller than a
+// short frame whether or not there is anything to press.
+func (m Model) railDriving() bool {
+	return m.focus == paneRail && m.railVisible() && m.railRing.stops() > 0
 }
 
 // sideDriving is whether the movement keys belong to the column. A column with
@@ -834,23 +863,26 @@ func (m *Model) focusRing() (*ring, *viewport.Model) {
 	return nil, nil
 }
 
-// stepFocus walks the ring one item and brings what it lands on into view.
+// stepFocus walks the ring one item and brings what it lands on into view. It
+// reports whether the ring took the key, which is what lets a caller hand the
+// key on to the pane rather than swallowing it.
 //
 // The body is rebuilt before the offset moves, because a focused card renders
 // differently and SetYOffset clamps to the content the viewport is holding.
-func (m *Model) stepFocus(delta int) {
+func (m *Model) stepFocus(delta int) bool {
 	r, vp := m.focusRing()
 	if r == nil {
-		return
+		return false
 	}
 
 	top := bodyTop(vp)
-	if !r.step(delta, top, vp.Height()) {
-		return
+	if !r.step(delta, top, vp.Height(), r != &m.railRing) {
+		return false
 	}
 
 	m.syncContent()
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
+	return true
 }
 
 // bodyTop is the viewport's offset in the lines the ring recorded, which sit
@@ -945,9 +977,24 @@ func (m *Model) focusPane(want pane) {
 		if p == want && m.paneVisible(p) {
 			m.focus = p
 			m.syncContent()
+			m.railLand()
 			return
 		}
 	}
+}
+
+// railLand puts the cursor on the rail's first row when the pane takes the keys
+// with nothing on it. The line is what says where the keys are going, and a
+// pane that has to be pressed once before it will say so is one the reader has
+// to guess at.
+//
+// A cursor already on the rail is left where it is. Coming back to a pane and
+// finding it at the top would throw away the row the reader walked to.
+func (m *Model) railLand() {
+	if m.focus != paneRail || !m.railVisible() || m.railRing.index() >= 0 {
+		return
+	}
+	m.stepFocus(1)
 }
 
 // focusIndex answers a digit with the pane sitting in that position. The panes
@@ -966,6 +1013,7 @@ func (m *Model) focusIndex(digit string) {
 		if at++; at == n {
 			m.focus = p
 			m.syncContent()
+			m.railLand()
 			return
 		}
 	}
@@ -1104,6 +1152,21 @@ func (m Model) PullRequest() gh.PullRequest { return m.pr }
 
 // Keys is the keymap live while this screen is up.
 func (m Model) Keys() keys.DetailMap { return keys.Detail }
+
+// ShortHelp is the line the status bar carries for this screen, built from what
+// the tab on it can actually do. The screen is the only thing that knows: the
+// keymap is the same on all four, and the difference is which of them holds
+// blocks, folds and a rail.
+//
+// Checks is the one with none of the three. Its column and its output are read
+// rather than opened, and it has no rail because it has a column.
+func (m Model) ShortHelp() []key.Binding {
+	return keys.Detail.ShortHelp(keys.DetailContext{
+		Blocks: m.tab != tabChecks,
+		Expand: m.tab == tabFiles || m.railTab(),
+		Rail:   m.railTab(),
+	})
+}
 
 func (m *Model) syncContent() {
 	// Code is clipped to the pane rather than wrapped: a line of source folded
@@ -1279,7 +1342,7 @@ func (m Model) sideTitle() string {
 // conversation is the header block every GitHub PR page leads with. It comes
 // off the list row, so it is on screen before the detail query answers.
 func (m Model) conversation() string {
-	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
+	rule := lipgloss.NewStyle().Foreground(m.theme.BorderMutedOrSubtle()).
 		Render(strings.Repeat("─", max(0, m.bodyWidth())))
 
 	// The blank sets the status apart from the two lines naming the pull
@@ -1297,14 +1360,14 @@ func (m Model) conversation() string {
 func (m Model) titleLine() string {
 	// The number leads, in the accent the list numbers rows with, so the same
 	// pull request reads the same on both screens.
-	lead := lipgloss.NewStyle().Foreground(m.theme.Secondary).Bold(true).
+	lead := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true).
 		Render("#"+strconv.Itoa(m.pr.Number)) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(m.pr.Title)
+		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(m.pr.Title)
 
 	churn := m.churn()
 	room := max(0, m.bodyWidth()-lipgloss.Width(churn)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Faint))
+		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Subtle))
 	}
 
 	gap := max(1, m.bodyWidth()-lipgloss.Width(lead)-lipgloss.Width(churn))
@@ -1332,7 +1395,7 @@ func (m Model) opened() string {
 // line: the head branch is the long one and the one carrying a ticket key at
 // the front, so it is what gives way rather than the line wrapping.
 func (m Model) branchLine() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	target := faint.Render(m.pr.BaseRefName + " ← ")
 
 	room := max(0, m.bodyWidth()-lipgloss.Width(target))
@@ -1346,7 +1409,7 @@ func (m Model) branchLine() string {
 // state always has something to say, so this line is never empty even when the
 // clause after it is.
 func (m Model) statusLine() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 
 	label, c := comp.PRStateLabel(m.theme, m.pr)
 	icon, _ := comp.PRStateIcon(m.theme, m.pr)
@@ -1383,5 +1446,5 @@ func (m Model) collapsedStatus() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Faint).Render(" · "))
+	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · "))
 }

@@ -1269,7 +1269,11 @@ func (m Model) render() string {
 	if body := m.screenView(); body != "" {
 		parts = append(parts, body)
 	}
-	parts = append(parts, m.status.Render(m.statusLeft(), m.statusRight()))
+	if message := m.statusMessage(); message != "" {
+		parts = append(parts, m.status.RenderMessage(m.statusHints(), message))
+	} else {
+		parts = append(parts, m.status.Render(m.statusHints(), m.statusReadout()))
+	}
 
 	frame := strings.Join(parts, "\n")
 	if !m.showHelp {
@@ -1284,52 +1288,53 @@ func (m Model) noticeLine() string {
 	return lipgloss.NewStyle().Foreground(m.theme.Warning).Render(m.notice)
 }
 
-// statusLeft carries a toast while one is showing and the keymap hints the rest
-// of the time.
-func (m Model) statusLeft() string {
+// statusHints is the left of the bar, and it is the hints whatever else is
+// happening. They used to give way for a toast; a message on the right leaves
+// the keys where the reader's eye already learned to find them.
+//
+// A picker or a form is the exception, because it has taken the keys the line
+// names and carries a hint line of its own. The bar goes quiet rather than
+// spending its width on keys that stopped working when the modal opened.
+//
+// The detail screen builds its own line: the keymap is the same on all four
+// tabs and what they can do is not.
+func (m Model) statusHints() string {
+	if m.screen != screenDetail {
+		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
+	}
+	if m.detail.Capturing() {
+		return ""
+	}
+	return m.help.ShortHelpView(m.detail.ShortHelp())
+}
+
+// statusMessage is what the right side says happened, and empty when nothing
+// has. A refresh on the detail screen leaves the content where it is, so the
+// bar is the only place that can say it is running.
+func (m Model) statusMessage() string {
 	if !m.toasts.Empty() {
 		return m.toasts.Render(m.theme)
 	}
-	// A refresh on the detail screen leaves the content where it is, so the bar
-	// is the only place anything can say it is happening. The hints give way for
-	// the duration, the same as they do for a toast.
 	if m.detailRefreshing.running() {
-		return m.refreshSpin.Render("Refreshing")
+		return m.refreshSpin.RenderAccent("Refreshing")
 	}
-	switch m.screen {
-	case screenDetail:
-		return m.help.ShortHelpView(m.detail.Keys().ShortHelp())
-	default:
-		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
-	}
+	return ""
 }
 
-func (m Model) statusRight() string {
-	right := make([]string, 0, 2)
+// statusReadout is the right side the rest of the time, and the remaining
+// budget is all of it: a number worth reading only once it has run low.
+//
+// Neither screen names itself here any more. The list's section is the current
+// tab in the top border and the detail's pull request is in its own header, so
+// both were spending the line on a fact already on the screen, and the side
+// they were spending it on is where a toast lands.
+func (m Model) statusReadout() string {
 	// Limit is zero until a response lands. Gating on it rather than on
 	// Remaining is what lets an exhausted budget still read as zero.
 	if rate := m.store.Rate(); rate.Limit > 0 {
-		right = append(right, m.status.Budget(rate.Remaining))
+		return m.status.Budget(rate.Remaining)
 	}
-	right = append(right, m.status.Context(m.contextLabel()))
-	return strings.Join(right, m.status.Context(" · "))
-}
-
-// contextLabel names what is on screen. The detail screen gets the repository
-// as well as the number: the number alone says which pull request only if you
-// already know which repository you opened it from, and the tabs past the
-// conversation carry nothing else that answers it.
-func (m Model) contextLabel() string {
-	if m.screen != screenDetail {
-		return m.list.Section().Title
-	}
-
-	pr := m.detail.PullRequest()
-	label := "#" + strconv.Itoa(pr.Number)
-	if pr.Repository != "" {
-		label += " " + pr.Repository
-	}
-	return label
+	return ""
 }
 
 // helpBody is the overlay's content, and says so when the frame cannot hold it.
@@ -1411,9 +1416,9 @@ func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 // helpStyles dresses the help bubble in the active theme. Its own defaults are
 // fixed greys that ignore whatever palette is loaded.
 func helpStyles(th theme.Theme) help.Styles {
-	key := lipgloss.NewStyle().Foreground(th.Secondary)
-	desc := lipgloss.NewStyle().Foreground(th.Faint)
-	sep := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
+	key := lipgloss.NewStyle().Foreground(th.Accent)
+	desc := lipgloss.NewStyle().Foreground(th.MutedOrSubtle())
+	sep := lipgloss.NewStyle().Foreground(th.BorderMutedOrSubtle())
 
 	return help.Styles{
 		Ellipsis:       sep,

@@ -72,3 +72,21 @@ func TestALabelSitsBesideTheGlyph(t *testing.T) {
 		t.Error("the glyph does not lead the line")
 	}
 }
+
+// The status bar's spinner sits beside the key hints, and a label in the grey
+// those are rendered in reads as one more hint rather than as something
+// happening.
+func TestTheAccentLabelIsNotTheMutedOne(t *testing.T) {
+	s := comp.NewSpinner(theme.RosePineMoon)
+
+	accent := s.RenderAccent("Refreshing")
+	if !strings.Contains(accent, fgSeq(theme.RosePineMoon.Accent)) {
+		t.Errorf("RenderAccent() = %q, want the label in the accent", accent)
+	}
+	if strings.Contains(accent, fgSeq(theme.RosePineMoon.Subtle)) {
+		t.Errorf("RenderAccent() = %q, want nothing left in the muted grey", accent)
+	}
+	if got := s.Render("Refreshing"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Subtle)) {
+		t.Errorf("Render() = %q, want the label still receding", got)
+	}
+}

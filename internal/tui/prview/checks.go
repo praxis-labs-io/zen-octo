@@ -199,9 +199,9 @@ func (m Model) checkRow(g checkGroup, width int, selected bool) string {
 
 	_, c := comp.CheckStateIcon(m.theme, g.state)
 	lead := base.Foreground(c).Render(glyphCheck) + base.Render(" ") +
-		base.Foreground(m.theme.Primary).Render(g.name)
+		base.Foreground(m.theme.Text).Render(g.name)
 
-	count := base.Foreground(m.theme.Faint).Render(strconv.Itoa(len(g.checks)))
+	count := base.Foreground(m.theme.Subtle).Render(strconv.Itoa(len(g.checks)))
 	return m.padTo(m.checkLine(lead, count, width, base), width, base)
 }
 
@@ -212,7 +212,7 @@ func (m Model) checkRow(g checkGroup, width int, selected bool) string {
 func (m Model) checkLine(lead, right string, width int, base lipgloss.Style) string {
 	room := max(0, width-lipgloss.Width(right)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, base.Foreground(m.theme.Faint))
+		lead = comp.Clip(lead, room, base.Foreground(m.theme.Subtle))
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(right))
@@ -266,7 +266,7 @@ func (m Model) checkCard(g checkGroup, width int) string {
 func (m Model) checkHead(g checkGroup, width int) string {
 	icon, c := comp.CheckStateIcon(m.theme, g.state)
 	lead := lipgloss.NewStyle().Foreground(c).Render(icon) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(g.name)
+		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(g.name)
 
 	line := m.checkLine(lead, m.checkTally(g), width, lipgloss.NewStyle())
 	return clipTo(line, width, m.faint())
@@ -307,7 +307,7 @@ func (m Model) checkTally(g checkGroup) string {
 func (m Model) jobRow(c gh.Check, width int) string {
 	icon, ic := comp.CheckStateIcon(m.theme, c.State)
 	lead := " " + lipgloss.NewStyle().Foreground(ic).Render(icon) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Render(c.Name)
+		lipgloss.NewStyle().Foreground(m.theme.Text).Render(c.Name)
 
 	label, lc := comp.CheckStateLabel(m.theme, c.State)
 	word := lipgloss.NewStyle().Foreground(lc).Render(label)

@@ -64,14 +64,14 @@ func (t Toasts) Render(th theme.Theme) string {
 		return ""
 	}
 
-	c := th.Primary
+	c := th.Text
 	switch t.kind {
 	case ToastSuccess:
 		c = th.Success
 	case ToastError:
 		c = th.Error
 	case ToastInfo:
-		c = th.Primary
+		c = th.Text
 	}
 	return lipgloss.NewStyle().Foreground(c).Render(t.text)
 }

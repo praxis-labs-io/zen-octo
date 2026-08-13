@@ -144,7 +144,7 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 
 	at := map[string]int{}
 	for _, label := range []string{"Ready", "Draft", "Merged", "Closed"} {
-		at[label] = strings.Index(out, "─ "+label+" 1")
+		at[label] = strings.Index(out, "─ "+label+" (1)")
 		if at[label] < 0 {
 			t.Fatalf("no header for the %s group\n%s", label, out)
 		}
@@ -167,12 +167,12 @@ func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	if gap := strings.Trim(lines[1], "│ "); gap != "" {
 		t.Errorf("no line above the first group: %q", lines[1])
 	}
-	if !strings.Contains(lines[2], "─ Ready 1") {
+	if !strings.Contains(lines[2], "─ Ready (1)") {
 		t.Errorf("the gap above the first group is more than a line: %q", lines[2])
 	}
 
 	for i, l := range lines {
-		if !strings.Contains(l, "─ Draft 1") {
+		if !strings.Contains(l, "─ Draft (1)") {
 			continue
 		}
 		for n := 1; n <= 2; n++ {
@@ -293,7 +293,7 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	if !strings.HasPrefix(top, "\x1b[") || end < 0 {
 		t.Fatalf("the frame does not open with a styled border: %q", top)
 	}
-	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSecondary); got != want {
+	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSubtle); got != want {
 		t.Errorf("the border opens as %s, want the idle colour %s", got, want)
 	}
 }
@@ -306,7 +306,7 @@ func TestAClosedDraftGroupsAsClosed(t *testing.T) {
 
 	out := stripANSI(screen(t, 120, 20, []gh.PullRequest{p}))
 
-	if !strings.Contains(out, "─ Closed 1") {
+	if !strings.Contains(out, "─ Closed (1)") {
 		t.Errorf("a closed draft did not land in the closed group\n%s", out)
 	}
 	if strings.Contains(out, "─ Draft") {
@@ -784,6 +784,72 @@ func TestAnEmptySectionSaysSoRatherThanShowingNothing(t *testing.T) {
 	}
 }
 
+// A message is the only thing in the pane when there are no rows, so it sits in
+// the middle of it. In the corner it reads as the first row of a list that is
+// still filling in.
+func TestAMessageWithNoRowsBehindItSitsInTheMiddleOfThePane(t *testing.T) {
+	const width, height = 120, 12
+
+	tests := []struct {
+		name     string
+		sections []store.Section
+		want     string
+	}{
+		{
+			name:     "empty",
+			sections: ready([]string{"My PRs"}, nil),
+			want:     "Nothing matches this section.",
+		},
+		{
+			name:     "loading",
+			sections: []store.Section{{Section: config.Section{Title: "My PRs"}, Status: store.StatusLoading}},
+			want:     "Loading pull requests",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := list.New(theme.RosePineMoon)
+			m.SetSize(width, height)
+			m.SetSections(tt.sections)
+
+			lines := strings.Split(stripANSI(m.View()), "\n")
+			at := -1
+			for i, line := range lines {
+				if strings.Contains(line, tt.want) {
+					at = i
+					break
+				}
+			}
+			if at < 0 {
+				t.Fatalf("no %q in the frame\n%s", tt.want, strings.Join(lines, "\n"))
+			}
+
+			// The pane spends a line on each border, so the content rows run from
+			// line one. An odd number of them cannot split evenly, which is what
+			// the line of slack is for.
+			above, below := at-1, (height-2)-at
+			if abs(above-below) > 1 {
+				t.Errorf("%q has %d rows above it and %d below, want it centred\n%s",
+					tt.want, above, below, strings.Join(lines, "\n"))
+			}
+
+			text := strings.Trim(lines[at], "│")
+			gap := len(text) - len(strings.TrimLeft(text, " "))
+			if right := len(text) - len(strings.TrimRight(text, " ")); gap == 0 || abs(gap-right) > 1 {
+				t.Errorf("%q sits %d in from the left and %d from the right, want it centred", tt.want, gap, right)
+			}
+		})
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 // A pane too short for the blank lines above a group still shows the group's
 // name over its first row. Counting those blanks against the header dropped
 // the header with them.
@@ -857,7 +923,7 @@ func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
 	})
 
 	top := strings.Split(stripANSI(m.View()), "\n")[0]
-	for _, want := range []string{"Mine 7", "Review 2", "Involved - ", "Broken !"} {
+	for _, want := range []string{"Mine (7)", "Review (2)", "Involved - ", "Broken !"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q in it", top, want)
 		}
@@ -879,7 +945,7 @@ func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 	m.SetSections(reloading)
 
 	top := strings.Split(stripANSI(m.View()), "\n")[0]
-	for _, want := range []string{"Mine 7", "Review 2"} {
+	for _, want := range []string{"Mine (7)", "Review (2)"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q held through the reload", top, want)
 		}

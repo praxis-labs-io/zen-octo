@@ -52,14 +52,20 @@ func loadedRepo() store.Repo {
 func onRailRow(t *testing.T, m prview.Model, want string) prview.Model {
 	t.Helper()
 
-	m = press(m, "2") // the rail is the second pane on the conversation tab
+	// The rail is the second pane on the conversation tab. Back to the first
+	// control before walking down, because the cursor stops at each end rather
+	// than coming back round: a caller already standing below the row it wants
+	// would never reach it, and one already on it would step off.
+	m = press(m, "2")
+	m = press(m, strings.Fields(strings.Repeat("k ", 30))...)
+
 	for range 30 {
-		m = press(m, "tab")
 		if markedRailRow(t, m.View()) == want {
 			return m
 		}
+		m = press(m, "j")
 	}
-	t.Fatalf("tab never reached the rail row %q", want)
+	t.Fatalf("the cursor never reached the rail row %q", want)
 	return m
 }
 
@@ -259,7 +265,7 @@ func TestThePickerDoesNotGrowTheFrame(t *testing.T) {
 
 // The picker reads the same as the rows it writes.
 func TestThePickerColorsLabelsFromTheTheme(t *testing.T) {
-	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(theme.RosePineMoon.Secondary)) {
+	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(theme.RosePineMoon.Accent)) {
 		t.Error("the picker does not color its labels from the theme")
 	}
 }
@@ -281,7 +287,7 @@ func TestNoPickerOpensBeforeTheDetailLands(t *testing.T) {
 	m := press(screen(200, 60), "2")
 	m.SetRepo(loadedRepo())
 
-	m = press(m, "tab")
+	m = press(m, "j")
 	if got := asked(t, m, "enter"); got != nil {
 		t.Errorf("enter before the detail landed sent %T, want nothing", got)
 	}

@@ -79,13 +79,13 @@ func (m Model) stateChoice(to gh.PRTransition) (string, color.Color) {
 	case gh.TransitionReady:
 		return "Ready for review", m.theme.Success
 	case gh.TransitionDraft:
-		return "Convert to draft", m.theme.Faint
+		return "Convert to draft", m.theme.Subtle
 	case gh.TransitionClose:
 		return "Close", m.theme.Error
 	case gh.TransitionReopen:
 		return "Reopen", m.theme.Success
 	}
-	return string(to), m.theme.Faint
+	return string(to), m.theme.Subtle
 }
 
 // applyState asks the root for the transition the menu was left on.

@@ -272,7 +272,7 @@ func TestTheHintNamesTheKeysThatWork(t *testing.T) {
 	if strings.Contains(single, "space toggle") {
 		t.Errorf("a single picker names a toggle key that does nothing:\n%s", single)
 	}
-	if !strings.Contains(single, "enter pick") {
+	if !strings.Contains(single, "⏎ pick") {
 		t.Errorf("a single picker does not name the pick key:\n%s", single)
 	}
 }
@@ -450,13 +450,24 @@ func TestTheNoteRendersBesideTheTitle(t *testing.T) {
 
 // The note is part of the title now, and measuring the title without it clips
 // the count off the border.
+//
+// The note has to outrun the floor to prove anything: below it every picker
+// opens at the same width whatever it holds, so a short note would leave the
+// two renders identical and the test green for the wrong reason.
 func TestTheModalIsWideEnoughForTheNote(t *testing.T) {
+	const note = "1284 more · narrow the search a little further"
+
 	p := comp.NewPicker("Merge into", items("main"), nil, false)
 	bare := lipgloss.Width(render(p))
 
-	p.Replace(items("main"), "1284 more · narrow the search further")
-	if noted := lipgloss.Width(render(p)); noted <= bare {
+	p.Replace(items("main"), note)
+	out := render(p)
+
+	if noted := lipgloss.Width(out); noted <= bare {
 		t.Errorf("the modal is %d columns with the note and %d without, want it wider", noted, bare)
+	}
+	if !strings.Contains(stripANSI(out), note) {
+		t.Errorf("the note is clipped:\n%s", stripANSI(out))
 	}
 }
 

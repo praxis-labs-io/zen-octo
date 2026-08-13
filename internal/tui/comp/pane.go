@@ -12,9 +12,10 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// Tab is one entry in a pane's top border. Badge renders faint after the label
+// Tab is one entry in a pane's top border. Badge renders muted after the label
 // and is skipped when empty, so a count that hasn't loaded shows nothing rather
-// than a zero.
+// than a zero. Its punctuation is the caller's: a count is worth bracketing and
+// a failure mark is not.
 type Tab struct {
 	Label string
 	Badge string
@@ -172,9 +173,9 @@ func (p Pane) row(line string) string {
 }
 
 func (p Pane) borderStyle() lipgloss.Style {
-	c := p.theme.BorderSecondaryOrBorder()
+	c := p.theme.BorderSubtleOrBorder()
 	if p.focused {
-		c = p.theme.Secondary
+		c = p.theme.Accent
 	}
 	return lipgloss.NewStyle().Foreground(c)
 }
@@ -190,14 +191,14 @@ func (p Pane) topBorder() string {
 	used := 1
 
 	if p.index > 0 {
-		badge := lipgloss.NewStyle().Foreground(p.theme.Secondary).Render("[" + strconv.Itoa(p.index) + "]")
+		badge := lipgloss.NewStyle().Foreground(p.theme.Accent).Render("[" + strconv.Itoa(p.index) + "]")
 		segments = append(segments, badge, style.Render("─"))
 		used += lipgloss.Width(badge) + 1
 	}
 
 	label := p.tabStrip()
 	if label == "" && p.title != "" {
-		label = lipgloss.NewStyle().Foreground(p.theme.Primary).Bold(true).Render(p.title)
+		label = lipgloss.NewStyle().Foreground(p.theme.Text).Bold(true).Render(p.title)
 	}
 	if label != "" {
 		label = lipgloss.NewStyle().MaxWidth(max(0, mid-used)).Render(label)
@@ -223,24 +224,29 @@ func (p Pane) bottomBorder() string {
 	// content above it, and it stays there whichever pane has focus. Which pane
 	// that is the border already says, and saying it twice is a second encoding
 	// of a fact the reader can already see.
-	footer := lipgloss.NewStyle().Foreground(p.theme.Faint).
+	footer := lipgloss.NewStyle().Foreground(p.theme.MutedOrSubtle()).
 		MaxWidth(max(0, mid-1)).Render(p.footer)
 	fill := max(0, mid-lipgloss.Width(footer)-1)
 
 	return style.Render("╰"+strings.Repeat("─", fill)) + footer + style.Render("─╯")
 }
 
-// tabStrip renders the tabs. The current one is bright and the rest recede;
-// there is no marker glyph. It returns empty when there are none, so the caller
-// can fall back to the title.
+// tabStrip renders the tabs. The current one carries the accent and the rest
+// recede; there is no marker glyph. It returns empty when there are none, so
+// the caller can fall back to the title.
+//
+// The badge stays muted on the current tab as well. It is a count either way,
+// and accenting it puts the eye on the number rather than on the name of the
+// place the reader is standing.
 func (p Pane) tabStrip() string {
 	if len(p.tabs) == 0 {
 		return ""
 	}
 
-	activeStyle := lipgloss.NewStyle().Foreground(p.theme.Primary).Bold(true)
-	idleStyle := lipgloss.NewStyle().Foreground(p.theme.Faint)
-	sep := idleStyle.Render(" - ")
+	activeStyle := lipgloss.NewStyle().Foreground(p.theme.Accent).Bold(true)
+	idleStyle := lipgloss.NewStyle().Foreground(p.theme.Subtle)
+	badgeStyle := lipgloss.NewStyle().Foreground(p.theme.MutedOrSubtle())
+	sep := badgeStyle.Render(" - ")
 
 	parts := make([]string, 0, len(p.tabs))
 	for i, tab := range p.tabs {
@@ -250,7 +256,7 @@ func (p Pane) tabStrip() string {
 		}
 		part := style.Render(tab.Label)
 		if tab.Badge != "" {
-			part += idleStyle.Render(" " + tab.Badge)
+			part += badgeStyle.Render(" " + tab.Badge)
 		}
 		parts = append(parts, part)
 	}

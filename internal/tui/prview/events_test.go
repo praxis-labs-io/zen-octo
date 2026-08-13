@@ -196,7 +196,7 @@ func TestTabWalksPastAMetadataEvent(t *testing.T) {
 
 	m := detailed(held(d), 200, 60)
 	for i, card := range []string{cardDescription, cardComment, cardReview, cardThread} {
-		if got := focusedCard(t, tabbed(m, i+1).View()); !strings.HasPrefix(got, card) {
+		if got := focusedCard(t, walked(m, i+1).View()); !strings.HasPrefix(got, card) {
 			t.Errorf("tab %d focused %q, want %q", i+1, got, card)
 		}
 	}

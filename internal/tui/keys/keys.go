@@ -40,9 +40,16 @@ type ListMap struct {
 // the Files tab puts a third pane on screen and the panes are numbered by where
 // they sit rather than by what they hold.
 //
-// FocusNext and FocusPrev own tab and shift+tab, which the tab strip used to
-// answer to as well. The strip keeps the brackets: the ring is the key a reader
-// reaches for many times on one pull request, and the strip a handful.
+// NextBlock and PrevBlock take the braces, which are paragraph motion in vim
+// and mean the same thing here: go to the next block on this screen. What a
+// block is belongs to the tab. On the conversation it is a card or a thread and
+// the key walks the focus ring; on the two tabs showing a diff it is a file.
+// The two used to be separate keys for what a reader does with one intention,
+// and one of them then sat inert on the tab where the other worked.
+//
+// That gives tab and shift+tab back to the tab strip, which is what they do on
+// the list screen. A reader crossing the two screens presses the same key for
+// the same move.
 type DetailMap struct {
 	Up           key.Binding
 	Down         key.Binding
@@ -54,10 +61,8 @@ type DetailMap struct {
 	HalfPageDown key.Binding
 	NextTab      key.Binding
 	PrevTab      key.Binding
-	NextFile     key.Binding
-	PrevFile     key.Binding
-	FocusNext    key.Binding
-	FocusPrev    key.Binding
+	NextBlock    key.Binding
+	PrevBlock    key.Binding
 	PaneLeft     key.Binding
 	PaneRight    key.Binding
 	FocusPane    key.Binding
@@ -67,8 +72,8 @@ type DetailMap struct {
 	Back         key.Binding
 
 	// The compose pane's own. Comment opens it; Post and Editor are live only
-	// while it is open. Closing it is Back and reaching the post button is
-	// FocusNext, because both already mean that everywhere else on this screen.
+	// while it is open. Closing it is Back, and the button is reached with
+	// Form.Next rather than anything here.
 	//
 	// Post is a chord only a terminal speaking the Kitty keyboard protocol can
 	// send. Every terminal reaches the button instead, which is why there is
@@ -107,6 +112,18 @@ type DetailMap struct {
 	Toggle key.Binding
 }
 
+// FormMap walks the fields of a compose box or the merge form, and is live only
+// while one of them holds the keyboard.
+//
+// It is its own map because tab means something else on the screen behind it,
+// and the two can never be live at once: a box takes every key until it is
+// closed. The braces the screen walks blocks with are text in a textarea, so
+// tab is the only key left that can move a caret out of one.
+type FormMap struct {
+	Next key.Binding
+	Prev key.Binding
+}
+
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
 // later; until then these are the only place a key is named.
 var (
@@ -125,9 +142,9 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next section")),
-		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev section")),
-		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
+		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 	}
 
@@ -140,23 +157,21 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextTab:      key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
-		PrevTab:      key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
-		NextFile:     key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next file")),
-		PrevFile:     key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev file")),
-		FocusNext:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus next")),
-		FocusPrev:    key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "focus prev")),
+		NextTab:      key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
+		PrevTab:      key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		NextBlock:    key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next block")),
+		PrevBlock:    key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev block")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
-		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
-		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
+		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
+		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
 		Comment:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
-		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
-		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open or press")),
+		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
+		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
@@ -166,11 +181,35 @@ var (
 		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
 		Toggle:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
 	}
+
+	Form = FormMap{
+		Next: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
+		Prev: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev field")),
+	}
 )
+
+// hint restates a binding for the status bar, where a pair of opposed keys
+// shares one verb: the bar has room for "j/k move" and not for a line naming
+// up and down separately. It keeps the real key list, so the help stays
+// answerable to the declarations.
+//
+// The overlay is the other way round. It has a row per binding and no reader
+// looking for the one word that gets them moving, so "up" and "down" belong
+// there and a shared verb would leave two rows reading the same.
+func hint(b key.Binding, keys, desc string) key.Binding {
+	return key.NewBinding(key.WithKeys(b.Keys()...), key.WithHelp(keys, desc))
+}
 
 // ShortHelp is the one line the status bar carries.
 func (k ListMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.Open, k.NextSection, k.Sync, Global.Help, Global.Quit}
+	return []key.Binding{
+		hint(k.Down, "j/k", "move"),
+		k.Open,
+		hint(k.NextSection, "[/]", "tab"),
+		k.Sync,
+		Global.Help,
+		Global.Quit,
+	}
 }
 
 // FullHelp is the overlay. Every binding in the map appears here; a test holds
@@ -184,29 +223,55 @@ func (k ListMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// ShortHelp is the one line the status bar carries. Sync is in the overlay
-// only: a seventh hint pushes the line past the pull request number on the
-// right at 100 columns, and the number is what says which one is on screen.
-//
-// FocusNext is in the overlay for a different reason. The bar is the same line
-// on every tab, and the ring is only on the one without a column; hinting it
-// beside a pane where it does nothing is worse than not hinting it at all.
-func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.NextTab, k.Expand, k.ToggleRail, k.Back, Global.Help}
+// DetailContext is what the detail screen can do where the reader is standing.
+// The bar is one line on four tabs that hold different things, and a hint for a
+// key that is inert on the tab under it is worse than no hint at all: the
+// reader presses it, nothing happens, and the whole line stops being worth
+// reading.
+type DetailContext struct {
+	// Blocks is whether the braces have anything to walk. Every tab but Checks
+	// does: cards on the conversation, files in a diff.
+	Blocks bool
+
+	// Expand is whether there is something to open. The conversation has folds
+	// and the Files tab has directories; the other two have neither.
+	Expand bool
+
+	// Rail is whether there is a rail to toggle, which the tabs with a column
+	// have no room for.
+	Rail bool
 }
 
-// FullHelp is the overlay.
+// ShortHelp is the one line the status bar carries. Sync is in the overlay
+// only, to keep the line inside a hundred columns.
+func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
+	out := []key.Binding{hint(k.Down, "j/k", "move")}
+	if c.Blocks {
+		out = append(out, hint(k.NextBlock, "{/}", "block"))
+	}
+	if c.Expand {
+		out = append(out, k.Expand)
+	}
+	if c.Rail {
+		out = append(out, k.ToggleRail)
+	}
+	return append(out, hint(k.NextTab, "[/]", "tab"), k.Back, Global.Help)
+}
+
+// FullHelp is the overlay. The form keys are on it as well: they are live only
+// while a box has the keyboard, but the reader asking what tab does is owed
+// both answers.
 func (k DetailMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
-		{k.NextTab, k.PrevTab, k.NextFile, k.PrevFile},
-		{k.FocusNext, k.FocusPrev, k.Expand, k.ToggleRail},
+		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
+		{k.Expand, k.ToggleRail},
 		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
 		{k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
-		{k.Toggle},
+		{Form.Next, Form.Prev, k.Toggle},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

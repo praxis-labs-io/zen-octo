@@ -157,7 +157,7 @@ func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
 		t.Error("esc took the words away")
 	}
 	// The ring is still standing on the box, so enter is what resumes.
-	if !strings.Contains(out, "enter to write") {
+	if !strings.Contains(out, "⏎ to write") {
 		t.Error("the box does not say the keyboard went back to the screen")
 	}
 
@@ -252,7 +252,7 @@ func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
 
 // lit is whether the post button carries the accent it takes on focus.
 func lit(frame string) bool {
-	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Secondary)+"mPost")
+	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Accent)+"mPost")
 }
 
 // It is a button at every state, filled surface and all. Muted is the colour it
@@ -331,16 +331,16 @@ func TestCDoesNothingOnTheTabsWithAColumn(t *testing.T) {
 // it would be promising a key that does the opposite of what it says.
 func TestTheFooterNamesTheChordOnlyWhereItWorks(t *testing.T) {
 	plain := stripANSI(composing(200, 40).View())
-	if strings.Contains(plain, "ctrl+enter") {
+	if strings.Contains(plain, "ctrl+⏎") {
 		t.Errorf("the footer names ctrl+enter on a terminal that cannot send it:\n%s", plain)
 	}
-	if !strings.Contains(plain, "tab · enter post") {
+	if !strings.Contains(plain, "tab · ⏎ post") {
 		t.Errorf("the footer does not name the button path:\n%s", plain)
 	}
 
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetChords(true)
-	if got := stripANSI(press(m, "c").View()); !strings.Contains(got, "ctrl+enter post") {
+	if got := stripANSI(press(m, "c").View()); !strings.Contains(got, "ctrl+⏎ post") {
 		t.Errorf("the footer does not name the chord where it works:\n%s", got)
 	}
 }
@@ -459,9 +459,9 @@ func TestARefetchWhileTypingStillReachesTheScreen(t *testing.T) {
 // Focus moving onto the box unlights whichever card had it. The kept page holds
 // the highlight, so it has to be dropped when the box takes the keyboard.
 func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "tab")
+	m := press(detailed(held(sampleDetail()), 200, 60), "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
-		t.Fatalf("tab focused %q, want the description", got)
+		t.Fatalf("the ring focused %q, want the description", got)
 	}
 
 	if got := focusedCard(t, press(m, "c").View()); !strings.HasPrefix(got, cardCompose) {
@@ -496,10 +496,10 @@ func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
 		t.Errorf("with focus elsewhere the box names the wrong key:\n%s", got)
 	}
 
-	// Eight tabs walks the ring onto the box without starting to write in it.
-	onIt := press(away, strings.Fields(strings.Repeat("tab ", 8))...)
+	// Eight steps walk the ring onto the box without starting to write in it.
+	onIt := press(away, strings.Fields(strings.Repeat("} ", 8))...)
 	out := stripANSI(onIt.View())
-	if !strings.Contains(out, "enter to write") {
+	if !strings.Contains(out, "⏎ to write") {
 		t.Errorf("with the ring on the box it does not name enter:\n%s", out)
 	}
 	if strings.Contains(out, "c to write") {
@@ -592,7 +592,7 @@ func TestARestoredDraftDoesNotDestroyOneWrittenSince(t *testing.T) {
 func TestWritingFromTheRailMovesTheKeysToTheConversation(t *testing.T) {
 	// l moves the keys to the rail and tab puts its cursor on a row, which is
 	// what the rail paints. Without both, there is no cursor line to be wrong.
-	rail := press(detailed(held(sampleDetail()), 200, 60), "l", "tab")
+	rail := press(detailed(held(sampleDetail()), 200, 60), "l", "}")
 	if markedRailRow(t, rail.View()) == "" {
 		t.Fatal("the rail has no cursor line to begin with")
 	}

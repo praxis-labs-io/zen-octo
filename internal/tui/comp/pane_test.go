@@ -91,10 +91,10 @@ func TestPaneBrightensOnlyTheActiveTab(t *testing.T) {
 
 	top := strings.Split(pane().Size(60, 5).Tabs(tabs, 0).Render(""), "\n")[0]
 
-	active := fgSeq(theme.RosePineMoon.Primary) + "mConversation"
-	idle := fgSeq(theme.RosePineMoon.Faint) + "mCommits"
+	active := fgSeq(theme.RosePineMoon.Accent) + "mConversation"
+	idle := fgSeq(theme.RosePineMoon.Subtle) + "mCommits"
 	if !strings.Contains(top, active) {
-		t.Errorf("top border = %q, want Conversation in the primary color", top)
+		t.Errorf("top border = %q, want Conversation in the accent color", top)
 	}
 	if !strings.Contains(top, idle) {
 		t.Errorf("top border = %q, want Commits faint", top)
@@ -155,13 +155,13 @@ func TestPaneBorderColorFollowsFocus(t *testing.T) {
 	focused := pane().Size(30, 4).Focus(true).Render("")
 	idle := pane().Size(30, 4).Render("")
 
-	if !strings.Contains(focused, fgSeq(theme.RosePineMoon.Secondary)) {
+	if !strings.Contains(focused, fgSeq(theme.RosePineMoon.Accent)) {
 		t.Error("focused pane does not use the accent color for its border")
 	}
-	if strings.Contains(idle, fgSeq(theme.RosePineMoon.Secondary)) {
+	if strings.Contains(idle, fgSeq(theme.RosePineMoon.Accent)) {
 		t.Error("idle pane uses the focused border color")
 	}
-	if !strings.Contains(idle, fgSeq(theme.RosePineMoon.BorderSecondary)) {
+	if !strings.Contains(idle, fgSeq(theme.RosePineMoon.BorderSubtle)) {
 		t.Error("idle pane does not use the idle border color")
 	}
 }

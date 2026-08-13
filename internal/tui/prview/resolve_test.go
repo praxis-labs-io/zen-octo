@@ -160,7 +160,7 @@ func TestXIsInertOnAThreadWithAWriteStillOut(t *testing.T) {
 	d.Threads[0].Pending = true
 	d.Threads[0].CanUnresolve = true
 
-	m := tabbed(detailed(held(d), 200, 60), tabThread)
+	m := walked(detailed(held(d), 200, 60), tabThread)
 
 	if got := asked(t, m, "x"); got != nil {
 		t.Errorf("x asked for %+v on a thread already answering for a write", got)
@@ -214,7 +214,7 @@ func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strconv.Itoa(tt.width), func(t *testing.T) {
-			got := cardHints(t, tabbed(detailed(held(sampleDetail()), tt.width, 60), tabThread).View())
+			got := cardHints(t, walked(detailed(held(sampleDetail()), tt.width, 60), tabThread).View())
 
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("hints = %q, want %q", got, tt.want)
