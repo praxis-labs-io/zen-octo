@@ -1083,8 +1083,8 @@ func (m *Model) layout() {
 	}
 
 	// The header is pinned above the panes, so what they divide is the frame it
-	// leaves. Measured off the rendered block rather than counted: the status
-	// line wraps, and a narrow frame wraps it onto a second row.
+	// leaves. Measured off the rendered block rather than counted: a short frame
+	// keeps the panes their floor and gives the header what is left.
 	paneHeight := m.height
 	if head := m.head(); head != "" {
 		paneHeight = max(0, m.height-strings.Count(head, "\n")-1)
@@ -1400,8 +1400,19 @@ func (m Model) frameHead() string {
 // header names a pull request the reader already chose to open.
 func (m Model) head() string {
 	lines := strings.Split(m.frameHead(), "\n")
-	if room := max(0, m.height-headRoom); len(lines) > room {
-		lines = lines[:room]
+
+	room := max(0, m.height-headRoom)
+	if len(lines) <= room {
+		return strings.Join(lines, "\n")
+	}
+
+	// Cut short, and never left ending on a blank. The last one sets the header
+	// apart from the panes, and there is nothing under it to set it apart from
+	// once the rest has gone: the row goes back to the pane, on the frame least
+	// able to spare one.
+	lines = lines[:room]
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1441,7 +1452,13 @@ func (m Model) spread(left, right string, width int) string {
 		room = width - lipgloss.Width(right) - 1
 	}
 	if room < 1 {
-		return comp.Clip(right, width, faint)
+		// No room for the left half, so the right one stands alone. Clipped
+		// only where it overruns on its own: clipping it because the left could
+		// not fit beside it marks a cut that never happened.
+		if lipgloss.Width(right) > width {
+			return comp.Clip(right, width, faint)
+		}
+		return right
 	}
 	if lipgloss.Width(left) > room {
 		left = comp.Clip(left, room, faint)

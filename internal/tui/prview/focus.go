@@ -114,7 +114,7 @@ type ring struct {
 	on    focusKey
 }
 
-// reset empties the items for a fresh render, keeping the focus and the lead.
+// reset empties the items for a fresh render, keeping the focus.
 func (r *ring) reset() { r.items = r.items[:0] }
 
 // stops is how many things there are to land on, as of the last render.

@@ -350,6 +350,44 @@ func TestTheBranchLineCarriesNothingElse(t *testing.T) {
 	t.Fatal("no branch line on screen")
 }
 
+// A right half that fits is not a clipped one. It takes the line to itself
+// where the left half will not fit beside it, and an ellipsis there marks a cut
+// that never happened.
+func TestAHeaderLineTooNarrowForBothHalvesDoesNotMarkACut(t *testing.T) {
+	// The rollup is 29 cells and the gutters take two of the frame, so these
+	// are the widths where it fits exactly and with one to spare.
+	for _, width := range []int{31, 32} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			for _, row := range headerRows(t, detailed(held(sampleDetail()), width, 30).View()) {
+				if !strings.Contains(row, "failing") {
+					continue
+				}
+				if row != "✗ failing · changes requested" {
+					t.Errorf("status line = %q, want the rollup whole and unmarked", row)
+				}
+				return
+			}
+			t.Fatal("no rollup on screen")
+		})
+	}
+}
+
+// Cut short, the header must not spend its last row on the blank that sets it
+// apart from the panes. There is nothing left under it to set apart, and the
+// frame that cut it is the one least able to spare a row.
+func TestAClippedHeaderGivesItsSeparatorBack(t *testing.T) {
+	frame := detailed(held(sampleDetail()), 200, 6).View()
+
+	// Three rows are left once the panes have their floor, and the third of the
+	// header's own is the separator, so two survive.
+	if at := paneTopAt(frame); at != 2 {
+		t.Errorf("the panes open on frame line %d, want line 2 with the separator given back", at)
+	}
+	if lines := strings.Split(frame, "\n"); len(lines) != 6 {
+		t.Errorf("frame is %d lines, want the 6 it was given", len(lines))
+	}
+}
+
 // The lifecycle, who raised it and when, with where the checks and the review
 // got to pushed to the far edge the way the title line pushes its numbers.
 func TestTheStatusLineCarriesTheRollupAtItsFarEdge(t *testing.T) {
