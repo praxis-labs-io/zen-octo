@@ -411,7 +411,7 @@ func (m Model) mergeRow(d gh.PullRequestDetail, width int) []railEntry {
 	// and has nothing to say once the merge has happened; the base goes with
 	// them rather than the bare word, which the State row above already
 	// carries. So the row reads as merged the moment the key is pressed.
-	text, c := comp.MergeStateLabel(m.theme, d.Merge)
+	text, c := comp.MergeStateLabel(m.theme, d.Merge, d.Checks)
 	if d.State == gh.PRStateMerged {
 		text, c = "Merged into "+d.BaseRefName, m.theme.Accent
 	}

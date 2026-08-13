@@ -29,7 +29,7 @@ func jumping(t *testing.T, n int) prview.Model {
 
 // onTab is whether the strip reads this tab as the current one.
 func onTab(frame, name string) bool {
-	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
+	return strings.Contains(paneTop(frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
 }
 
 // landed is what every jump has to produce: the code the thread was written
@@ -41,8 +41,10 @@ func onTab(frame, name string) bool {
 func landed(t *testing.T, frame string) {
 	t.Helper()
 
-	code := lineOf(t, frame, "min(delay*2, fetchTimeout)")
-	card := lineOf(t, frame, cardThread)
+	// Rows of the pane, not lines of the frame: the header is pinned above it.
+	top := paneTopAt(frame)
+	code := lineOf(t, frame, "min(delay*2, fetchTimeout)") - top
+	card := lineOf(t, frame, cardThread) - top
 
 	if code >= card {
 		t.Errorf("the code is on row %d and the card answering it on row %d, want the code above it:\n%s",

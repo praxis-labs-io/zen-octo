@@ -101,7 +101,11 @@ func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, lim
 	f.queries = append(f.queries, query)
 	f.gotLimit = limit
 	f.gotDeadline, f.hadDeadline = ctx.Deadline()
-	prs := f.prs
+	// Cloned rather than handed out. Assigning the slice copies the header and
+	// leaves the caller on this fake's own backing array, so a write landing
+	// later edits rows a reader is already holding. A real client answers with
+	// a snapshot.
+	prs := slices.Clone(f.prs)
 	f.mu.Unlock()
 
 	if f.err != nil {
@@ -131,16 +135,19 @@ func (f *fakeSearcher) calls() int { return len(f.asked()) }
 func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	f.mu.Lock()
 	f.opens = append(f.opens, id)
-	detail, err, rows := f.details[id], f.detailErr, f.prs
+	detail, err := f.details[id], f.detailErr
+	// The row is copied out under the lock, not the slice holding it: ranging
+	// it after unlocking reads this fake's own backing array, which a write
+	// still in flight is meanwhile editing.
+	for _, pr := range f.prs {
+		if pr.ID == id {
+			detail.PullRequest = pr
+		}
+	}
 	f.mu.Unlock()
 
 	if err != nil {
 		return gh.DetailResult{}, err
-	}
-	for _, pr := range rows {
-		if pr.ID == id {
-			detail.PullRequest = pr
-		}
 	}
 	return gh.DetailResult{Detail: detail, RateLimit: f.rate}, nil
 }
@@ -535,6 +542,56 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 // idOf is the node id of the pull request with this number. The two reviewer
 // calls address one by repository and number, which is how REST names it, and
 // everything the fake stages is keyed by id.
+// A search answers with a snapshot, the way a real client does. Handing the
+// slice out copies the header and leaves the caller on this fake's own backing
+// array, where a write landing later edits rows already given away.
+func TestTheFakeAnswersASearchWithRowsALaterWriteCannotEdit(t *testing.T) {
+	f := &fakeSearcher{prs: samplePRs()}
+
+	res, err := f.SearchPullRequests(context.Background(), "is:open", 20)
+	if err != nil {
+		t.Fatalf("SearchPullRequests() error = %v", err)
+	}
+
+	row := res.PullRequests[0]
+	if _, err := f.SetBase(context.Background(), row.ID, "develop"); err != nil {
+		t.Fatalf("SetBase() error = %v", err)
+	}
+	if got := res.PullRequests[0].BaseRefName; got != row.BaseRefName {
+		t.Errorf("the row a search answered with became %q when a later write landed, want %q",
+			got, row.BaseRefName)
+	}
+}
+
+// The mutex is not enough on its own, and only the race detector says so: a
+// read that ranges the rows after unlocking is on the same backing array as the
+// write it was meant to be held apart from. This is the shape CI caught between
+// a retarget still in flight and the refetch it fired.
+func TestTheFakeReadsItsRowsUnderItsOwnLock(t *testing.T) {
+	f := &fakeSearcher{prs: samplePRs()}
+	id := f.prs[0].ID
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if _, err := f.PullRequest(context.Background(), id, ""); err != nil {
+				t.Errorf("PullRequest() error = %v", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := f.SetBase(context.Background(), id, "develop"); err != nil {
+				t.Errorf("SetBase() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// The caller holds the lock, so this must not take it: both callers are inside
+// their own critical section already and a Go mutex is not reentrant.
 func (f *fakeSearcher) idOf(number int) string {
 	for _, pr := range f.prs {
 		if pr.Number == number {

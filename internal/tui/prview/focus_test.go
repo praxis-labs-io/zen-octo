@@ -126,9 +126,9 @@ func TestTheRingScrollsACardToTheTopOfTheWindow(t *testing.T) {
 	if !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus landed on %q, want the thread card whole", got)
 	}
-	// Line zero is the pane's own border, so line one is the top of the window.
+	// Row zero is the pane's own border, so row one is the top of the window.
 	if at != 1 {
-		t.Errorf("the card's border landed on frame line %d, want line 1", at)
+		t.Errorf("the card's border landed on pane row %d, want row 1", at)
 	}
 }
 
@@ -263,7 +263,8 @@ func TestTheRingAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 24)
 
 	row := func(frame string) string {
-		return strings.TrimSpace(strings.Trim(stripANSI(strings.Split(frame, "\n")[1]), "│ "))
+		lines := strings.Split(stripANSI(frame), "\n")
+		return strings.TrimSpace(strings.Trim(lines[paneTopAt(frame)+1], "│ "))
 	}
 	if got := row(m.View()); got != "" {
 		t.Fatalf("the pane opens on %q, want its blank line", got)
@@ -331,14 +332,14 @@ func TestTabSwitchesTabsAndTheBracesDoNot(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 	active := fgSeq(theme.RosePineMoon.Accent)
 
-	if !strings.Contains(firstLine(press(m, "tab").View()), active+"mCommits") {
+	if !strings.Contains(paneTop(press(m, "tab").View()), active+"mCommits") {
 		t.Error("tab did not move to the Commits tab")
 	}
-	if !strings.Contains(firstLine(press(m, "shift+tab").View()), active+"mFiles") {
+	if !strings.Contains(paneTop(press(m, "shift+tab").View()), active+"mFiles") {
 		t.Error("shift+tab did not wrap back to the Files tab")
 	}
 	for _, k := range []string{"}", "{"} {
-		if !strings.Contains(firstLine(press(m, k).View()), active+"mConversation") {
+		if !strings.Contains(paneTop(press(m, k).View()), active+"mConversation") {
 			t.Errorf("%q moved off the Conversation tab", k)
 		}
 	}
@@ -617,14 +618,15 @@ func focusedCard(t *testing.T, frame string) string {
 	return head
 }
 
-// focusedCardAt is the same, with the frame line the card's top border landed
-// on. Line zero is the pane's own top border, so a card at the top of the
-// window sits on line one.
+// focusedCardAt is the same, with the row of the pane the card's top border
+// landed on. Row zero is the pane's own top border, so a card at the top of the
+// window sits on row one.
 func focusedCardAt(t *testing.T, frame string) (string, int) {
 	t.Helper()
 
 	accent := fgSeq(theme.RosePineMoon.Accent)
 	lines := strings.Split(frame, "\n")
+	top := paneTopAt(frame)
 
 	for i, line := range lines {
 		// A line opening with a corner is a pane's own border, not a card's.
@@ -636,7 +638,7 @@ func focusedCardAt(t *testing.T, frame string) (string, int) {
 		if start < 0 || !strings.HasPrefix(line[start+2:], accent) {
 			continue
 		}
-		return cardHeading(stripANSI(lines[i+1]), stripANSI(line)), i
+		return cardHeading(stripANSI(lines[i+1]), stripANSI(line)), i - top
 	}
 	return "", -1
 }
