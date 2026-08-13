@@ -101,7 +101,11 @@ func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, lim
 	f.queries = append(f.queries, query)
 	f.gotLimit = limit
 	f.gotDeadline, f.hadDeadline = ctx.Deadline()
-	prs := f.prs
+	// Cloned rather than handed out. Assigning the slice copies the header and
+	// leaves the caller on this fake's own backing array, so a write landing
+	// later edits rows a reader is already holding. A real client answers with
+	// a snapshot.
+	prs := slices.Clone(f.prs)
 	f.mu.Unlock()
 
 	if f.err != nil {
@@ -131,16 +135,19 @@ func (f *fakeSearcher) calls() int { return len(f.asked()) }
 func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	f.mu.Lock()
 	f.opens = append(f.opens, id)
-	detail, err, rows := f.details[id], f.detailErr, f.prs
+	detail, err := f.details[id], f.detailErr
+	// The row is copied out under the lock, not the slice holding it: ranging
+	// it after unlocking reads this fake's own backing array, which a write
+	// still in flight is meanwhile editing.
+	for _, pr := range f.prs {
+		if pr.ID == id {
+			detail.PullRequest = pr
+		}
+	}
 	f.mu.Unlock()
 
 	if err != nil {
 		return gh.DetailResult{}, err
-	}
-	for _, pr := range rows {
-		if pr.ID == id {
-			detail.PullRequest = pr
-		}
 	}
 	return gh.DetailResult{Detail: detail, RateLimit: f.rate}, nil
 }
@@ -535,6 +542,8 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 // idOf is the node id of the pull request with this number. The two reviewer
 // calls address one by repository and number, which is how REST names it, and
 // everything the fake stages is keyed by id.
+// The caller holds the lock, so this must not take it: both callers are inside
+// their own critical section already and a Go mutex is not reentrant.
 func (f *fakeSearcher) idOf(number int) string {
 	for _, pr := range f.prs {
 		if pr.Number == number {
