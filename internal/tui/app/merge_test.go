@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -147,8 +148,10 @@ func TestAFailedBranchDeleteLeavesTheMergeStanding(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merged into main") {
 		t.Errorf("a failed delete took the merge off the rail:\n%s", out)
 	}
-	if bar := lastLine(render(t, m)); !strings.Contains(bar, "still there") {
-		t.Errorf("status bar = %q, want the branch reported as left behind", strings.TrimSpace(bar))
+	// Not "still there": a request that timed out over a delete GitHub made is
+	// the same error, so the honest report is that nothing here can tell.
+	if bar := lastLine(render(t, m)); !strings.Contains(bar, "Could not confirm") {
+		t.Errorf("status bar = %q, want the delete reported as unconfirmed", strings.TrimSpace(bar))
 	}
 }
 
@@ -232,5 +235,63 @@ func TestAFailedMergeAsksForTheDetailAgain(t *testing.T) {
 
 	if got := len(client.opened()); got <= before {
 		t.Errorf("the detail was fetched %d more times, want another after the refusal", got-before)
+	}
+}
+
+// gh.Merge takes any pull request back as a success, so an answer in another
+// state would be toasted as merged and have the branch deleted off the back of
+// it, which is the half of this that cannot be undone.
+func TestAnAnswerThatIsNotMergedDeletesNothing(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.mergeState = gh.PRStateOpen
+
+	m := pressMerge(openMergeForm(t, client))
+
+	if got := client.deletes(); len(got) != 0 {
+		t.Errorf("deleted %v off the back of an answer that was not a merge", got)
+	}
+	if bar := lastLine(render(t, m)); !strings.Contains(bar, "rather than merged") {
+		t.Errorf("status bar = %q, want the answer reported as not a merge", strings.TrimSpace(bar))
+	}
+}
+
+// The probe's whole job is to answer a question the reader never asked, so a
+// wait swallowed by a fetch already in flight has to be armed again: that fetch
+// was asked for before GitHub had worked the answer out and will land carrying
+// the same UNKNOWN, and nothing else would ever ask.
+func TestAProbeSwallowedByAFetchInFlightIsArmedAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 44), "enter")
+
+	// A sync whose answer is held back, so the fetch is genuinely still out
+	// when the wait runs out.
+	m, held := holdBack(m, keyMsg("s"), "detailFetched")
+	if len(held) == 0 {
+		t.Fatal("setup: no detail response was held, so nothing is in flight")
+	}
+
+	_, cmd := m.Update(app.MergeProbe("PR_412"))
+	if cmd == nil {
+		t.Fatal("the probe was swallowed by the fetch in flight and nothing was armed to ask again")
+	}
+}
+
+// A zero MergeMethods forbids every method, and startMerge refuses to open a
+// modal with nothing to choose, so the form would never open in mockup mode
+// even with the two calls behind it implemented.
+func TestTheMockupOffersEveryMergeMethod(t *testing.T) {
+	res, err := app.Mock{}.RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	for _, method := range []gh.MergeMethod{
+		gh.MergeMethodMerge, gh.MergeMethodSquash, gh.MergeMethodRebase,
+	} {
+		if !res.Meta.Methods.Allows(method) {
+			t.Errorf("the mockup forbids %s, so its merge form cannot open", method)
+		}
 	}
 }

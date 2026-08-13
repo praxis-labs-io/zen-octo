@@ -52,6 +52,9 @@ type fakeSearcher struct {
 	moved       []string
 	retargeted  []string
 	merged      []gh.MergeOptions
+	// mergeState is what GitHub answers with, MERGED unless a test says
+	// otherwise: any pull request comes back as a success from the real one.
+	mergeState  gh.PRState
 	deletedRefs []string
 	states      map[string]*gh.PRStateResult
 	metaAsked   []string
@@ -3220,7 +3223,11 @@ func (f *fakeSearcher) Merge(_ context.Context, prID string, opts gh.MergeOption
 	}
 	f.mu.Unlock()
 
-	return gh.MergeResult{State: gh.PRStateMerged}, nil
+	state := f.mergeState
+	if state == "" {
+		state = gh.PRStateMerged
+	}
+	return gh.MergeResult{State: state}, nil
 }
 
 func (f *fakeSearcher) DeleteRef(_ context.Context, refID string) error {

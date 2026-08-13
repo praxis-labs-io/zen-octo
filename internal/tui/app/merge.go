@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -85,11 +86,24 @@ func (m Model) sendMerge(msg prview.MergeMsg, key string) tea.Cmd {
 //
 // The diff is left alone. A merge changes nothing about the difference between
 // the two branches, which is what the Files tab is showing.
+//
+// It reads the state GitHub answered with rather than the one that was asked
+// for, and deletes the branch only where that answer is a merge. gh.Merge takes
+// any pull request back as a success, so an answer in another state would
+// otherwise be toasted as merged and have the branch deleted off the back of
+// it, which is the half of this that cannot be undone. The lifecycle write next
+// door refuses to name a move its answer does not confirm, for the same reason.
 func (m Model) mergeLanded(msg mergedMsg) (tea.Model, tea.Cmd) {
 	m.store.MergeApplied(msg.id, msg.key, msg.res)
 
-	base := m.store.Detail(msg.id).Detail.BaseRefName
-	cmds := []tea.Cmd{m.toasts.Show(comp.ToastSuccess, "Merged into "+base)}
+	held := m.store.Detail(msg.id).Detail
+	if msg.res.State != gh.PRStateMerged {
+		toast := m.toasts.Show(comp.ToastError,
+			"GitHub answered "+strings.ToLower(string(msg.res.State))+" rather than merged")
+		return m, tea.Batch(toast, m.correctDetail(msg.id))
+	}
+
+	cmds := []tea.Cmd{m.toasts.Show(comp.ToastSuccess, "Merged into "+held.BaseRefName)}
 	if m.showing(msg.id) {
 		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
 	}
@@ -120,11 +134,16 @@ func (m Model) deleteRef(msg mergedMsg) tea.Cmd {
 	}
 }
 
-// refDeleteFailed says the branch is still there and leaves the merge standing.
-// There is nothing to revert: the pull request is merged either way, and the
-// only thing left undone is a branch the reader can delete themselves.
+// refDeleteFailed says so and leaves the merge standing. There is nothing to
+// revert: the pull request is merged either way, and the only thing left undone
+// is a branch the reader can delete themselves.
+//
+// It reports what is not known rather than what is. An error is not proof the
+// branch survived, since the request can time out over a delete GitHub has
+// already made, and the one honest thing to say is that nothing here can tell.
 func (m Model) refDeleteFailed(msg refDeleteFailedMsg) (tea.Model, tea.Cmd) {
-	return m, m.toasts.Show(comp.ToastError, "Merged, but "+msg.branch+" is still there: "+msg.err.Error())
+	return m, m.toasts.Show(comp.ToastError,
+		"Merged. Could not confirm "+msg.branch+" was deleted: "+msg.err.Error())
 }
 
 // mergeFailed is the revert branch, and it refetches, which is what tells it
@@ -181,12 +200,27 @@ func (m Model) probeMergeability(id string, res gh.DetailResult) tea.Cmd {
 	return tea.Tick(mergeProbeDelay, func(time.Time) tea.Msg { return mergeProbeMsg{id: id} })
 }
 
-// mergeProbe asks the question again. correctDetail refuses a fetch already in
-// flight and registers no refresh leg, so the answer lands on the screen the
-// ordinary way with no "Refreshed" behind it.
+// mergeProbe asks the question again. correctDetail registers no refresh leg,
+// so the answer lands on the screen the ordinary way with no "Refreshed" behind
+// it.
+//
+// A wait that runs out on a question already answered asks nothing: the answer
+// can arrive from the sync key or from a write's own refetch while this is still
+// out, and a request for something already on the screen is one the reader never
+// made.
+//
+// A fetch already in flight is the other way this comes back empty, and there
+// the wait is armed again rather than dropped. That fetch was asked for before
+// GitHub had worked the answer out, so it will land carrying the same UNKNOWN,
+// and nothing else would ever ask: the row would sit on "Checking" until
+// somebody pressed sync for reasons the screen never gave them. It cannot spin,
+// because each turn needs a fetch in flight and every fetch lands.
 func (m Model) mergeProbe(msg mergeProbeMsg) (tea.Model, tea.Cmd) {
 	if m.store.Detail(msg.id).Detail.Merge != gh.MergeUnknown {
 		return m, nil
 	}
-	return m, m.correctDetail(msg.id)
+	if cmd := m.correctDetail(msg.id); cmd != nil {
+		return m, cmd
+	}
+	return m, tea.Tick(mergeProbeDelay, func(time.Time) tea.Msg { return msg })
 }

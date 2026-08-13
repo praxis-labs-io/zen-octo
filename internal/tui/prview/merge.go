@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textarea"
+	area "charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -56,8 +56,16 @@ const (
 	mergeButtonPad = 2
 	mergeMark      = "✓ "
 	mergeGap       = "  "
-	mergeHint      = "tab next · enter merge · esc cancel"
 )
+
+// mergeHintWidth is the longest the hint gets, which is what the modal is
+// measured against. The hint itself changes with the row, and a modal that
+// changed width with it would jump as the reader tabbed through.
+//
+// A var rather than a const, measured rather than counted: the separator is a
+// middle dot, which is one cell and two bytes, so len would buy two columns
+// nothing draws in.
+var mergeHintWidth = lipgloss.Width("tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel")
 
 // mergeRowKind is one focusable row in the form.
 type mergeRowKind int
@@ -87,7 +95,7 @@ type merging struct {
 	at      int
 
 	headline textinput.Model
-	body     textarea.Model
+	body     area.Model
 
 	// typedHeadline and typedBody mark a field the reader has changed.
 	// Switching method rewrites the untouched ones, because a merge commit and
@@ -108,6 +116,11 @@ type merging struct {
 	// bypass is a merge that overrides branch protection, which is the one
 	// merge here that has to say so.
 	bypass bool
+
+	// chords is whether the terminal can tell ctrl+enter from enter, which
+	// decides whether the hint may name it. The composer holds the same answer
+	// for the same reason.
+	chords bool
 
 	id, oid, refID, base string
 	number               int
@@ -199,6 +212,14 @@ func (f merging) ready() bool {
 func (m *Model) startMerge() tea.Cmd {
 	d := m.railDetail()
 
+	// And nothing where there is no merge to make. The row keeps its key while
+	// its own write is out, so that a reader standing on it keeps their place
+	// on the ring, and this is what makes enter inert for that window rather
+	// than opening a form over a pull request already being merged.
+	if !mergeable(d) {
+		return nil
+	}
+
 	methods := make([]gh.MergeMethod, 0, len(mergeOrder))
 	for _, method := range mergeOrder {
 		if m.repo.Meta.Methods.Allows(method) {
@@ -222,6 +243,7 @@ func (m *Model) startMerge() tea.Cmd {
 		refID:      d.HeadRefID,
 		base:       d.BaseRefName,
 		number:     m.pr.Number,
+		chords:     m.compose.chords,
 		headline:   newMergeInput(m.theme),
 		body:       newMergeBody(m.theme),
 	}
@@ -229,6 +251,7 @@ func (m *Model) startMerge() tea.Cmd {
 	f.prefill()
 
 	m.merging = f
+	m.merging.resize(m.width, m.height)
 	return m.merging.focus()
 }
 
@@ -291,55 +314,86 @@ func newMergeInput(th theme.Theme) textinput.Model {
 	return in
 }
 
-func newMergeBody(th theme.Theme) textarea.Model {
-	area := textarea.New()
-	area.ShowLineNumbers = false
-	area.Prompt = ""
-	area.CharLimit = 0
-	area.SetHeight(mergeBodyRows)
-
-	styles := area.Styles()
-	for _, state := range []*textarea.StyleState{&styles.Focused, &styles.Blurred} {
-		state.Base = lipgloss.NewStyle()
-		state.Text = lipgloss.NewStyle().Foreground(th.Primary)
-		state.Placeholder = lipgloss.NewStyle().Foreground(th.Faint)
-		state.CursorLine = lipgloss.NewStyle()
-		state.EndOfBuffer = lipgloss.NewStyle().Foreground(th.Faint)
-	}
-	area.SetStyles(styles)
-	return area
+func newMergeBody(th theme.Theme) area.Model {
+	return textarea(th, mergeBodyRows)
 }
 
 // prefill writes GitHub's own message for the chosen method into whichever
 // fields the reader has not changed.
 func (f *merging) prefill() {
+	// The caret goes to the start of what it wrote, not the end. Both fields
+	// scroll, and a commit subject longer than the box would otherwise open
+	// showing its last words with the first ones off the left: the reader has
+	// typed nothing and wants to read what is going to be committed, which
+	// begins at the beginning.
 	text := f.text()
 	if !f.typedHeadline {
 		f.headline.SetValue(text.Headline)
-		f.headline.CursorEnd()
+		headStart(&f.headline)
 	}
 	if !f.typedBody {
 		f.body.SetValue(text.Body)
-		f.body.MoveToEnd()
+		f.body.MoveToBegin()
 	}
+}
+
+// headStart shows the headline from its first character.
+//
+// It goes to the end and back, which is not the fussiness it looks like. The
+// widget recomputes its visible window only when the caret leaves that window,
+// so a caret dropped straight to the start of a stale one keeps it: after a
+// longer value is written the box goes on showing exactly as many characters as
+// the old one had. Leaving the window is what forces the recompute; coming back
+// is what puts it at the beginning.
+//
+// The beginning is where a field nobody has typed in is read from. focus moves
+// it to the end on the way in, which is where one is edited from.
+func headStart(in *textinput.Model) {
+	in.CursorEnd()
+	in.CursorStart()
 }
 
 // focus puts the caret in the field holding the keyboard and takes it out of
 // the other. The caret is the whole of how a text field says it has the
 // keyboard: a background would end at the widget's own reset and paint the
 // padding alone.
+// The caret goes to the end of the text on the way in, which is where a
+// prefilled field is edited from and where every other box puts it. Sitting
+// unfocused they show their beginning instead, which is where one is read from;
+// prefill is what does that half.
 func (f *merging) focus() tea.Cmd {
 	switch f.on() {
 	case mergeHeadlineRow:
 		f.body.Blur()
+		f.headline.CursorEnd()
 		return f.headline.Focus()
 	case mergeBodyRow:
 		f.headline.Blur()
+		f.body.MoveToEnd()
 		return f.body.Focus()
 	}
 	f.headline.Blur()
 	f.body.Blur()
 	return nil
+}
+
+// update hands a message that is not a keypress to both text boxes.
+//
+// Both, rather than the focused one. A paste belongs to whichever has the
+// keyboard, and the blurred box drops it; the caret blink is the other traffic
+// through here and it belongs to whichever is focused, which is the same
+// answer. Choosing between them would be a second copy of that rule for no gain.
+func (f *merging) update(msg tea.Msg) tea.Cmd {
+	var headline, body tea.Cmd
+	f.headline, headline = f.headline.Update(msg)
+	f.body, body = f.body.Update(msg)
+
+	// Anything that reached a box may have changed what is in it, and a method
+	// switch must not then write over the reader's own words.
+	f.typedHeadline = f.typedHeadline || f.headline.Value() != f.text().Headline
+	f.typedBody = f.typedBody || f.body.Value() != f.text().Body
+
+	return tea.Batch(headline, body)
 }
 
 // step moves the keyboard one row, wrapping. The form is short enough that
@@ -471,18 +525,32 @@ func (m Model) mergeOverlay(frame string) string {
 	return comp.Over(frame, m.merging.render(m.theme, m.width, m.height), m.width, m.height)
 }
 
-// render draws the form as a modal sized to fit inside a frame.
+// resize gives the two text boxes the room the frame leaves them.
+//
+// It is called when the form opens and whenever the screen is resized, and
+// never from render. render is reached from View through value receivers, so
+// anything it sets is set on a copy that is thrown away: a headline sized there
+// keeps a width of zero for real, which makes textinput render from the first
+// character and never scroll. The caret then leaves the box on a long commit
+// message and every keystroke past the edge is invisible.
 //
 // The message box is what gives way on a short terminal, down to a floor. The
 // picker can afford to be clipped by the compositor; this cannot, and the row
 // it loses first is not the one to watch. Clipping takes the bottom border, so
 // a form one row too tall keeps its button and stops looking like a box.
-func (f *merging) render(th theme.Theme, frameWidth, frameHeight int) string {
-	width := f.width(frameWidth)
+func (f *merging) resize(frameWidth, frameHeight int) {
+	if !f.open {
+		return
+	}
+	width := fieldText(f.width(frameWidth))
+	f.headline.SetWidth(width)
+	f.body.SetWidth(width)
 	f.body.SetHeight(f.bodyHeight(frameHeight))
-	f.body.SetWidth(fieldText(width))
-	f.headline.SetWidth(fieldText(width))
+}
 
+// render draws the form as a modal, at the size resize last gave it.
+func (f merging) render(th theme.Theme, frameWidth, frameHeight int) string {
+	width := f.width(frameWidth)
 	rows := append([]string{""}, f.methodRows(th, width)...)
 
 	if f.writes() {
@@ -496,9 +564,12 @@ func (f *merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 		rows = append(rows, "", f.deleteRow(th, width))
 	}
 	if f.bypass {
-		warning := lipgloss.NewStyle().Foreground(th.Warning).
-			Render("Bypasses branch protection on " + f.base)
-		rows = append(rows, "", mergePad(warning, width, lipgloss.NewStyle()))
+		// Clipped, for the reason the delete row's branch is. The base is the
+		// other variable-length name on this form, and left to itself it would
+		// widen the whole modal past the ceiling every other row is held to.
+		plain := lipgloss.NewStyle()
+		warning := plain.Foreground(th.Warning).Render("Bypasses branch protection on " + f.base)
+		rows = append(rows, "", mergePad(clipTo(warning, width, plain.Foreground(th.Faint)), width, plain))
 	}
 
 	rows = append(rows, "", f.footer(th, width))
@@ -518,7 +589,7 @@ func (f *merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 // The commit message is not measured either, for a different reason: both boxes
 // scroll their own text, so neither has a width it needs.
 func (f merging) width(frameWidth int) int {
-	longest := lipgloss.Width(mergeHint) + lipgloss.Width(mergeButton) + 2*mergeButtonPad
+	longest := mergeHintWidth + lipgloss.Width(mergeButton) + 2*mergeButtonPad
 	for _, method := range f.methods {
 		longest = max(longest, lipgloss.Width(mergeMark+mergeName(method)))
 	}
@@ -667,12 +738,32 @@ func (f merging) footer(th theme.Theme, width int) string {
 	}
 	button := style.Render(mergeButton)
 
-	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(mergeHint)
-	gap := width - lipgloss.Width(mergeHint) - lipgloss.Width(button)
+	text := f.footerText()
+	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(text)
+	gap := width - lipgloss.Width(text) - lipgloss.Width(button)
 	if gap < 1 {
 		hint, gap = "", max(0, width-lipgloss.Width(button))
 	}
 	return hint + strings.Repeat(" ", gap) + button
+}
+
+// footerText names the keys that work from where the reader is standing, which
+// is the compose card's rule and matters more here.
+//
+// In a text field enter belongs to the field: a newline in the message, and
+// nothing at all in the headline. Naming it there sends the reader pressing a
+// key that does not merge, on the one form where the key they are looking for
+// ends the pull request. The chord is what merges from those two rows, and it
+// is named only where the terminal can send it; on the rest the button is the
+// way, and tab is how they reach it.
+func (f merging) footerText() string {
+	if !f.typing() {
+		return "tab next · enter merge · esc cancel"
+	}
+	if f.chords {
+		return "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"
+	}
+	return "tab to the button to merge · esc cancel"
 }
 
 // mergePad runs a row out to the full width in its own style, so a lit row's

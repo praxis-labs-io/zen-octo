@@ -210,6 +210,11 @@ func TestTheFormOpensHoldingGitHubsOwnCommitMessage(t *testing.T) {
 
 // A merge commit and a squash want different sentences, so switching has to
 // rewrite them. Carrying one into the other commits the wrong one.
+//
+// The squash headline is the shorter of the two, so this also holds the window
+// the box shows: a longer value written into a field whose caret then lands
+// inside the old window leaves that window where it was, and the box goes on
+// showing exactly as many characters as the short one had.
 func TestSwitchingMethodRewritesAnUntouchedHeadline(t *testing.T) {
 	// The form opens on squash, so up is the merge commit.
 	box := formBox(t, press(openMerge(t), "up"))
@@ -635,3 +640,214 @@ func colorBefore(t *testing.T, frame, needle string) string {
 }
 
 var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+// The boxes are sized when the form opens and when the screen resizes, never
+// while rendering: render is reached from View through value receivers, so a
+// width set there is set on a copy and thrown away. A headline that never
+// learns its width renders from its first character and never scrolls, which
+// leaves the caret off the box and every keystroke past the edge invisible.
+func TestALongHeadlineScrollsAsItIsTyped(t *testing.T) {
+	d := mergeableDetail()
+	d.SquashCommit.Headline = "Fix the auth retry backoff loop so it stops hammering the endpoint (#412)"
+
+	m := press(openMergeOn(t, d, mergeRepo(allMethods())), "tab")
+
+	before := formBox(t, m)
+	after := formBox(t, press(m, "X", "Y", "Z"))
+
+	if before == after {
+		t.Errorf("typing changed nothing on screen, so the field never scrolled:\n%s", after)
+	}
+	if !strings.Contains(after, "XYZ") {
+		t.Errorf("the typed characters are nowhere on screen:\n%s", after)
+	}
+}
+
+// And the same after a resize, which is the other moment the room the boxes get
+// changes.
+//
+// The frame has to narrow far enough to squeeze the form below its floor, or
+// the field keeps the width it already had and a resize that never reached it
+// looks identical to one that did.
+func TestTheFormFollowsAResize(t *testing.T) {
+	d := mergeableDetail()
+	d.SquashCommit.Headline = "Fix the auth retry backoff loop so it stops hammering the endpoint (#412)"
+
+	m := openMergeOn(t, d, mergeRepo(allMethods()))
+
+	wide := boxWidth(formBox(t, m))
+	m.SetSize(48, 40)
+	narrow := boxWidth(formBox(t, m))
+	if narrow >= wide {
+		t.Fatalf("setup: the form is %d columns after the resize and %d before, so nothing narrowed", narrow, wide)
+	}
+
+	// Onto the headline and type. A field still holding the old width renders a
+	// window wider than the box, and the box clips the end of it off: the caret
+	// and everything typed at it land outside what is drawn.
+	if after := formBox(t, press(m, "tab", "X", "Y", "Z")); !strings.Contains(after, "XYZ") {
+		t.Errorf("what was typed is off the edge of the box the resize left:\n%s", after)
+	}
+}
+
+// GitHub answers CLEAN on a closed pull request as readily as on an open one,
+// and a close applied here moves the state and leaves the merge status alone.
+// Reading the status by itself keeps a live control on a pull request nothing
+// is going to merge.
+func TestAClosedPullRequestOffersNoMerge(t *testing.T) {
+	for _, state := range []gh.PRState{gh.PRStateClosed, gh.PRStateMerged} {
+		t.Run(string(state), func(t *testing.T) {
+			d := mergeableDetail()
+			d.State = state
+
+			m := press(detailed(held(d), 200, 60), "2")
+			for range 30 {
+				m = press(m, "tab")
+				if row := markedRailRow(t, m.View()); strings.Contains(row, "Ready to merge") {
+					t.Fatalf("tab stopped on a live merge control for a %s pull request", state)
+				}
+			}
+		})
+	}
+}
+
+// The optimistic merge moves the state under the row that started it. Without
+// the write guard the key vanishes between the press and the answer, taking the
+// ring stop out from under the reader standing there.
+func TestAMergeInFlightKeepsItsRowOnTheRing(t *testing.T) {
+	d := mergeableDetail()
+	d.State = gh.PRStateMerged // as the optimistic fold leaves it
+
+	writing := held(d)
+	writing.StateWriting = true
+
+	m := press(detailed(writing, 200, 60), "2")
+
+	var reached []string
+	for range 30 {
+		m = press(m, "tab")
+		reached = append(reached, markedRailRow(t, m.View()))
+	}
+
+	var merge, base bool
+	for _, row := range reached {
+		merge = merge || strings.Contains(row, "Merged into") || strings.Contains(row, "Ready to merge")
+		base = base || strings.Contains(row, "main")
+	}
+	if !merge {
+		t.Errorf("the Merge row left the ring while its own write was out: %q", reached)
+	}
+	if !base {
+		t.Errorf("the Base row left the ring while a lifecycle write was out: %q", reached)
+	}
+}
+
+// A paste is not a keypress. It arrives as its own message, and the form owns
+// the keyboard whenever it is up, so a reader pasting a commit body into it
+// otherwise sees nothing happen and merges with GitHub's default.
+func TestPastingReachesTheCommitMessage(t *testing.T) {
+	m := press(openMerge(t), "tab", "tab") // onto the message
+	m, _ = m.Update(tea.PasteMsg{Content: "pasted from somewhere else"})
+
+	box := formBox(t, m)
+	if !strings.Contains(box, "pasted from somewhere else") {
+		t.Errorf("the paste never reached the message box:\n%s", box)
+	}
+	// And it counts as the reader's own words, so a method switch must not
+	// write over it.
+	if box := formBox(t, press(m, "tab", "tab", "tab", "up")); !strings.Contains(box, "pasted from") {
+		t.Errorf("a method change threw away what was pasted:\n%s", box)
+	}
+}
+
+// In a text field enter belongs to the field, so naming it there sends the
+// reader pressing a key that does not merge, on the one form where the key they
+// are looking for ends the pull request.
+func TestTheHintNamesAKeyThatWorksFromTheRowItIsOn(t *testing.T) {
+	m := openMerge(t)
+
+	if box := formBox(t, m); !strings.Contains(box, "enter merge") {
+		t.Errorf("the hint does not name enter on a row where enter merges:\n%s", box)
+	}
+
+	for _, row := range []string{"the headline", "the message"} {
+		m = press(m, "tab")
+		box := formBox(t, m)
+		if strings.Contains(box, "enter merge") {
+			t.Errorf("on %s the hint still names enter, which the field swallows:\n%s", row, box)
+		}
+		if !strings.Contains(box, "merge") {
+			t.Errorf("on %s the hint says nothing about how to merge:\n%s", row, box)
+		}
+	}
+}
+
+// The hint changes with the row and the modal must not change with it, or the
+// box jumps under the reader as they tab through.
+func TestTheHintDoesNotResizeTheForm(t *testing.T) {
+	m := openMerge(t)
+
+	want := boxWidth(formBox(t, m))
+	for i := range 4 {
+		m = press(m, "tab")
+		if got := boxWidth(formBox(t, m)); got != want {
+			t.Errorf("after %d tabs the form is %d columns, want %d", i+1, got, want)
+		}
+	}
+}
+
+// The fetch is a round trip and tab is free the whole time it is out, so an
+// answer landing late must not drop a modal over whatever row the reader walked
+// to. It matters most for the merge form, which owns every key once it is up.
+func TestARepositoryAnswerDoesNotOpenOverAnotherRow(t *testing.T) {
+	for _, tt := range []struct{ name, row, walkTo string }{
+		{"the merge form", "Ready to merge", "+ Add reviewer"},
+		{"a label picker", "+ Add label", "+ Add assignee"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := onRailRow(t, detailed(held(mergeableDetail()), 200, 60), tt.row)
+
+			// Ask, then walk away while the fetch is out.
+			m, _ = key(m, "enter")
+			m = onRailRow(t, m, tt.walkTo)
+			m.SetRepo(mergeRepo(allMethods()))
+
+			if out := stripANSI(m.View()); strings.Contains(out, "╭─Merge #412") ||
+				strings.Contains(out, "╭─Labels") {
+				t.Errorf("a modal opened over the row the reader walked to:\n%s", out)
+			}
+			if m.Capturing() {
+				t.Error("the screen is capturing the keyboard for a modal nobody asked for here")
+			}
+		})
+	}
+}
+
+// And still opens for a reader who stayed put, which is the whole point of the
+// deferred ask.
+func TestARepositoryAnswerStillOpensWhereTheReaderStayed(t *testing.T) {
+	m := onRailRow(t, detailed(held(mergeableDetail()), 200, 60), "Ready to merge")
+
+	m, _ = key(m, "enter")
+	m.SetRepo(mergeRepo(allMethods()))
+
+	if !strings.Contains(stripANSI(m.View()), "Squash and merge") {
+		t.Error("the form did not open for a reader still standing on the row")
+	}
+}
+
+// The base is the other variable-length name on the form, and left unclipped it
+// widens the modal the same way the branch name did.
+func TestALongBaseNameDoesNotWidenTheBypassWarning(t *testing.T) {
+	d := mergeableDetail()
+	d.Merge = gh.MergeBlocked
+	d.Viewer.CanMergeAsAdmin = true
+	d.BaseRefName = "release/2026.08-the-long-lived-integration-branch-nobody-renamed"
+
+	got := boxWidth(formBox(t, openMergeOn(t, d, mergeRepo(allMethods()))))
+	want := boxWidth(formBox(t, openMerge(t)))
+
+	if got != want {
+		t.Errorf("the form is %d columns over a long base and %d over a short one", got, want)
+	}
+}

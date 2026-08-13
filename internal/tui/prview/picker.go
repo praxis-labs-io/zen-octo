@@ -75,6 +75,10 @@ type picking struct {
 	reviewers []gh.Reviewer
 
 	want pickField
+
+	// wantOn is the rail row that ask came from, so the answer landing late can
+	// tell a reader still standing there from one who has tabbed on.
+	wantOn focusKey
 }
 
 func (p picking) open() bool { return p.field != pickNone }
@@ -126,12 +130,27 @@ func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 		return nil
 	}
 
-	want := m.picking.want
-	m.picking.want = pickNone
+	want, on := m.picking.want, m.picking.wantOn
+	m.picking.want, m.picking.wantOn = pickNone, focusKey{}
 
 	if m.Capturing() || !m.railVisible() || m.focus != paneRail {
 		return nil
 	}
+
+	// And only where they are still standing on the row they asked from. The
+	// rail having focus is not that: the fetch is a round trip and tab is free
+	// the whole time it is out, so without this the answer drops a modal over
+	// whichever row they walked to. SetBranches guards the base picker the same
+	// way, and it matters more here than it did there, because what lands late
+	// is a form that merges.
+	//
+	// The row rather than its kind, because a section and the row that adds to
+	// it open the same picker: a reader who asked from one label and walked to
+	// another has walked away.
+	if m.railRing.on != on {
+		return nil
+	}
+
 	if want == pickMerge {
 		return m.startMerge()
 	}
@@ -173,7 +192,7 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	// The choices are the repository's, not this pull request's, so they
 	// outlive the screen and are asked for once.
 	if want.needsRepo() && !m.repo.Loaded {
-		m.picking.want = want
+		m.picking.want, m.picking.wantOn = want, m.railRing.on
 		repo := m.pr.Repository
 		return m, func() tea.Msg { return NeedRepoMetaMsg{Repo: repo} }
 	}
