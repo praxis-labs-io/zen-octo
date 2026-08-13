@@ -133,6 +133,16 @@ const diffMeasure = 80
 // each file starts in its own body, and scrolling to one has to clear this.
 const contentLead = 1
 
+// headGutter holds the pinned header off the terminal's edges. One column, so
+// the title starts level with the first content cell of the pane under it and
+// the far edge ends level with its last.
+const headGutter = 1
+
+// headRoom is what the panes keep whatever the header wants: two borders and a
+// line of content. Below it the header is clipped rather than the frame
+// rendering taller than the terminal it was given.
+const headRoom = 3
+
 type pane int
 
 const (
@@ -373,7 +383,12 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	}
 	m.syncCommits()
 	m.syncChecks()
-	m.syncContent()
+
+	// layout rather than syncContent: the detail replaces the row the header is
+	// built from, and a status line that gains a timestamp can wrap onto a
+	// second row. The panes divide what the header leaves, so its height has to
+	// be taken again before they are sized.
+	m.layout()
 	return m.armCommit()
 }
 
@@ -1067,22 +1082,30 @@ func (m *Model) layout() {
 		m.focus = paneMain
 	}
 
+	// The header is pinned above the panes, so what they divide is the frame it
+	// leaves. Measured off the rendered block rather than counted: the status
+	// line wraps, and a narrow frame wraps it onto a second row.
+	paneHeight := m.height
+	if head := m.head(); head != "" {
+		paneHeight = max(0, m.height-strings.Count(head, "\n")-1)
+	}
+
 	mainWidth := m.width
 	if m.sideVisible() {
 		column := m.sideColumn()
 		mainWidth -= column
-		m.side = m.side.Size(column, m.height)
+		m.side = m.side.Size(column, paneHeight)
 		m.sideView.SetWidth(m.side.InnerWidth())
 		m.sideView.SetHeight(m.sideHeight())
 	}
 	if m.railVisible() {
 		mainWidth -= columnWidth
-		m.rail = m.rail.Size(columnWidth, m.height)
+		m.rail = m.rail.Size(columnWidth, paneHeight)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, m.height)
+	m.main = m.main.Size(mainWidth, paneHeight)
 	m.view.SetWidth(m.main.InnerWidth())
 	m.view.SetHeight(m.main.InnerHeight())
 	m.syncContent()
@@ -1284,7 +1307,14 @@ func (m Model) View() string {
 			Render(m.railView.View()))
 	}
 
-	return m.mergeOverlay(m.pickerOverlay(lipgloss.JoinHorizontal(lipgloss.Top, panes...)))
+	// The overlays composite against the whole screen, so the header goes on
+	// before them: a modal centred on the panes alone sits low by half the
+	// header.
+	frame := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	if head := m.head(); head != "" {
+		frame = lipgloss.JoinVertical(lipgloss.Left, head, frame)
+	}
+	return m.mergeOverlay(m.pickerOverlay(frame))
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A
@@ -1309,18 +1339,16 @@ func (m *Model) tabBody() string {
 		return m.filesBody()
 	}
 
-	// The header block sits above the first card, and the ring has to clear it
-	// or every card is that many lines out from where tab scrolls to.
-	head := m.conversation()
-	m.convRing.lead = strings.Count(head, "\n") + 1
-
 	// A conversation with nothing in it yet is one block saying why, and it goes
-	// in the middle of what the header left rather than under its last line,
-	// where it reads as the first thing said rather than as the page waiting.
+	// in the middle of the pane rather than at the top of it, where it reads as
+	// the first thing said rather than as the page waiting.
 	if body, ok := m.conversationNote(); ok {
-		return head + "\n" + comp.Centered(body, m.bodyWidth(), m.view.Height()-m.convRing.lead)
+		// Less the blank the pane opens with, which is a row of the window the
+		// block does not get. Centred against the whole height it sits a row low
+		// and loses its last line off the bottom.
+		return comp.Centered(body, m.bodyWidth(), m.view.Height()-contentLead)
 	}
-	return head + "\n" + m.conversationBody()
+	return m.conversationBody()
 }
 
 // sideBody renders whichever column the tab has.
@@ -1346,39 +1374,81 @@ func (m Model) sideTitle() string {
 	return m.treeTitle()
 }
 
-// conversation is the header block every GitHub PR page leads with. It comes
-// off the list row, so it is on screen before the detail query answers.
-// It closes on a blank rather than a rule. The card under it draws its own
-// border, so a line above that one made two horizontals a row apart and read as
-// a box that had come open.
-func (m Model) conversation() string {
+// frameHead is the header block every GitHub PR page leads with, before the
+// frame has a say in how much of it fits. It comes off the list row, so it is
+// on screen before the detail query answers.
+//
+// It sits above the panes rather than inside one, so it names the pull request
+// on every tab and holds its column when a tab opens a left column under it. It
+// closes on a blank rather than a rule: the pane border below is already a
+// horizontal, and a second one a row above it read as a box that had come open.
+func (m Model) frameHead() string {
+	width := m.headWidth()
+
 	// The blank sets the status apart from the two lines naming the pull
 	// request. Three stacked lines read as one block and the eye skips the last.
-	lines := []string{m.titleLine(), m.branchLine(), "", m.statusLine()}
-	if status := m.collapsedStatus(); status != "" {
-		lines = append(lines, wrap(status, m.bodyWidth()))
-	}
-	return strings.Join(append(lines, ""), "\n")
+	//
+	// The same lines whatever the rail is doing. A row that came and went with
+	// it would move every pane border under it on the tab switch that hid the
+	// rail, which is the jump the header is here to take out.
+	lines := []string{m.titleLine(width), m.branchLine(width), "", m.statusLine(width)}
+	return indent(strings.Join(append(lines, ""), "\n"), headGutter)
 }
 
-// titleLine is the number, the title, and the churn pushed to the far edge.
-// The churn is a fixed few cells and the title is not, so the title is the one
-// that gives way: it clips rather than pushing the numbers off the line.
-func (m Model) titleLine() string {
+// head is what renders: frameHead clipped to the rows left once the panes have
+// their floor. A terminal too short for both keeps the panes, because the
+// header names a pull request the reader already chose to open.
+func (m Model) head() string {
+	lines := strings.Split(m.frameHead(), "\n")
+	if room := max(0, m.height-headRoom); len(lines) > room {
+		lines = lines[:room]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// headWidth is the measure the header is set to. The frame rather than the
+// conversation's own: the header belongs to the screen, the way the status bar
+// closing it does, and a block centred on the main pane would move with it.
+func (m Model) headWidth() int { return max(1, m.width-headGutter*2) }
+
+// titleLine is the number, the title, and what the pull request changes pushed
+// to the far edge.
+func (m Model) titleLine(width int) string {
 	// The number leads, in the accent the list numbers rows with, so the same
 	// pull request reads the same on both screens.
 	lead := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true).
 		Render("#"+strconv.Itoa(m.pr.Number)) + " " +
 		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(m.pr.Title)
 
-	churn := m.churn()
-	room := max(0, m.bodyWidth()-lipgloss.Width(churn)-1)
-	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Subtle))
+	return m.spread(lead, m.changes(), width)
+}
+
+// spread lays left against the header's left edge and right against its right.
+// The right half is a fixed few cells on both rows that use this and the left
+// half is not, so the left is the one that gives way rather than pushing what
+// sits at the edge off the line.
+//
+// Nothing clips the header the way the panes clip their content, so a line that
+// overran its width would render wider than the terminal it was given.
+func (m Model) spread(left, right string, width int) string {
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+
+	// The left half needs a cell of its own and a space before the right one.
+	// Under that it goes entirely: a fragment and an ellipsis say less than what
+	// stands at the edge.
+	room := width
+	if right != "" {
+		room = width - lipgloss.Width(right) - 1
+	}
+	if room < 1 {
+		return comp.Clip(right, width, faint)
+	}
+	if lipgloss.Width(left) > room {
+		left = comp.Clip(left, room, faint)
 	}
 
-	gap := max(1, m.bodyWidth()-lipgloss.Width(lead)-lipgloss.Width(churn))
-	return lead + strings.Repeat(" ", gap) + churn
+	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // opened is when the pull request was raised and who raised it, as one clause.
@@ -1401,21 +1471,21 @@ func (m Model) opened() string {
 // branchLine is where the work is going and where it came from. It stays on one
 // line: the head branch is the long one and the one carrying a ticket key at
 // the front, so it is what gives way rather than the line wrapping.
-func (m Model) branchLine() string {
+func (m Model) branchLine(width int) string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
-	target := faint.Render(m.pr.BaseRefName + " ← ")
+	branches := faint.Render(m.pr.BaseRefName + " ← " + m.pr.HeadRefName)
 
-	room := max(0, m.bodyWidth()-lipgloss.Width(target))
-	if lipgloss.Width(m.pr.HeadRefName) > room {
-		return target + comp.Clip(faint.Render(m.pr.HeadRefName), room, faint)
+	if lipgloss.Width(branches) > width {
+		return comp.Clip(branches, width, faint)
 	}
-	return target + faint.Render(m.pr.HeadRefName)
+	return branches
 }
 
-// statusLine is where the pull request stands, then who raised it and when. The
-// state always has something to say, so this line is never empty even when the
-// clause after it is.
-func (m Model) statusLine() string {
+// statusLine is where the pull request stands, then who raised it and when,
+// with where the checks and the review got to at the far edge. The state always
+// has something to say, so the left half is never empty even when the clause
+// after it is.
+func (m Model) statusLine(width int) string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 
 	label, c := comp.PRStateLabel(m.theme, m.pr)
@@ -1425,23 +1495,30 @@ func (m Model) statusLine() string {
 	if opened := m.opened(); opened != "" {
 		line += faint.Render(" · " + opened)
 	}
-	return wrap(line, m.bodyWidth())
+	return m.spread(line, m.rollup(), width)
 }
 
-// churn is the diff stat in the colors the list gives its own columns.
-func (m Model) churn() string {
-	return lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(m.pr.Additions)) +
+// changes is how much the pull request touches: the file count, then the diff
+// stat in the colors the list gives its own columns. The count is marked with a
+// glyph rather than the word, the same way the rail's own Changes row writes
+// the pair.
+func (m Model) changes() string {
+	files := lipgloss.NewStyle().Foreground(m.theme.Subtle).
+		Render(strconv.Itoa(m.pr.ChangedFiles) + " " + glyphFile)
+
+	return files + "  " +
+		lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(m.pr.Additions)) +
 		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(m.pr.Deletions))
 }
 
-// collapsedStatus carries the two things the rail holds that the meta line does
-// not, so hiding the rail loses nothing. Everything else in the rail is already
-// on the line above it.
-func (m Model) collapsedStatus() string {
-	if m.railVisible() {
-		return ""
-	}
-
+// rollup is where the checks got to and what the reviewers decided, which are
+// the two things standing between the pull request and a merge.
+//
+// It is ungated. The rail carries both as controls and the rail is on one tab
+// of four, so reading it off the rail alone would leave three tabs unable to
+// say; and a header row that came and went with the rail would move every pane
+// border under it on the tab switch that hid it.
+func (m Model) rollup() string {
 	var parts []string
 	if label, c := comp.CheckStateLabel(m.theme, m.pr.Checks); label != "" {
 		glyph, _ := comp.CheckStateIcon(m.theme, m.pr.Checks)

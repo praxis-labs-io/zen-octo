@@ -156,7 +156,7 @@ func TestThePaneOpensOnTheSelectedWorkflow(t *testing.T) {
 // The jobs came with the detail, so the cursor scrolls the pane to them rather
 // than a keypress asking for them.
 func TestMovingTheChecksCursorScrollsThePaneToThatWorkflow(t *testing.T) {
-	m := onChecks(160, 14)
+	m := onChecks(160, 20)
 
 	before := stripANSI(m.View())
 	if !strings.Contains(before, "1 passing") || strings.Contains(before, "1 running") {

@@ -1,6 +1,8 @@
 package comp
 
 import (
+	"strings"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
@@ -24,10 +26,20 @@ func Over(base, over string, width, height int) string {
 	x := max(0, (width-lipgloss.Width(over))/2)
 	y := max(0, (height-lipgloss.Height(over))/2)
 
-	return lipgloss.NewCompositor(
+	out := lipgloss.NewCompositor(
 		lipgloss.NewLayer(base),
 		lipgloss.NewLayer(over).X(x).Y(y).Z(1),
 	).Render()
+
+	// The compositor trims each line's trailing spaces, so a base line that ends
+	// in padding rather than in a border rune comes back short and the frame no
+	// longer fills the width it was given. Every pane line ends in a border; the
+	// header pinned above them does not.
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		lines[i] = line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Modal frames content as a dialog for Over to place. It is a focused pane, so

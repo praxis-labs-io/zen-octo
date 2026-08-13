@@ -75,7 +75,7 @@ func (m *Model) entries() string {
 	width := m.bodyWidth()
 
 	var blocks []string
-	at := m.convRing.lead
+	at := 0
 
 	// split is the block the box being written in sits inside, and where it
 	// begins. Everything before it is the head and everything after is the tail;

@@ -191,7 +191,10 @@ func ReviewStateLabel(th theme.Theme, s gh.ReviewState) (string, color.Color) {
 // MergeStateLabel names whether the pull request can be merged, and what is in
 // the way if it cannot. GitHub reports only the topmost reason, so this says
 // one thing rather than listing them.
-func MergeStateLabel(th theme.Theme, s gh.MergeState) (string, color.Color) {
+//
+// The check rollup is what tells the flavours of UNSTABLE apart, which is why
+// this takes a second argument where the other labels take one.
+func MergeStateLabel(th theme.Theme, s gh.MergeState, checks gh.CheckState) (string, color.Color) {
 	switch s {
 	case gh.MergeClean:
 		return "Ready to merge", th.Success
@@ -202,6 +205,20 @@ func MergeStateLabel(th theme.Theme, s gh.MergeState) (string, color.Color) {
 	case gh.MergeBehind:
 		return "Behind the base", th.Warning
 	case gh.MergeUnstable:
+		// UNSTABLE is GitHub saying the commit status is not passing, and a
+		// check still running is not passing. Reading it as a failure reports a
+		// build that has not finished as a broken one, and does it beside a
+		// header that says the checks are running.
+		//
+		// The rollup is not the whole of UNSTABLE: a failing commit status that
+		// no check run produced leaves it green. So only the two states that
+		// are plainly a wait are read as one.
+		switch checks {
+		case gh.CheckStatePending:
+			return "Checks running", th.Warning
+		case gh.CheckStateExpected:
+			return "Checks queued", th.Warning
+		}
 		return "Checks failing", th.Warning
 	case gh.MergeDraft:
 		return "Draft", th.Subtle

@@ -366,7 +366,7 @@ func TestADiffThatLandsAfterTheCursorWalksBackIsDropped(t *testing.T) {
 }
 
 func TestTheCommitDiffRendersThroughTheFilesViewer(t *testing.T) {
-	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
+	m, _ := settled(onCommits(160, 30), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
 	out := stripANSI(m.View())
@@ -471,8 +471,11 @@ func TestTheSelectedCommitIsPaintedCellByCellAcrossBothLines(t *testing.T) {
 // The odd height is the one that catches it: an even one lands on a boundary by
 // accident. The list runs past the window on both so the scroll is a real one
 // rather than a clamp to the end, which lands on a boundary by accident too.
+//
+// The heights are the frame's, and the header takes five rows off the top of
+// it, so these are the pane heights that were 6 and 7.
 func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
-	for _, height := range []int{6, 7} {
+	for _, height := range []int{11, 12} {
 		t.Run(strconv.Itoa(height), func(t *testing.T) {
 			d := sampleDetail()
 			d.Commits = append(sampleCommits(), sampleCommits()...)

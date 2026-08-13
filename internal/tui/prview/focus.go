@@ -111,12 +111,7 @@ func (it focusItem) covers(top, height int) bool {
 // landed on the screen.
 type ring struct {
 	items []focusItem
-
-	// lead is what the tab put above the first item. The conversation opens
-	// with its header block, and without this every item is that many lines out.
-	lead int
-
-	on focusKey
+	on    focusKey
 }
 
 // reset empties the items for a fresh render, keeping the focus and the lead.

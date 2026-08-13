@@ -152,7 +152,7 @@ func TestTheChurnIsOnTheFileHeadingAndNotInTheColumn(t *testing.T) {
 }
 
 func TestARenameShowsThePathItCameFrom(t *testing.T) {
-	out := stripANSI(onFiles(200, 50).View())
+	out := stripANSI(onFiles(200, 56).View())
 	if !strings.Contains(out, "internal/tui/prview/diff.go → internal/tui/prview/files.go") {
 		t.Error("the rename does not show the path it came from")
 	}
@@ -383,7 +383,7 @@ func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	top := stripANSI(firstLine(m.View()))
+	top := stripANSI(paneTop(m.View()))
 	rail := 200 - lipgloss.Width(top[:strings.LastIndex(top, "╭")])
 	tree := paneEnd(t, press(m, "]", "]", "]").View())
 
@@ -395,7 +395,7 @@ func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
 // paneEnd is where the leftmost pane's right border sits, which is its width.
 func paneEnd(t *testing.T, frame string) int {
 	t.Helper()
-	top := stripANSI(firstLine(frame))
+	top := stripANSI(paneTop(frame))
 	at := strings.Index(top, "╮")
 	if at < 0 {
 		t.Fatalf("no pane corner in %q", top)
@@ -463,7 +463,7 @@ func TestTheFrameFillsItsSizeExactlyOnTheFilesTab(t *testing.T) {
 // The panes are numbered by where they sit, so the digits have to follow what
 // is on screen rather than what each pane holds.
 func TestThePanesAreNumberedLeftToRight(t *testing.T) {
-	top := stripANSI(firstLine(onFiles(200, 40).View()))
+	top := stripANSI(paneTop(onFiles(200, 40).View()))
 
 	tree := strings.Index(top, "[1]")
 	diff := strings.Index(top, "[2]")
@@ -964,7 +964,7 @@ func TestOutdatedThreadsHoldTheirOrder(t *testing.T) {
 	// comments have to come out the same way every time they are rendered.
 	var want []int
 	for i := range 20 {
-		m := detailed(held(d), 200, 60)
+		m := detailed(held(d), 200, 66)
 		m.SetFiles(loadedFiles(sampleFiles(), 0))
 		m = press(m, "]", "]", "]")
 
