@@ -21,13 +21,32 @@ import (
 // in blind, and $EDITOR is for the times that is not enough.
 const composeRows = 8
 
-// postLabel is what the button says. The padding around it is the button: a
-// filled surface reads as something to press, where a bare word reads as a
-// caption.
-const postLabel = "Post"
-
 // postPad is the room either side of the label inside the button.
 const postPad = 2
+
+// words is what one box calls itself: what an empty one invites, what its
+// button says, the word the hint gives the key that sends it, and what leaving
+// does. A comment is posted and left; a comment being rewritten is updated and
+// cancelled, and calling that "post" would read as a second comment about to
+// appear.
+//
+// The padding around the label is the button: a filled surface reads as
+// something to press, where a bare word reads as a caption.
+type words struct {
+	placeholder string
+	button      string
+	send        string
+	back        string
+}
+
+var (
+	commentWords = words{placeholder: "Leave a comment", button: "Post", send: "post", back: "done"}
+	replyWords   = words{placeholder: "Leave a reply", button: "Post", send: "post", back: "done"}
+
+	// An edit opens on the comment it is rewriting, so the only way to see this
+	// one is to clear the box, where it says what saving an empty one would do.
+	updateWords = words{placeholder: "Empty, so far", button: "Update", send: "update", back: "cancel"}
+)
 
 // composer is where a comment gets written: the last card in the conversation,
 // under everything already said, which is where GitHub puts it and where the
@@ -45,6 +64,11 @@ type composer struct {
 
 	typing bool
 
+	// words is what this box calls its button and the keys around it. The
+	// compose card only ever posts; the summoned box is told when it opens,
+	// because the same widget answers for a reply and for an edit.
+	words words
+
 	// onPost is whether the button holds focus rather than the text. Enter
 	// posts from the button and nowhere else: in the text it is a newline, and
 	// a key that sends a half-written comment is worse than one more keystroke.
@@ -59,8 +83,8 @@ type composer struct {
 
 func newComposer(th theme.Theme) composer {
 	area := textarea(th, composeRows)
-	area.Placeholder = "Leave a comment"
-	return composer{area: area}
+	area.Placeholder = commentWords.placeholder
+	return composer{area: area, words: commentWords}
 }
 
 // textarea is a text box in this screen's colours, at the height the caller
@@ -186,7 +210,7 @@ func (c composer) button(th theme.Theme, width int, focused bool) string {
 		style = style.Foreground(th.Inverted).Background(th.Accent)
 	}
 
-	button := style.Render(postLabel)
+	button := style.Render(c.words.button)
 
 	// The hint gives way first. A narrow card that keeps both overflows, and the
 	// pane clips from the right, which takes the button rather than the words
@@ -215,26 +239,26 @@ func (c composer) hint(focused bool) string {
 		return keys.Detail.Comment.Help().Key + " to write"
 	}
 
-	post := "tab · ⏎ post"
+	send := "tab · ⏎ " + c.words.send
 	if c.chords {
-		post = keys.Detail.Post.Help().Key + " post"
+		send = keys.Detail.Post.Help().Key + " " + c.words.send
 	}
 	return strings.Join([]string{
-		post,
+		send,
 		keys.Detail.Editor.Help().Key + " editor",
-		keys.Detail.Back.Help().Key + " done",
+		keys.Detail.Back.Help().Key + " " + c.words.back,
 	}, " · ")
 }
 
 // Composing reports whether a box has the keyboard. The root reads it before
 // its own bindings: q is a letter in there, and the only way out of that is for
 // the root to stand aside.
-func (m Model) Composing() bool { return m.compose.typing || m.reply.typing }
+func (m Model) Composing() bool { return m.compose.typing || m.inline.typing }
 
 // SetChords says whether the terminal can send ctrl+enter. Only the hints read
 // it: the binding is live either way, and on a terminal that cannot send the
 // chord the key simply never arrives.
-func (m *Model) SetChords(v bool) { m.compose.chords, m.reply.chords = v, v }
+func (m *Model) SetChords(v bool) { m.compose.chords, m.inline.chords = v, v }
 
 // SetViewer names who a comment will be from, for the box's heading.
 //

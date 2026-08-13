@@ -97,6 +97,13 @@ type DetailMap struct {
 	NextWithin key.Binding
 	PrevWithin key.Binding
 
+	// Edit opens the box over the block the ring is on, with its words in it.
+	// Delete takes one off, behind a confirm. It is shifted because deleting is
+	// not something to do by leaning on a key, and the confirm is there because
+	// shift guards against the wrong key rather than against the wrong card.
+	Edit   key.Binding
+	Delete key.Binding
+
 	// Resolve settles a review thread and opens a settled one. One key for both,
 	// because GitHub treats it as one control with two permissions and the card
 	// names whichever of the two the reader has.
@@ -177,6 +184,8 @@ var (
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
 		NextWithin: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "next in thread")),
 		PrevWithin: key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "prev in thread")),
+		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+		Delete:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
 		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
 		Toggle:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
@@ -269,7 +278,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.Expand, k.ToggleRail},
 		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
-		{k.Resolve, k.Jump},
+		{k.Edit, k.Delete, k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{Form.Next, Form.Prev, k.Toggle},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},

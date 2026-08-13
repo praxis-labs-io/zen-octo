@@ -45,6 +45,9 @@ type fakeSearcher struct {
 	commitFiles map[string][]gh.ChangedFile
 	posted      []string
 	replied     []string
+	edited      []string
+	deleted     []string
+	bodies      []string
 	settled     []string
 	labelled    []string
 	assigned    []string
@@ -358,6 +361,71 @@ func (f *fakeSearcher) SetThreadResolved(_ context.Context, threadID string, res
 	return gh.ThreadResult{
 		ID: threadID, IsResolved: resolved, CanResolve: !resolved, CanUnresolve: resolved,
 	}, nil
+}
+
+// UpdateComment answers the way GitHub does for a rewrite: the same node,
+// carrying the new words.
+func (f *fakeSearcher) UpdateComment(_ context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error) {
+	f.mu.Lock()
+	f.edited = append(f.edited, string(kind)+" "+id+": "+body)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.CommentResult{}, err
+	}
+	return gh.CommentResult{
+		Comment: gh.Comment{
+			Kind: kind, ID: id,
+			Author: gh.Actor{Login: "drucial"}, CreatedAt: time.Now(), Body: body,
+			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+		},
+	}, nil
+}
+
+func (f *fakeSearcher) DeleteComment(_ context.Context, kind gh.CommentKind, id string) error {
+	f.mu.Lock()
+	f.deleted = append(f.deleted, string(kind)+" "+id)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+	return err
+}
+
+func (f *fakeSearcher) SetBody(_ context.Context, prID, body string) (gh.BodyResult, error) {
+	f.mu.Lock()
+	f.bodies = append(f.bodies, prID+": "+body)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.BodyResult{}, err
+	}
+	return gh.BodyResult{Body: body}, nil
+}
+
+// edits, deletedComments and describes are the writes the model made, in order.
+func (f *fakeSearcher) edits() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.edited)
+}
+
+func (f *fakeSearcher) deletedComments() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.deleted)
+}
+
+func (f *fakeSearcher) describes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.bodies)
 }
 
 // resolved is the threads the model settled, in order.
@@ -781,6 +849,18 @@ func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResu
 
 func (f *querySearcher) SetThreadResolved(_ context.Context, _ string, _ bool) (gh.ThreadResult, error) {
 	return gh.ThreadResult{}, nil
+}
+
+func (f *querySearcher) UpdateComment(_ context.Context, _ gh.CommentKind, _, _ string) (gh.CommentResult, error) {
+	return gh.CommentResult{}, nil
+}
+
+func (f *querySearcher) DeleteComment(_ context.Context, _ gh.CommentKind, _ string) error {
+	return nil
+}
+
+func (f *querySearcher) SetBody(_ context.Context, _, _ string) (gh.BodyResult, error) {
+	return gh.BodyResult{}, nil
 }
 
 func (f *querySearcher) RepoMeta(_ context.Context, _ string) (gh.RepoMetaResult, error) {

@@ -49,6 +49,7 @@ const (
 	fieldAssignees
 	fieldReviewers
 	fieldBase
+	fieldBody
 )
 
 // LabelEdit is a whole label set claimed for a pull request. The picker applies
@@ -137,6 +138,46 @@ func (e StateEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 		d.State = gh.PRStateOpen
 	}
 	return d
+}
+
+// BodyEdit is a rewritten description claimed for a pull request.
+//
+// The description reads as a comment on the screen and is a field of the pull
+// request to GitHub, which is why it is here rather than among the comment
+// writes: one mutation replaces it, and nothing has to be found in a timeline
+// to apply it.
+type BodyEdit struct {
+	key  string
+	body string
+}
+
+func (e BodyEdit) Key() string      { return e.key }
+func (e BodyEdit) Field() editField { return fieldBody }
+
+// Apply replaces the description. Nothing to clone: it writes a string.
+func (e BodyEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
+	d.Body = e.body
+	return d
+}
+
+// PendingBody holds a rewritten description applied here and not yet
+// acknowledged, and returns the key the response reconciles against.
+func (s *Store) PendingBody(id, body string) string {
+	return s.holdEdit(id, func(key string) Edit { return BodyEdit{key: key, body: body} })
+}
+
+// BodyApplied takes GitHub's answer for a description, on the terms settleEdit
+// sets out. A fetch already in flight was answered from the text before the
+// write, so it is marked stale the way every other settled edit marks one.
+func (s *Store) BodyApplied(id, key string, res gh.BodyResult) {
+	_, held, ok := s.settleEdit(id, key, fieldBody)
+	if !ok {
+		return
+	}
+
+	held.Detail.Body = res.Body
+	s.put(id, held)
+	s.markStale(id)
 }
 
 // PendingState holds a lifecycle change applied here and not yet acknowledged,

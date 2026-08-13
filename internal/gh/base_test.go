@@ -52,6 +52,55 @@ func TestSetBaseReturnsWhatGitHubRecordedNotWhatWasAsked(t *testing.T) {
 	}
 }
 
+func TestSetBodySendsTheTextAndReturnsWhatGitHubRecorded(t *testing.T) {
+	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest":
+	  {"id": "PR_1", "body": "Rewritten."}}}`}
+
+	res, err := newWithDoer(f, nil).SetBody(context.Background(), "PR_1", "Rewritten.")
+	if err != nil {
+		t.Fatalf("SetBody: %v", err)
+	}
+
+	if got, want := f.gotVars["pullRequestId"], "PR_1"; got != want {
+		t.Errorf("pullRequestId = %v, want %v", got, want)
+	}
+	// A variable rather than text in the document, which would break on the
+	// first backtick a description carries.
+	if got, want := f.gotVars["body"], "Rewritten."; got != want {
+		t.Errorf("body = %v, want it passed through untouched", got)
+	}
+	if strings.Contains(f.gotQuery, "rateLimit") {
+		t.Error("mutation selects rateLimit, which GitHub rejects")
+	}
+
+	if got, want := res.Body, "Rewritten."; got != want {
+		t.Errorf("Body = %q, want %q", got, want)
+	}
+}
+
+// Clearing a description is a write like any other, and the pull request coming
+// back is what says it landed. Reading the empty text as nothing would revert a
+// write GitHub took.
+func TestSetBodyTakesAnEmptyDescription(t *testing.T) {
+	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": {"id": "PR_1", "body": ""}}}`}
+
+	res, err := newWithDoer(f, nil).SetBody(context.Background(), "PR_1", "")
+	if err != nil {
+		t.Fatalf("SetBody: %v", err)
+	}
+	if res.Body != "" {
+		t.Errorf("Body = %q, want it empty", res.Body)
+	}
+}
+
+func TestSetBodyRefusesANullPullRequest(t *testing.T) {
+	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": null}}`}
+
+	if _, err := newWithDoer(f, nil).SetBody(context.Background(), "PR_1", "hi"); err == nil {
+		t.Fatal("SetBody: want an error for a null pull request")
+	}
+}
+
 func TestSetBaseWrapsAFailure(t *testing.T) {
 	boom := errors.New("Base branch cannot be modified")
 	f := &fakeDoer{err: boom}

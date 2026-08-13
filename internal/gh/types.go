@@ -159,6 +159,14 @@ type Comment struct {
 	// has already happened. The store sets it on the optimistic copy it holds
 	// until the mutation answers, and the screen reads it to say so.
 	Pending bool
+
+	// Editing marks a comment GitHub has, showing words it has not confirmed.
+	// Set by the store while a rewrite is out, on the same terms as Pending and
+	// apart from it because the two say different things: a pending comment is
+	// not on GitHub at all, and this one is, under older text. The screen says
+	// so differently for each, and both keep the keys off a comment already
+	// answering for a write.
+	Editing bool
 }
 
 // DiffSide is which half of the diff a line belongs to. A comment on a deleted
@@ -694,6 +702,16 @@ type PRStateResult struct {
 // the refetch behind the write is for.
 type BaseResult struct {
 	BaseRefName string
+}
+
+// BodyResult is a pull request's description as GitHub recorded it after a
+// write. The text comes back rather than being assumed from the ask, for the
+// reason BaseResult gives: somebody else having edited it first is worth
+// showing rather than overwriting on screen.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type BodyResult struct {
+	Body string
 }
 
 // MergeOptions is one merge as the reader set it up.

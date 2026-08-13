@@ -281,6 +281,17 @@ the fetch in flight stale so an answer asked for before the failure cannot be
 believed. Every other write is all or nothing, and reverting one of those says
 the pull request never moved, which needs no request to confirm.
 
+`e` rewrites the block the ring is on and `D` removes it, behind a confirm: a
+delete is the one write here GitHub will not undo. `Comment.Kind` picks the
+mutation, because one comment type up here is three of them down there. The
+description is not one of the three: it is a field of the pull request, so it
+goes through `updatePullRequest` and settles in the `Edit` queue. The box is the
+reply box, opened on a `focusKey`, and that key is the whole of the difference:
+a thread's hangs a card under it, a comment's draws the box where its words
+were. **`viewerCanDelete` is true on a submitted review and no call deletes
+one**, so `D` is absent there and the client refuses the kind rather than
+trusting the flag.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a

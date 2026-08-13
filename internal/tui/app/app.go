@@ -39,6 +39,16 @@ type GitHub interface {
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
+
+	// The kind picks the mutation: one comment type up here, three documents
+	// down there. A review's own body has no delete, and DeleteComment refuses
+	// one rather than sending a call GitHub answers with a refusal.
+	UpdateComment(ctx context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error)
+	DeleteComment(ctx context.Context, kind gh.CommentKind, id string) error
+
+	// SetBody is the description, which is a field of the pull request rather
+	// than a comment however it reads on the page.
+	SetBody(ctx context.Context, prID, body string) (gh.BodyResult, error)
 	RepoMeta(ctx context.Context, repo string) (gh.RepoMetaResult, error)
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
 	SetState(ctx context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error)
@@ -1046,6 +1056,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case replyFailedMsg:
 		return m.replyFailed(msg)
+
+	case prview.EditCommentMsg:
+		return m.editComment(msg)
+
+	case commentEditedMsg:
+		return m.editLanded(msg)
+
+	case commentEditFailedMsg:
+		return m.editFailed(msg)
+
+	case prview.DeleteCommentMsg:
+		return m.deleteComment(msg)
+
+	case commentDeletedMsg:
+		return m.deleteLanded(msg)
+
+	case commentDeleteFailedMsg:
+		return m.deleteFailed(msg)
+
+	case prview.SetBodyMsg:
+		return m.setBody(msg)
+
+	case bodySetMsg:
+		return m.bodyLanded(msg)
+
+	case bodyFailedMsg:
+		return m.bodyFailed(msg)
 
 	case prview.NeedRepoMetaMsg:
 		return m.needRepoMeta(msg.Repo)

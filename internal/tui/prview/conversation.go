@@ -46,7 +46,7 @@ func (m *Model) conversationBody() string {
 	// Everything around the box is fixed while it is being written in, so a
 	// freshly rendered box is joined between the two halves rather than the page
 	// being rebuilt around one.
-	if m.conv.ok && m.writing() != nil && m.conv.thread == m.reply.thread {
+	if m.conv.ok && m.writing() != nil && m.conv.box == m.inline.at {
 		return m.withBox(m.bodyWidth())
 	}
 	return m.entries()
@@ -113,6 +113,9 @@ func (m *Model) entries() string {
 		pushStops(rendered{block: block, stops: stops})
 	}
 
+	if m.boxOn(focusKey{kind: focusDescription}) {
+		mark()
+	}
 	push(m.description(d, width), focusKey{kind: focusDescription})
 
 	// A thread whose review never made this page would otherwise never render.
@@ -123,13 +126,10 @@ func (m *Model) entries() string {
 		item := d.Timeline[i]
 		switch item.Kind {
 		case gh.TimelineComment:
-			written := item.Said()
-			key := focusKey{kind: focusComment, id: written.ID}
-			head := m.said(item.Actor, "commented", m.theme.Subtle, item)
-			if written.Pending {
-				head = m.posting(item.Actor, "commented")
+			if m.boxOn(focusKey{kind: focusComment, id: item.Said().ID}) {
+				mark()
 			}
-			push(m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body, width)), key)
+			pushStops(m.commentCard(item, width))
 
 		case gh.TimelineReview:
 			// A review renders as its own card with every thread it opened hung
@@ -137,7 +137,7 @@ func (m *Model) entries() string {
 			// splits the page at when the thread it is open on is one of them:
 			// the branch gutter runs down the outside of all of them, and
 			// cutting between two would mean splicing it back together.
-			if m.replyUnder(d.Threads, item.Said().ID) {
+			if m.boxUnder(d.Threads, item.Said().ID) {
 				mark()
 			}
 			pushStops(m.review(item, d.Threads, shown, width))
@@ -166,7 +166,7 @@ func (m *Model) entries() string {
 
 	for i, thread := range d.Threads {
 		if !shown[i] {
-			if m.reply.thread == thread.ID {
+			if m.boxIn(thread) {
 				mark()
 			}
 			pushStops(m.threadWithReply(thread, width))
@@ -200,7 +200,7 @@ func (m *Model) entries() string {
 		items:     slices.Clone(m.convRing.items[:headItems]),
 		tailItems: shifted(m.convRing.items[tailFrom:], splitAt+strings.Count(blocks[split], "\n")+2),
 		at:        splitAt,
-		thread:    m.reply.thread,
+		box:       m.inline.at,
 		ok:        true,
 	}
 	return strings.Join(blocks, "\n\n")
@@ -234,9 +234,9 @@ type convCache struct {
 	// at is the line the middle block starts on.
 	at int
 
-	// thread is the review thread the box is open on, empty for the compose
-	// card. A cache built around one box cannot be joined around another.
-	thread string
+	// box is what the summoned box is open on, zero for the compose card. A
+	// cache built around one box cannot be joined around another.
+	box focusKey
 
 	ok bool
 }
@@ -271,37 +271,65 @@ func (m *Model) withBox(width int) string {
 // boxBlock re-renders the one block the box sits in. It is found by identity
 // rather than by the place it had, for the same reason the ring is: nothing on
 // this page is addressed by where it landed.
+//
+// The order is the order the page is built in, and the review case has to come
+// before the threads: a thread its review opened is drawn inside that review's
+// block, gutter and all, and rendering the thread alone would splice a card in
+// where the branch should be.
 func (m *Model) boxBlock(width int) rendered {
-	if m.conv.thread == "" {
+	d := m.detail.Detail
+
+	switch on := m.conv.box; on.kind {
+	case focusNone:
 		return m.composeCard(width)
+
+	case focusDescription:
+		block := m.description(d, width)
+		return rendered{block: block, stops: []focusItem{
+			{focusKey: on, lines: strings.Count(block, "\n") + 1},
+		}}
+
+	case focusComment:
+		for _, item := range d.Timeline {
+			if item.Kind == gh.TimelineComment && item.Said().ID == on.id {
+				return m.commentCard(item, width)
+			}
+		}
+		return rendered{}
 	}
 
-	d := m.detail.Detail
 	for _, item := range d.Timeline {
-		if item.Kind != gh.TimelineReview || !m.replyUnder(d.Threads, item.Said().ID) {
+		if item.Kind != gh.TimelineReview {
 			continue
 		}
-		return m.review(item, d.Threads, make(map[int]bool, len(d.Threads)), width)
+		if m.boxUnder(d.Threads, item.Said().ID) {
+			return m.review(item, d.Threads, make(map[int]bool, len(d.Threads)), width)
+		}
 	}
 
 	for _, t := range d.Threads {
-		if t.ID == m.conv.thread {
+		if m.boxIn(t) {
 			return m.threadWithReply(t, width)
 		}
 	}
 
-	// The thread went away under an open box. Nothing to draw where it was, and
-	// the halves either side still join.
+	// The block went away under an open box: a refetch that no longer carries
+	// the comment, or a thread that was resolved and hidden. Nothing to draw
+	// where it was, and the halves either side still join.
 	return rendered{}
 }
 
-// replyUnder is whether the box is open on a thread this review opened.
-func (m Model) replyUnder(threads []gh.ReviewThread, reviewID string) bool {
-	if m.reply.thread == "" || reviewID == "" {
+// boxUnder is whether the summoned box belongs to this review: its own words
+// being rewritten, or a box in one of the threads it opened.
+func (m Model) boxUnder(threads []gh.ReviewThread, reviewID string) bool {
+	if reviewID == "" {
 		return false
 	}
+	if m.boxOn(focusKey{kind: focusReview, id: reviewID}) {
+		return true
+	}
 	return slices.ContainsFunc(threads, func(t gh.ReviewThread) bool {
-		return t.ID == m.reply.thread && t.ReviewID == reviewID
+		return t.ReviewID == reviewID && m.boxIn(t)
 	})
 }
 
@@ -316,6 +344,41 @@ func joinBlocks(parts ...string) string {
 	return strings.Join(out, "\n\n")
 }
 
+// commentCard is one top-level comment: who said it, when, and what they said.
+//
+// A comment on its way says so where the time would go. One being rewritten
+// says so the same way and in different words: the first is not on GitHub at
+// all, and the second is, under the text it had before.
+func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
+	said := item.Said()
+	key := focusKey{kind: focusComment, id: said.ID}
+
+	head := m.said(item.Actor, "commented", m.theme.Subtle, item)
+	switch {
+	case said.Pending:
+		head = m.pendingHead(item.Actor, "commented", "posting")
+	case said.Editing:
+		head = m.pendingHead(item.Actor, "commented", "saving")
+	}
+
+	block := m.card(head,
+		m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key),
+		width, m.lit(key), m.cardHints(key, said, width))
+	return rendered{block: block, stops: []focusItem{
+		{focusKey: key, lines: strings.Count(block, "\n") + 1},
+	}}
+}
+
+// bodyOrBox is a block's words, or the box in their place while they are being
+// rewritten. Every card renders through it, which is what puts the edit inside
+// the card it belongs to rather than beside it.
+func (m *Model) bodyOrBox(text string, width int, empty string, key focusKey) string {
+	if m.boxOn(key) {
+		return m.inlineBox(width)
+	}
+	return m.body(text, width, empty, key)
+}
+
 // review is the verdict and body in a box, then the threads it opened, set in
 // under it. The box is what stops a bot review that runs for forty lines
 // reading as loose comments with no telling where it ends.
@@ -325,7 +388,12 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	written := item.Said()
 	key := focusKey{kind: focusReview, id: written.ID}
-	block := m.card(head, m.body(written.Body, m.cardWidth(width), "No comment.", key), width, m.lit(key), m.quoteHint(m.lit(key), written.Body, width))
+	if written.Editing {
+		head = m.pendingHead(item.Actor, label, "saving")
+	}
+	block := m.card(head,
+		m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key),
+		width, m.lit(key), m.cardHints(key, written, width))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -409,7 +477,8 @@ func (m Model) card(head, content string, width int, lit bool, hints string) str
 }
 
 // threadHints is the keys live on a thread card, in the order a reader reaches
-// for them.
+// for them. The write keys name the comment the sub-cursor is on, which is the
+// one they would act on.
 func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	if !lit {
 		return ""
@@ -430,6 +499,60 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	parts = append(parts, m.threadActs(t)...)
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
+	}
+	within := m.within(t)
+	for _, c := range t.Comments {
+		if c.ID == within {
+			parts = append(parts, writeHints(c)...)
+		}
+	}
+	return hintLine(width, parts...)
+}
+
+// writeHints is what a comment answers to: the two keys that rewrite it, each
+// named only where GitHub will take the press. One already answering for a
+// write names neither, because the keys are inert on it until it settles.
+func writeHints(c gh.Comment) []string {
+	k := keys.Detail
+	if c.Pending || c.Editing {
+		return nil
+	}
+
+	var parts []string
+	if c.CanEdit {
+		parts = append(parts, k.Edit.Help().Key+" edit")
+	}
+	// A review's own words are not deletable. GitHub says otherwise and has no
+	// call that would do it, so the hint would name a key nothing answers.
+	if c.CanDelete && c.Kind != gh.CommentReview {
+		parts = append(parts, k.Delete.Help().Key+" delete")
+	}
+	return parts
+}
+
+// cardHints is what a comment card answers to. While the box is over it the
+// card says nothing: the box carries a hint line of its own, naming the keys
+// that are live inside it.
+func (m Model) cardHints(key focusKey, c gh.Comment, width int) string {
+	lit := m.lit(key)
+	if !lit || m.boxOn(key) {
+		return ""
+	}
+	return hintLine(width, append(m.quoteParts(c.Body), writeHints(c)...)...)
+}
+
+// descriptionHints is cardHints for the one block that is not a comment. It is
+// edited through the pull request and cannot be deleted at all, so
+// viewerCanUpdate is the whole of the question.
+func (m Model) descriptionHints(key focusKey, d gh.PullRequestDetail, width int) string {
+	lit := m.lit(key)
+	if !lit || m.boxOn(key) {
+		return ""
+	}
+
+	parts := m.quoteParts(d.Body)
+	if d.Viewer.CanUpdate {
+		parts = append(parts, keys.Detail.Edit.Help().Key+" edit")
 	}
 	return hintLine(width, parts...)
 }
@@ -454,20 +577,17 @@ func (m Model) threadActs(t gh.ReviewThread) []string {
 	return parts
 }
 
-// quoteHint is what a block with no thread under it answers to. r is not on it:
-// GitHub has no reply for a loose comment, and a key named on a card it does
-// nothing to is the lie this line exists to avoid.
-func (m Model) quoteHint(lit bool, body string, width int) string {
-	if !lit {
-		return ""
-	}
+// quoteParts is what a block with no thread under it answers to for reading. r
+// is not on it: GitHub has no reply for a loose comment, and a key named on a
+// card it does nothing to is the lie this line exists to avoid.
+func (m Model) quoteParts(body string) []string {
 	k := keys.Detail
 
 	parts := []string{k.QuoteReply.Help().Key + " quote"}
 	if foldable(body) {
 		parts = append(parts, k.Expand.Help().Key+" expand")
 	}
-	return hintLine(width, parts...)
+	return parts
 }
 
 // foldable is whether a body has a <details> block in it, which is the only
@@ -544,7 +664,9 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Subtle, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(m.lit(key), d.Body, width))
+	return m.card(head,
+		m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key),
+		width, m.lit(key), m.descriptionHints(key, d, width))
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -569,16 +691,21 @@ func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.Timelin
 	return strings.Join(parts, m.faint().Render(" · "))
 }
 
-// posting is the heading over a comment on its way. It says so where the time
-// would go: a card that has landed and one that still might not read the same
-// otherwise, and only one of the two can disappear.
+// pendingHead is the heading over a comment with a write out on it. It says so
+// where the time would go: a card that has landed and one that still might not
+// read the same otherwise, and only one of the two can disappear.
 //
-// The item is empty so said writes no time. There is none to write, and "now"
-// would be a claim about a comment GitHub has not seen.
-func (m *Model) posting(actor gh.Actor, verb string) string {
+// The word is the caller's, because the two writes are different news. A
+// comment being posted is not on GitHub at all; one being saved is, under the
+// words it had before, and telling a reader it is posting would say their
+// comment might never have existed.
+//
+// The item is empty so said writes no time. A pending comment has none, and on
+// one being rewritten the time it was written is not the one in question.
+func (m *Model) pendingHead(actor gh.Actor, verb, doing string) string {
 	return m.said(actor, verb, m.theme.Subtle, gh.TimelineItem{}) +
 		m.faint().Render(" · ") +
-		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
+		lipgloss.NewStyle().Foreground(m.theme.Warning).Render(doing)
 }
 
 // commitRun is the commits that landed together, from the head of a timeline.
@@ -731,7 +858,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 
 	for _, c := range t.Comments {
 		ck := threadCommentKey(c)
-		block := wrap(m.byline(c), inner) + "\n\n" + m.body(c.Body, inner, "No comment.", ck)
+		block := wrap(m.byline(c), inner) + "\n\n" + m.bodyOrBox(c.Body, inner, "No comment.", ck)
 		push(gutter(block, c.ID == within))
 	}
 
@@ -771,8 +898,11 @@ type rendered struct {
 // byline is the line above one comment in a thread. Which one the keys have is
 // the gutter's job, not this line's.
 func (m *Model) byline(c gh.Comment) string {
-	if c.Pending {
-		return m.posting(c.Author, "said")
+	switch {
+	case c.Pending:
+		return m.pendingHead(c.Author, "said", "posting")
+	case c.Editing:
+		return m.pendingHead(c.Author, "said", "saving")
 	}
 	return m.said(c.Author, "said", m.theme.Subtle, gh.TimelineItem{CreatedAt: c.CreatedAt})
 }

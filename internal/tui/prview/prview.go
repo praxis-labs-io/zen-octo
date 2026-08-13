@@ -254,10 +254,11 @@ type Model struct {
 	compose composer
 	who     gh.Actor
 
-	// reply is the box r opens inside a review thread. Separate from compose
-	// because the two hold different drafts for different targets, and only one
-	// of them has the keyboard at a time.
-	reply replier
+	// inline is the box the page summons: r opens one under a review thread and
+	// e opens one over a comment. Separate from compose because the two hold
+	// different drafts for different targets, and only one of them has the
+	// keyboard at a time.
+	inline inline
 
 	// sub is which comment inside a thread the keys have, by thread. Tab walks
 	// whole threads, so this is the second level: what a quote takes and what
@@ -316,7 +317,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
 		compose:     newComposer(th),
-		reply:       newReplier(th),
+		inline:      newInline(th),
 		collapsed:   make(map[string]bool),
 		expanded:    make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
@@ -457,8 +458,8 @@ func (m *Model) writing() *composer {
 	switch {
 	case m.compose.typing:
 		return &m.compose
-	case m.reply.typing:
-		return &m.reply.composer
+	case m.inline.typing:
+		return &m.inline.composer
 	}
 	return nil
 }
@@ -467,8 +468,8 @@ func (m *Model) writing() *composer {
 // scroll differently: the compose card is the last block and the reply box is
 // somewhere in the middle.
 func (m *Model) showBox() {
-	if m.reply.typing {
-		m.showReply()
+	if m.inline.typing {
+		m.showInline()
 		return
 	}
 	m.showCompose()
@@ -514,8 +515,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.pickerKey(keyMsg)
 	case m.compose.typing:
 		return m.composeKey(keyMsg)
-	case m.reply.typing:
-		return m.replyKey(keyMsg)
+	case m.inline.typing:
+		return m.inlineKey(keyMsg)
 	}
 
 	before := m.view.YOffset()
@@ -564,6 +565,15 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startReply(false)
 	case key.Matches(keyMsg, k.QuoteReply):
 		return m.startReply(true)
+
+	// Both read the focus and keep their gate inside, the way the reply keys do:
+	// whether GitHub will take a rewrite is the comment's answer, not this
+	// screen's. Delete opens a confirm rather than writing, because it is the
+	// one write here that cannot be taken back.
+	case key.Matches(keyMsg, k.Edit):
+		return m.startEdit()
+	case key.Matches(keyMsg, k.Delete):
+		return m.startDelete()
 
 	// Both act on the thread the ring is holding, and both keep their gate
 	// inside: whether GitHub will take a resolve is the thread's answer, and
