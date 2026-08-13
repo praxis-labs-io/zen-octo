@@ -223,23 +223,39 @@ func (k ListMap) FullHelp() [][]key.Binding {
 	}
 }
 
+// DetailContext is what the detail screen can do where the reader is standing.
+// The bar is one line on four tabs that hold different things, and a hint for a
+// key that is inert on the tab under it is worse than no hint at all: the
+// reader presses it, nothing happens, and the whole line stops being worth
+// reading.
+type DetailContext struct {
+	// Blocks is whether the braces have anything to walk. Every tab but Checks
+	// does: cards on the conversation, files in a diff.
+	Blocks bool
+
+	// Expand is whether there is something to open. The conversation has folds
+	// and the Files tab has directories; the other two have neither.
+	Expand bool
+
+	// Rail is whether there is a rail to toggle, which the tabs with a column
+	// have no room for.
+	Rail bool
+}
+
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
-// only: an eighth hint pushes the line past the pull request number on the
-// right at 100 columns, and the number is what says which one is on screen.
-//
-// The block keys are on it now that one pair means the same move on every tab.
-// While they were two, either one named a key that did nothing on the tab the
-// reader was looking at.
-func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		hint(k.Down, "j/k", "move"),
-		hint(k.NextBlock, "{/}", "block"),
-		k.Expand,
-		k.ToggleRail,
-		hint(k.NextTab, "[/]", "tab"),
-		k.Back,
-		Global.Help,
+// only, to keep the line inside a hundred columns.
+func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
+	out := []key.Binding{hint(k.Down, "j/k", "move")}
+	if c.Blocks {
+		out = append(out, hint(k.NextBlock, "{/}", "block"))
 	}
+	if c.Expand {
+		out = append(out, k.Expand)
+	}
+	if c.Rail {
+		out = append(out, k.ToggleRail)
+	}
+	return append(out, hint(k.NextTab, "[/]", "tab"), k.Back, Global.Help)
 }
 
 // FullHelp is the overlay. The form keys are on it as well: they are live only

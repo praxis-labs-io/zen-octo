@@ -1407,6 +1407,78 @@ func TestAToastLandsOnTheRightAndLeavesTheHintsAlone(t *testing.T) {
 	}
 }
 
+// The bar is one line on four tabs that hold different things. A hint for a key
+// that is inert on the tab under it is worse than no hint: the reader presses
+// it, nothing happens, and the whole line stops being worth reading.
+func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	tests := []struct {
+		name       string
+		to         []string
+		want, gone []string
+	}{
+		{
+			name: "conversation",
+			want: []string{"{/} block", "o expand", "d details"},
+		},
+		{
+			name: "commits",
+			to:   []string{"]"},
+			want: []string{"{/} block"},
+			gone: []string{"o expand", "d details"},
+		},
+		{
+			name: "checks",
+			to:   []string{"]", "]"},
+			gone: []string{"{/} block", "o expand", "d details"},
+		},
+		{
+			name: "files",
+			to:   []string{"]", "]", "]"},
+			want: []string{"{/} block", "o expand"},
+			gone: []string{"d details"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(loaded(t, client, 160, 40), append([]string{"enter"}, tt.to...)...)
+			bar := stripANSI(lastLine(render(t, m)))
+
+			for _, want := range append(tt.want, "j/k move", "[/] tab") {
+				if !strings.Contains(bar, want) {
+					t.Errorf("status bar = %q, want %q on it", strings.TrimSpace(bar), want)
+				}
+			}
+			for _, gone := range tt.gone {
+				if strings.Contains(bar, gone) {
+					t.Errorf("status bar = %q, want %q off it: the key is inert here", strings.TrimSpace(bar), gone)
+				}
+			}
+		})
+	}
+}
+
+// A picker has taken the keys the line names and carries a hint line of its
+// own, so the bar stands down rather than spending its width on keys that
+// stopped working when the modal opened.
+func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveRepoMeta(gh.RepoMeta{Labels: []gh.Label{{ID: "L_bug", Name: "bug"}}})
+
+	m := press(loaded(t, client, 160, 40), "enter", "2", "j", "j", "j", "enter")
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Add label") {
+		t.Fatalf("setup: the label picker did not open:\n%s", out)
+	}
+
+	if bar := stripANSI(lastLine(render(t, m))); strings.Contains(bar, "d details") {
+		t.Errorf("status bar = %q, want the screen's hints off it while a picker is up", strings.TrimSpace(bar))
+	}
+}
+
 // The section title is the current tab in the top border. Naming it again on
 // the bar spent the line on a fact the reader is looking straight at.
 func TestTheListBarNamesNeitherTheSectionNorAHealthyBudget(t *testing.T) {

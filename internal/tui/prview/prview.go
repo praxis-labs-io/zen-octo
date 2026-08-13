@@ -680,10 +680,14 @@ func (m Model) refresh() tea.Cmd {
 // move is a row in the left column, a row on the rail, and a line everywhere
 // else. Both of those point at something; the panes holding prose do not.
 //
-// The rail is the one that can run out of cursor before it runs out of pane.
-// Its last control has the facts under it, and a key that stopped dead on that
-// control would leave them unreachable, so the cursor gives the pane back the
-// key once it has nowhere left to go.
+// The rail's cursor stops at each end rather than coming back round, and hands
+// the key to the pane there. Wrapping is what a page of cards wants, where the
+// ring is the whole of the content; the rail is a list of controls inside a
+// pane that holds facts as well, and a cursor that jumped from the last control
+// to the first would move the reader a screen away from what they were reading.
+// Scrolling instead is the honest answer to a key with nowhere to put a cursor,
+// though bringing the focused control into view leaves the rail at its end
+// anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
 	switch {
 	case m.sideDriving():
@@ -872,7 +876,7 @@ func (m *Model) stepFocus(delta int) bool {
 	}
 
 	top := bodyTop(vp)
-	if !r.step(delta, top, vp.Height()) {
+	if !r.step(delta, top, vp.Height(), r != &m.railRing) {
 		return false
 	}
 
@@ -1148,6 +1152,21 @@ func (m Model) PullRequest() gh.PullRequest { return m.pr }
 
 // Keys is the keymap live while this screen is up.
 func (m Model) Keys() keys.DetailMap { return keys.Detail }
+
+// ShortHelp is the line the status bar carries for this screen, built from what
+// the tab on it can actually do. The screen is the only thing that knows: the
+// keymap is the same on all four, and the difference is which of them holds
+// blocks, folds and a rail.
+//
+// Checks is the one with none of the three. Its column and its output are read
+// rather than opened, and it has no rail because it has a column.
+func (m Model) ShortHelp() []key.Binding {
+	return keys.Detail.ShortHelp(keys.DetailContext{
+		Blocks: m.tab != tabChecks,
+		Expand: m.tab == tabFiles || m.railTab(),
+		Rail:   m.railTab(),
+	})
+}
 
 func (m *Model) syncContent() {
 	// Code is clipped to the pane rather than wrapped: a line of source folded

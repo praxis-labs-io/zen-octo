@@ -375,7 +375,9 @@ func TestASearchLandingAfterWalkingAwayOpensNothing(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
 	m, _ = key(m, "enter")
 
-	m = press(m, "j")
+	// Up, because Base is the last control on this rail and the cursor stops
+	// there rather than coming back round.
+	m = press(m, "k")
 	m.SetBranches(repoBranches())
 
 	if out := stripANSI(m.View()); strings.Contains(out, "Merge into") {

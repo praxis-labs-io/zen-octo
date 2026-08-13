@@ -34,11 +34,12 @@ func (s StatusBar) Size(width int) StatusBar {
 
 // Render puts left at the start of the line and right at its end. The left side
 // never gives up a cell for the right: it carries the keys that get you out,
-// and the right carries a readout of what is on screen.
+// and the right carries a readout, which is a thing to glance at rather than
+// something to act on.
 //
 // The right takes what is left over and is clipped to it rather than dropped.
-// Dropping it whole cost the pull request number for want of one cell, and it
-// is the leading few cells that carry it.
+// A readout is written shortest part first, so the cells it keeps are the ones
+// worth keeping.
 func (s StatusBar) Render(left, right string) string { return s.render(left, right, false) }
 
 // RenderMessage is Render with the priority flipped, for a right side saying

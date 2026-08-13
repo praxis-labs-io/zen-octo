@@ -216,7 +216,7 @@ func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
 
 	seen := map[string]bool{}
 	for i := range 14 {
-		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i+1))...).View())] = true
+		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i))...).View())] = true
 	}
 	if seen["None yet"] {
 		t.Error("the cursor walks the empty checks note")
@@ -401,6 +401,34 @@ func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
 	}
 }
 
+// The cursor stops at each end of the rail rather than coming back round. It
+// wrapped once, on a ring whose step is modular, so one k on the first control
+// hauled the reader to the bottom of a pane they had just arrived at.
+func TestTheRailCursorStopsAtItsEnds(t *testing.T) {
+	// Short enough that the rail runs past the frame, so a wrap would be a jump
+	// the reader could see rather than a move inside one screen.
+	m := press(detailed(held(sampleDetail()), 200, 20), "l")
+
+	first := markedRailRow(t, m.View())
+	if !strings.Contains(first, "Open") {
+		t.Fatalf("setup: landed on %q, want the state row", first)
+	}
+	if got := markedRailRow(t, press(m, "k").View()); got != first {
+		t.Errorf("k on the first control marked %q, want it held on %q", got, first)
+	}
+
+	walkDown := press(m, strings.Fields(strings.Repeat("j ", 30))...)
+	last := markedRailRow(t, walkDown.View())
+	if got := markedRailRow(t, press(walkDown, "j").View()); got != last {
+		t.Errorf("past the last control the cursor marked %q, want it held on %q", got, last)
+	}
+
+	// And nothing is stranded below it: the rail's own last row is on screen.
+	if !strings.Contains(stripANSI(walkDown.View()), "Blocked") {
+		t.Errorf("the rail's last row is off screen with the cursor at its end:\n%s", stripANSI(walkDown.View()))
+	}
+}
+
 // The braces are block motion, and the rail has no blocks. Leaving them live on
 // it as well would give one pane two ways to do the same thing.
 func TestTheBracesDoNothingOnTheRail(t *testing.T) {
@@ -448,7 +476,7 @@ func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 
 	seen := map[string]bool{}
 	for i := range 16 {
-		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i+1))...).View())] = true
+		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i))...).View())] = true
 	}
 
 	// The state row leads with a glyph, so it is read by what it says.

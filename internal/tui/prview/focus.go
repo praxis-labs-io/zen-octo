@@ -175,7 +175,13 @@ func (r *ring) clear() bool {
 // Focus does not survive being scrolled out of the window. A reader who scrolled
 // away has moved on, and the one thing the ring must not do is haul them back to
 // a card they left behind. So it re-anchors to what is on the screen now.
-func (r *ring) step(delta, top, height int) bool {
+//
+// wrap is the caller's, because the two rings end differently. A page of cards
+// comes back round: the ring is the whole of it and there is nothing past the
+// last one. The rail is a list of controls inside a pane that is taller than
+// them, so its end is a boundary rather than a seam, and reporting the key
+// untaken is what lets the pane scroll to the facts underneath.
+func (r *ring) step(delta, top, height int, wrap bool) bool {
 	if len(r.items) == 0 {
 		r.on = focusKey{}
 		return false
@@ -187,7 +193,12 @@ func (r *ring) step(delta, top, height int) bool {
 		return true
 	}
 
-	r.on = r.items[(at+delta+len(r.items))%len(r.items)].focusKey
+	next := at + delta
+	if !wrap && (next < 0 || next >= len(r.items)) {
+		return false
+	}
+
+	r.on = r.items[(next+len(r.items))%len(r.items)].focusKey
 	return true
 }
 

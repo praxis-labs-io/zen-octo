@@ -1291,11 +1291,21 @@ func (m Model) noticeLine() string {
 // statusHints is the left of the bar, and it is the hints whatever else is
 // happening. They used to give way for a toast; a message on the right leaves
 // the keys where the reader's eye already learned to find them.
+//
+// A picker or a form is the exception, because it has taken the keys the line
+// names and carries a hint line of its own. The bar goes quiet rather than
+// spending its width on keys that stopped working when the modal opened.
+//
+// The detail screen builds its own line: the keymap is the same on all four
+// tabs and what they can do is not.
 func (m Model) statusHints() string {
-	if m.screen == screenDetail {
-		return m.help.ShortHelpView(m.detail.Keys().ShortHelp())
+	if m.screen != screenDetail {
+		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
 	}
-	return m.help.ShortHelpView(m.list.Keys().ShortHelp())
+	if m.detail.Capturing() {
+		return ""
+	}
+	return m.help.ShortHelpView(m.detail.ShortHelp())
 }
 
 // statusMessage is what the right side says happened, and empty when nothing

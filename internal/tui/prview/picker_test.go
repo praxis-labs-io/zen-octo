@@ -52,14 +52,20 @@ func loadedRepo() store.Repo {
 func onRailRow(t *testing.T, m prview.Model, want string) prview.Model {
 	t.Helper()
 
-	m = press(m, "2") // the rail is the second pane on the conversation tab
+	// The rail is the second pane on the conversation tab. Back to the first
+	// control before walking down, because the cursor stops at each end rather
+	// than coming back round: a caller already standing below the row it wants
+	// would never reach it, and one already on it would step off.
+	m = press(m, "2")
+	m = press(m, strings.Fields(strings.Repeat("k ", 30))...)
+
 	for range 30 {
-		m = press(m, "j")
 		if markedRailRow(t, m.View()) == want {
 			return m
 		}
+		m = press(m, "j")
 	}
-	t.Fatalf("the ring never reached the rail row %q", want)
+	t.Fatalf("the cursor never reached the rail row %q", want)
 	return m
 }
 

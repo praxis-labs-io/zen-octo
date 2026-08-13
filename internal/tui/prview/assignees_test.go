@@ -147,7 +147,7 @@ func TestTheRingWalksPastTheAssigneesWithoutPermission(t *testing.T) {
 
 	m := press(detailed(held(d), 200, 60), "2")
 	for range 20 {
-		m = press(m, "}")
+		m = press(m, "j")
 		if got := markedRailRow(t, m.View()); got == "@drucial" || got == "+ Add assignee" {
 			t.Fatalf("the ring stopped on %q, which the viewer cannot change", got)
 		}
