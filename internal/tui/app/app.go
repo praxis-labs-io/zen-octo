@@ -1306,7 +1306,7 @@ func (m Model) statusMessage() string {
 		return m.toasts.Render(m.theme)
 	}
 	if m.detailRefreshing.running() {
-		return m.refreshSpin.Render("Refreshing")
+		return m.refreshSpin.RenderAccent("Refreshing")
 	}
 	return ""
 }
