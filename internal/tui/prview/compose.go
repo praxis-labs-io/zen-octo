@@ -37,9 +37,9 @@ const postPad = 2
 // is there, and the card is cheap: eight rows at the end of a thread nobody is
 // reading the end of.
 //
-// typing is whether it has the keyboard. Focus alone is not enough: tab walks
-// onto it the way it walks onto any card, and until enter it is a card like the
-// rest, so j still scrolls.
+// typing is whether it has the keyboard. Focus alone is not enough: the ring
+// walks onto it the way it walks onto any card, and until enter it is a card
+// like the rest, so j still scrolls.
 type composer struct {
 	area area.Model
 
@@ -321,7 +321,7 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Editor):
 		return m, m.compose.editorCmd()
 
-	case key.Matches(keyMsg, k.FocusNext), key.Matches(keyMsg, k.FocusPrev):
+	case key.Matches(keyMsg, keys.Form.Next), key.Matches(keyMsg, keys.Form.Prev):
 		cmd := m.compose.step()
 		m.syncContent()
 		return m, cmd

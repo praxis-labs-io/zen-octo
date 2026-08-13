@@ -19,10 +19,10 @@ const (
 	tabOther  = 7
 )
 
-// onThread puts the ring on a card by tab count.
+// onThread puts the ring on a card by step count.
 func onThread(t *testing.T, n int) prview.Model {
 	t.Helper()
-	return tabbed(detailed(held(sampleDetail()), 200, 60), n)
+	return walked(detailed(held(sampleDetail()), 200, 60), n)
 }
 
 // replying opens a box from that card.
@@ -211,7 +211,7 @@ func TestTheSubCursorIsRememberedPerThread(t *testing.T) {
 	stepped := press(onThread(t, tabThread), "K")
 
 	// A full lap of the ring, which is eight stops on this fixture.
-	away := tabbed(stepped, 8)
+	away := walked(stepped, 8)
 	if got := focusedCard(t, away.View()); !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("a lap of the ring landed on %q, want back on the thread", got)
 	}
@@ -253,7 +253,7 @@ func TestTheBarCostsTheSameSpaceWhenItIsNotDrawn(t *testing.T) {
 func TestOpeningTheBoxKeepsTheThreadInView(t *testing.T) {
 	// Short enough that the card and its box cannot both fit whole, which is
 	// the case the scroll has to get right.
-	m := tabbed(detailed(held(sampleDetail()), 160, 24), tabThread)
+	m := walked(detailed(held(sampleDetail()), 160, 24), tabThread)
 
 	before := stripANSI(m.View())
 	if !strings.Contains(before, "Seconded, the cap is the fix.") {
@@ -393,16 +393,16 @@ func TestTheExpandHintFollowsTheFolds(t *testing.T) {
 	m := detailed(held(d), 200, 60)
 
 	// The description has a fold, so both keys are named and both work.
-	folded := stripANSI(tabbed(m, 1).View())
+	folded := stripANSI(walked(m, 1).View())
 	if !strings.Contains(folded, "R quote · o expand") {
 		t.Errorf("the description has a fold and does not offer o:\n%s", folded)
 	}
-	if out := stripANSI(press(tabbed(m, 1), "o").View()); !strings.Contains(out, "It retries forever") {
+	if out := stripANSI(press(walked(m, 1), "o").View()); !strings.Contains(out, "It retries forever") {
 		t.Error("o is named on the description and does nothing")
 	}
 
 	// The comment below it has none, so o is not offered.
-	plain := stripANSI(tabbed(m, 2).View())
+	plain := stripANSI(walked(m, 2).View())
 	if strings.Contains(plain, "o expand") {
 		t.Errorf("a body with nothing to unfold still offers o:\n%s", plain)
 	}
@@ -488,7 +488,7 @@ func TestQuotingAnEmptyCommentSeedsNothing(t *testing.T) {
 	// The sub-cursor opens on the last comment, so that is the one R takes.
 	d.Threads[0].Comments[1].Body = ""
 
-	m := tabbed(detailed(held(d), 200, 60), tabThread)
+	m := walked(detailed(held(d), 200, 60), tabThread)
 	box := boxLines(t, press(m, "R").View())
 
 	for _, line := range box {
@@ -598,7 +598,7 @@ func TestADraftStaysOnItsOwnThread(t *testing.T) {
 
 	// esc put the ring back on the thread the box was opened from, so three
 	// tabs reach the next thread that takes a reply.
-	other := press(tabbed(held, tabOther-tabThread), "r")
+	other := press(walked(held, tabOther-tabThread), "r")
 
 	out := stripANSI(other.View())
 	if !strings.Contains(out, "write a reply") {
@@ -652,7 +652,7 @@ func TestTheReplyBoxDoesNotMoveTheLayout(t *testing.T) {
 	for _, size := range []struct{ width, height int }{
 		{200, 60}, {160, 40}, {120, 30}, {100, 20},
 	} {
-		m := press(tabbed(detailed(held(sampleDetail()), size.width, size.height), tabThread), "r")
+		m := press(walked(detailed(held(sampleDetail()), size.width, size.height), tabThread), "r")
 		lines := strings.Split(m.View(), "\n")
 
 		if len(lines) != size.height {
@@ -785,7 +785,7 @@ func TestARestoredReplyDoesNotStealTheKeyboard(t *testing.T) {
 
 	// The words are the thread's draft, so the box opens on them once the
 	// keyboard is free again.
-	back := press(tabbed(press(m, "esc"), tabThread), "r")
+	back := press(walked(press(m, "esc"), tabThread), "r")
 	if out := stripANSI(back.View()); !strings.Contains(out, "capped it") {
 		t.Errorf("the words are not waiting on their thread:\n%s", out)
 	}

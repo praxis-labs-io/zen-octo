@@ -50,7 +50,7 @@ const branchSettleDelay = 150 * time.Millisecond
 //
 // A picker waiting to open takes the same terms SetRepo takes, and one more.
 // The rail having focus is not the reader still standing on Base: enter starts
-// the search and tab is free the whole time it is out, so without the row
+// the search and the ring is free the whole time it is out, so without the row
 // itself a modal drops over whatever they walked to and takes the keyboard.
 // Capturing covers the rest of that, including a merge form opened meanwhile,
 // which a picker landing late would replace between one key and the next.

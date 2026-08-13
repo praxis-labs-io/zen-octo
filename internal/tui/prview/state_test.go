@@ -27,19 +27,19 @@ func stateDetail(state gh.PRState, draft bool, v gh.ViewerActions) store.Detail 
 	return held(d)
 }
 
-// onStateRow tabs the rail to the State row, which is named by its glyph and
+// onStateRow walks the rail to the State row, which is named by its glyph and
 // its label rather than by the label alone, so it is matched by substring.
 func onStateRow(t *testing.T, m prview.Model) prview.Model {
 	t.Helper()
 
 	m = press(m, "2") // the rail is the second pane on the conversation tab
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		if isStateRow(markedRailRow(t, m.View())) {
 			return m
 		}
 	}
-	t.Fatal("tab never reached the State row")
+	t.Fatal("the ring never reached the State row")
 	return m
 }
 
@@ -59,13 +59,13 @@ func isStateRow(row string) bool {
 	return slices.Contains([]string{"Open", "Draft", "Closed", "Merged"}, strings.TrimSpace(row[size:]))
 }
 
-// reachesStateRow is whether tab ever stops on the State row at all.
+// reachesStateRow is whether the ring ever stops on the State row at all.
 func reachesStateRow(t *testing.T, m prview.Model) bool {
 	t.Helper()
 
 	m = press(m, "2")
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		if isStateRow(markedRailRow(t, m.View())) {
 			return true
 		}

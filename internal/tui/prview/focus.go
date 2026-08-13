@@ -122,6 +122,9 @@ type ring struct {
 // reset empties the items for a fresh render, keeping the focus and the lead.
 func (r *ring) reset() { r.items = r.items[:0] }
 
+// stops is how many things there are to land on, as of the last render.
+func (r ring) stops() int { return len(r.items) }
+
 // add records one focusable block at the line it was written to.
 func (r *ring) add(key focusKey, start, lines int) {
 	r.items = append(r.items, focusItem{focusKey: key, start: start, lines: lines})

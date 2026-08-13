@@ -54,12 +54,12 @@ func onRailRow(t *testing.T, m prview.Model, want string) prview.Model {
 
 	m = press(m, "2") // the rail is the second pane on the conversation tab
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		if markedRailRow(t, m.View()) == want {
 			return m
 		}
 	}
-	t.Fatalf("tab never reached the rail row %q", want)
+	t.Fatalf("the ring never reached the rail row %q", want)
 	return m
 }
 
@@ -281,7 +281,7 @@ func TestNoPickerOpensBeforeTheDetailLands(t *testing.T) {
 	m := press(screen(200, 60), "2")
 	m.SetRepo(loadedRepo())
 
-	m = press(m, "tab")
+	m = press(m, "j")
 	if got := asked(t, m, "enter"); got != nil {
 		t.Errorf("enter before the detail landed sent %T, want nothing", got)
 	}

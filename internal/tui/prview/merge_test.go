@@ -143,14 +143,14 @@ func TestTheMergeRowIsAControlOnlyWhereThereIsAMergeToMake(t *testing.T) {
 
 			var reached bool
 			for range 30 {
-				m = press(m, "tab")
+				m = press(m, "j")
 				if markedRailRow(t, m.View()) == label {
 					reached = true
 					break
 				}
 			}
 			if reached != tt.want {
-				t.Errorf("tab stops on the %q row = %v, want %v", label, reached, tt.want)
+				t.Errorf("the ring stops on the %q row = %v, want %v", label, reached, tt.want)
 			}
 		})
 	}
@@ -171,9 +171,9 @@ func TestAMergedPullRequestSaysSoAndTheRingWalksPast(t *testing.T) {
 
 	m := press(detailed(held(d), 200, 60), "2")
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		if strings.Contains(markedRailRow(t, m.View()), "Merged into") {
-			t.Error("tab stopped on a merged pull request's Merge row")
+			t.Error("the ring stopped on a merged pull request's Merge row")
 		}
 	}
 }
@@ -702,9 +702,9 @@ func TestAClosedPullRequestOffersNoMerge(t *testing.T) {
 
 			m := press(detailed(held(d), 200, 60), "2")
 			for range 30 {
-				m = press(m, "tab")
+				m = press(m, "j")
 				if row := markedRailRow(t, m.View()); strings.Contains(row, "Ready to merge") {
-					t.Fatalf("tab stopped on a live merge control for a %s pull request", state)
+					t.Fatalf("the ring stopped on a live merge control for a %s pull request", state)
 				}
 			}
 		})
@@ -725,7 +725,7 @@ func TestAMergeInFlightKeepsItsRowOnTheRing(t *testing.T) {
 
 	var reached []string
 	for range 30 {
-		m = press(m, "tab")
+		m = press(m, "j")
 		reached = append(reached, markedRailRow(t, m.View()))
 	}
 

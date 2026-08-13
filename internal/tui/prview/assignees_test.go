@@ -141,15 +141,15 @@ func TestTheAssigneeSectionIsInertWithoutPermission(t *testing.T) {
 	}
 }
 
-func TestTabWalksPastTheAssigneesWithoutPermission(t *testing.T) {
+func TestTheRingWalksPastTheAssigneesWithoutPermission(t *testing.T) {
 	d := sampleDetail()
 	d.Viewer.CanAssign = false
 
 	m := press(detailed(held(d), 200, 60), "2")
 	for range 20 {
-		m = press(m, "tab")
+		m = press(m, "}")
 		if got := markedRailRow(t, m.View()); got == "@drucial" || got == "+ Add assignee" {
-			t.Fatalf("tab stopped on %q, which the viewer cannot change", got)
+			t.Fatalf("the ring stopped on %q, which the viewer cannot change", got)
 		}
 	}
 }

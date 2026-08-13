@@ -121,6 +121,12 @@ Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never s
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
 
+The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. That gives tab and shift+tab back to the tab strip, where they do what they do on the list screen. `keys.Form` is the one place tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea.
+
+The rail is the exception, and the braces are dead on it. Its rows are a list of controls rather than blocks of prose, so it answers to the movement keys the way the file column does: `railDriving` sends `j` and `k` to the cursor, and taking the pane lands the cursor on its first control rather than waiting to be pressed once before it will say where the keys go. Two things fall out of it being a list with facts in it. The cursor hands the key back to the pane once it has nowhere left to go, because the last control has rows under it that are the reason a reader scrolls at all, and `g`, `G` and the page keys never move it, because those go to the ends of a pane and the rail's ends are past its last stop.
+
+The status bar carries the hints on the left in every state. A toast or the refresh spinner lands on the right and wins a narrow line, which is the opposite of the readout that sits there otherwise: a toast may be the only account of a write that failed, and a key works whether or not it is on the line. `RenderMessage` is that priority, beside `Render`. The list screen contributes no readout at all, since its section is already named by the current tab, and the remaining budget appears only once it has run low enough to be worth reading.
+
 The State row's menu is built from where the pull request sits and from what
 GitHub says the viewer may do to it, never from the word on the row: state and
 draft are independent fields, a closed draft reads as "Draft", and the detail

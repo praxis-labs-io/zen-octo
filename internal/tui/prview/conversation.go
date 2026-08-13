@@ -36,7 +36,7 @@ const threadHunkLines = 4
 // the news.
 func (m *Model) conversationBody() string {
 	// The ring is rebuilt from the blocks below. A tab that renders none of them
-	// leaves nothing behind for tab to land on.
+	// leaves the ring nothing to land on.
 	m.convRing.reset()
 
 	switch {
@@ -91,7 +91,7 @@ func (m *Model) entries() string {
 	}
 
 	// push is pushStops for the blocks carrying one stop or none. A key of no
-	// kind is a block tab walks past: a merge or a run of commits is something
+	// kind is a block the ring walks past: a merge or a run of commits is something
 	// to read, not something to act on.
 	push := func(block string, key focusKey) {
 		var stops []focusItem

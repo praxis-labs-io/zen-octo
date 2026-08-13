@@ -378,7 +378,7 @@ func (m Model) replyKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Editor):
 		return m, m.reply.editorCmd()
 
-	case key.Matches(keyMsg, k.FocusNext), key.Matches(keyMsg, k.FocusPrev):
+	case key.Matches(keyMsg, keys.Form.Next), key.Matches(keyMsg, keys.Form.Prev):
 		cmd := m.reply.step()
 		m.syncContent()
 		return m, cmd

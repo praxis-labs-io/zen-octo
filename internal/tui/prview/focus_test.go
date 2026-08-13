@@ -14,7 +14,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// The conversation in sampleDetail, in the order tab walks it. The resolved
+// The conversation in sampleDetail, in the order the ring walks it. The resolved
 // thread is last and has no card, so it is not here; it is asserted on its own.
 const (
 	cardDescription = "drucial · opened this"
@@ -26,76 +26,76 @@ const (
 )
 
 // A screen opens with nothing focused. The reader came to read it.
-func TestNothingIsFocusedUntilTabIsPressed(t *testing.T) {
+func TestNothingIsFocusedUntilTheRingIsWalked(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
 	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("card %q is focused on open, want none", got)
 	}
-	if got := focusedCard(t, press(m, "tab").View()); !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("tab focused %q, want the description", got)
+	if got := focusedCard(t, press(m, "}").View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("the ring focused %q, want the description", got)
 	}
 }
 
-// tabbed presses tab n times.
-func tabbed(m prview.Model, n int) prview.Model {
-	return press(m, strings.Fields(strings.Repeat("tab ", n))...)
+// walked steps the ring n times.
+func walked(m prview.Model, n int) prview.Model {
+	return press(m, strings.Fields(strings.Repeat("} ", n))...)
 }
 
-// Tab walks the cards in the order they were written, and comes back round. A
-// thread is one card and one stop however many comments are in it: stopping on
+// The ring walks the cards in the order they were written, and comes back round.
+// A thread is one card and one stop however many comments are in it: stopping on
 // every reply makes crossing a heavily reviewed page a chore, and J is one key
 // away for the times the answer is to a reply.
-func TestTabWalksTheCardsInOrderAndWraps(t *testing.T) {
+func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
 	want := []string{cardDescription, cardComment, cardReview, cardThread}
 	for i, card := range want {
-		got := focusedCard(t, tabbed(m, i+1).View())
+		got := focusedCard(t, walked(m, i+1).View())
 		if !strings.HasPrefix(got, card) {
-			t.Errorf("tab %d focused %q, want %q", i+1, got, card)
+			t.Errorf("step %d focused %q, want %q", i+1, got, card)
 		}
 	}
 
 	// The fifth is the resolved thread. It is a card like the rest, closed
 	// rather than absent, so it takes the accent on its border the same way.
-	if got := focusedCard(t, tabbed(m, 5).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
-		t.Errorf("the fifth tab focused %q, want the resolved thread", got)
+	if got := focusedCard(t, walked(m, 5).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
+		t.Errorf("the fifth step focused %q, want the resolved thread", got)
 	}
 
 	// The sixth and seventh are the threads no review owns, which render at the
 	// end of the page in the order the query returned them.
-	if got := focusedCard(t, tabbed(m, 6).View()); !strings.HasPrefix(got, cardLocked) {
-		t.Errorf("the sixth tab focused %q, want the unowned thread", got)
+	if got := focusedCard(t, walked(m, 6).View()); !strings.HasPrefix(got, cardLocked) {
+		t.Errorf("the sixth step focused %q, want the unowned thread", got)
 	}
 
 	// The eighth is the comment box, which closes the conversation the way it
 	// closes GitHub's page.
-	if got := focusedCard(t, tabbed(m, 8).View()); !strings.HasPrefix(got, cardCompose) {
-		t.Errorf("the eighth tab focused %q, want the comment box", got)
+	if got := focusedCard(t, walked(m, 8).View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("the eighth step focused %q, want the comment box", got)
 	}
 
-	if got := focusedCard(t, tabbed(m, 9).View()); !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("tab past the last card focused %q, want it back at the description", got)
+	if got := focusedCard(t, walked(m, 9).View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("a step past the last card focused %q, want it back at the description", got)
 	}
 }
 
-// Shift+tab walks the other way, and from nothing it takes the last card on
+// The brace walks the other way, and from nothing it takes the last card on
 // screen rather than the first.
-func TestShiftTabWalksBack(t *testing.T) {
+func TestTheRingWalksBack(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	back := focusedCard(t, press(m, "tab", "tab", "shift+tab").View())
+	back := focusedCard(t, press(m, "}", "}", "{").View())
 	if !strings.HasPrefix(back, cardDescription) {
-		t.Errorf("shift+tab focused %q, want the description", back)
+		t.Errorf("the ring back focused %q, want the description", back)
 	}
 }
 
 // Focus does not survive being scrolled out of the window. A reader who
 // scrolled away has moved on, and hauling them back to the card they left is
 // the one thing the ring must not do.
-func TestTabReanchorsToWhatIsOnScreen(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 16), "tab", "tab", "tab", "tab")
+func TestTheRingReanchorsToWhatIsOnScreen(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 16), "}", "}", "}", "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus started on %q, want the thread card", got)
 	}
@@ -106,15 +106,15 @@ func TestTabReanchorsToWhatIsOnScreen(t *testing.T) {
 		t.Fatal("the thread is still on screen, so nothing was re-anchored")
 	}
 
-	got := focusedCard(t, press(top, "tab").View())
+	got := focusedCard(t, press(top, "}").View())
 	if !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("tab focused %q, want the first card in the window", got)
+		t.Errorf("the ring focused %q, want the first card in the window", got)
 	}
 }
 
 // A card scrolled to goes to the top of the window. Landed at the foot of it,
 // the replies the card is worth reading for are all below the fold.
-func TestTabScrollsACardToTheTopOfTheWindow(t *testing.T) {
+func TestTheRingScrollsACardToTheTopOfTheWindow(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 16)
 
 	if strings.Contains(stripANSI(m.View()), cardThread) {
@@ -122,7 +122,7 @@ func TestTabScrollsACardToTheTopOfTheWindow(t *testing.T) {
 	}
 
 	// Four presses reach the thread card, which is well below the fold.
-	got, at := focusedCardAt(t, press(m, "tab", "tab", "tab", "tab").View())
+	got, at := focusedCardAt(t, press(m, "}", "}", "}", "}").View())
 	if !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus landed on %q, want the thread card whole", got)
 	}
@@ -134,7 +134,7 @@ func TestTabScrollsACardToTheTopOfTheWindow(t *testing.T) {
 
 // A card already on screen whole leaves the page alone. The highlight says
 // where focus is, and scrolling under a reader who can see it is worse.
-func TestTabDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
+func TestTheRingDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
 	// Tall enough that the first two cards are both on screen whole, which is
 	// the precondition the rule is about.
 	m := detailed(held(sampleDetail()), 200, 60)
@@ -143,7 +143,7 @@ func TestTabDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
 	// a border and writes a hint into it, so the frames differ without the page
 	// having moved at all.
 	before := lineOf(t, m.View(), cardDescription)
-	after := lineOf(t, press(m, "tab", "tab").View(), cardDescription)
+	after := lineOf(t, press(m, "}", "}").View(), cardDescription)
 	if before != after {
 		t.Errorf("the description moved from line %d to %d to focus a card already on screen whole", before, after)
 	}
@@ -164,11 +164,11 @@ func lineOf(t *testing.T, frame, want string) int {
 
 // A card taller than the window pins to its top. Bottom-aligning it opens on
 // the end of a comment with the line saying whose it is above the window.
-func TestTabPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
+func TestTheRingPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
 
-	m := press(detailed(held(d), 200, 20), "tab")
+	m := press(detailed(held(d), 200, 20), "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("focus landed on %q, want the description with its heading on screen", got)
 	}
@@ -192,7 +192,7 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 
 	// Unfold it in the conversation: the fourth card is that thread, and K steps
 	// the sub-cursor off its last comment onto the one holding the fold.
-	m = press(m, "tab", "tab", "tab", "tab", "K", "o")
+	m = press(m, "}", "}", "}", "}", "K", "o")
 	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
 		t.Fatal("o did not unfold the thread in the conversation")
 	}
@@ -210,16 +210,16 @@ func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
 	d.Rollup = gh.CheckRollup{}
 
 	m := press(detailed(held(d), 200, 44), "l")
-	if got := markedRailRow(t, press(m, "tab").View()); strings.Contains(got, "None yet") {
-		t.Error("tab stopped on the empty checks note")
+	if got := markedRailRow(t, m.View()); strings.Contains(got, "None yet") {
+		t.Error("the cursor landed on the empty checks note")
 	}
 
 	seen := map[string]bool{}
 	for i := range 14 {
-		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("tab ", i+1))...).View())] = true
+		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i+1))...).View())] = true
 	}
 	if seen["None yet"] {
-		t.Error("the ring walks the empty checks note")
+		t.Error("the cursor walks the empty checks note")
 	}
 }
 
@@ -244,22 +244,22 @@ func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
 
 // A card filling the whole window is the one the reader is looking at. Scanning
 // for the first card to begin below the top skips straight past it.
-func TestTabTakesTheCardFillingTheWindow(t *testing.T) {
+func TestTheRingTakesTheCardFillingTheWindow(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
 
 	// Scrolled into the middle of the description, which is taller than the pane.
 	m := press(detailed(held(d), 200, 20), strings.Fields(strings.Repeat("j ", 12))...)
 
-	got := focusedCard(t, press(m, "tab").View())
+	got := focusedCard(t, press(m, "}").View())
 	if !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("tab focused %q, want the card the window is full of", got)
+		t.Errorf("the ring focused %q, want the card the window is full of", got)
 	}
 }
 
 // The ring's lines sit one below the viewport's, and converting between them
 // has to be reversible. Clamping one way and not the other moves the page.
-func TestTabAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
+func TestTheRingAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 24)
 
 	row := func(frame string) string {
@@ -268,15 +268,15 @@ func TestTabAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
 	if got := row(m.View()); got != "" {
 		t.Fatalf("the pane opens on %q, want its blank line", got)
 	}
-	if got := row(press(m, "tab").View()); got != "" {
-		t.Errorf("after tab the pane opens on %q, want it not to have moved", got)
+	if got := row(press(m, "}").View()); got != "" {
+		t.Errorf("after a step the pane opens on %q, want it not to have moved", got)
 	}
 }
 
 // Focus scrolled out of the window is nothing the reader can see, so esc means
 // the screen rather than the highlight they cannot find.
 func TestEscBacksOutWhenTheFocusIsOffScreen(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 16), "tab", "G")
+	m := press(detailed(held(sampleDetail()), 200, 16), "}", "G")
 	if strings.Contains(stripANSI(m.View()), cardDescription) {
 		t.Fatal("the focused card is still on screen, so this proves nothing")
 	}
@@ -296,7 +296,7 @@ func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Body = "Look.\n\n<details>\n<summary>Hidden</summary>\n\nThe secret.\n\n</details>\n"
 
-	m := press(detailed(held(d), 200, 16), "tab", "G")
+	m := press(detailed(held(d), 200, 16), "}", "G")
 
 	before := stripANSI(m.View())
 	if before != stripANSI(press(m, "o").View()) {
@@ -306,12 +306,12 @@ func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 
 // One pane answers the keys, so one pane paints. Two lit at once says both do.
 func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "tab")
+	m := press(detailed(held(sampleDetail()), 200, 44), "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("focus started on %q, want the description", got)
 	}
 
-	rail := press(m, "l", "tab")
+	rail := press(m, "l", "}")
 	if got := focusedCard(t, rail.View()); got != "" {
 		t.Errorf("card %q is lit while the rail holds the keys", got)
 	}
@@ -324,25 +324,29 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 	}
 }
 
-// The strip kept the brackets when the ring took tab.
-func TestTabNoLongerSwitchesTabs(t *testing.T) {
+// tab moves the strip here the way it moves the sections on the list screen, so
+// the same key makes the same move on both. The braces walk blocks and leave
+// the strip alone, which is the half of the swap that is easy to drop.
+func TestTabSwitchesTabsAndTheBracesDoNot(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 	active := fgSeq(theme.RosePineMoon.Accent)
 
-	if !strings.Contains(firstLine(press(m, "tab").View()), active+"mConversation") {
-		t.Error("tab moved off the Conversation tab")
+	if !strings.Contains(firstLine(press(m, "tab").View()), active+"mCommits") {
+		t.Error("tab did not move to the Commits tab")
 	}
-	if !strings.Contains(firstLine(press(m, "shift+tab").View()), active+"mConversation") {
-		t.Error("shift+tab moved off the Conversation tab")
+	if !strings.Contains(firstLine(press(m, "shift+tab").View()), active+"mFiles") {
+		t.Error("shift+tab did not wrap back to the Files tab")
 	}
-	if !strings.Contains(firstLine(press(m, "]").View()), active+"mCommits") {
-		t.Error("] no longer switches tabs")
+	for _, k := range []string{"}", "{"} {
+		if !strings.Contains(firstLine(press(m, k).View()), active+"mConversation") {
+			t.Errorf("%q moved off the Conversation tab", k)
+		}
 	}
 }
 
 // Letting go of a card and leaving the screen are two intentions on one key.
 func TestEscLetsGoBeforeItBacksOut(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "tab")
+	m := press(detailed(held(sampleDetail()), 200, 60), "}")
 
 	m, cmd := m.Update(escape())
 	if cmd != nil {
@@ -363,7 +367,7 @@ func TestEscLetsGoBeforeItBacksOut(t *testing.T) {
 // A tab with a column shows no ring. Focus held over from the conversation is
 // invisible there, and swallowing esc for it strands the reader on the screen.
 func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "tab", "]")
+	m := press(detailed(held(sampleDetail()), 200, 60), "}", "]")
 
 	_, cmd := m.Update(escape())
 	if cmd == nil {
@@ -374,23 +378,38 @@ func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
 	}
 }
 
-// The rail is walked by the same key. Its rows have no border to take the
-// accent, so the row itself is painted, the way the file column paints its own.
-func TestTabWalksTheRailRows(t *testing.T) {
+// The rail is a list of controls rather than blocks, so it takes the movement
+// keys the file column takes. Its rows have no border to take the accent, so
+// the row itself is painted, the way the column paints its own.
+func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
-	// The state row leads: it is the first thing in the column and the first
-	// thing there is anything to do to.
-	if got := markedRailRow(t, press(m, "tab").View()); !strings.Contains(got, "Open") {
-		t.Errorf("tab marked %q, want the state row", got)
+	// The cursor is there with the focus. The state row leads: it is the first
+	// thing in the column and the first thing there is anything to do to.
+	if got := markedRailRow(t, m.View()); !strings.Contains(got, "Open") {
+		t.Errorf("taking the rail marked %q, want the state row", got)
 	}
-	if got := markedRailRow(t, press(m, "tab", "tab").View()); got != "@nkr" {
-		t.Errorf("a second tab marked %q, want the first reviewer", got)
+	for _, k := range []string{"j", "down"} {
+		if got := markedRailRow(t, press(m, k).View()); got != "@nkr" {
+			t.Errorf("%q marked %q, want the first reviewer", k, got)
+		}
 	}
 
 	// Nothing in the conversation is lit while the focus is in the rail.
-	if got := focusedCard(t, press(m, "tab").View()); got != "" {
+	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("card %q is lit while the rail holds the focus", got)
+	}
+}
+
+// The braces are block motion, and the rail has no blocks. Leaving them live on
+// it as well would give one pane two ways to do the same thing.
+func TestTheBracesDoNothingOnTheRail(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+
+	for _, k := range []string{"}", "{"} {
+		if got := press(m, k).View(); got != m.View() {
+			t.Errorf("%q moved something on the rail", k)
+		}
 	}
 }
 
@@ -415,21 +434,21 @@ func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 		t.Errorf("the row after the reviewers is %q, want the add row", got)
 	}
 
-	// Five tabs: the state, three reviewers, then the add row.
+	// Four steps past the state row: three reviewers, then the add row.
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
-	if got := markedRailRow(t, press(m, "tab", "tab", "tab", "tab", "tab").View()); got != "+ Add reviewer" {
-		t.Errorf("the fifth tab marked %q, want the add row", got)
+	if got := markedRailRow(t, press(m, "j", "j", "j", "j").View()); got != "+ Add reviewer" {
+		t.Errorf("the fourth step marked %q, want the add row", got)
 	}
 }
 
 // The rail sections the reader can act on are walkable and the rest are not,
-// so tab does not stop on the churn or on a merge that cannot be made.
-func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
+// so the ring does not stop on the churn or on a merge that cannot be made.
+func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
 	seen := map[string]bool{}
 	for i := range 16 {
-		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("tab ", i+1))...).View())] = true
+		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i+1))...).View())] = true
 	}
 
 	// The state row leads with a glyph, so it is read by what it says.
@@ -447,7 +466,7 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 		"+ Add reviewer", "+ Add assignee", "+ Add label", "behind main",
 	} {
 		if !reached(want) {
-			t.Errorf("tab never reached the %q row", want)
+			t.Errorf("the ring never reached the %q row", want)
 		}
 	}
 
@@ -457,7 +476,7 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	// retargeting is a change to the branch that number is measured against.
 	for _, skip := range []string{"+42", "Blocked"} {
 		if reached(skip) {
-			t.Errorf("tab stopped on %q, which there is nothing to do to", skip)
+			t.Errorf("the ring stopped on %q, which there is nothing to do to", skip)
 		}
 	}
 }
@@ -465,7 +484,7 @@ func TestTabSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 // Focus names the card, not the place it sat in. A rebase re-sorts commits into
 // the timeline by date, and the reader comes back to the comment they left.
 func TestFocusHoldsThroughAReorderedTimeline(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "tab", "tab")
+	m := press(detailed(held(sampleDetail()), 200, 60), "}", "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
 		t.Fatalf("two tabs focused %q, want %q", got, cardComment)
 	}
@@ -486,7 +505,7 @@ func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
 		return d
 	}
 
-	m := press(detailed(held(folded()), 200, 60), "tab", "tab", "o")
+	m := press(detailed(held(folded()), 200, 60), "}", "}", "o")
 	if !strings.Contains(stripANSI(m.View()), "The secret.") {
 		t.Fatal("o did not unfold the comment")
 	}
@@ -514,11 +533,11 @@ func reordered(d gh.PullRequestDetail) gh.PullRequestDetail {
 func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "l")
 
-	// Eight tabs: the state, three reviewers and their add row, the assignee
-	// and its add row, then the one label.
-	m = press(m, strings.Fields(strings.Repeat("tab ", 8))...)
+	// Seven steps past the state row: three reviewers and their add row, the
+	// assignee and its add row, then the one label.
+	m = press(m, strings.Fields(strings.Repeat("j ", 7))...)
 	if got := markedRailRow(t, m.View()); got != "bug" {
-		t.Fatalf("eight tabs marked %q, want the label", got)
+		t.Fatalf("seven steps marked %q, want the label", got)
 	}
 
 	d := sampleDetail()
@@ -541,7 +560,7 @@ func TestAFocusedFrameFillsItsSizeExactly(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
-			m := press(detailed(held(sampleDetail()), size.width, size.height), "tab", "tab", "tab")
+			m := press(detailed(held(sampleDetail()), size.width, size.height), "}", "}", "}")
 			lines := strings.Split(m.View(), "\n")
 
 			if len(lines) != size.height {

@@ -563,31 +563,34 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevWithin):
 		return m.stepWithin(-1)
 
-	case key.Matches(keyMsg, k.FocusNext):
-		m.stepFocus(1)
-	case key.Matches(keyMsg, k.FocusPrev):
-		m.stepFocus(-1)
-
 	case key.Matches(keyMsg, k.NextTab):
 		return m, m.changeTab(1)
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	// A file belongs to whichever tab is showing a diff. The spans outlive a
-	// tab switch, so without the guard the conversation scrolls to wherever the
-	// diff last had a file.
-	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
+	// A block is whatever this tab is made of. On a diff it is a file, and the
+	// tab is what decides: the spans outlive a tab switch, so without the guard
+	// the conversation scrolls to wherever the diff last had one.
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabFiles:
 		m.jumpFile(1)
 		follow = false
-	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabFiles:
 		m.jumpFile(-1)
 		follow = false
-	case key.Matches(keyMsg, k.NextFile) && m.tab == tabCommits:
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
 		follow = false
-	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabCommits:
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
 		follow = false
+
+	// The rail is a list of controls rather than blocks of anything, and it
+	// answers to the movement keys instead. Leaving the braces on it as well
+	// would give one pane two ways to do the same thing and teach neither.
+	case key.Matches(keyMsg, k.NextBlock) && !m.railDriving():
+		m.stepFocus(1)
+	case key.Matches(keyMsg, k.PrevBlock) && !m.railDriving():
+		m.stepFocus(-1)
 
 	case key.Matches(keyMsg, k.PaneLeft):
 		m.focusPane(m.focus - 1)
@@ -674,11 +677,19 @@ func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// move is a row in the left column and a line everywhere else. The column is
-// the only pane with something to point at.
+// move is a row in the left column, a row on the rail, and a line everywhere
+// else. Both of those point at something; the panes holding prose do not.
+//
+// The rail is the one that can run out of cursor before it runs out of pane.
+// Its last control has the facts under it, and a key that stopped dead on that
+// control would leave them unreachable, so the cursor gives the pane back the
+// key once it has nowhere left to go.
 func (m *Model) move(delta int) {
-	if m.sideDriving() {
+	switch {
+	case m.sideDriving():
 		m.moveSide(delta)
+		return
+	case m.railDriving() && m.stepFocus(delta):
 		return
 	}
 	if delta > 0 {
@@ -691,12 +702,26 @@ func (m *Model) move(delta int) {
 // jumped is the same split for the keys that move further than a line, and
 // reports whether it took the key. In the column they move the cursor: a column
 // scrolled away from its own cursor answers nothing.
+//
+// The rail is not in it. Those keys go to the ends of a pane, and the rail has
+// rows past its last control that are the reason a reader presses them.
 func (m *Model) jumped(rows int) bool {
 	if !m.sideDriving() {
 		return false
 	}
 	m.moveSide(rows)
 	return true
+}
+
+// railDriving is whether the line keys belong to the rail's cursor. Its rows
+// are a list of controls rather than paragraphs of anything, so they are walked
+// the way the column beside them is: the cursor moves and the pane follows it.
+//
+// A rail with no walkable row keeps the scrolling keys. Every row can be inert
+// at once, on a pull request nobody may change, and the rail is taller than a
+// short frame whether or not there is anything to press.
+func (m Model) railDriving() bool {
+	return m.focus == paneRail && m.railVisible() && m.railRing.stops() > 0
 }
 
 // sideDriving is whether the movement keys belong to the column. A column with
@@ -834,23 +859,26 @@ func (m *Model) focusRing() (*ring, *viewport.Model) {
 	return nil, nil
 }
 
-// stepFocus walks the ring one item and brings what it lands on into view.
+// stepFocus walks the ring one item and brings what it lands on into view. It
+// reports whether the ring took the key, which is what lets a caller hand the
+// key on to the pane rather than swallowing it.
 //
 // The body is rebuilt before the offset moves, because a focused card renders
 // differently and SetYOffset clamps to the content the viewport is holding.
-func (m *Model) stepFocus(delta int) {
+func (m *Model) stepFocus(delta int) bool {
 	r, vp := m.focusRing()
 	if r == nil {
-		return
+		return false
 	}
 
 	top := bodyTop(vp)
 	if !r.step(delta, top, vp.Height()) {
-		return
+		return false
 	}
 
 	m.syncContent()
 	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
+	return true
 }
 
 // bodyTop is the viewport's offset in the lines the ring recorded, which sit
@@ -945,9 +973,24 @@ func (m *Model) focusPane(want pane) {
 		if p == want && m.paneVisible(p) {
 			m.focus = p
 			m.syncContent()
+			m.railLand()
 			return
 		}
 	}
+}
+
+// railLand puts the cursor on the rail's first row when the pane takes the keys
+// with nothing on it. The line is what says where the keys are going, and a
+// pane that has to be pressed once before it will say so is one the reader has
+// to guess at.
+//
+// A cursor already on the rail is left where it is. Coming back to a pane and
+// finding it at the top would throw away the row the reader walked to.
+func (m *Model) railLand() {
+	if m.focus != paneRail || !m.railVisible() || m.railRing.index() >= 0 {
+		return
+	}
+	m.stepFocus(1)
 }
 
 // focusIndex answers a digit with the pane sitting in that position. The panes
@@ -966,6 +1009,7 @@ func (m *Model) focusIndex(digit string) {
 		if at++; at == n {
 			m.focus = p
 			m.syncContent()
+			m.railLand()
 			return
 		}
 	}

@@ -50,7 +50,7 @@ func openSearchablePicker(t *testing.T, client *fakeSearcher) tea.Model {
 func toBaseRow(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
-	m := press(loaded(t, client, 160, 44), "enter", "2", "tab", "tab", "tab", "tab", "tab")
+	m := press(loaded(t, client, 160, 44), "enter", "2", "j", "j", "j", "j")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Up to date with main") {
 		t.Fatalf("the rail has no Base row to stand on:\n%s", out)
 	}
@@ -129,7 +129,7 @@ func TestARetargetRefetchesADiffAlreadyOpened(t *testing.T) {
 		t.Fatalf("setup: fetched %v, want the Files tab to have asked for one diff", got)
 	}
 
-	m = press(m, "[", "[", "[", "2", "tab", "tab", "tab", "tab", "tab", "enter")
+	m = press(m, "[", "[", "[", "2", "j", "j", "j", "j", "enter")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merge into") {
 		t.Fatalf("the branch picker did not open:\n%s", out)
 	}
@@ -272,7 +272,7 @@ func TestASecondPullRequestOpensTheBranchPickerToo(t *testing.T) {
 		t.Fatalf("setup: landed on %q, want the second pull request", strings.TrimSpace(bar))
 	}
 
-	m = press(m, "2", "tab", "tab", "tab", "tab", "tab", "enter")
+	m = press(m, "2", "j", "j", "j", "j", "enter")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merge into") {
 		t.Errorf("the Base key is dead on the second pull request:\n%s", out)
@@ -314,7 +314,7 @@ func TestTheDiffRefetchUsesThePostRetargetFileCount(t *testing.T) {
 		t.Fatalf("setup: diff asks = %v, want one for the staged count of 3", got)
 	}
 
-	m = press(m, "[", "[", "[", "2", "tab", "tab", "tab", "tab", "tab", "enter")
+	m = press(m, "[", "[", "[", "2", "j", "j", "j", "j", "enter")
 	press(m, "j", "enter")
 
 	got := client.diffAsks()

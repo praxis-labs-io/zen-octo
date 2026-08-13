@@ -439,9 +439,9 @@ func (m Model) mergeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Post):
 		return m.applyMerge()
 
-	case key.Matches(keyMsg, k.FocusNext):
+	case key.Matches(keyMsg, keys.Form.Next):
 		return m, m.merging.step(1)
-	case key.Matches(keyMsg, k.FocusPrev):
+	case key.Matches(keyMsg, keys.Form.Prev):
 		return m, m.merging.step(-1)
 	}
 

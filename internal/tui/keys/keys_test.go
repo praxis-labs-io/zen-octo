@@ -36,6 +36,7 @@ func TestEveryBindingCarriesHelpAndKeys(t *testing.T) {
 		{name: "Global", km: keys.Global},
 		{name: "List", km: keys.List},
 		{name: "Detail", km: keys.Detail},
+		{name: "Form", km: keys.Form},
 	}
 
 	for _, tt := range tests {
@@ -52,6 +53,10 @@ func TestEveryBindingCarriesHelpAndKeys(t *testing.T) {
 	}
 }
 
+// The form keys are their own context rather than part of the detail screen's.
+// tab is deliberately both the tab strip's and the compose box's, and the two
+// are never live together: a box takes every key until it closes, which is also
+// why Global is not beside it here.
 func TestNoKeyIsBoundTwiceInOneContext(t *testing.T) {
 	tests := []struct {
 		name string
@@ -59,6 +64,7 @@ func TestNoKeyIsBoundTwiceInOneContext(t *testing.T) {
 	}{
 		{name: "list", live: []any{keys.List, keys.Global}},
 		{name: "detail", live: []any{keys.Detail, keys.Global}},
+		{name: "form", live: []any{keys.Form}},
 	}
 
 	for _, tt := range tests {
@@ -89,7 +95,10 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		full  [][]key.Binding
 	}{
 		{name: "list", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(), full: keys.List.FullHelp()},
-		{name: "detail", live: []any{keys.Detail, keys.Global}, short: keys.Detail.ShortHelp(), full: keys.Detail.FullHelp()},
+		// The form keys reach the overlay through the detail screen's help: they
+		// are the answer to what tab does inside a box, and the reader asking
+		// has only the one overlay to ask.
+		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(), full: keys.Detail.FullHelp()},
 	}
 
 	for _, tt := range tests {

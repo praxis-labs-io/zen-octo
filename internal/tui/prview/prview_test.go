@@ -1063,7 +1063,7 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 
 	// Pressed in sequence rather than from the same starting model each time.
 	// What is unfolded is a map, which every copy of the model shares.
-	m = press(m, "tab", "o")
+	m = press(m, "}", "o")
 	if !strings.Contains(stripANSI(m.View()), "did a thing") {
 		t.Error("o did not open the fold")
 	}

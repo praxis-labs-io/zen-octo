@@ -103,7 +103,7 @@ func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
 	}{
 		{
 			name:  "a reply box",
-			open:  []string{"tab", "tab", "tab", "r"},
+			open:  []string{"}", "}", "}", "r"},
 			want:  "write a reply",
 			other: "write a comment",
 		},
