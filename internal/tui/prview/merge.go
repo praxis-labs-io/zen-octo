@@ -36,8 +36,8 @@ const (
 	// mergeMaxWidth is the ceiling for a frame narrow enough to matter and
 	// nothing else. It matches the picker's, so the two modals never open at
 	// visibly different widths over the same pull request.
-	mergeMinWidth = 46
-	mergeMaxWidth = 56
+	mergeMinWidth = 52
+	mergeMaxWidth = 72
 
 	// mergeBodyRows is how much of the commit message the box shows at once,
 	// and the first thing to give way on a short terminal. A squash body is one
@@ -58,14 +58,34 @@ const (
 	mergeGap       = "  "
 )
 
+// The lines the footer can carry, one per row the form has. They are declared
+// together because the modal is measured against the longest of them: a hint
+// wider than the width taken from it is dropped rather than shown, so a variant
+// added out here without a look at the others goes silently missing.
+const (
+	mergeHintMethod  = "tab next · j/k method · esc cancel"
+	mergeHintDelete  = "tab next · space toggle · esc cancel"
+	mergeHintButton  = "tab next · ⏎ merge · esc cancel"
+	mergeHintNoChord = "tab to the button to merge · esc cancel"
+)
+
+// mergeHintChord is the one that depends on a binding rather than reading as
+// prose, so it is built rather than written.
+var mergeHintChord = "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"
+
 // mergeHintWidth is the longest the hint gets, which is what the modal is
 // measured against. The hint itself changes with the row, and a modal that
 // changed width with it would jump as the reader tabbed through.
 //
-// A var rather than a const, measured rather than counted: the separator is a
-// middle dot, which is one cell and two bytes, so len would buy two columns
-// nothing draws in.
-var mergeHintWidth = lipgloss.Width("tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel")
+// Measured rather than counted: the separator is a middle dot, which is one
+// cell and two bytes, so len would buy two columns nothing draws in.
+var mergeHintWidth = func() int {
+	widest := 0
+	for _, hint := range []string{mergeHintMethod, mergeHintDelete, mergeHintButton, mergeHintNoChord, mergeHintChord} {
+		widest = max(widest, lipgloss.Width(hint))
+	}
+	return widest
+}()
 
 // mergeRowKind is one focusable row in the form.
 type mergeRowKind int
@@ -748,22 +768,33 @@ func (f merging) footer(th theme.Theme, width int) string {
 }
 
 // footerText names the keys that work from where the reader is standing, which
-// is the compose card's rule and matters more here.
+// is the compose card's rule and matters more here: this is the one form whose
+// key ends the pull request, so a line naming it from a row where it does
+// something else is the worst thing the footer can say.
+//
+// Enter merges on the button alone. On the method row it steps to the next row
+// and on the delete row it ticks the box, and both of those said "⏎ merge"
+// until somebody pressed it and watched the form move instead.
 //
 // In a text field enter belongs to the field: a newline in the message, and
-// nothing at all in the headline. Naming it there sends the reader pressing a
-// key that does not merge, on the one form where the key they are looking for
-// ends the pull request. The chord is what merges from those two rows, and it
-// is named only where the terminal can send it; on the rest the button is the
-// way, and tab is how they reach it.
+// nothing at all in the headline. The chord is what merges from those two rows,
+// and it is named only where the terminal can send it; on the rest the button
+// is the way, and tab is how they reach it.
 func (f merging) footerText() string {
-	if !f.typing() {
-		return "tab next · ⏎ merge · esc cancel"
+	if f.typing() {
+		if f.chords {
+			return mergeHintChord
+		}
+		return mergeHintNoChord
 	}
-	if f.chords {
-		return "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"
+
+	switch f.on() {
+	case mergeMethodRow:
+		return mergeHintMethod
+	case mergeDeleteRow:
+		return mergeHintDelete
 	}
-	return "tab to the button to merge · esc cancel"
+	return mergeHintButton
 }
 
 // mergePad runs a row out to the full width in its own style, so a lit row's

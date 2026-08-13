@@ -760,24 +760,41 @@ func TestPastingReachesTheCommitMessage(t *testing.T) {
 	}
 }
 
-// In a text field enter belongs to the field, so naming it there sends the
-// reader pressing a key that does not merge, on the one form where the key they
-// are looking for ends the pull request.
+// This is the one form whose key ends the pull request, so a hint naming that
+// key from a row where it does something else is the worst thing the footer can
+// say. Enter merges on the button alone: on the method row it steps to the next
+// row, on the delete row it ticks the box, and in a text field it belongs to
+// the field.
+//
+// The fixture's terminal cannot send the chord, so the two text rows point at
+// the button. That is also what keeps "⏎ merge" readable as an assertion here:
+// the chord hint spells ctrl+⏎ and would match it as a substring.
 func TestTheHintNamesAKeyThatWorksFromTheRowItIsOn(t *testing.T) {
-	m := openMerge(t)
-
-	if box := formBox(t, m); !strings.Contains(box, "⏎ merge") {
-		t.Errorf("the hint does not name enter on a row where enter merges:\n%s", box)
+	tests := []struct {
+		row  string
+		want string
+	}{
+		{row: "the method", want: "j/k method"},
+		{row: "the headline", want: "tab to the button to merge"},
+		{row: "the message", want: "tab to the button to merge"},
+		{row: "delete the branch", want: "space toggle"},
+		{row: "the button", want: "⏎ merge"},
 	}
 
-	for _, row := range []string{"the headline", "the message"} {
-		m = press(m, "tab")
-		box := formBox(t, m)
-		if strings.Contains(box, "⏎ merge") {
-			t.Errorf("on %s the hint still names enter, which the field swallows:\n%s", row, box)
+	m := openMerge(t)
+	for i, tt := range tests {
+		if i > 0 {
+			m = press(m, "tab")
 		}
-		if !strings.Contains(box, "merge") {
-			t.Errorf("on %s the hint says nothing about how to merge:\n%s", row, box)
+
+		box := formBox(t, m)
+		if !strings.Contains(box, tt.want) {
+			t.Errorf("on %s the hint does not name %q:\n%s", tt.row, tt.want, box)
+		}
+		// Every row but the button had this, and pressing it moved the form
+		// instead of merging.
+		if tt.want != "⏎ merge" && strings.Contains(box, "⏎ merge") {
+			t.Errorf("on %s the hint says enter merges, and it does not:\n%s", tt.row, box)
 		}
 	}
 }

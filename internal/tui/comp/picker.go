@@ -24,9 +24,15 @@ const (
 
 	// pickerMinWidth clears the longest hint any picker draws, so single and
 	// multi select open at the same width over short content rather than at the
-	// two their own hints would give them.
-	pickerMinWidth = 40
-	pickerMaxWidth = 56
+	// two their own hints would give them. It sits well above that floor: a
+	// dialog the width of its own hint line reads as cramped whatever it holds.
+	//
+	// pickerMaxWidth is what a branch name or a check name gets before it is cut,
+	// and those are the two that run long. Both stay under three quarters of a
+	// hundred-column frame, so the modal still reads as something over the page
+	// rather than as a pane that replaced it.
+	pickerMinWidth = 52
+	pickerMaxWidth = 72
 
 	// pickerMark is the two cells in front of every choice. Checked or not, the
 	// name starts in the same column: a list whose rows begin at two different
