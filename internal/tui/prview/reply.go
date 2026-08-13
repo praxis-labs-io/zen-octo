@@ -179,7 +179,7 @@ func (m *Model) replyCard(width int) string {
 	inner := m.cardWidth(width)
 	m.reply.setWidth(inner)
 
-	head := m.said(m.who, "write a reply", m.theme.Faint, gh.TimelineItem{})
+	head := m.said(m.who, "write a reply", m.theme.Subtle, gh.TimelineItem{})
 	body := m.reply.area.View() + "\n\n" + m.reply.button(m.theme, inner, m.lit(key))
 	return m.card(head, body, width, m.lit(key), "")
 }

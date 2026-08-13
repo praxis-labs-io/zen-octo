@@ -56,7 +56,7 @@ func TestToastKindPicksTheColor(t *testing.T) {
 		kind comp.ToastKind
 		want string
 	}{
-		{name: "info", kind: comp.ToastInfo, want: fgSeq(theme.RosePineMoon.Primary)},
+		{name: "info", kind: comp.ToastInfo, want: fgSeq(theme.RosePineMoon.Text)},
 		{name: "success", kind: comp.ToastSuccess, want: fgSeq(theme.RosePineMoon.Success)},
 		{name: "error", kind: comp.ToastError, want: fgSeq(theme.RosePineMoon.Error)},
 	}

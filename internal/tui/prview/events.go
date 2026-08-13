@@ -91,7 +91,7 @@ func (m *Model) happened(run []gh.TimelineItem) string {
 	if verb == "" {
 		return ""
 	}
-	return wrap(m.faint().Render("● ")+m.said(last.Actor, verb, m.theme.Faint, last), m.bodyWidth())
+	return wrap(m.faint().Render("● ")+m.said(last.Actor, verb, m.theme.Subtle, last), m.bodyWidth())
 }
 
 // eventVerb is what a run did, in the past tense the conversation reads in. on

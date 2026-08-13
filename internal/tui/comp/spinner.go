@@ -22,7 +22,7 @@ type Spinner struct {
 // NewSpinner returns a stopped spinner. Tick starts it.
 func NewSpinner(th theme.Theme) Spinner {
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
-	sp.Style = lipgloss.NewStyle().Foreground(th.Secondary)
+	sp.Style = lipgloss.NewStyle().Foreground(th.Accent)
 	return Spinner{theme: th, model: sp}
 }
 
@@ -47,5 +47,5 @@ func (s Spinner) Render(label string) string {
 	if label == "" {
 		return s.model.View()
 	}
-	return s.model.View() + " " + lipgloss.NewStyle().Foreground(s.theme.Faint).Render(label)
+	return s.model.View() + " " + lipgloss.NewStyle().Foreground(s.theme.Subtle).Render(label)
 }

@@ -284,7 +284,7 @@ func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
 	}
 
 	lead := m.faint().Render(marker) +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(path)
+		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(path)
 
 	churn := m.fileChurn(f)
 	room := max(0, width-lipgloss.Width(churn)-1)
@@ -307,7 +307,7 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 // hunkHead is the @@ line, set in over the gutter the numbers below it use.
 func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
 	line := strings.Repeat(" ", gutter*2+4) +
-		lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(h.Header)
+		lipgloss.NewStyle().Foreground(m.theme.Accent).Render(h.Header)
 	return clipTo(line, width, m.faint())
 }
 
@@ -319,7 +319,7 @@ func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
 // so a joined line wrapped in the background style afterwards would carry it
 // only as far as the first token.
 func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) string {
-	marker, c := " ", m.theme.Faint
+	marker, c := " ", m.theme.Subtle
 	base := lipgloss.NewStyle()
 
 	switch l.Kind {
@@ -332,7 +332,7 @@ func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) s
 	}
 
 	kind := base.Foreground(c)
-	faint := base.Foreground(m.theme.Faint)
+	faint := base.Foreground(m.theme.Subtle)
 	oldNum, newNum := faint, faint
 	switch l.Kind {
 	case gh.DiffAdded:

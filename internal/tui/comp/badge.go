@@ -65,30 +65,30 @@ func prStateOf(pr gh.PullRequest) prStateKind {
 func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:
-		return glyphPRMerged, th.Secondary
+		return glyphPRMerged, th.Accent
 	case prKindClosed:
 		return glyphPRClosed, th.Error
 	case prKindDraft:
-		return glyphPRDraft, th.Faint
+		return glyphPRDraft, th.Subtle
 	case prKindOpen:
 		return glyphPROpen, th.Success
 	}
-	return glyphPROpen, th.Faint
+	return glyphPROpen, th.Subtle
 }
 
 // PRStateLabel names the same thing in words, for places with room for them.
 func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:
-		return "Merged", th.Secondary
+		return "Merged", th.Accent
 	case prKindClosed:
 		return "Closed", th.Error
 	case prKindDraft:
-		return "Draft", th.Faint
+		return "Draft", th.Subtle
 	case prKindOpen:
 		return "Open", th.Success
 	}
-	return string(pr.State), th.Faint
+	return string(pr.State), th.Subtle
 }
 
 // CheckStateIcon is the rollup of every check on the head commit. Nothing
@@ -101,14 +101,14 @@ func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	case gh.CheckStatePending, gh.CheckStateExpected:
 		return "●", th.Warning
 	case gh.CheckStateSkipped:
-		return "○", th.Faint
+		return "○", th.Subtle
 	case gh.CheckStateSuccess, gh.CheckStateNone:
 		return "✓", th.Success
 	}
 	// The rollup state comes off the wire unvalidated, so a state GitHub adds
 	// later arrives here. That is not news either way, and a pass is the one
 	// reading of it that could be wrong.
-	return "●", th.Faint
+	return "●", th.Subtle
 }
 
 // CheckStateLabel names the rollup. It returns empty when nothing reported, so
@@ -126,11 +126,11 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	case gh.CheckStateExpected:
 		return "queued", th.Warning
 	case gh.CheckStateSkipped:
-		return "skipped", th.Faint
+		return "skipped", th.Subtle
 	case gh.CheckStateNone:
-		return "", th.Faint
+		return "", th.Subtle
 	}
-	return "", th.Faint
+	return "", th.Subtle
 }
 
 // ReviewerColor is where one reviewer stands, for a caller with room for a mark
@@ -170,7 +170,7 @@ func ReviewerColor(th theme.Theme, r gh.Reviewer) color.Color {
 	case r.State == gh.ReviewStateApproved:
 		return th.Success
 	}
-	return th.Faint
+	return th.Subtle
 }
 
 // ReviewStateLabel names one reviewer's verdict, in the past tense the
@@ -183,9 +183,9 @@ func ReviewStateLabel(th theme.Theme, s gh.ReviewState) (string, color.Color) {
 	case gh.ReviewStateChangesRequested:
 		return "requested changes", th.Error
 	case gh.ReviewStateDismissed:
-		return "had a review dismissed", th.Faint
+		return "had a review dismissed", th.Subtle
 	}
-	return "reviewed", th.Secondary
+	return "reviewed", th.Accent
 }
 
 // MergeStateLabel names whether the pull request can be merged, and what is in
@@ -204,11 +204,11 @@ func MergeStateLabel(th theme.Theme, s gh.MergeState) (string, color.Color) {
 	case gh.MergeUnstable:
 		return "Checks failing", th.Warning
 	case gh.MergeDraft:
-		return "Draft", th.Faint
+		return "Draft", th.Subtle
 	}
 	// GitHub computes mergeability lazily and answers UNKNOWN until it has. It
 	// is a wait rather than an answer.
-	return "Checking", th.Faint
+	return "Checking", th.Subtle
 }
 
 // ReviewColor is where review stands, as a color for a caller drawing its own
@@ -237,7 +237,7 @@ func ReviewLabel(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
 	case gh.ReviewDecisionReviewRequired:
 		return "review required", th.Warning
 	case gh.ReviewDecisionNone:
-		return "", th.Faint
+		return "", th.Subtle
 	}
-	return "", th.Faint
+	return "", th.Subtle
 }

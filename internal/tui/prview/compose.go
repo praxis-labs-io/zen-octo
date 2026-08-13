@@ -82,10 +82,10 @@ func textarea(th theme.Theme, rows int) area.Model {
 	styles := box.Styles()
 	for _, state := range []*area.StyleState{&styles.Focused, &styles.Blurred} {
 		state.Base = lipgloss.NewStyle()
-		state.Text = lipgloss.NewStyle().Foreground(th.Primary)
-		state.Placeholder = lipgloss.NewStyle().Foreground(th.Faint)
+		state.Text = lipgloss.NewStyle().Foreground(th.Text)
+		state.Placeholder = lipgloss.NewStyle().Foreground(th.Subtle)
 		state.CursorLine = lipgloss.NewStyle()
-		state.EndOfBuffer = lipgloss.NewStyle().Foreground(th.Faint)
+		state.EndOfBuffer = lipgloss.NewStyle().Foreground(th.Subtle)
 	}
 	box.SetStyles(styles)
 	return box
@@ -153,7 +153,7 @@ func (m *Model) composeCard(width int) rendered {
 	// said drops the login when there is none, which is what the heading needs
 	// until the viewer query lands, and the empty item keeps a time off a card
 	// nothing has happened to yet.
-	head := m.said(m.who, "write a comment", m.theme.Faint, gh.TimelineItem{})
+	head := m.said(m.who, "write a comment", m.theme.Subtle, gh.TimelineItem{})
 
 	inner := m.cardWidth(width)
 	m.compose.setWidth(inner)
@@ -174,16 +174,16 @@ func (m *Model) composeCard(width int) rendered {
 func (c composer) button(th theme.Theme, width int, focused bool) string {
 	style := lipgloss.NewStyle().
 		Padding(0, postPad).
-		Foreground(th.Primary).
+		Foreground(th.Text).
 		Background(th.SelectedBackground)
 
 	switch {
 	// Nothing to send. A control that takes a press and does nothing is worse
 	// than one that says it is not ready.
 	case c.body() == "":
-		style = style.Foreground(th.Faint)
+		style = style.Foreground(th.Subtle)
 	case c.onPost:
-		style = style.Foreground(th.Inverted).Background(th.Secondary)
+		style = style.Foreground(th.Inverted).Background(th.Accent)
 	}
 
 	button := style.Render(postLabel)
@@ -192,7 +192,7 @@ func (c composer) button(th theme.Theme, width int, focused bool) string {
 	// pane clips from the right, which takes the button rather than the words
 	// about it: on a terminal that cannot send the chord that is the only way to
 	// post, gone.
-	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(c.hint(focused))
+	hint := lipgloss.NewStyle().Foreground(th.Subtle).Render(c.hint(focused))
 	gap := width - lipgloss.Width(hint) - lipgloss.Width(button)
 	if gap < 1 {
 		hint, gap = "", max(0, width-lipgloss.Width(button))
@@ -215,7 +215,7 @@ func (c composer) hint(focused bool) string {
 		return keys.Detail.Comment.Help().Key + " to write"
 	}
 
-	post := "tab · enter post"
+	post := "tab · ⏎ post"
 	if c.chords {
 		post = keys.Detail.Post.Help().Key + " post"
 	}

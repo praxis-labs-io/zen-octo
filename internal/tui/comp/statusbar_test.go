@@ -88,7 +88,7 @@ func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
 func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	s := bar()
 
-	if got := s.Budget(4821); !strings.Contains(got, fgSeq(theme.RosePineMoon.Faint)) {
+	if got := s.Budget(4821); !strings.Contains(got, fgSeq(theme.RosePineMoon.Muted)) {
 		t.Error("a healthy budget is not rendered faint")
 	}
 	if got := s.Budget(120); !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {

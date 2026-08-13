@@ -995,7 +995,7 @@ func TestEveryTabCarriesItsOwnCount(t *testing.T) {
 
 	top := strings.Split(stripANSI(render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 160, Height: 40}))), "\n")[0]
 
-	for _, want := range []string{"My PRs 5", "Needs My Review 2"} {
+	for _, want := range []string{"My PRs (5)", "Needs My Review (2)"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q in it", top, want)
 		}
@@ -1223,6 +1223,43 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	}
 	if got := selectedText(t, back); !strings.Contains(got, "#408") {
 		t.Errorf("selection = %q, want the same row still selected", got)
+	}
+}
+
+// The bar pairs two opposed keys under one verb, which no single binding can
+// say. It is the one place the hints are not read straight off a declaration,
+// so it is the one place they can drift from the keys that actually work.
+func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
+	tests := []struct {
+		name  string
+		frame func(*testing.T) string
+		want  []string
+	}{
+		{
+			name: "list",
+			frame: func(t *testing.T) string {
+				return lastLine(render(t, loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40)))
+			},
+			want: []string{"j/k move", "⏎ open", "[/] tab", "q quit"},
+		},
+		{
+			name: "detail",
+			frame: func(t *testing.T) string {
+				return lastLine(render(t, press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "enter")))
+			},
+			want: []string{"j/k move", "[/] tab", "d details", "esc back"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bar := stripANSI(tt.frame(t))
+			for _, want := range tt.want {
+				if !strings.Contains(bar, want) {
+					t.Errorf("status bar = %q, want %q in it", strings.TrimSpace(bar), want)
+				}
+			}
+		})
 	}
 }
 

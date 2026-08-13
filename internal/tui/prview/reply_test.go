@@ -228,7 +228,7 @@ func TestASingleCommentThreadTakesNoBar(t *testing.T) {
 	if got := focusedCard(t, on); !strings.HasPrefix(got, "internal/tui/keys/keys.go:7") {
 		t.Fatalf("the seventh tab focused %q, want the second answerable thread", got)
 	}
-	if strings.Contains(on, fgSeq(theme.RosePineMoon.Secondary)+"m▍") {
+	if strings.Contains(on, fgSeq(theme.RosePineMoon.Accent)+"m▍") {
 		t.Error("a one-comment thread drew a bar")
 	}
 }

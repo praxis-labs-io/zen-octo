@@ -259,7 +259,7 @@ func TestThePickerDoesNotGrowTheFrame(t *testing.T) {
 
 // The picker reads the same as the rows it writes.
 func TestThePickerColorsLabelsFromTheTheme(t *testing.T) {
-	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(theme.RosePineMoon.Secondary)) {
+	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(theme.RosePineMoon.Accent)) {
 		t.Error("the picker does not color its labels from the theme")
 	}
 }

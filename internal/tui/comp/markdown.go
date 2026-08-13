@@ -116,16 +116,16 @@ func markdownStyle(th theme.Theme) ansi.StyleConfig {
 	s.Document.BlockPrefix = ""
 	s.Document.BlockSuffix = ""
 
-	s.Document.Color = hex(th.Primary)
-	s.Text.Color = hex(th.Primary)
-	s.Paragraph.Color = hex(th.Primary)
-	s.Item.Color = hex(th.Primary)
-	s.Enumeration.Color = hex(th.Secondary)
+	s.Document.Color = hex(th.Text)
+	s.Text.Color = hex(th.Text)
+	s.Paragraph.Color = hex(th.Text)
+	s.Item.Color = hex(th.Text)
+	s.Enumeration.Color = hex(th.Accent)
 
-	s.Heading.Color = hex(th.Secondary)
+	s.Heading.Color = hex(th.Accent)
 	s.Heading.Bold = boolPtr(true)
 	for _, h := range []*ansi.StyleBlock{&s.H1, &s.H2, &s.H3, &s.H4, &s.H5, &s.H6} {
-		h.Color = hex(th.Secondary)
+		h.Color = hex(th.Accent)
 		h.Bold = boolPtr(true)
 		h.BackgroundColor = nil
 	}
@@ -135,34 +135,34 @@ func markdownStyle(th theme.Theme) ansi.StyleConfig {
 	s.Strong.BlockPrefix, s.Strong.BlockSuffix = "", ""
 	s.Emph.BlockPrefix, s.Emph.BlockSuffix = "", ""
 
-	s.Strong.Color = hex(th.Primary)
+	s.Strong.Color = hex(th.Text)
 	s.Strong.Bold = boolPtr(true)
-	s.Emph.Color = hex(th.Primary)
+	s.Emph.Color = hex(th.Text)
 	s.Emph.Italic = boolPtr(true)
-	s.Strikethrough.Color = hex(th.Faint)
+	s.Strikethrough.Color = hex(th.Subtle)
 	s.Strikethrough.CrossedOut = boolPtr(true)
 
-	s.Link.Color = hex(th.Secondary)
+	s.Link.Color = hex(th.Accent)
 	s.Link.Underline = boolPtr(true)
-	s.LinkText.Color = hex(th.Secondary)
-	s.Image.Color = hex(th.Secondary)
-	s.ImageText.Color = hex(th.Faint)
+	s.LinkText.Color = hex(th.Accent)
+	s.Image.Color = hex(th.Accent)
+	s.ImageText.Color = hex(th.Subtle)
 
-	s.BlockQuote.Color = hex(th.Faint)
+	s.BlockQuote.Color = hex(th.Subtle)
 	s.BlockQuote.Italic = boolPtr(true)
 	s.BlockQuote.IndentToken = stringPtr("│ ")
-	s.HorizontalRule.Color = hex(th.BorderFaintOrSecondary())
+	s.HorizontalRule.Color = hex(th.BorderMutedOrSubtle())
 	s.Task.Ticked, s.Task.Unticked = "[✓] ", "[ ] "
 
 	s.Code.Color = hex(th.Warning)
 	s.CodeBlock.Color = hex(th.Warning)
 	s.CodeBlock.Chroma = nil
 
-	s.Table.Color = hex(th.Primary)
-	s.DefinitionTerm.Color = hex(th.Secondary)
-	s.DefinitionDescription.Color = hex(th.Primary)
-	s.HTMLBlock.Color = hex(th.Faint)
-	s.HTMLSpan.Color = hex(th.Faint)
+	s.Table.Color = hex(th.Text)
+	s.DefinitionTerm.Color = hex(th.Accent)
+	s.DefinitionDescription.Color = hex(th.Text)
+	s.HTMLBlock.Color = hex(th.Subtle)
+	s.HTMLSpan.Color = hex(th.Subtle)
 
 	return s
 }

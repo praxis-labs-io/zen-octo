@@ -1279,7 +1279,7 @@ func (m Model) sideTitle() string {
 // conversation is the header block every GitHub PR page leads with. It comes
 // off the list row, so it is on screen before the detail query answers.
 func (m Model) conversation() string {
-	rule := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary()).
+	rule := lipgloss.NewStyle().Foreground(m.theme.BorderMutedOrSubtle()).
 		Render(strings.Repeat("─", max(0, m.bodyWidth())))
 
 	// The blank sets the status apart from the two lines naming the pull
@@ -1297,14 +1297,14 @@ func (m Model) conversation() string {
 func (m Model) titleLine() string {
 	// The number leads, in the accent the list numbers rows with, so the same
 	// pull request reads the same on both screens.
-	lead := lipgloss.NewStyle().Foreground(m.theme.Secondary).Bold(true).
+	lead := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true).
 		Render("#"+strconv.Itoa(m.pr.Number)) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(m.pr.Title)
+		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(m.pr.Title)
 
 	churn := m.churn()
 	room := max(0, m.bodyWidth()-lipgloss.Width(churn)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Faint))
+		lead = comp.Clip(lead, room, lipgloss.NewStyle().Foreground(m.theme.Subtle))
 	}
 
 	gap := max(1, m.bodyWidth()-lipgloss.Width(lead)-lipgloss.Width(churn))
@@ -1332,7 +1332,7 @@ func (m Model) opened() string {
 // line: the head branch is the long one and the one carrying a ticket key at
 // the front, so it is what gives way rather than the line wrapping.
 func (m Model) branchLine() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	target := faint.Render(m.pr.BaseRefName + " ← ")
 
 	room := max(0, m.bodyWidth()-lipgloss.Width(target))
@@ -1346,7 +1346,7 @@ func (m Model) branchLine() string {
 // state always has something to say, so this line is never empty even when the
 // clause after it is.
 func (m Model) statusLine() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 
 	label, c := comp.PRStateLabel(m.theme, m.pr)
 	icon, _ := comp.PRStateIcon(m.theme, m.pr)
@@ -1383,5 +1383,5 @@ func (m Model) collapsedStatus() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Faint).Render(" · "))
+	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · "))
 }

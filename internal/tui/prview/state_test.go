@@ -342,7 +342,7 @@ func TestTheStateMenuHasNoFilterRow(t *testing.T) {
 func TestTheStateMenuNamesItsOwnKeys(t *testing.T) {
 	menu := stateMenu(t, openStateMenu(t, stateDetail(gh.PRStateOpen, false, canAct)))
 
-	if !strings.Contains(menu, "enter pick") {
+	if !strings.Contains(menu, "⏎ pick") {
 		t.Errorf("the menu does not name enter as the pick:\n%s", menu)
 	}
 	if strings.Contains(menu, "space toggle") {

@@ -272,7 +272,7 @@ func TestTheHintNamesTheKeysThatWork(t *testing.T) {
 	if strings.Contains(single, "space toggle") {
 		t.Errorf("a single picker names a toggle key that does nothing:\n%s", single)
 	}
-	if !strings.Contains(single, "enter pick") {
+	if !strings.Contains(single, "⏎ pick") {
 		t.Errorf("a single picker does not name the pick key:\n%s", single)
 	}
 }

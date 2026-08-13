@@ -62,7 +62,7 @@ func (m *Model) SetBranches(b store.Branches) {
 
 	if m.picking.field == pickBase {
 		m.picking.p.Replace(
-			baseItems(b, m.pr, m.railDetail().BaseRefName, m.theme.Primary),
+			baseItems(b, m.pr, m.railDetail().BaseRefName, m.theme.Text),
 			branchNote(b.More),
 		)
 		return

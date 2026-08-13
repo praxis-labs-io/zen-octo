@@ -307,8 +307,8 @@ func newMergeInput(th theme.Theme) textinput.Model {
 
 	styles := in.Styles()
 	for _, state := range []*textinput.StyleState{&styles.Focused, &styles.Blurred} {
-		state.Text = lipgloss.NewStyle().Foreground(th.Primary)
-		state.Placeholder = lipgloss.NewStyle().Foreground(th.Faint)
+		state.Text = lipgloss.NewStyle().Foreground(th.Text)
+		state.Placeholder = lipgloss.NewStyle().Foreground(th.Subtle)
 	}
 	in.SetStyles(styles)
 	return in
@@ -569,7 +569,7 @@ func (f merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 		// widen the whole modal past the ceiling every other row is held to.
 		plain := lipgloss.NewStyle()
 		warning := plain.Foreground(th.Warning).Render("Bypasses branch protection on " + f.base)
-		rows = append(rows, "", mergePad(clipTo(warning, width, plain.Foreground(th.Faint)), width, plain))
+		rows = append(rows, "", mergePad(clipTo(warning, width, plain.Foreground(th.Subtle)), width, plain))
 	}
 
 	rows = append(rows, "", f.footer(th, width))
@@ -645,7 +645,7 @@ func (f merging) methodRows(th theme.Theme, width int) []string {
 
 	// The heading reads as the boxes' titles do, because it names its block the
 	// same way they name theirs.
-	heading := plain.Foreground(th.Primary).Bold(true).Render("Method")
+	heading := plain.Foreground(th.Text).Bold(true).Render("Method")
 
 	out := make([]string, 0, len(f.methods)+1)
 	out = append(out, mergePad(heading, width, plain))
@@ -661,9 +661,9 @@ func (f merging) methodRows(th theme.Theme, width int) []string {
 		// The chosen one is the one that will be used, so it is the one that
 		// reads. The rest are muted: three names at equal weight make the tick
 		// the only thing carrying the answer, and it is two cells wide.
-		mark, c := base.Foreground(th.Faint).Render(mergeGap), th.Faint
+		mark, c := base.Foreground(th.Subtle).Render(mergeGap), th.Subtle
 		if chosen {
-			mark, c = base.Foreground(th.Success).Render(mergeMark), th.Primary
+			mark, c = base.Foreground(th.Success).Render(mergeMark), th.Text
 		}
 
 		out = append(out, mergePad(mark+base.Foreground(c).Render(mergeName(method)), width, base))
@@ -709,13 +709,13 @@ func (f merging) deleteRow(th theme.Theme, width int) string {
 		base = base.Background(th.SelectedBackground)
 	}
 
-	mark := base.Foreground(th.Faint).Render(mergeGap)
+	mark := base.Foreground(th.Subtle).Render(mergeGap)
 	if f.del {
 		mark = base.Foreground(th.Success).Render(mergeMark)
 	}
 
 	text := f.deleteText(width - lipgloss.Width(mergeMark))
-	return mergePad(mark+base.Foreground(th.Primary).Render(text), width, base)
+	return mergePad(mark+base.Foreground(th.Text).Render(text), width, base)
 }
 
 // footer is the keys that work from here and the button, on one row.
@@ -727,19 +727,19 @@ func (f merging) deleteRow(th theme.Theme, width int) string {
 func (f merging) footer(th theme.Theme, width int) string {
 	style := lipgloss.NewStyle().
 		Padding(0, mergeButtonPad).
-		Foreground(th.Primary).
+		Foreground(th.Text).
 		Background(th.SelectedBackground)
 
 	switch {
 	case !f.ready():
-		style = style.Foreground(th.Faint)
+		style = style.Foreground(th.Subtle)
 	case f.on() == mergeButtonRow:
-		style = style.Foreground(th.Inverted).Background(th.Secondary)
+		style = style.Foreground(th.Inverted).Background(th.Accent)
 	}
 	button := style.Render(mergeButton)
 
 	text := f.footerText()
-	hint := lipgloss.NewStyle().Foreground(th.Faint).Render(text)
+	hint := lipgloss.NewStyle().Foreground(th.Subtle).Render(text)
 	gap := width - lipgloss.Width(text) - lipgloss.Width(button)
 	if gap < 1 {
 		hint, gap = "", max(0, width-lipgloss.Width(button))
@@ -758,7 +758,7 @@ func (f merging) footer(th theme.Theme, width int) string {
 // way, and tab is how they reach it.
 func (f merging) footerText() string {
 	if !f.typing() {
-		return "tab next · enter merge · esc cancel"
+		return "tab next · ⏎ merge · esc cancel"
 	}
 	if f.chords {
 		return "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"

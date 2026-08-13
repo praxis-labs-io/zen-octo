@@ -1411,9 +1411,9 @@ func refitHelp(groups [][]key.Binding, width int) [][]key.Binding {
 // helpStyles dresses the help bubble in the active theme. Its own defaults are
 // fixed greys that ignore whatever palette is loaded.
 func helpStyles(th theme.Theme) help.Styles {
-	key := lipgloss.NewStyle().Foreground(th.Secondary)
-	desc := lipgloss.NewStyle().Foreground(th.Faint)
-	sep := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
+	key := lipgloss.NewStyle().Foreground(th.Accent)
+	desc := lipgloss.NewStyle().Foreground(th.MutedOrSubtle())
+	sep := lipgloss.NewStyle().Foreground(th.BorderMutedOrSubtle())
 
 	return help.Styles{
 		Ellipsis:       sep,

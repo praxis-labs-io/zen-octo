@@ -592,7 +592,7 @@ func boxWidth(box string) int {
 func TestOnlyTheChosenMethodIsNotMuted(t *testing.T) {
 	frame := openMerge(t).View()
 
-	faint, primary := fgSeq(theme.RosePineMoon.Faint), fgSeq(theme.RosePineMoon.Primary)
+	faint, primary := fgSeq(theme.RosePineMoon.Subtle), fgSeq(theme.RosePineMoon.Text)
 
 	if got := colorBefore(t, frame, "Squash and merge"); got != primary {
 		t.Errorf("the chosen method renders in %s, want the primary colour %s", got, primary)
@@ -766,14 +766,14 @@ func TestPastingReachesTheCommitMessage(t *testing.T) {
 func TestTheHintNamesAKeyThatWorksFromTheRowItIsOn(t *testing.T) {
 	m := openMerge(t)
 
-	if box := formBox(t, m); !strings.Contains(box, "enter merge") {
+	if box := formBox(t, m); !strings.Contains(box, "⏎ merge") {
 		t.Errorf("the hint does not name enter on a row where enter merges:\n%s", box)
 	}
 
 	for _, row := range []string{"the headline", "the message"} {
 		m = press(m, "tab")
 		box := formBox(t, m)
-		if strings.Contains(box, "enter merge") {
+		if strings.Contains(box, "⏎ merge") {
 			t.Errorf("on %s the hint still names enter, which the field swallows:\n%s", row, box)
 		}
 		if !strings.Contains(box, "merge") {

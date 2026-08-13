@@ -327,7 +327,7 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 // The strip kept the brackets when the ring took tab.
 func TestTabNoLongerSwitchesTabs(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
-	active := fgSeq(theme.RosePineMoon.Primary)
+	active := fgSeq(theme.RosePineMoon.Accent)
 
 	if !strings.Contains(firstLine(press(m, "tab").View()), active+"mConversation") {
 		t.Error("tab moved off the Conversation tab")
@@ -576,7 +576,7 @@ func focusedCard(t *testing.T, frame string) string {
 func focusedCardAt(t *testing.T, frame string) (string, int) {
 	t.Helper()
 
-	accent := fgSeq(theme.RosePineMoon.Secondary)
+	accent := fgSeq(theme.RosePineMoon.Accent)
 	lines := strings.Split(frame, "\n")
 
 	for i, line := range lines {

@@ -39,7 +39,7 @@ const (
 //
 // Color is what the name renders in, and it comes from the caller's theme so
 // each kind of choice reads the way it does on the rail it was opened from.
-// Nil takes the theme's Primary. It is never a color GitHub supplied: a hex
+// Nil takes the theme's Text. It is never a color GitHub supplied: a hex
 // chosen against a white browser page vanishes on a dark terminal, and a
 // terminal speaking only ANSI cannot show it at all.
 type PickerItem struct {
@@ -388,10 +388,10 @@ func (p Picker) width(frameWidth int) int {
 func (p Picker) filterRow(th theme.Theme, width int) string {
 	plain := lipgloss.NewStyle()
 	if p.filter == "" {
-		return pad(plain.Foreground(th.Faint).Render("Type to filter"), width, plain)
+		return pad(plain.Foreground(th.Subtle).Render("Type to filter"), width, plain)
 	}
-	text := plain.Foreground(th.Primary).Render(p.filter) + plain.Foreground(th.Secondary).Render("▌")
-	return pad(Clip(text, width, plain.Foreground(th.Faint)), width, plain)
+	text := plain.Foreground(th.Text).Render(p.filter) + plain.Foreground(th.Accent).Render("▌")
+	return pad(Clip(text, width, plain.Foreground(th.Subtle)), width, plain)
 }
 
 // list is the visible window of choices. Every cell in the cursor row sets the
@@ -400,7 +400,7 @@ func (p Picker) filterRow(th theme.Theme, width int) string {
 func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 	plain := lipgloss.NewStyle()
 	if len(shown) == 0 {
-		return []string{pad(plain.Foreground(th.Faint).Render("No match"), width, plain)}
+		return []string{pad(plain.Foreground(th.Subtle).Render("No match"), width, plain)}
 	}
 
 	end := min(p.top+pickerRows, len(shown))
@@ -413,19 +413,19 @@ func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 			base = plain.Background(th.SelectedBackground)
 		}
 
-		mark := base.Foreground(th.Faint).Render(pickerGap)
+		mark := base.Foreground(th.Subtle).Render(pickerGap)
 		if p.checked[it.ID] {
 			mark = base.Foreground(th.Success).Render(pickerMark)
 		}
 
 		c := it.Color
 		if c == nil {
-			c = th.Primary
+			c = th.Text
 		}
 		name := base.Foreground(c).Render(it.Name)
 		room := width - lipgloss.Width(pickerMark)
 		if lipgloss.Width(it.Name) > room {
-			name = Clip(name, room, base.Foreground(th.Faint))
+			name = Clip(name, room, base.Foreground(th.Subtle))
 		}
 
 		out = append(out, pad(mark+name, width, base))
@@ -437,7 +437,7 @@ func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 // sight. Both belong on one line: a modal this size cannot spend two.
 func (p Picker) hint(th theme.Theme, shown []PickerItem, width int) string {
 	plain := lipgloss.NewStyle()
-	faint := plain.Foreground(th.Faint)
+	faint := plain.Foreground(th.Subtle)
 
 	text := faint.Render(p.hintText(len(shown)))
 	if lipgloss.Width(p.hintText(len(shown))) > width {
@@ -449,9 +449,9 @@ func (p Picker) hint(th theme.Theme, shown []PickerItem, width int) string {
 // hintText is the hint as plain characters, which is what the width has to be
 // measured against before anything is styled.
 func (p Picker) hintText(shown int) string {
-	text := "enter pick · esc cancel"
+	text := "⏎ pick · esc cancel"
 	if p.multi {
-		text = "space toggle · enter apply · esc cancel"
+		text = "space toggle · ⏎ apply · esc cancel"
 	}
 	if more := shown - pickerRows; more > 0 {
 		return strconv.Itoa(more) + " more · " + text

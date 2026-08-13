@@ -144,7 +144,7 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 
 	at := map[string]int{}
 	for _, label := range []string{"Ready", "Draft", "Merged", "Closed"} {
-		at[label] = strings.Index(out, "─ "+label+" 1")
+		at[label] = strings.Index(out, "─ "+label+" (1)")
 		if at[label] < 0 {
 			t.Fatalf("no header for the %s group\n%s", label, out)
 		}
@@ -167,12 +167,12 @@ func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	if gap := strings.Trim(lines[1], "│ "); gap != "" {
 		t.Errorf("no line above the first group: %q", lines[1])
 	}
-	if !strings.Contains(lines[2], "─ Ready 1") {
+	if !strings.Contains(lines[2], "─ Ready (1)") {
 		t.Errorf("the gap above the first group is more than a line: %q", lines[2])
 	}
 
 	for i, l := range lines {
-		if !strings.Contains(l, "─ Draft 1") {
+		if !strings.Contains(l, "─ Draft (1)") {
 			continue
 		}
 		for n := 1; n <= 2; n++ {
@@ -293,7 +293,7 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	if !strings.HasPrefix(top, "\x1b[") || end < 0 {
 		t.Fatalf("the frame does not open with a styled border: %q", top)
 	}
-	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSecondary); got != want {
+	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSubtle); got != want {
 		t.Errorf("the border opens as %s, want the idle colour %s", got, want)
 	}
 }
@@ -306,7 +306,7 @@ func TestAClosedDraftGroupsAsClosed(t *testing.T) {
 
 	out := stripANSI(screen(t, 120, 20, []gh.PullRequest{p}))
 
-	if !strings.Contains(out, "─ Closed 1") {
+	if !strings.Contains(out, "─ Closed (1)") {
 		t.Errorf("a closed draft did not land in the closed group\n%s", out)
 	}
 	if strings.Contains(out, "─ Draft") {
@@ -857,7 +857,7 @@ func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
 	})
 
 	top := strings.Split(stripANSI(m.View()), "\n")[0]
-	for _, want := range []string{"Mine 7", "Review 2", "Involved - ", "Broken !"} {
+	for _, want := range []string{"Mine (7)", "Review (2)", "Involved - ", "Broken !"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q in it", top, want)
 		}
@@ -879,7 +879,7 @@ func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 	m.SetSections(reloading)
 
 	top := strings.Split(stripANSI(m.View()), "\n")[0]
-	for _, want := range []string{"Mine 7", "Review 2"} {
+	for _, want := range []string{"Mine (7)", "Review (2)"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("tab strip = %q, want %q held through the reload", top, want)
 		}

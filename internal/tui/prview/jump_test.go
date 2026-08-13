@@ -29,7 +29,7 @@ func jumping(t *testing.T, n int) prview.Model {
 
 // onTab is whether the strip reads this tab as the current one.
 func onTab(frame, name string) bool {
-	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Primary)+"m"+name)
+	return strings.Contains(firstLine(frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
 }
 
 // landed is what every jump has to produce: the code the thread was written

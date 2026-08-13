@@ -87,7 +87,7 @@ func TestTheFrameFillsItsSizeExactly(t *testing.T) {
 func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 
-	active := fgSeq(theme.RosePineMoon.Primary)
+	active := fgSeq(theme.RosePineMoon.Accent)
 	if top := firstLine(m.View()); !strings.Contains(top, active+"mConversation") {
 		t.Error("Conversation is not the current tab on open")
 	}
@@ -204,8 +204,8 @@ func TestCollapsingTheRailKeepsChecksAndReview(t *testing.T) {
 // unambiguous place to read it.
 func TestFocusMovesBetweenThePanes(t *testing.T) {
 	var (
-		focused = fgSeq(theme.RosePineMoon.Secondary)
-		idle    = fgSeq(theme.RosePineMoon.BorderSecondary)
+		focused = fgSeq(theme.RosePineMoon.Accent)
+		idle    = fgSeq(theme.RosePineMoon.BorderSubtle)
 	)
 
 	m := screen(200, 30)
@@ -229,7 +229,7 @@ func TestFocusMovesBetweenThePanes(t *testing.T) {
 func TestFocusLeavesTheRailWhenTheRailDoes(t *testing.T) {
 	hidden := press(screen(200, 30), "l", "d") // focus the rail, then hide it
 
-	if got := conversationBorder(t, hidden.View()); got != fgSeq(theme.RosePineMoon.Secondary) {
+	if got := conversationBorder(t, hidden.View()); got != fgSeq(theme.RosePineMoon.Accent) {
 		t.Errorf("conversation border = %s, want focus back on it once the rail went away", got)
 	}
 }
@@ -716,7 +716,7 @@ func TestTheRailNamesEveryCheck(t *testing.T) {
 	}{
 		{state: "passing", color: theme.RosePineMoon.Success},
 		{state: "running", color: theme.RosePineMoon.Warning},
-		{state: "skipped", color: theme.RosePineMoon.Faint},
+		{state: "skipped", color: theme.RosePineMoon.Subtle},
 	} {
 		if !marks[fgSeq(want.color)] {
 			t.Errorf("no %s check is marked in its own color", want.state)
@@ -759,7 +759,7 @@ func TestTheChangesRowIsOneLineMarkedWithAGlyph(t *testing.T) {
 // chosen against a white browser page, so a pale label vanishes on a dark
 // terminal and no theme can reach it.
 func TestALabelTakesTheThemesAccent(t *testing.T) {
-	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(theme.RosePineMoon.Secondary)) {
+	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(theme.RosePineMoon.Accent)) {
 		t.Error("the label is not in the theme's accent")
 	}
 }
@@ -960,7 +960,7 @@ func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
 func TestTheNumberLeadsTheTitleInTheAccent(t *testing.T) {
 	out := detailed(held(sampleDetail()), 200, 30).View()
 
-	if !strings.Contains(out, "1;"+fgSeq(theme.RosePineMoon.Secondary)+"m#412") {
+	if !strings.Contains(out, "1;"+fgSeq(theme.RosePineMoon.Accent)+"m#412") {
 		t.Error("the number does not lead the title in the accent")
 	}
 	if !strings.Contains(stripANSI(out), "#412 Fix the auth retry backoff loop") {
@@ -1500,7 +1500,7 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 		{
 			name:     "commented with nothing outstanding",
 			reviewer: gh.Reviewer{State: gh.ReviewStateCommented},
-			color:    theme.RosePineMoon.Faint,
+			color:    theme.RosePineMoon.Subtle,
 		},
 		{
 			name:     "commented with a thread still open",
@@ -1515,7 +1515,7 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 		{
 			name:     "asked and silent",
 			reviewer: gh.Reviewer{},
-			color:    theme.RosePineMoon.Faint,
+			color:    theme.RosePineMoon.Subtle,
 		},
 	}
 

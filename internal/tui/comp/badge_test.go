@@ -84,8 +84,8 @@ func TestReviewerColorSaysWhichWayTheBallIsGoing(t *testing.T) {
 		r    gh.Reviewer
 		want color.Color
 	}{
-		{"never answered", gh.Reviewer{}, th.Faint},
-		{"commented, nothing open", gh.Reviewer{State: gh.ReviewStateCommented, Threads: 2}, th.Faint},
+		{"never answered", gh.Reviewer{}, th.Subtle},
+		{"commented, nothing open", gh.Reviewer{State: gh.ReviewStateCommented, Threads: 2}, th.Subtle},
 		{"approved", gh.Reviewer{State: gh.ReviewStateApproved}, th.Success},
 
 		{"a review is requested", gh.Reviewer{Requested: true}, th.Warning},

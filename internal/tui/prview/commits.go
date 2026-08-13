@@ -206,13 +206,13 @@ func (m Model) commitRow(c gh.Commit, width int, selected bool) []string {
 
 	_, checks := comp.CheckStateIcon(m.theme, c.Checks)
 	head := base.Foreground(checks).Render(glyphCheck) + base.Render(" ") +
-		base.Foreground(m.theme.Primary).Render(c.Headline)
+		base.Foreground(m.theme.Text).Render(c.Headline)
 
 	// The second line is set in under the headline rather than under the
 	// marker, so the two lines read as one row.
-	by := base.Render("  ") + base.Foreground(m.theme.Secondary).Render(c.Short)
+	by := base.Render("  ") + base.Foreground(m.theme.Accent).Render(c.Short)
 	if who := commitBy(c); who != "" {
-		by += base.Foreground(m.theme.Faint).Render(" · " + who)
+		by += base.Foreground(m.theme.Subtle).Render(" · " + who)
 	}
 
 	return []string{m.padTo(head, width, base), m.padTo(by, width, base)}
@@ -243,7 +243,7 @@ func commitBy(c gh.Commit) string {
 func (m Model) padTo(line string, width int, base lipgloss.Style) string {
 	switch w := lipgloss.Width(line); {
 	case w > width:
-		return comp.Clip(line, width, base.Foreground(m.theme.Faint))
+		return comp.Clip(line, width, base.Foreground(m.theme.Subtle))
 	case w < width:
 		return line + base.Render(strings.Repeat(" ", width-w))
 	}
@@ -295,7 +295,7 @@ func (m Model) commitCard(width int) string {
 	_, checks := comp.CheckStateIcon(m.theme, c.Checks)
 
 	lines := []string{wrap(lipgloss.NewStyle().Foreground(checks).Render(glyphCheck)+" "+
-		lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(c.Headline), inner)}
+		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(c.Headline), inner)}
 
 	// The body keeps the line breaks whoever wrote it chose; wrap only folds
 	// the ones that run past the card.
@@ -303,7 +303,7 @@ func (m Model) commitCard(width int) string {
 		lines = append(lines, "", wrap(m.faint().Render(body), inner))
 	}
 
-	meta := lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(c.SHA)
+	meta := lipgloss.NewStyle().Foreground(m.theme.Accent).Render(c.SHA)
 	if who := commitBy(c); who != "" {
 		meta += m.faint().Render(" · " + who)
 	}

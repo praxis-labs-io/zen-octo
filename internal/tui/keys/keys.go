@@ -125,9 +125,9 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next section")),
-		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev section")),
-		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
+		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 	}
 
@@ -149,14 +149,14 @@ var (
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
-		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "toggle details")),
-		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand or collapse")),
+		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
+		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
 		Comment:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
-		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post")),
-		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open or press")),
+		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
+		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
@@ -168,9 +168,28 @@ var (
 	}
 )
 
+// hint restates a binding for the status bar, where a pair of opposed keys
+// shares one verb: the bar has room for "j/k move" and not for a line naming
+// up and down separately. It keeps the real key list, so the help stays
+// answerable to the declarations.
+//
+// The overlay is the other way round. It has a row per binding and no reader
+// looking for the one word that gets them moving, so "up" and "down" belong
+// there and a shared verb would leave two rows reading the same.
+func hint(b key.Binding, keys, desc string) key.Binding {
+	return key.NewBinding(key.WithKeys(b.Keys()...), key.WithHelp(keys, desc))
+}
+
 // ShortHelp is the one line the status bar carries.
 func (k ListMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.Open, k.NextSection, k.Sync, Global.Help, Global.Quit}
+	return []key.Binding{
+		hint(k.Down, "j/k", "move"),
+		k.Open,
+		hint(k.NextSection, "[/]", "tab"),
+		k.Sync,
+		Global.Help,
+		Global.Quit,
+	}
 }
 
 // FullHelp is the overlay. Every binding in the map appears here; a test holds
@@ -192,7 +211,14 @@ func (k ListMap) FullHelp() [][]key.Binding {
 // on every tab, and the ring is only on the one without a column; hinting it
 // beside a pane where it does nothing is worse than not hinting it at all.
 func (k DetailMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Down, k.NextTab, k.Expand, k.ToggleRail, k.Back, Global.Help}
+	return []key.Binding{
+		hint(k.Down, "j/k", "move"),
+		hint(k.NextTab, "[/]", "tab"),
+		k.Expand,
+		k.ToggleRail,
+		k.Back,
+		Global.Help,
+	}
 }
 
 // FullHelp is the overlay.

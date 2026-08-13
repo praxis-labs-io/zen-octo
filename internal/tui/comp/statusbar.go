@@ -42,7 +42,7 @@ func (s StatusBar) Render(left, right string) string {
 
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
 	if room := inner - lw - 2; rw > room {
-		right = Clip(right, max(0, room), lipgloss.NewStyle().Foreground(s.theme.Faint))
+		right = Clip(right, max(0, room), lipgloss.NewStyle().Foreground(s.theme.MutedOrSubtle()))
 		rw = lipgloss.Width(right)
 	}
 	if lw+rw > inner {
@@ -61,7 +61,7 @@ func (s StatusBar) Render(left, right string) string {
 // Zero is a reading, not a missing one, so it renders like any other. Whether
 // there is a budget to show at all is the caller's call.
 func (s StatusBar) Budget(remaining int) string {
-	c := s.theme.Faint
+	c := s.theme.MutedOrSubtle()
 	if remaining < 500 {
 		c = s.theme.Warning
 	}
@@ -70,5 +70,5 @@ func (s StatusBar) Budget(remaining int) string {
 
 // Context renders the trailing label naming what is on screen.
 func (s StatusBar) Context(label string) string {
-	return lipgloss.NewStyle().Foreground(s.theme.Faint).Render(label)
+	return lipgloss.NewStyle().Foreground(s.theme.MutedOrSubtle()).Render(label)
 }

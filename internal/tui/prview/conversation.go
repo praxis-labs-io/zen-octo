@@ -113,7 +113,7 @@ func (m *Model) entries() string {
 		case gh.TimelineComment:
 			written := item.Said()
 			key := focusKey{kind: focusComment, id: written.ID}
-			head := m.said(item.Actor, "commented", m.theme.Faint, item)
+			head := m.said(item.Actor, "commented", m.theme.Subtle, item)
 			if written.Pending {
 				head = m.posting(item.Actor, "commented")
 			}
@@ -344,7 +344,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 // branch hangs one thread off the review above it. The last closes the run, so
 // the rail stops rather than trailing into whatever comes next.
 func (m Model) branch(block string, last bool) string {
-	style := lipgloss.NewStyle().Foreground(m.theme.BorderFaintOrSecondary())
+	style := lipgloss.NewStyle().Foreground(m.theme.BorderMutedOrSubtle())
 	down := style.Render("│ ")
 
 	corner, under := style.Render("├─"), down
@@ -531,7 +531,7 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 
 func (m *Model) description(d gh.PullRequestDetail, width int) string {
 	key := focusKey{kind: focusDescription}
-	head := m.said(d.Author, "opened this", m.theme.Faint, gh.TimelineItem{CreatedAt: d.CreatedAt})
+	head := m.said(d.Author, "opened this", m.theme.Subtle, gh.TimelineItem{CreatedAt: d.CreatedAt})
 	return m.card(head, m.body(d.Body, m.cardWidth(width), "No description.", key), width, m.lit(key), m.quoteHint(m.lit(key), d.Body, width))
 }
 
@@ -564,7 +564,7 @@ func (m *Model) said(actor gh.Actor, verb string, c color.Color, item gh.Timelin
 // The item is empty so said writes no time. There is none to write, and "now"
 // would be a claim about a comment GitHub has not seen.
 func (m *Model) posting(actor gh.Actor, verb string) string {
-	return m.said(actor, verb, m.theme.Faint, gh.TimelineItem{}) +
+	return m.said(actor, verb, m.theme.Subtle, gh.TimelineItem{}) +
 		m.faint().Render(" · ") +
 		lipgloss.NewStyle().Foreground(m.theme.Warning).Render("posting")
 }
@@ -605,7 +605,7 @@ func (m *Model) pushed(run []gh.TimelineItem) string {
 		}
 	}
 
-	lines := []string{wrap(m.faint().Render("● ")+m.said(actor, verb, m.theme.Faint, last), m.bodyWidth())}
+	lines := []string{wrap(m.faint().Render("● ")+m.said(actor, verb, m.theme.Subtle, last), m.bodyWidth())}
 	if len(run) == 1 {
 		return lines[0]
 	}
@@ -624,7 +624,7 @@ func (m *Model) pushed(run []gh.TimelineItem) string {
 func (m *Model) pushedRow(c gh.Commit) string {
 	const indent = "    "
 
-	sha := lipgloss.NewStyle().Foreground(m.theme.Secondary).Render(c.Short)
+	sha := lipgloss.NewStyle().Foreground(m.theme.Accent).Render(c.Short)
 	line := indent + sha + m.faint().Render("  "+c.Headline)
 
 	if width := m.bodyWidth(); lipgloss.Width(line) > width {
@@ -652,7 +652,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	key := threadKey(t)
 	lit := m.lit(key)
 
-	head := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(anchor)
+	head := lipgloss.NewStyle().Foreground(m.theme.Text).Render(anchor)
 	if t.IsResolved {
 		head = m.faint().Render("✓ ") + head + m.faint().Render(" · resolved")
 	}
@@ -737,7 +737,7 @@ const gutterWidth = 2
 func (m Model) gutter(block string, lit bool) string {
 	bar := strings.Repeat(" ", gutterWidth)
 	if lit {
-		bar = lipgloss.NewStyle().Foreground(m.theme.Secondary).Render("▍") + " "
+		bar = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▍") + " "
 	}
 
 	lines := strings.Split(block, "\n")
@@ -762,7 +762,7 @@ func (m *Model) byline(c gh.Comment) string {
 	if c.Pending {
 		return m.posting(c.Author, "said")
 	}
-	return m.said(c.Author, "said", m.theme.Faint, gh.TimelineItem{CreatedAt: c.CreatedAt})
+	return m.said(c.Author, "said", m.theme.Subtle, gh.TimelineItem{CreatedAt: c.CreatedAt})
 }
 
 // tile spreads stops over every line of the block they came out of: the first
@@ -834,7 +834,7 @@ func hunkSource(lines []gh.DiffLine) string {
 }
 
 func (m Model) faint() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(m.theme.Faint)
+	return lipgloss.NewStyle().Foreground(m.theme.Subtle)
 }
 
 // wrap breaks a line at a width. Only markdown comes back already wrapped;

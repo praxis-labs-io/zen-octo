@@ -140,7 +140,7 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 
 	head := []string{
 		cell(stateWidth, stateIcon, base.Foreground(stateColor)),
-		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Secondary)),
+		cell(numberWidth, "#"+strconv.Itoa(pr.Number), base.Foreground(th.Accent)),
 		titled(th, pr, l.title, base),
 	}
 
@@ -154,7 +154,7 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 		)
 	}
 	if l.files {
-		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Faint)))
+		tail = append(tail, cell(filesWidth, counted(glyphFiles, pr.ChangedFiles, filesWidth), base.Foreground(th.Subtle)))
 	}
 	if l.status {
 		// The join puts one space here; the leading one makes two, which is what
@@ -178,7 +178,7 @@ func renderRow(th theme.Theme, it item, width int, selected bool) []string {
 // never changes, so a glance reads the color; the shape is only there to say
 // which of the two readings it is.
 func statusMark(th theme.Theme, base lipgloss.Style, glyph string, c color.Color) string {
-	return base.Foreground(c).Render("●") + base.Render(" ") + base.Foreground(th.Faint).Render(glyph)
+	return base.Foreground(c).Render("●") + base.Render(" ") + base.Foreground(th.Subtle).Render(glyph)
 }
 
 // counted is a number and the glyph naming it, pushed to the right of its
@@ -222,7 +222,7 @@ func alignRight(s string, width int) string {
 // discussion is on it. Only a column with nothing left for the title itself
 // gives the count up.
 func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) string {
-	title := base.Foreground(th.Primary)
+	title := base.Foreground(th.Text)
 	count := glyphComments + " " + strconv.Itoa(pr.Comments)
 
 	// The title keeps at least as much room as the count takes, or the count
@@ -239,7 +239,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
 
 	return title.Render(text) + base.Render("  ") +
-		base.Foreground(th.Secondary).Render(count) + base.Render(strings.Repeat(" ", pad))
+		base.Foreground(th.Accent).Render(count) + base.Render(strings.Repeat(" ", pad))
 }
 
 // identity is where the pull request lives, who opened it, and when it last
@@ -267,18 +267,18 @@ func identity(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style)
 			text = form
 		}
 	}
-	return cell(width, text, base.Foreground(th.Faint))
+	return cell(width, text, base.Foreground(th.Subtle))
 }
 
 // renderHeader draws a group's rule, with the gap above it that keeps the
 // groups apart. It carries how many rows are under it, which is the count
 // the section tab cannot show once the list is grouped.
 func renderHeader(th theme.Theme, it item, width int) []string {
-	rule := lipgloss.NewStyle().Foreground(th.BorderFaintOrSecondary())
+	rule := lipgloss.NewStyle().Foreground(th.BorderMutedOrSubtle())
 
 	left := rule.Render("─ ") +
-		lipgloss.NewStyle().Foreground(th.Secondary).Bold(true).Render(it.header) + " " +
-		lipgloss.NewStyle().Foreground(th.Faint).Render(strconv.Itoa(it.count)) + " "
+		lipgloss.NewStyle().Foreground(th.Accent).Bold(true).Render(it.header) + " " +
+		lipgloss.NewStyle().Foreground(th.MutedOrSubtle()).Render("("+strconv.Itoa(it.count)+")") + " "
 
 	fill := max(0, width-lipgloss.Width(left))
 	rendered := lipgloss.NewStyle().MaxWidth(width).Render(left + rule.Render(strings.Repeat("─", fill)))

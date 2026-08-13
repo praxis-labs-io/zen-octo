@@ -332,18 +332,21 @@ func (m Model) View() string {
 // nothing, because a zero would claim it is empty; one that has keeps its count
 // through a reload, rather than blanking the whole strip for the fetch. A
 // failure takes the badge, because that is the news on that tab.
+//
+// A count is bracketed and the failure mark is not: parentheses read as holding
+// a quantity, and "(!)" reads like one that came back strange.
 func badge(s store.Section) string {
 	switch {
 	case s.Status == store.StatusFailed:
 		return "!"
 	case s.Loaded:
-		return strconv.Itoa(len(s.PRs))
+		return "(" + strconv.Itoa(len(s.PRs)) + ")"
 	}
 	return ""
 }
 
 func (m Model) body() string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Faint)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	section := m.activeSection()
 
 	switch {

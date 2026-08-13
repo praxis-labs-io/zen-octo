@@ -157,7 +157,7 @@ func (m Model) addRow(kind focusKind, label string, width int) railEntry {
 	key := focusKey{kind: kind}
 	base := m.railBase(m.railRing.focused(key))
 	return railEntry{
-		line: m.railLine(base, base.Foreground(m.theme.Faint).Render("+ "+label), width),
+		line: m.railLine(base, base.Foreground(m.theme.Subtle).Render("+ "+label), width),
 		key:  key,
 	}
 }
@@ -170,7 +170,7 @@ func (m Model) changeRow(pr gh.PullRequest, width int) []railEntry {
 
 	churn := base.Foreground(m.theme.Success).Render("+"+strconv.Itoa(pr.Additions)) +
 		base.Render(" ") + base.Foreground(m.theme.Error).Render("−"+strconv.Itoa(pr.Deletions))
-	files := base.Foreground(m.theme.Faint).
+	files := base.Foreground(m.theme.Subtle).
 		Render("  " + strconv.Itoa(pr.ChangedFiles) + " " + glyphFile)
 
 	return []railEntry{{line: m.railLine(base, churn+files, width)}}
@@ -189,7 +189,7 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 	if len(r.Checks) == 0 {
 		base := m.railBase(false)
 		return []railEntry{{
-			line: m.railLine(base, base.Foreground(m.theme.Faint).Render("None yet"), width),
+			line: m.railLine(base, base.Foreground(m.theme.Subtle).Render("None yet"), width),
 		}}
 	}
 
@@ -199,7 +199,7 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 		base := m.railBase(m.railRing.focused(key))
 		_, c := comp.CheckStateIcon(m.theme, check.State)
 
-		faint := base.Foreground(m.theme.Faint)
+		faint := base.Foreground(m.theme.Subtle)
 		out = append(out, railEntry{
 			line: m.railLine(base, base.Foreground(c).Render(glyphCheck)+faint.Render(" ")+
 				m.fit(faint, checkName(check), railNameRoom(width, markLead)), width),
@@ -253,7 +253,7 @@ func railNameRoom(width, lead int) int {
 // line stops at it. The mark keeps the row's own style so the background
 // carries through it.
 func (m Model) fit(style lipgloss.Style, name string, room int) string {
-	return clipTo(style.Render(name), room, style.Foreground(m.theme.Faint))
+	return clipTo(style.Render(name), room, style.Foreground(m.theme.Subtle))
 }
 
 // actorRows names who the pull request is assigned to, and is a stop on the ring
@@ -296,7 +296,7 @@ func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
 		// A section with nobody in it and no way to add one has nothing to say,
 		// so it says that rather than leaving a blank where rows go.
 		if len(out) == 0 {
-			return m.railFact("None", m.theme.Faint, width)
+			return m.railFact("None", m.theme.Subtle, width)
 		}
 		return out
 	}
@@ -309,9 +309,9 @@ func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
 // dark terminal and no theme can reach it. A terminal that only speaks ANSI
 // cannot show it at all.
 //
-// Secondary rather than Actor, which the handles above already hold, and rather
-// than Faint, which the add row under them holds. The section has to keep those
-// three apart.
+// Accent rather than Actor, which the handles above already hold, and rather
+// than Subtle, which the add row under them holds. The section has to keep
+// those three apart.
 //
 // It is a foreground, not a filled chip. A chip buys nothing a colored word does
 // not already say, and the row already spends its background on the cursor.
@@ -322,7 +322,7 @@ func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 		base := m.railBase(m.railRing.focused(key))
 		out = append(out, railEntry{
 			line: m.railLine(base,
-				m.fit(base.Foreground(m.theme.Secondary), l.Name, railNameRoom(width, 0)), width),
+				m.fit(base.Foreground(m.theme.Accent), l.Name, railNameRoom(width, 0)), width),
 			key: key,
 		})
 	}
@@ -333,7 +333,7 @@ func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 // deleted, which is a fact rather than a section to drop.
 func (m Model) authorRow(a gh.Actor, width int) []railEntry {
 	if a.Login == "" {
-		return m.railFact("Unknown", m.theme.Faint, width)
+		return m.railFact("Unknown", m.theme.Subtle, width)
 	}
 	return m.railFact(comp.Handle(a.Login), m.theme.Actor, width)
 }
@@ -367,14 +367,14 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 	// request no longer targets, and rendering it under the new name is the one
 	// frame worth a third case.
 	case m.detail.BaseWriting:
-		text, c = "Retargeting to "+base, m.theme.Faint
+		text, c = "Retargeting to "+base, m.theme.Subtle
 
 	// The write landed and nothing has counted yet. It is a fact rather than a
 	// wait, and it has to read as one: the refetch behind it can fail, and a row
 	// left saying "Retargeting" would report a finished write as in flight for
 	// the rest of the session.
 	case d.BehindBy == gh.BehindUnknown:
-		text, c = "Merging into "+base, m.theme.Faint
+		text, c = "Merging into "+base, m.theme.Subtle
 
 	case d.BehindBy > 0:
 		text, c = comp.Plural(d.BehindBy, "commit")+" behind "+base, m.theme.Warning
@@ -413,7 +413,7 @@ func (m Model) mergeRow(d gh.PullRequestDetail, width int) []railEntry {
 	// carries. So the row reads as merged the moment the key is pressed.
 	text, c := comp.MergeStateLabel(m.theme, d.Merge)
 	if d.State == gh.PRStateMerged {
-		text, c = "Merged into "+d.BaseRefName, m.theme.Secondary
+		text, c = "Merged into "+d.BaseRefName, m.theme.Accent
 	}
 
 	// The key is the other question, and during the write it stays. Enter is
