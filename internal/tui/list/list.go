@@ -366,29 +366,7 @@ func (m Model) body() string {
 	default:
 		return m.view.View()
 	}
-	return centered(block, m.pane.InnerWidth(), m.pane.InnerHeight())
-}
-
-// centered puts a block in the middle of the pane. It moves the block as a
-// unit rather than centring line by line, so the fix under a scope error stays
-// under the words it belongs to instead of floating to its own column.
-//
-// It pads above and never below. The pane pads its own content out to the rows
-// it has, so trailing blanks here would only be counted twice.
-func centered(block string, width, height int) string {
-	lines := strings.Split(block, "\n")
-
-	widest := 0
-	for _, line := range lines {
-		widest = max(widest, lipgloss.Width(line))
-	}
-	left := strings.Repeat(" ", max(0, (width-widest)/2))
-	for i, line := range lines {
-		lines[i] = left + line
-	}
-
-	above := make([]string, max(0, (height-len(lines))/2))
-	return strings.Join(append(above, lines...), "\n")
+	return comp.Centered(block, m.pane.InnerWidth(), m.pane.InnerHeight())
 }
 
 func (m Model) footer() string {

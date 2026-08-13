@@ -39,23 +39,35 @@ func (m *Model) conversationBody() string {
 	// leaves the ring nothing to land on.
 	m.convRing.reset()
 
+	if note, ok := m.conversationNote(); ok {
+		return note
+	}
+
+	// Everything around the box is fixed while it is being written in, so a
+	// freshly rendered box is joined between the two halves rather than the page
+	// being rebuilt around one.
+	if m.conv.ok && m.writing() != nil && m.conv.thread == m.reply.thread {
+		return m.withBox(m.bodyWidth())
+	}
+	return m.entries()
+}
+
+// conversationNote is the one block that stands in for a conversation there is
+// nothing to show yet, and whether there is one. The caller centres it, which
+// is why it comes back on its own rather than as a branch of the body: it is
+// the whole of the page rather than the first thing on it.
+func (m Model) conversationNote() (string, bool) {
 	switch {
 	case m.detail.Loaded:
-		// Everything around the box is fixed while it is being written in, so a
-		// freshly rendered box is joined between the two halves rather than the
-		// page being rebuilt around one.
-		if m.conv.ok && m.writing() != nil && m.conv.thread == m.reply.thread {
-			return m.withBox(m.bodyWidth())
-		}
-		return m.entries()
+		return "", false
 	case m.detail.Status == store.StatusFailed:
 		// Wrapped here rather than by the viewport. This tab does not soft wrap,
 		// and an error is the one block on it not already measured to a width, so
 		// it would be clipped at whatever the pane is wide: the reader would be
 		// told the fetch failed and not told why.
-		return wrap(m.faint().Render("Could not load the conversation: "+m.detail.Err.Error()), m.bodyWidth())
+		return wrap(m.faint().Render("Could not load the conversation: "+m.detail.Err.Error()), m.bodyWidth()), true
 	}
-	return m.spinner.Render("Loading the conversation")
+	return m.spinner.Render("Loading the conversation"), true
 }
 
 func (m *Model) entries() string {

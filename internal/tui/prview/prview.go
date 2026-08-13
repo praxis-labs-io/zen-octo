@@ -1313,6 +1313,13 @@ func (m *Model) tabBody() string {
 	// or every card is that many lines out from where tab scrolls to.
 	head := m.conversation()
 	m.convRing.lead = strings.Count(head, "\n") + 1
+
+	// A conversation with nothing in it yet is one block saying why, and it goes
+	// in the middle of what the header left rather than under its last line,
+	// where it reads as the first thing said rather than as the page waiting.
+	if body, ok := m.conversationNote(); ok {
+		return head + "\n" + comp.Centered(body, m.bodyWidth(), m.view.Height()-m.convRing.lead)
+	}
 	return head + "\n" + m.conversationBody()
 }
 
@@ -1341,17 +1348,17 @@ func (m Model) sideTitle() string {
 
 // conversation is the header block every GitHub PR page leads with. It comes
 // off the list row, so it is on screen before the detail query answers.
+// It closes on a blank rather than a rule. The card under it draws its own
+// border, so a line above that one made two horizontals a row apart and read as
+// a box that had come open.
 func (m Model) conversation() string {
-	rule := lipgloss.NewStyle().Foreground(m.theme.BorderMutedOrSubtle()).
-		Render(strings.Repeat("─", max(0, m.bodyWidth())))
-
 	// The blank sets the status apart from the two lines naming the pull
 	// request. Three stacked lines read as one block and the eye skips the last.
 	lines := []string{m.titleLine(), m.branchLine(), "", m.statusLine()}
 	if status := m.collapsedStatus(); status != "" {
 		lines = append(lines, wrap(status, m.bodyWidth()))
 	}
-	return strings.Join(append(lines, rule), "\n")
+	return strings.Join(append(lines, ""), "\n")
 }
 
 // titleLine is the number, the title, and the churn pushed to the far edge.

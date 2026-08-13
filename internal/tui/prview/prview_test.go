@@ -549,6 +549,95 @@ func TestAResolvedThreadCollapsesAndAnOpenOneDoesNot(t *testing.T) {
 	}
 }
 
+// A conversation with nothing in it yet is one block saying why. Under the
+// header's last line it reads as the first thing said; in the middle of what
+// the header left, it reads as the page waiting.
+func TestAConversationWithNothingInItCentresWhatItSaysInstead(t *testing.T) {
+	tests := []struct {
+		name string
+		held store.Detail
+		want string
+		// short says the block is narrow enough to be centred across the
+		// measure. A wrapped error fills it, so its left edge is the measure's
+		// own gutter and there is nothing to centre.
+		short bool
+	}{
+		{
+			name:  "loading",
+			held:  store.Detail{Status: store.StatusLoading},
+			want:  "Loading the conversation",
+			short: true,
+		},
+		{
+			name: "failed",
+			held: store.Detail{Status: store.StatusFailed, Err: errors.New("no such host")},
+			want: "Could not load the conversation",
+		},
+	}
+
+	const width, height = 140, 24
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := detailed(tt.held, width, height).View()
+			right := paneRight(t, frame)
+
+			lines := strings.Split(stripANSI(frame), "\n")
+			at := -1
+			for i, line := range lines {
+				if strings.Contains(paneBody(line, right), tt.want) {
+					at = i
+					break
+				}
+			}
+			if at < 0 {
+				t.Fatalf("no %q in the frame\n%s", tt.want, stripANSI(frame))
+			}
+
+			// The status line is the header's last written one, and the header
+			// closes on a blank under it. What is left is the region the block
+			// is centred in; the pane's bottom border is the frame's last line.
+			status := -1
+			for i, line := range lines {
+				if strings.Contains(paneBody(line, right), "Opened") {
+					status = i
+					break
+				}
+			}
+			if status < 0 {
+				t.Fatalf("no status line in the frame\n%s", stripANSI(frame))
+			}
+
+			above, below := at-(status+2), (height-2)-at
+			if above <= 0 || abs(above-below) > 1 {
+				t.Errorf("%q has %d lines above it and %d below, want it centred under the header\n%s",
+					tt.want, above, below, stripANSI(frame))
+			}
+
+			if !tt.short {
+				return
+			}
+
+			// Two centrings stack here, the block inside the measure and the
+			// measure inside the pane, and each can spend its odd column on the
+			// right. So the two sides can differ by two rather than one.
+			body := paneBody(lines[at], right)
+			lead := len(body) - len(strings.TrimLeft(body, " "))
+			trail := len(body) - len(strings.TrimRight(body, " "))
+			if lead == 0 || abs(lead-trail) > 2 {
+				t.Errorf("%q sits %d in from the left and %d from the right, want it centred", tt.want, lead, trail)
+			}
+		})
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 func TestTheBodyStatesReadAsThemselves(t *testing.T) {
 	tests := []struct {
 		name string
@@ -862,23 +951,29 @@ func TestTheSpinnerRunsUntilThereIsSomethingToRead(t *testing.T) {
 	}
 }
 
-// ruleGutters reads the header rule, which is the one line drawn to exactly the
-// measure. It returns the blank columns either side of it and its own width.
-func ruleGutters(t *testing.T, frame string) (lead, rule, trail int) {
+// measureGutters reads the first card's top border, which is drawn to exactly
+// the measure. It returns the blank columns either side of it and its own
+// width.
+//
+// This was the header rule until the header stopped drawing one: two
+// horizontals a row apart read as a box that had come open. The card's border
+// is the same measure and is on every conversation, which the rule was not.
+func measureGutters(t *testing.T, frame string) (lead, measure, trail int) {
 	t.Helper()
 
 	right := paneRight(t, frame)
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		body := []rune(paneBody(line, right))
-		// A card's own borders are made of the same runes, and its top edge
-		// would otherwise be read as the header rule.
-		if !strings.Contains(string(body), "───") || strings.ContainsAny(string(body), "╭├╰") {
+		// The top edge alone: a card's middle rule and its foot are the same
+		// width, and any of the three would do, but one answer per frame is
+		// what makes the reading stable.
+		if !strings.Contains(string(body), "╭─") {
 			continue
 		}
 
 		start, end := -1, -1
 		for i, r := range body {
-			if r == '─' {
+			if r == '╭' || r == '─' || r == '╮' {
 				if start < 0 {
 					start = i
 				}
@@ -891,14 +986,14 @@ func ruleGutters(t *testing.T, frame string) (lead, rule, trail int) {
 		return start, end - start + 1, len(body) - end - 1
 	}
 
-	t.Fatal("no rule line in the frame")
+	t.Fatal("no card border in the frame")
 	return 0, 0, 0
 }
 
 // Prose set the full width of a wide terminal is a paragraph the eye loses its
 // place in on every line.
 func TestTheConversationIsSetToAMeasureAndCentred(t *testing.T) {
-	lead, rule, trail := ruleGutters(t, detailed(held(sampleDetail()), 200, 40).View())
+	lead, rule, trail := measureGutters(t, detailed(held(sampleDetail()), 200, 40).View())
 
 	if lead == 0 || trail == 0 {
 		t.Errorf("gutters = %d and %d, want the content held off both edges", lead, trail)
@@ -908,7 +1003,7 @@ func TestTheConversationIsSetToAMeasureAndCentred(t *testing.T) {
 		t.Errorf("gutters = %d and %d, want them even", lead, trail)
 	}
 
-	_, wider, _ := ruleGutters(t, detailed(held(sampleDetail()), 300, 40).View())
+	_, wider, _ := measureGutters(t, detailed(held(sampleDetail()), 300, 40).View())
 	if wider != rule {
 		t.Errorf("the measure grew from %d to %d with the terminal", rule, wider)
 	}
@@ -917,14 +1012,14 @@ func TestTheConversationIsSetToAMeasureAndCentred(t *testing.T) {
 // Under the measure there is nothing to centre, and a gutter would only make a
 // narrow pane narrower.
 func TestANarrowPaneKeepsEveryColumn(t *testing.T) {
-	lead, _, trail := ruleGutters(t, detailed(held(sampleDetail()), 60, 20).View())
+	lead, _, trail := measureGutters(t, detailed(held(sampleDetail()), 60, 20).View())
 
 	if lead != 0 || trail != 0 {
 		t.Errorf("gutters = %d and %d on a pane under the measure, want none", lead, trail)
 	}
 }
 
-// The rule is one line. This is the rest of the body held to the same measure,
+// The border is one line. This is the rest of the body held to the same measure,
 // which takes text long enough to reach past it if nothing stopped it.
 func TestNothingInTheBodyRunsPastTheMeasure(t *testing.T) {
 	d := sampleDetail()
@@ -1108,7 +1203,7 @@ func paneBody(line string, right int) string {
 func assertWithinMeasure(t *testing.T, frame string) {
 	t.Helper()
 
-	lead, rule, _ := ruleGutters(t, frame)
+	lead, rule, _ := measureGutters(t, frame)
 	right := paneRight(t, frame)
 	for i, line := range strings.Split(stripANSI(frame), "\n") {
 		body := []rune(paneBody(line, right))
@@ -1153,7 +1248,7 @@ func TestACardKeepsItsTextOffTheBorder(t *testing.T) {
 func titleRow(t *testing.T, frame string) string {
 	t.Helper()
 
-	lead, rule, _ := ruleGutters(t, frame)
+	lead, rule, _ := measureGutters(t, frame)
 	right := paneRight(t, frame)
 
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
@@ -1216,9 +1311,13 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 	assertWithinMeasure(t, m.View())
 }
 
-// headerRows is every line above the rule that closes the header. Matching on
-// their text instead breaks the moment a line is empty, which is one of the
-// cases worth asserting.
+// headerRows is every line above the first card, which is what the header now
+// runs into: it used to close on a rule of its own, and the card's border a row
+// under that read as a box that had come open.
+//
+// The trailing blank the header ends on is dropped, so what comes back is the
+// lines that carry something. Matching on their text instead breaks the moment
+// a line is empty, which is one of the cases worth asserting.
 func headerRows(t *testing.T, frame string) []string {
 	t.Helper()
 
@@ -1227,7 +1326,11 @@ func headerRows(t *testing.T, frame string) []string {
 
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		body := paneBody(line, right)
-		if strings.Contains(body, "───") && !strings.ContainsAny(body, "╭├╰") {
+		if strings.Contains(body, "╭─") {
+			// The blank between the header and the card belongs to neither.
+			if n := len(rows); n > 0 && rows[n-1] == "" {
+				rows = rows[:n-1]
+			}
 			return rows
 		}
 		trimmed := strings.TrimSpace(body)
@@ -1238,7 +1341,7 @@ func headerRows(t *testing.T, frame string) []string {
 		}
 		rows = append(rows, trimmed)
 	}
-	t.Fatal("no header rule on screen")
+	t.Fatal("no card on screen to close the header")
 	return nil
 }
 
