@@ -31,6 +31,9 @@ func writable() gh.PullRequestDetail {
 		switch item.Kind {
 		case gh.TimelineComment:
 			item.Comment.CanEdit, item.Comment.CanDelete = true, true
+			// Three paragraphs, so the card has a height an opening box could
+			// change.
+			item.Comment.Body += "\n\nThe cap holds through a retry storm.\n\nRunbook updated."
 		case gh.TimelineReview:
 			item.Comment.CanEdit, item.Comment.CanDelete = true, true
 		}
@@ -82,6 +85,34 @@ func TestTheEditBoxOpensInPlaceOfTheWordsItReplaces(t *testing.T) {
 	}
 }
 
+// The box is the height of the words it replaces, so opening one costs the
+// single row its button takes and nothing more. A box of its own fixed height
+// would shrink a long comment to a window onto itself and balloon a short one.
+func TestTheEditBoxIsTheHeightOfTheWordsItReplaces(t *testing.T) {
+	m := onWritable(tabComment)
+	below := "nkr · requested changes"
+
+	before := lineOf(t, m.View(), below)
+	after := lineOf(t, press(m, "e").View(), below)
+
+	if got := after - before; got != 1 {
+		t.Errorf("opening the box moved the card below it by %d lines, want 1 for the button", got)
+	}
+}
+
+// And it grows as the writing does, rather than scrolling inside a fixed frame.
+func TestTheEditBoxGrowsWithWhatIsTypedIntoIt(t *testing.T) {
+	m := press(onWritable(tabComment), "e")
+	below := "nkr · requested changes"
+
+	before := lineOf(t, m.View(), below)
+	after := lineOf(t, typed(m, "\n\n").View(), below)
+
+	if got := after - before; got != 2 {
+		t.Errorf("two new lines moved the card below by %d lines, want 2", got)
+	}
+}
+
 // The compose card holds whatever was typed into it. If the two shared one
 // buffer, opening this box would throw a half-written comment away.
 func TestOpeningTheEditBoxKeepsAHalfWrittenComment(t *testing.T) {
@@ -100,6 +131,38 @@ func TestOpeningTheEditBoxKeepsAHalfWrittenComment(t *testing.T) {
 	out := stripANSI(press(m, "esc", "G").View())
 	if !strings.Contains(out, "half a thought") {
 		t.Errorf("opening the edit box took the comment being written:\n%s", out)
+	}
+}
+
+// A box grows with what is typed into it, so it can be taller than the window
+// it is drawn in. The caret has to be on the screen anyway: the page follows it
+// rather than the card it sits in, which is the one place on this screen the
+// scroll is not about a block.
+func TestTheCaretStaysOnTheScreenInABoxTallerThanTheWindow(t *testing.T) {
+	d := writable()
+	for _, item := range d.Timeline {
+		if item.Kind == gh.TimelineComment {
+			item.Comment.Body = strings.Repeat("A line of it.\n\n", 40)
+		}
+	}
+
+	// A window shorter than the comment, so the box opens taller than the pane
+	// and the caret lands at the end of it.
+	m := press(walked(detailed(held(d), 200, 24), tabComment), "e")
+	m = typed(m, "the caret is here")
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "the caret is here") {
+		t.Errorf("the line being written is off the screen:\n%s", out)
+	}
+}
+
+// The compose card grows the same way, and its caret is kept the same way.
+func TestTheCommentBoxGrowsAndKeepsItsCaretOnTheScreen(t *testing.T) {
+	m := press(detailed(held(writable()), 200, 24), "c")
+	m = typed(m, strings.Repeat("A line of it.\n", 30)+"the caret is here")
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "the caret is here") {
+		t.Errorf("the line being written is off the screen:\n%s", out)
 	}
 }
 

@@ -41,15 +41,16 @@ type inline struct {
 	drafts map[focusKey]string
 }
 
-// inlineRows is the writing the box shows at once. Half the compose card's,
+// replyRows is the writing a reply box shows at once. Half the compose card's,
 // because an answer is shorter than an opening argument and what it answers is
 // on the screen above it. $EDITOR is there for the ones that need more.
-const inlineRows = 4
+//
+// An edit takes no fixed height. It is standing in for words already on the
+// page, and a box of its own size would resize the card the moment it opened.
+const replyRows = 4
 
 func newInline(th theme.Theme) inline {
-	c := newComposer(th)
-	c.area.SetHeight(inlineRows)
-	return inline{composer: c}
+	return inline{composer: newComposer(th)}
 }
 
 // open points the box at something, filling it with whatever was left there and
@@ -211,25 +212,65 @@ func (m Model) closeInline() (Model, tea.Cmd) {
 func (m *Model) showInline() {
 	m.syncContent()
 
-	at := m.convRing.index()
-	if at < 0 {
+	if at := m.convRing.index(); at >= 0 {
+		it := m.convRing.items[at]
+
+		top, height := bodyTop(&m.view), m.view.Height()
+		switch {
+		case it.start < top:
+			m.view.SetYOffset(contentLead + it.start)
+		case it.start+it.lines > top+height:
+			m.view.SetYOffset(contentLead + it.start + it.lines - height)
+		}
+	}
+	m.showCaret()
+}
+
+// showCaret brings the line being written on back onto the page, and it has the
+// last word over anything that scrolled to the block.
+//
+// A box grows with what is typed into it, so it can be taller than the window,
+// and then the block holding it says nothing about where the caret is: bringing
+// the whole card into view is impossible and bringing its foot into view can
+// leave a caret in the middle of a long comment above the top row. This is the
+// one scroll on this screen that follows the caret rather than a block.
+//
+// It moves the shortest distance, for the reason typing does at all: a
+// character is not a journey, and hauling the page for one is worse than the
+// line arriving at an edge.
+func (m *Model) showCaret() {
+	box := m.writing()
+	if box == nil || m.boxLine <= 0 {
 		return
 	}
-	it := m.convRing.items[at]
 
+	caret := m.boxLine + box.caretRow(box.area.Width())
 	top, height := bodyTop(&m.view), m.view.Height()
+	if height <= 0 {
+		return
+	}
+
 	switch {
-	case it.start < top:
-		m.view.SetYOffset(contentLead + it.start)
-	case it.start+it.lines > top+height:
-		m.view.SetYOffset(contentLead + it.start + it.lines - height)
+	case caret < top:
+		m.view.SetYOffset(contentLead + caret)
+	case caret >= top+height:
+		m.view.SetYOffset(contentLead + caret - height + 1)
 	}
 }
 
-// inlineBox is the box drawn in place of a block's body, for an edit. A reply
-// gets a card of its own instead: it is a new comment rather than a rewrite of
-// the one above it.
-func (m *Model) inlineBox(width int) string {
+// inlineBox is the box drawn where the block it answers for goes, at floor rows
+// or however many the writing in it has grown to.
+//
+// An edit's floor is what the words it replaced occupied, less the row the
+// button takes, so opening one leaves the card exactly the height it was and
+// nothing below it moves. A card that resized as the box opened would haul the
+// page under the reader for a key that has changed nothing yet.
+//
+// Sizing here rather than at open is what keeps that true through a resize and
+// through every keystroke: the same words wrap to a different height at a
+// different width, and both are only known where the block is drawn.
+func (m *Model) inlineBox(width, floor int) string {
 	m.inline.setWidth(width)
+	m.inline.area.SetHeight(m.boxRows(m.inline.composer, floor, width))
 	return m.inline.area.View() + "\n" + m.inline.button(m.theme, width, true)
 }

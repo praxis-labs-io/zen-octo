@@ -119,6 +119,64 @@ func textarea(th theme.Theme, rows int) area.Model {
 // of nothing but newlines is not one to post.
 func (c composer) body() string { return strings.TrimSpace(c.area.Value()) }
 
+// rows is how many lines the writing takes at this width, which is what a box
+// that grows with what is typed into it is sized by.
+//
+// Counted by hand rather than taken from LineCount, which is the logical count:
+// the textarea folds a long line rather than scrolling sideways, so a paragraph
+// is worth as many rows as it wraps onto, and a box sized by the other number
+// sits a row short of what it is showing.
+func (c composer) rows(width int) int {
+	if width < 1 {
+		return c.area.LineCount()
+	}
+
+	n := 0
+	for _, line := range strings.Split(c.area.Value(), "\n") {
+		n += wrappedRows(line, width)
+	}
+	return n
+}
+
+// caretRow is which of those lines the caret is on, counted the same way and
+// less whatever the textarea has scrolled inside itself. It is where the page
+// has to look to keep the caret in sight, and it is the only thing that can:
+// a box grows with what is typed into it, so it can be taller than the window
+// and the card holding it says nothing about where in it the caret sits.
+func (c composer) caretRow(width int) int {
+	lines := strings.Split(c.area.Value(), "\n")
+	row := min(max(c.area.Line(), 0), len(lines)-1)
+
+	n := 0
+	for _, line := range lines[:row] {
+		n += wrappedRows(line, width)
+	}
+	return n + c.area.LineInfo().RowOffset - c.area.ScrollYOffset()
+}
+
+// wrappedRows is how many rows one line folds onto. A line is worth a row
+// whether or not there is anything on it.
+func wrappedRows(line string, width int) int {
+	if width < 1 {
+		return 1
+	}
+	return max(1, (lipgloss.Width(line)+width-1)/width)
+}
+
+// boxRows is the height a box gets: what it is standing in for, or the writing
+// in it, whichever is more.
+//
+// Growing with the content is what stops a box being a window onto its own
+// text. The floor is what it opens at, which is eight rows of invitation on the
+// compose card and however tall the words were on an edit.
+//
+// There is no ceiling. A box taller than the pane is fine to write in as long
+// as the caret is on the screen, and keeping it there is the scroll's job
+// rather than something to solve by cropping what the reader can see.
+func (m Model) boxRows(c composer, floor, width int) int {
+	return max(floor, c.rows(width))
+}
+
 // start puts the keyboard in the text. The card is already on the page; this is
 // the difference between looking at it and writing in it.
 func (c *composer) start() tea.Cmd {
@@ -181,10 +239,24 @@ func (m *Model) composeCard(width int) rendered {
 
 	inner := m.cardWidth(width)
 	m.compose.setWidth(inner)
+	m.compose.area.SetHeight(m.boxRows(m.compose, composeRows, inner))
 
 	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
 	block := m.card(head, body, width, m.lit(key), "")
-	return rendered{block: block, stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}}}
+
+	// Only while it has the keyboard. The card is on the page either way, and a
+	// box line recorded for one nobody is typing in would be the last block on
+	// the page overwriting whichever box actually holds the caret.
+	boxAt := 0
+	if m.compose.typing {
+		boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
+	}
+
+	return rendered{
+		block: block,
+		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt: boxAt,
+	}
 }
 
 // button is the post control, on the last row of the card and against its right
@@ -375,6 +447,7 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 func (m *Model) showCompose() {
 	m.syncContent()
 	m.view.GotoBottom()
+	m.showCaret()
 }
 
 // post hands the buffer to the root and empties the box. An empty buffer is

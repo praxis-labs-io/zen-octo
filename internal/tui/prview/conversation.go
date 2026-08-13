@@ -93,6 +93,9 @@ func (m *Model) entries() string {
 	// under it. The starts come in relative to the block and go out absolute.
 	pushStops := func(v rendered) {
 		blocks = append(blocks, v.block)
+		if v.boxAt > 0 {
+			m.boxLine = at + v.boxAt
+		}
 		for _, s := range v.stops {
 			m.convRing.add(s.focusKey, at+s.start, s.lines)
 		}
@@ -116,7 +119,7 @@ func (m *Model) entries() string {
 	if m.boxOn(focusKey{kind: focusDescription}) {
 		mark()
 	}
-	push(m.description(d, width), focusKey{kind: focusDescription})
+	pushStops(m.description(d, width))
 
 	// A thread whose review never made this page would otherwise never render.
 	// Whatever is left after the walk goes at the end rather than nowhere.
@@ -256,6 +259,9 @@ func (m *Model) withBox(width int) string {
 	m.convRing.items = append(m.convRing.items[:0], m.conv.items...)
 
 	middle := m.boxBlock(width)
+	if middle.boxAt > 0 {
+		m.boxLine = m.conv.at + middle.boxAt
+	}
 	for _, s := range middle.stops {
 		m.convRing.add(s.focusKey, m.conv.at+s.start, s.lines)
 	}
@@ -284,10 +290,7 @@ func (m *Model) boxBlock(width int) rendered {
 		return m.composeCard(width)
 
 	case focusDescription:
-		block := m.description(d, width)
-		return rendered{block: block, stops: []focusItem{
-			{focusKey: on, lines: strings.Count(block, "\n") + 1},
-		}}
+		return m.description(d, width)
 
 	case focusComment:
 		for _, item := range d.Timeline {
@@ -361,22 +364,29 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 		head = m.pendingHead(item.Actor, "commented", "saving")
 	}
 
-	block := m.card(head,
-		m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key),
-		width, m.lit(key), m.cardHints(key, said, width))
-	return rendered{block: block, stops: []focusItem{
-		{focusKey: key, lines: strings.Count(block, "\n") + 1},
-	}}
+	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key)
+	block := m.card(head, content, width, m.lit(key), m.cardHints(key, said, width))
+
+	return rendered{
+		block: block,
+		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt: m.cardBoxAt(key, width, content),
+	}
 }
 
 // bodyOrBox is a block's words, or the box in their place while they are being
 // rewritten. Every card renders through it, which is what puts the edit inside
 // the card it belongs to rather than beside it.
+//
+// The words are rendered either way, because their height is what the box is
+// given: opening one changes what the card holds and never how much room it
+// takes.
 func (m *Model) bodyOrBox(text string, width int, empty string, key focusKey) string {
+	body := m.body(text, width, empty, key)
 	if m.boxOn(key) {
-		return m.inlineBox(width)
+		return m.inlineBox(width, strings.Count(body, "\n")+1)
 	}
-	return m.body(text, width, empty, key)
+	return body
 }
 
 // review is the verdict and body in a box, then the threads it opened, set in
@@ -391,12 +401,12 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 	if written.Editing {
 		head = m.pendingHead(item.Actor, label, "saving")
 	}
-	block := m.card(head,
-		m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key),
-		width, m.lit(key), m.cardHints(key, written, width))
+	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key)
+	block := m.card(head, content, width, m.lit(key), m.cardHints(key, written, width))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
+	boxAt := m.cardBoxAt(key, width, content)
 
 	var owned []rendered
 	for i, thread := range threads {
@@ -415,10 +425,13 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 		for _, s := range t.stops {
 			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + 1 + s.start, lines: s.lines})
 		}
+		if t.boxAt > 0 {
+			boxAt = used + 1 + t.boxAt
+		}
 		used += lines + 1
 		block += "\n" + m.branch(t.block, i == len(owned)-1)
 	}
-	return rendered{block: block, stops: stops}
+	return rendered{block: block, stops: stops, boxAt: boxAt}
 }
 
 // branch hangs one thread off the review above it. The last closes the run, so
@@ -661,12 +674,18 @@ func (m *Model) markdown(text string, width int, key focusKey) string {
 	return strings.Join(out, "\n\n")
 }
 
-func (m *Model) description(d gh.PullRequestDetail, width int) string {
+func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 	key := focusKey{kind: focusDescription}
 	head := m.said(d.Author, "opened this", m.theme.Subtle, gh.TimelineItem{CreatedAt: d.CreatedAt})
-	return m.card(head,
-		m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key),
-		width, m.lit(key), m.descriptionHints(key, d, width))
+
+	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key)
+	block := m.card(head, content, width, m.lit(key), m.descriptionHints(key, d, width))
+
+	return rendered{
+		block: block,
+		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt: m.cardBoxAt(key, width, content),
+	}
 }
 
 // body renders markdown, falling back to a note rather than a hole in the page.
@@ -856,14 +875,30 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		within = m.within(t)
 	}
 
+	boxAt := 0
 	for _, c := range t.Comments {
 		ck := threadCommentKey(c)
-		block := wrap(m.byline(c), inner) + "\n\n" + m.bodyOrBox(c.Body, inner, "No comment.", ck)
-		push(gutter(block, c.ID == within))
+		byline := wrap(m.byline(c), inner)
+		body := m.bodyOrBox(c.Body, inner, "No comment.", ck)
+		start := push(gutter(byline+"\n\n"+body, c.ID == within))
+
+		// The box sits under the byline and the blank line after it, and the
+		// gutter is a prefix rather than a line of its own.
+		if m.boxOn(ck) {
+			boxAt = start + strings.Count(byline, "\n") + 2
+		}
 	}
 
-	block := m.card(head, strings.Join(blocks, "\n\n"), width, lit, m.threadHints(lit, t, width))
-	return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
+	content := strings.Join(blocks, "\n\n")
+	block := m.card(head, content, width, lit, m.threadHints(lit, t, width))
+	if boxAt > 0 {
+		boxAt += m.cardLead(width, strings.Count(content, "\n")+1)
+	}
+	return rendered{
+		block: block,
+		stops: tile(block, []focusItem{{focusKey: key}}),
+		boxAt: boxAt,
+	}
 }
 
 // gutterWidth is the bar down the left of a comment inside a thread, and the
@@ -893,6 +928,35 @@ func (m Model) gutter(block string, lit bool) string {
 type rendered struct {
 	block string
 	stops []focusItem
+
+	// boxAt is the line inside the block where an open box's first row landed,
+	// zero when this block holds none. A block starts with a border, so zero is
+	// never a real one.
+	//
+	// It is relative for the reason the stops are: a block does not know where
+	// it was placed, and every caller that places one does. The page turns it
+	// into the line the caret is on, which is the only thing that can keep the
+	// caret on screen once a box is taller than the window.
+	boxAt int
+}
+
+// cardLead is the lines a card draws before its content: its top border, the
+// heading, and the rule under it. Read off the pane rather than counted here,
+// so the two stay in step when the heading changes.
+func (m Model) cardLead(width, lines int) int {
+	return comp.NewPane(m.theme).Header(" ").Size(width, lines+cardChrome).Above()
+}
+
+// cardChrome is what comp.Pane spends on a card with a heading.
+const cardChrome = 4
+
+// cardBoxAt is where a box's first row landed inside a card that holds nothing
+// else: the card's own lead, or zero for a card with no box in it.
+func (m Model) cardBoxAt(key focusKey, width int, content string) int {
+	if !m.boxOn(key) {
+		return 0
+	}
+	return m.cardLead(width, strings.Count(content, "\n")+1)
 }
 
 // byline is the line above one comment in a thread. Which one the keys have is

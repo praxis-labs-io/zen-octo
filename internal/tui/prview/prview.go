@@ -269,6 +269,12 @@ type Model struct {
 	// conv is the conversation above the box, kept while it is being written in.
 	conv convCache
 
+	// boxLine is the page line an open box's first row landed on, recorded as
+	// the page is built and read by the scroll that keeps the caret in sight. A
+	// box grows with what is typed into it, so it can be taller than the window
+	// and the block holding it says nothing about where in it the caret is.
+	boxLine int
+
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
 	railOn      bool

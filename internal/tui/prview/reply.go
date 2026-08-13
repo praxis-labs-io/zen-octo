@@ -77,10 +77,14 @@ func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
 	at := strings.Count(v.block, "\n") + 1
 	block := v.block + "\n" + box
 
-	return rendered{block: block, stops: tile(block, []focusItem{
-		{focusKey: threadKey(t)},
-		{focusKey: replyKey(t.ID), start: at},
-	})}
+	return rendered{
+		block: block,
+		stops: tile(block, []focusItem{
+			{focusKey: threadKey(t)},
+			{focusKey: replyKey(t.ID), start: at},
+		}),
+		boxAt: at + m.cardLead(width, replyRows+1),
+	}
 }
 
 // replyCard is the box, rendered through the same card every comment renders
@@ -90,7 +94,7 @@ func (m *Model) replyCard(width int) string {
 
 	inner := m.cardWidth(width)
 	head := m.said(m.who, "write a reply", m.theme.Subtle, gh.TimelineItem{})
-	return m.card(head, m.inlineBox(inner), width, m.lit(key), "")
+	return m.card(head, m.inlineBox(inner, replyRows), width, m.lit(key), "")
 }
 
 // within is the comment a quote reply would take from a thread, and the one the
