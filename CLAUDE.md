@@ -263,6 +263,16 @@ last-held-wins the way two lifecycle writes do, and the fold marks the detail
 because the row reads the lifecycle first: a merged pull request says "Merged
 into main" whatever GitHub last answered about what stands in the way.
 
+A refused merge is the one revert here that refetches, because the refusal is
+evidence about the screen rather than about the pull request. The commonest one
+is the head having moved since the detail was fetched, and there the fetched row
+is the very thing that lost the merge: putting "Ready to merge" straight back
+says the branch is as it was and invites the same press again. `EditRevertedStale`
+is what both it and the reviewer write go through, dropping the edit and marking
+the fetch in flight stale so an answer asked for before the failure cannot be
+believed. Every other write is all or nothing, and reverting one of those says
+the pull request never moved, which needs no request to confirm.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a
