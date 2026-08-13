@@ -206,9 +206,14 @@ func (m Model) startEdit() (Model, tea.Cmd) {
 // space, and the alternative is a stray chord wiping a comment with no confirm
 // anywhere near it.
 func (m Model) saveEdit() (Model, tea.Cmd) {
-	body := m.inline.body()
+	// Sent as it stands, where a new comment is sent trimmed. The whitespace
+	// around a comment GitHub already has is the author's: four spaces at the
+	// front of it are a code block, and a key that quietly reflowed somebody's
+	// markdown on the way past would be doing more than it was pressed for.
+	// Trimmed is still what says whether there is anything here to send.
+	body := m.inline.area.Value()
 	at, from := m.inline.at, m.inline.from
-	if body == "" {
+	if m.inline.body() == "" {
 		return m, nil
 	}
 
@@ -217,10 +222,6 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The words are on their way to GitHub, so they are not filed as a draft:
-	// one would come back the next time the box opened here, over the top of the
-	// comment they were already saved into.
-	m.inline.area.Reset()
 	m.inline.close()
 
 	m.convRing.on = from

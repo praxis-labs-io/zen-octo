@@ -94,7 +94,7 @@ func (m *Model) replyCard(width int) string {
 
 	inner := m.cardWidth(width)
 	head := m.said(m.who, "write a reply", m.theme.Subtle, gh.TimelineItem{})
-	return m.card(head, m.inlineBox(inner, replyRows), width, m.lit(key), "")
+	return m.card(head, m.inlineBox(inner, replyRows, boxChrome), width, m.lit(key), "")
 }
 
 // within is the comment a quote reply would take from a thread, and the one the
@@ -332,10 +332,7 @@ func (m *Model) restore(at focusKey, body string, w words,
 	cmd := m.inline.open(at, from(), "", w)
 	m.convRing.on = at
 	m.focus = paneMain
-	m.syncContent()
-
-	top := bodyTop(&m.view)
-	m.view.SetYOffset(contentLead + m.convRing.show(top, m.view.Height()))
+	m.showInline()
 	return cmd
 }
 

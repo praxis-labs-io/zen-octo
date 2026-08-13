@@ -128,19 +128,9 @@ func (c composer) body() string { return strings.TrimSpace(c.area.Value()) }
 // the textarea folds a long line rather than scrolling sideways, so a paragraph
 // is worth as many rows as it wraps onto, and a box sized by the other number
 // sits a row short of what it is showing.
-func (c composer) rows(width int) int {
-	if width < 1 {
-		return c.area.LineCount()
-	}
+func (c composer) rows(width int) int { return wrappedRows(c.area.Value(), width) }
 
-	n := 0
-	for _, line := range strings.Split(c.area.Value(), "\n") {
-		n += wrappedRows(line, width)
-	}
-	return n
-}
-
-// caretRow is which of those lines the caret is on, counted the same way and
+// caretRow is which of those rows the caret is on, counted the same way and
 // less whatever the textarea has scrolled inside itself. It is where the page
 // has to look to keep the caret in sight, and it is the only thing that can:
 // a box grows with what is typed into it, so it can be taller than the window
@@ -150,19 +140,25 @@ func (c composer) caretRow(width int) int {
 	row := min(max(c.area.Line(), 0), len(lines)-1)
 
 	n := 0
-	for _, line := range lines[:row] {
-		n += wrappedRows(line, width)
+	if row > 0 {
+		n = wrappedRows(strings.Join(lines[:row], "\n"), width)
 	}
 	return n + c.area.LineInfo().RowOffset - c.area.ScrollYOffset()
 }
 
-// wrappedRows is how many rows one line folds onto. A line is worth a row
-// whether or not there is anything on it.
-func wrappedRows(line string, width int) int {
+// wrappedRows is how many rows text folds onto at a width, folded where the
+// textarea folds it.
+//
+// On word boundaries, which is the only count worth taking: a character count
+// puts a word straddling the edge on the row it does not fit on, and a line
+// exactly the width of the box is one row by that arithmetic and two on the
+// screen. Either way the box is sized short of its own writing and scrolls
+// where it was supposed to grow.
+func wrappedRows(text string, width int) int {
 	if width < 1 {
-		return 1
+		return strings.Count(text, "\n") + 1
 	}
-	return max(1, (lipgloss.Width(line)+width-1)/width)
+	return strings.Count(wrap(text, width), "\n") + 1
 }
 
 // boxRows is the height a box gets: what it is standing in for, or the writing
@@ -178,8 +174,11 @@ func wrappedRows(line string, width int) int {
 // is: the reader is then writing into something with no visible end and no way
 // out but a chord they cannot see named. Past the ceiling the textarea scrolls
 // inside itself, which keeps its own caret in view.
-func (m Model) boxRows(c composer, floor, width int) int {
-	room := max(1, m.view.Height()-boxChrome)
+//
+// chrome is what the card around the box costs, and it is the caller's because
+// only the render site knows how deep the box sits.
+func (m Model) boxRows(c composer, floor, width, chrome int) int {
+	room := max(1, m.view.Height()-chrome)
 	return min(max(floor, c.rows(width)), room)
 }
 
@@ -187,6 +186,13 @@ func (m Model) boxRows(c composer, floor, width int) int {
 // the row the button and its hints ride on, and the blank line the block after
 // it wants.
 const boxChrome = 6
+
+// threadChrome is what a comment inside a thread pays on top of that: the
+// thread's own border, heading and rule, the byline over the comment, and the
+// blank line between it and the comment after. A box that spent the pane as
+// though it were a card of its own would push the thread's foot off the screen
+// with the button on it.
+const threadChrome = 6
 
 // start puts the keyboard in the text. The card is already on the page; this is
 // the difference between looking at it and writing in it.
@@ -250,7 +256,7 @@ func (m *Model) composeCard(width int) rendered {
 
 	inner := m.cardWidth(width)
 	m.compose.setWidth(inner)
-	m.compose.area.SetHeight(m.boxRows(m.compose, composeRows, inner))
+	m.compose.area.SetHeight(m.boxRows(m.compose, composeRows, inner, boxChrome))
 
 	body := m.compose.area.View() + "\n" + m.compose.button(m.theme, inner, m.lit(key))
 	block := m.card(head, body, width, m.lit(key), "")

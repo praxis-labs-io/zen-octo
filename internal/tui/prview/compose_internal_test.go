@@ -1,9 +1,10 @@
 package prview
 
-// The one test in this package rather than beside it. editorCommand reads the
-// environment and returns a command line; there is no frame it reaches, and
-// exporting it so a black-box test could call it would be widening the package
-// for the test's convenience.
+// The tests in this package rather than beside it, because neither reaches a
+// frame. editorCommand reads the environment and returns a command line, and
+// wrappedRows is arithmetic over a width the page never states. Exporting
+// either so a black-box test could call it would be widening the package for
+// the test's convenience.
 
 import (
 	"os"
@@ -156,5 +157,36 @@ func TestTheEditorOpensOnTheBoxsOwnWords(t *testing.T) {
 	}
 	if string(out) != "half an answer" {
 		t.Errorf("the editor would open on %q, want the words already in the box", out)
+	}
+}
+
+// The box is sized by this, so a count that folds anywhere the textarea does
+// not leaves it a row short of its own writing and scrolling where it was
+// supposed to grow.
+func TestWrappedRowsFoldsWhereTheTextareaFolds(t *testing.T) {
+	cases := []struct {
+		name  string
+		text  string
+		width int
+		want  int
+	}{
+		// A character count fits these in two rows. No two of them share one:
+		// each is more than half the width, and a word is not cut in half to
+		// fill a line.
+		{"words too long to pair", "aaaaaa bbbbbb cccccc", 10, 3},
+		{"a word longer than the width", "aaaaaaaaaaaaaaa", 10, 2},
+		{"a line that fills the width", "aaaaaaaaaa", 10, 1},
+		{"nothing", "", 10, 1},
+		{"a blank line is still a row", "one\n\ntwo", 10, 3},
+		// No width to fold at yet, which is every call before the first render.
+		{"no width", "one\ntwo", 0, 2},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := wrappedRows(c.text, c.width); got != c.want {
+				t.Errorf("wrappedRows(%q, %d) = %d, want %d", c.text, c.width, got, c.want)
+			}
+		})
 	}
 }

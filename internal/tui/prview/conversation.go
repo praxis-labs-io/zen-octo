@@ -366,7 +366,7 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 		head = m.pendingHead(item.Actor, "commented", "saving")
 	}
 
-	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key)
+	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key, boxChrome)
 	block := m.card(head, content, width, m.lit(key), m.cardHints(key, said, width))
 
 	return rendered{
@@ -390,10 +390,10 @@ func (m *Model) editHead(what string) string {
 // The words are rendered either way, because their height is what the box is
 // given: opening one changes what the card holds and never how much room it
 // takes.
-func (m *Model) bodyOrBox(text string, width int, empty string, key focusKey) string {
+func (m *Model) bodyOrBox(text string, width int, empty string, key focusKey, chrome int) string {
 	body := m.body(text, width, empty, key)
 	if m.boxOn(key) {
-		return m.inlineBox(width, strings.Count(body, "\n")+1)
+		return m.inlineBox(width, strings.Count(body, "\n")+1, chrome)
 	}
 	return body
 }
@@ -413,7 +413,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 	case written.Editing:
 		head = m.pendingHead(item.Actor, label, "saving")
 	}
-	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key)
+	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key, boxChrome)
 	block := m.card(head, content, width, m.lit(key), m.cardHints(key, written, width))
 
 	used := strings.Count(block, "\n") + 1
@@ -694,7 +694,7 @@ func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 		head = m.editHead("description")
 	}
 
-	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key)
+	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key, boxChrome)
 	block := m.card(head, content, width, m.lit(key), m.descriptionHints(key, d, width))
 
 	return rendered{
@@ -898,7 +898,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		if m.boxOn(ck) {
 			byline = wrap(m.editHead("comment"), inner)
 		}
-		body := m.bodyOrBox(c.Body, inner, "No comment.", ck)
+		body := m.bodyOrBox(c.Body, inner, "No comment.", ck, boxChrome+threadChrome)
 		start := push(gutter(byline+"\n\n"+body, c.ID == within))
 
 		// The box sits under the byline and the blank line after it, and the

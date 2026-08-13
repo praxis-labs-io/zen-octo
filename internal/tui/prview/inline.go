@@ -72,10 +72,21 @@ func (r *inline) open(at, from focusKey, fallback string, w words) tea.Cmd {
 	return r.start()
 }
 
-// close takes the box off the page, keeping the words against what they were
-// written for.
+// close takes the box off the page.
+//
+// A reply's words are kept against the thread they answer: esc is how a reader
+// looks at the code above what they are writing. An edit's are dropped, which
+// is what its own hint says the key does. The comment is on GitHub either way,
+// so nothing is lost that cannot be read again, and a draft held here would
+// open over a comment that has moved on since and be saved as if it were the
+// newer of the two.
 func (r *inline) close() {
-	r.keep(r.at, "")
+	if r.editing() {
+		delete(r.drafts, r.at)
+	} else {
+		r.keep(r.at, "")
+	}
+
 	r.at = focusKey{}
 	r.area.Reset()
 	r.stop()
@@ -207,22 +218,13 @@ func (m Model) closeInline() (Model, tea.Cmd) {
 // caret that has not moved, and hauling the page to put the box on the top row
 // because a character was typed is the worse of the two wrongs.
 //
-// The caret needs no arithmetic of its own. The box is a fixed height and the
-// textarea scrolls inside it, so a box in view is a caret in view.
+// The caret is the whole of it, and the card holding the box is not consulted.
+// A reply hangs under a thread and an edit can be one comment inside one, and
+// neither is a ring stop: a scroll that went looking for the block would find
+// nothing and do nothing in exactly the two cases the box is nested. The caret
+// is somewhere in every one of them, and the button rides one row below it.
 func (m *Model) showInline() {
 	m.syncContent()
-
-	if at := m.convRing.index(); at >= 0 {
-		it := m.convRing.items[at]
-
-		top, height := bodyTop(&m.view), m.view.Height()
-		switch {
-		case it.start < top:
-			m.view.SetYOffset(contentLead + it.start)
-		case it.start+it.lines > top+height:
-			m.view.SetYOffset(contentLead + it.start + it.lines - height)
-		}
-	}
 	m.showCaret()
 }
 
@@ -256,11 +258,16 @@ func (m *Model) showCaret() {
 		return
 	}
 
+	// Down to the row under the caret rather than the caret's own, so a caret on
+	// the last row of the box brings the button with it. The control that sends
+	// the words sits directly beneath them, and a box whose foot is one line
+	// below the fold leaves the reader writing into something with no visible
+	// end and no way out but a chord nothing on the screen has named.
 	switch {
 	case caret < top:
 		m.view.SetYOffset(contentLead + caret)
-	case caret >= top+height:
-		m.view.SetYOffset(contentLead + caret - height + 1)
+	case caret+1 >= top+height:
+		m.view.SetYOffset(contentLead + caret + 2 - height)
 	}
 }
 
@@ -275,8 +282,8 @@ func (m *Model) showCaret() {
 // Sizing here rather than at open is what keeps that true through a resize and
 // through every keystroke: the same words wrap to a different height at a
 // different width, and both are only known where the block is drawn.
-func (m *Model) inlineBox(width, floor int) string {
+func (m *Model) inlineBox(width, floor, chrome int) string {
 	m.inline.setWidth(width)
-	m.inline.area.SetHeight(m.boxRows(m.inline.composer, floor, width))
+	m.inline.area.SetHeight(m.boxRows(m.inline.composer, floor, width, chrome))
 	return m.inline.area.View() + "\n" + m.inline.button(m.theme, width, true)
 }

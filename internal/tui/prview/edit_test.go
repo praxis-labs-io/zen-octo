@@ -552,3 +552,80 @@ func TestAFailedEditPutsTheWordsBackInTheBox(t *testing.T) {
 		t.Error("the box did not reopen on the comment")
 	}
 }
+
+// esc says discard and discards. A reply's words are held against the thread
+// they answer, because esc there is how a reader looks at the code above what
+// they are writing. An edit's are not: the comment is on GitHub and can be read
+// again, and words held here would open over one that had moved on since and go
+// back as the newer of the two.
+func TestEscapeThrowsAwayWhatWasTypedIntoAnEditBox(t *testing.T) {
+	m := press(typed(press(onWritable(tabComment), "e"), " Discard me."), "esc")
+
+	out := stripANSI(press(m, "e").View())
+	if strings.Contains(out, "Discard me.") {
+		t.Errorf("the box reopened on words esc said it would discard:\n%s", out)
+	}
+	if !strings.Contains(out, "Coverage held at 84.2%") {
+		t.Errorf("the box did not reopen on the comment as GitHub has it:\n%s", out)
+	}
+}
+
+// A comment inside a thread pays for two cards rather than one, and a box that
+// spent the pane as though it were a card of its own would push the button off
+// the bottom of the deeper of them.
+func TestABoxInsideAThreadKeepsItsButtonOnTheScreen(t *testing.T) {
+	d := writable()
+	for i := range d.Threads[0].Comments {
+		d.Threads[0].Comments[i].Body = strings.Repeat("A line of it.\n\n", 40)
+	}
+
+	m := press(walked(viewing(d, 200, 24), tabThread), "e")
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "Save") {
+		t.Errorf("the box's button is off the screen:\n%s", out)
+	}
+}
+
+// And the caret keeps it there. A box grows as it is typed into, so the button
+// under it is the first thing to go over the edge, and the reader is then
+// writing into something with no visible end.
+func TestTypingInAThreadKeepsTheButtonOnTheScreen(t *testing.T) {
+	d := writable()
+	for i := range d.Threads[0].Comments {
+		d.Threads[0].Comments[i].Body = strings.Repeat("A line of it.\n\n", 40)
+	}
+
+	m := typed(press(walked(viewing(d, 200, 24), tabThread), "e"), "\nthe caret is here")
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "the caret is here") {
+		t.Errorf("the line being written is off the screen:\n%s", out)
+	}
+	if !strings.Contains(out, "Save") {
+		t.Errorf("the button went off the screen as the box grew:\n%s", out)
+	}
+}
+
+// A comment already on GitHub goes back as it stands, where a new one is sent
+// trimmed. Four spaces at the front of a comment are a code block, and a key
+// pressed to fix a typo further down must not reflow somebody's markdown on the
+// way past.
+func TestAnEditKeepsTheWhitespaceAroundTheWordsItSends(t *testing.T) {
+	d := writable()
+	for _, item := range d.Timeline {
+		if item.Kind == gh.TimelineComment {
+			item.Comment.Body = "    indented := true"
+		}
+	}
+
+	m := typed(press(walked(viewing(d, 200, 60), tabComment), "e"), " // and stays")
+	_, cmd := chord(m)
+
+	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
+	if !ok {
+		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
+	}
+	if msg.Body != "    indented := true // and stays" {
+		t.Errorf("Body = %q, want the leading indent kept", msg.Body)
+	}
+}
