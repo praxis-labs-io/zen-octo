@@ -542,6 +542,54 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 // idOf is the node id of the pull request with this number. The two reviewer
 // calls address one by repository and number, which is how REST names it, and
 // everything the fake stages is keyed by id.
+// A search answers with a snapshot, the way a real client does. Handing the
+// slice out copies the header and leaves the caller on this fake's own backing
+// array, where a write landing later edits rows already given away.
+func TestTheFakeAnswersASearchWithRowsALaterWriteCannotEdit(t *testing.T) {
+	f := &fakeSearcher{prs: samplePRs()}
+
+	res, err := f.SearchPullRequests(context.Background(), "is:open", 20)
+	if err != nil {
+		t.Fatalf("SearchPullRequests() error = %v", err)
+	}
+
+	row := res.PullRequests[0]
+	if _, err := f.SetBase(context.Background(), row.ID, "develop"); err != nil {
+		t.Fatalf("SetBase() error = %v", err)
+	}
+	if got := res.PullRequests[0].BaseRefName; got != row.BaseRefName {
+		t.Errorf("the row a search answered with became %q when a later write landed, want %q",
+			got, row.BaseRefName)
+	}
+}
+
+// The mutex is not enough on its own, and only the race detector says so: a
+// read that ranges the rows after unlocking is on the same backing array as the
+// write it was meant to be held apart from. This is the shape CI caught between
+// a retarget still in flight and the refetch it fired.
+func TestTheFakeReadsItsRowsUnderItsOwnLock(t *testing.T) {
+	f := &fakeSearcher{prs: samplePRs()}
+	id := f.prs[0].ID
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if _, err := f.PullRequest(context.Background(), id, ""); err != nil {
+				t.Errorf("PullRequest() error = %v", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := f.SetBase(context.Background(), id, "develop"); err != nil {
+				t.Errorf("SetBase() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 // The caller holds the lock, so this must not take it: both callers are inside
 // their own critical section already and a Go mutex is not reentrant.
 func (f *fakeSearcher) idOf(number int) string {
