@@ -559,8 +559,11 @@ func TestADigitPastTheLastPaneIsIgnored(t *testing.T) {
 	}
 }
 
+// Tall enough for the note to be on the first frame. The threads in the diff
+// carry replies, and a reply is a card, so the page below the last file is
+// deeper than a window of sixty rows.
 func TestOverflowIsReportedRatherThanDropped(t *testing.T) {
-	m := detailed(held(sampleDetail()), 200, 60)
+	m := detailed(held(sampleDetail()), 200, 80)
 	m.SetFiles(loadedFiles(sampleFiles(), 3))
 
 	if !strings.Contains(stripANSI(press(m, "]", "]", "]").View()), "3 more files on GitHub") {

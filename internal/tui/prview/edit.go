@@ -107,9 +107,9 @@ func (m Model) deletable() (target, bool) {
 
 // onRing is the block the focus is holding, whatever may be done to it.
 //
-// A thread resolves to the comment inside it the sub-cursor is on, which is the
-// one a quote reply takes as well: tab walks whole threads, and this is the
-// level below it.
+// A thread's own card resolves to the comment it was opened with; a reply
+// resolves to itself. Both are cards and both are stops, so the focus names the
+// comment and this only has to find it.
 func (m Model) onRing() (target, bool) {
 	if !m.answerable() {
 		return target{}, false
@@ -127,7 +127,7 @@ func (m Model) onRing() (target, bool) {
 			}
 		}
 
-	case focusThread:
+	case focusThread, focusThreadComment:
 		t, ok := m.focusedThread()
 		if !ok {
 			return target{}, false
@@ -193,8 +193,8 @@ func (m Model) startEdit() (Model, tea.Cmd) {
 	// The shortest distance, for the reason a reply opens that way: the block is
 	// already under the reader's eye and the box is replacing its words, so
 	// moving the page to the top row would take the heading it belongs to with
-	// it.
-	m.showInline()
+	// it. Far enough to land the box's foot, though, and its button with it.
+	m.showOpenedBox()
 	return m, cmd
 }
 

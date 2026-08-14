@@ -43,9 +43,9 @@ func walked(m prview.Model, n int) prview.Model {
 }
 
 // The ring walks the cards in the order they were written, and comes back round.
-// A thread is one card and one stop however many comments are in it: stopping on
-// every reply makes crossing a heavily reviewed page a chore, and J is one key
-// away for the times the answer is to a reply.
+// Every card is a stop, replies included: a card the motion key walks past is
+// one the reader can see and cannot reach, and crossing a heavily reviewed page
+// is what the scroll keys are for.
 func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
@@ -57,25 +57,32 @@ func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
 		}
 	}
 
-	// The fifth is the resolved thread. It is a card like the rest, closed
-	// rather than absent, so it takes the accent on its border the same way.
-	if got := focusedCard(t, walked(m, 5).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
-		t.Errorf("the fifth step focused %q, want the resolved thread", got)
+	// The fifth is the reply hanging off that thread, which is a card of its own
+	// and so a stop of its own.
+	if got := focusedCard(t, walked(m, 5).View()); !strings.HasPrefix(got, "octobot · said") {
+		t.Errorf("the fifth step focused %q, want the reply on the thread", got)
 	}
 
-	// The sixth and seventh are the threads no review owns, which render at the
+	// The sixth is the resolved thread. It is a card like the rest, closed
+	// rather than absent, so it takes the accent on its border the same way, and
+	// the replies it is hiding are no stops while it is closed.
+	if got := focusedCard(t, walked(m, 6).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
+		t.Errorf("the sixth step focused %q, want the resolved thread", got)
+	}
+
+	// The seventh and eighth are the threads no review owns, which render at the
 	// end of the page in the order the query returned them.
-	if got := focusedCard(t, walked(m, 6).View()); !strings.HasPrefix(got, cardLocked) {
-		t.Errorf("the sixth step focused %q, want the unowned thread", got)
+	if got := focusedCard(t, walked(m, 7).View()); !strings.HasPrefix(got, cardLocked) {
+		t.Errorf("the seventh step focused %q, want the unowned thread", got)
 	}
 
-	// The eighth is the comment box, which closes the conversation the way it
+	// The ninth is the comment box, which closes the conversation the way it
 	// closes GitHub's page.
-	if got := focusedCard(t, walked(m, 8).View()); !strings.HasPrefix(got, cardCompose) {
-		t.Errorf("the eighth step focused %q, want the comment box", got)
+	if got := focusedCard(t, walked(m, 9).View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("the ninth step focused %q, want the comment box", got)
 	}
 
-	if got := focusedCard(t, walked(m, 9).View()); !strings.HasPrefix(got, cardDescription) {
+	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("a step past the last card focused %q, want it back at the description", got)
 	}
 }

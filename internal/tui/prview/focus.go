@@ -14,10 +14,13 @@ const (
 	focusComment
 	focusReview
 
-	// focusThread is the whole thread, which is what a resolved one collapses to
-	// and all there is to point at. An unresolved thread is walked comment by
-	// comment instead: a reply answers one of them, and a quote needs to know
-	// which.
+	// focusThread is the thread's own card: the anchor, the code, and the comment
+	// that opened it. focusThreadComment is one of the replies hanging off it,
+	// each of which is a card of its own.
+	//
+	// Both are ring stops. A card the motion key walks past is a card the reader
+	// can see and cannot reach, and crossing a heavily reviewed page is what the
+	// scroll keys are for.
 	focusThread
 	focusThreadComment
 

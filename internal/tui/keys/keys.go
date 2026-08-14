@@ -89,14 +89,6 @@ type DetailMap struct {
 	Reply      key.Binding
 	QuoteReply key.Binding
 
-	// NextWithin and PrevWithin move between the comments inside the focused
-	// thread. Tab walks whole threads, because a thread is one thing to read and
-	// stopping on every reply in a long one makes crossing the page a chore.
-	// This is the level below it, for the times the answer is to a reply rather
-	// than to the thread.
-	NextWithin key.Binding
-	PrevWithin key.Binding
-
 	// Edit opens the box over the block the ring is on, with its words in it.
 	// Delete takes one off, behind a confirm. It is shifted because deleting is
 	// not something to do by leaning on a key, and the confirm is there because
@@ -182,8 +174,6 @@ var (
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
-		NextWithin: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "next in thread")),
-		PrevWithin: key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "prev in thread")),
 		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Delete:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
@@ -277,7 +267,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.Expand, k.ToggleRail},
-		{k.NextWithin, k.PrevWithin, k.Reply, k.QuoteReply},
+		{k.Reply, k.QuoteReply},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{Form.Next, Form.Prev, k.Toggle},

@@ -13,7 +13,7 @@ import (
 
 // tabResolved is where tab stops on the thread the fixture already carries as
 // settled, which is the one the key has to reopen.
-const tabResolved = 5
+const tabResolved = 6
 
 // asked presses a key and reads what it sent the root, or nothing.
 func asked(t *testing.T, m prview.Model, k string) tea.Msg {
@@ -52,7 +52,7 @@ func TestXAsksToResolveTheFocusedThread(t *testing.T) {
 func TestXOnAResolvedThreadAsksToUnresolve(t *testing.T) {
 	m := onThread(t, tabResolved)
 	if got := focusedCard(t, m.View()); !strings.Contains(got, "resolved") {
-		t.Fatalf("the fifth tab focused %q, want the resolved thread", got)
+		t.Fatalf("the ring landed on %q, want the resolved thread", got)
 	}
 
 	got := resolveAsked(t, m, "x")
@@ -152,6 +152,35 @@ func TestAThreadPushedBackResolvedCollapsesAndKeepsFocus(t *testing.T) {
 	}
 }
 
+// Unresolving opens a collapsed thread into its card, its code and every reply
+// hanging off it, and that growth arrives through the store rather than under
+// the key. o re-shows the focus itself and x has no equivalent, so without this
+// the thread grows off the bottom of the window and sits there.
+func TestAThreadPushedBackOpenComesBackIntoView(t *testing.T) {
+	// A comment long enough that the opened card cannot grow in place, which is
+	// the case the scroll has to get right. Collapsed it is three lines and sits
+	// low in the window; opened it runs past the bottom of it.
+	long := strings.Repeat("A line of the nit.\n\n", 3) + "The last line of it."
+
+	d := sampleDetail()
+	d.Threads[1].CanUnresolve = true
+	d.Threads[1].Comments[0].Body = long
+
+	m := walked(detailed(held(d), 160, 20), tabResolved)
+	if !strings.Contains(stripANSI(m.View()), "✓ internal/store/store.go:88") {
+		t.Fatal("the resolved thread is not on screen to begin with")
+	}
+
+	open := sampleDetail()
+	open.Threads[1].IsResolved = false
+	open.Threads[1].Comments[0].Body = long
+	m.SetDetail(held(open))
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "The last line of it.") {
+		t.Errorf("the thread grew off the bottom of the window:\n%s", out)
+	}
+}
+
 // One write per thread. Two out at once settle in the order the responses
 // arrive rather than the order they were pressed, and the card would then read
 // the opposite of the last press until a refetch.
@@ -199,17 +228,16 @@ func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 // last, which are the newest and the least known.
 func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 	whole := map[string]bool{
-		"J/K in thread": true, "r reply": true, "R quote": true,
-		"x resolve": true, "v in diff": true,
+		"r reply": true, "R quote": true, "x resolve": true, "v in diff": true,
 	}
 
 	tests := []struct {
 		width int
 		want  []string
 	}{
-		{200, []string{"J/K in thread", "r reply", "R quote", "x resolve", "v in diff"}},
-		{62, []string{"J/K in thread", "r reply", "R quote", "x resolve"}},
-		{50, []string{"J/K in thread", "r reply", "R quote"}},
+		{200, []string{"r reply", "R quote", "x resolve", "v in diff"}},
+		{44, []string{"r reply", "R quote", "x resolve"}},
+		{34, []string{"r reply", "R quote"}},
 	}
 
 	for _, tt := range tests {

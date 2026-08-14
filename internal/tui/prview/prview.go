@@ -260,12 +260,6 @@ type Model struct {
 	// keyboard at a time.
 	inline inline
 
-	// sub is which comment inside a thread the keys have, by thread. Tab walks
-	// whole threads, so this is the second level: what a quote takes and what
-	// the gutter bar points at. A thread missing from here is one nobody has
-	// stepped into, and its last comment is the answer.
-	sub map[string]string
-
 	// conv is the conversation above the box, kept while it is being written in.
 	conv convCache
 
@@ -391,12 +385,45 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.syncCommits()
 	m.syncChecks()
 
+	// Taken before the relayout, because the answer is about the page the reader
+	// was looking at rather than the one that replaces it.
+	held := m.focusWhole()
+
 	// layout rather than syncContent: the detail replaces the row the header is
 	// built from, and a status line that gains a timestamp can wrap onto a
 	// second row. The panes divide what the header leaves, so its height has to
 	// be taken again before they are sized.
 	m.layout()
+	m.keepFocusWhole(held)
 	return m.armCommit()
+}
+
+// focusWhole is whether the focused card is on the screen entire. A card that
+// was and no longer is has been grown or moved by whatever landed, and the
+// reader is looking at part of a thing they were looking at all of.
+func (m Model) focusWhole() bool {
+	top := bodyTop(&m.view)
+	return m.convRing.show(top, m.view.Height()) == top
+}
+
+// keepFocusWhole brings the focused card back into view after a write changed
+// its height under the reader.
+//
+// A resolve is the one that needs it. Unresolving opens a collapsed thread into
+// its card, its code and every reply hanging off it, and the growth arrives
+// through the store rather than under the key: o re-shows the focus itself and
+// x has no equivalent, so the thread grew off the bottom of the window and sat
+// there.
+//
+// It moves only where the card was whole on the screen before. A refetch
+// landing while the reader has scrolled somewhere else is not a reason to haul
+// them back to the focus they left behind, which is the rule every key that
+// reads the ring already holds to.
+func (m *Model) keepFocusWhole(was bool) {
+	if !was || m.focusWhole() {
+		return
+	}
+	m.view.SetYOffset(contentLead + m.convRing.show(bodyTop(&m.view), m.view.Height()))
 }
 
 func newViewport() viewport.Model {
@@ -588,11 +615,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.toggleResolved()
 	case key.Matches(keyMsg, k.Jump):
 		return m.showInDiff()
-
-	case key.Matches(keyMsg, k.NextWithin):
-		return m.stepWithin(1)
-	case key.Matches(keyMsg, k.PrevWithin):
-		return m.stepWithin(-1)
 
 	case key.Matches(keyMsg, k.NextTab):
 		return m, m.changeTab(1)
@@ -984,9 +1006,9 @@ func (m *Model) toggleExpanded() {
 // foldTarget is what o unfolds.
 //
 // A resolved thread answers with the whole card: closed is its resting state and
-// opening it is the only thing o could usefully mean there. Anywhere else a
-// thread card holds several comments and the fold is per comment, on both tabs
-// that draw one, so the sub-cursor picks which.
+// opening it is the only thing o could usefully mean there. Anywhere else the
+// focus already names one comment, its own or the one its card was opened with,
+// and the fold is per comment on both tabs that draw one.
 func (m Model) foldTarget() focusKey {
 	t, ok := m.threadOnRing()
 	if !ok {

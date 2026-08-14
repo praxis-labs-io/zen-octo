@@ -52,44 +52,13 @@ func replyKey(threadID string) focusKey {
 	return focusKey{kind: focusReply, id: threadID}
 }
 
-// threadWithReply is a thread and, when a box is answering it, the box under it.
-//
-// The box is a card of its own rather than a block inside the thread's. A
-// thread card holds what people said; the box is where you say something, which
-// is the compose card's job at the foot of the page and the same shape here. It
-// keeps the two apart on the page and out of each other's way in the code: no
-// gutter to dodge, no rule to draw, and the accent lands on whichever of the two
-// the keys are going to.
+// writingCard is the box, rendered through the same card every reply renders
+// through and hung off the same rail, so an answer being written sits among the
+// answers already made rather than beside them.
 //
 // An edit inside the thread needs none of this. It is drawn where the words it
-// replaces were, so the thread renders it and this sees one card as usual.
-func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
-	v := m.thread(t, width, true)
-	if m.inline.at != replyKey(t.ID) {
-		return v
-	}
-
-	// Stacked against the thread rather than spaced off it. Every other pair of
-	// blocks on the page has a blank line between them because they are separate
-	// things; these two are one thing being answered and the answer, and the gap
-	// read as the box belonging to the page rather than to the thread above it.
-	box := m.replyCard(width)
-	at := strings.Count(v.block, "\n") + 1
-	block := v.block + "\n" + box
-
-	return rendered{
-		block: block,
-		stops: tile(block, []focusItem{
-			{focusKey: threadKey(t)},
-			{focusKey: replyKey(t.ID), start: at},
-		}),
-		boxAt: at + m.cardLead(width, replyRows+1),
-	}
-}
-
-// replyCard is the box, rendered through the same card every comment renders
-// through, so an answer being written sits among the answers already made.
-func (m *Model) replyCard(width int) string {
+// replaces were, so the card holding them renders it.
+func (m *Model) writingCard(width int) string {
 	key := replyKey(m.inline.at.id)
 
 	inner := m.cardWidth(width)
@@ -97,48 +66,22 @@ func (m *Model) replyCard(width int) string {
 	return m.card(head, m.inlineBox(inner, replyRows, boxChrome), width, m.lit(key), "")
 }
 
-// within is the comment a quote reply would take from a thread, and the one the
-// gutter bar points at.
+// within is the comment the focused card holds: the one that opened the thread
+// when the ring is on the thread's own card, and the reply itself when it is on
+// one of the cards hanging off it.
 //
-// Tab walks whole threads, so landing on one says nothing about which of its
-// comments the reader means. The last is the answer until they say otherwise:
-// it is the one at the bottom of the card, the newest, and the one an answer
-// follows on from. StepWithin moves it, and it is remembered per thread rather
-// than reset by every tab past.
+// Every card is a ring stop, so the focus already names a comment and nothing
+// has to be remembered beside it. This is only the lookup.
 func (m Model) within(t gh.ReviewThread) string {
+	on := m.convRing.on
+	if on.kind == focusThreadComment && slices.ContainsFunc(t.Comments,
+		func(c gh.Comment) bool { return c.ID == on.id }) {
+		return on.id
+	}
 	if len(t.Comments) == 0 {
 		return ""
 	}
-	if held, ok := m.sub[t.ID]; ok && slices.ContainsFunc(t.Comments,
-		func(c gh.Comment) bool { return c.ID == held }) {
-		return held
-	}
-	return t.Comments[len(t.Comments)-1].ID
-}
-
-// stepWithin moves the sub-cursor through the focused thread's comments. It
-// clamps rather than wrapping: a run off either end of a thread is a reader
-// asking for the thread above or below, and tab is the key for that.
-func (m Model) stepWithin(delta int) (Model, tea.Cmd) {
-	t, ok := m.focusedThread()
-	if !ok || len(t.Comments) < 2 {
-		return m, nil
-	}
-
-	at := slices.IndexFunc(t.Comments, func(c gh.Comment) bool { return c.ID == m.within(t) })
-	next := min(max(at+delta, 0), len(t.Comments)-1)
-	if next == at {
-		return m, nil
-	}
-
-	if m.sub == nil {
-		m.sub = make(map[string]string)
-	}
-	m.sub[t.ID] = t.Comments[next].ID
-
-	m.conv.ok = false
-	m.syncContent()
-	return m, nil
+	return t.Comments[0].ID
 }
 
 // threadOpen is whether a thread is showing its comments. Everything unresolved
@@ -148,14 +91,20 @@ func (m Model) threadOpen(t gh.ReviewThread) bool {
 	return !t.IsResolved || m.expanded[threadKey(t)]
 }
 
-// focusedThread is the open thread the ring is on, on the screen.
+// focusedThread is the open thread the ring is anywhere inside, on the screen.
+// A reply answers with the thread it hangs off: r adds to that thread, which is
+// the only reply GitHub has, and e and D pick the card out of it by id.
 func (m Model) focusedThread() (gh.ReviewThread, bool) {
-	t, ok := m.threadOnRing()
+	t, ok := m.threadHolding()
 	return t, ok && m.threadOpen(t)
 }
 
-// threadOnRing is the thread the ring is on whether it is open or not, which is
-// what o needs: closed is the state it exists to change.
+// threadOnRing is the thread whose own card the ring is on, open or not, which
+// is what o needs: closed is the state it exists to change.
+//
+// A reply is not it. The card holding the anchor, the code and the comment that
+// opened the thread is the thread; the cards hanging off it are answers to that
+// comment, and x and v mean the code, not the answer.
 func (m Model) threadOnRing() (gh.ReviewThread, bool) {
 	on := m.convRing.on
 	if !m.answerable() || on.kind != focusThread {
@@ -164,6 +113,23 @@ func (m Model) threadOnRing() (gh.ReviewThread, bool) {
 	for _, t := range m.detail.Detail.Threads {
 		if t.ID == on.id {
 			return t, true
+		}
+	}
+	return gh.ReviewThread{}, false
+}
+
+// threadHolding is the thread the ring is anywhere inside: its own card, or one
+// of the replies hanging off it. It is what the keys that answer or rewrite a
+// comment read, because those mean whichever card is under them.
+func (m Model) threadHolding() (gh.ReviewThread, bool) {
+	if t, ok := m.threadOnRing(); ok {
+		return t, ok
+	}
+	if on := m.convRing.on; m.answerable() && on.kind == focusThreadComment {
+		for _, t := range m.detail.Detail.Threads {
+			if slices.ContainsFunc(t.Comments, func(c gh.Comment) bool { return c.ID == on.id }) {
+				return t, true
+			}
 		}
 	}
 	return gh.ReviewThread{}, false
@@ -261,8 +227,9 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	// reason. Moving the box to the top row takes the thread off the screen with
 	// it: the code, the comments, and the one being answered all sit above the
 	// box, so topping it leaves the reader writing a reply to something they can
-	// no longer see.
-	m.showInline()
+	// no longer see. It goes far enough to land the box's foot, though, or the
+	// reader is writing into something with no visible end.
+	m.showOpenedBox()
 	return m, cmd
 }
 
@@ -332,7 +299,7 @@ func (m *Model) restore(at focusKey, body string, w words,
 	cmd := m.inline.open(at, from(), "", w)
 	m.convRing.on = at
 	m.focus = paneMain
-	m.showInline()
+	m.showOpenedBox()
 	return cmd
 }
 
