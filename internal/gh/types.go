@@ -103,6 +103,21 @@ type Actor struct {
 	Login string
 }
 
+// Mention is somebody who can be named in a comment on a repository. Login is
+// what goes into the buffer, and Name is what tells two similar logins apart. A
+// name is empty on an account that has set none, and it is never filled in from
+// the login: a name equal to a handle would be indistinguishable from one
+// somebody chose.
+//
+// It is not an Actor, and the missing id is why. An Actor carries one because
+// the lists a picker writes back are addressed by node id, and a mention has
+// none to carry. Were this an Actor it would compile straight into
+// assigneeChoices, where every row would be matched on an id it does not have.
+type Mention struct {
+	Login string
+	Name  string
+}
+
 // Label is one label.
 //
 // ID is the node id, which is the only thing updatePullRequest will take: the
@@ -625,10 +640,18 @@ type SearchResult struct {
 // the assignable list is everyone with triage. The narrower list is the safe
 // one to guess with, because a name it leaves out is a write nobody could have
 // started rather than one GitHub refuses.
+//
+// Mentions is who may be named in a comment, which is the wider set: everybody
+// who has taken part, rather than everybody with access. The two are separate
+// fields because neither answers for the other. Offering the assignable list to
+// a mention leaves out most of a thread, and offering the mentionable list to
+// the assignee picker offers people GitHub refuses, with no id to write them
+// back by.
 type RepoMeta struct {
-	Labels  []Label
-	Users   []Actor
-	Methods MergeMethods
+	Labels   []Label
+	Users    []Actor
+	Mentions []Mention
+	Methods  MergeMethods
 }
 
 // MergeMethods is what a repository permits a merge to be made of, and what it

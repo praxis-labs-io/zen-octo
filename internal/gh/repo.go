@@ -8,7 +8,14 @@ import (
 )
 
 // repoMetaQuery is what the detail rail's controls draw their choices from:
-// labels, the people who can be assigned, and what a merge here may be made of.
+// labels, the people who can be assigned, the people who can be named in a
+// comment, and what a merge here may be made of.
+//
+// The two lists of people are two connections because they are two sets.
+// assignableUsers is who has enough access to be given the pull request;
+// mentionableUsers is the wider one, everybody who has taken part, which is who
+// an answer is likely to be addressed to. A mention needs no node id: it is
+// inserted as text and nothing writes it back.
 //
 // Branches are not here and belong nowhere near it. They are a search keyed by
 // what somebody typed rather than a set fetched once, which is Branches in
@@ -25,6 +32,7 @@ query RepoMeta($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     labels(first: 100) { nodes { id name } }
     assignableUsers(first: 100) { nodes { id login } }
+    mentionableUsers(first: 100) { nodes { login name } }
     mergeCommitAllowed
     squashMergeAllowed
     rebaseMergeAllowed
@@ -46,6 +54,9 @@ type repoMetaResponse struct {
 		}
 		AssignableUsers struct {
 			Nodes []struct{ ID, Login string }
+		}
+		MentionableUsers struct {
+			Nodes []struct{ Login, Name string }
 		}
 
 		MergeCommitAllowed  bool
@@ -78,9 +89,11 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 	}
 
 	labels, users := resp.Repository.Labels.Nodes, resp.Repository.AssignableUsers.Nodes
+	mentions := resp.Repository.MentionableUsers.Nodes
 	meta := RepoMeta{
-		Labels: make([]Label, 0, len(labels)),
-		Users:  make([]Actor, 0, len(users)),
+		Labels:   make([]Label, 0, len(labels)),
+		Users:    make([]Actor, 0, len(users)),
+		Mentions: make([]Mention, 0, len(mentions)),
 		Methods: MergeMethods{
 			Merge:         resp.Repository.MergeCommitAllowed,
 			Squash:        resp.Repository.SquashMergeAllowed,
@@ -93,6 +106,12 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 	}
 	for _, n := range users {
 		meta.Users = append(meta.Users, Actor{ID: n.ID, Login: n.Login})
+	}
+
+	// A missing name stays missing. Substituting the login would make an account
+	// that has set no name read exactly like one whose name is their handle.
+	for _, n := range mentions {
+		meta.Mentions = append(meta.Mentions, Mention{Login: n.Login, Name: n.Name})
 	}
 
 	return RepoMetaResult{

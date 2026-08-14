@@ -18,13 +18,27 @@ func Over(base, over string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return base
 	}
+	over = clip(over, width, height)
 
-	// An overlay larger than the frame would otherwise grow the composite past
-	// the terminal, which is the one thing the frame must never do.
-	over = lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(over)
+	x := (width - lipgloss.Width(over)) / 2
+	y := (height - lipgloss.Height(over)) / 2
+	return At(base, over, x, y, width, height)
+}
 
-	x := max(0, (width-lipgloss.Width(over))/2)
-	y := max(0, (height-lipgloss.Height(over))/2)
+// At composites over on top of base with its top-left corner at (x, y), held
+// inside a frame of the given size. Over is this with the corner worked out
+// rather than handed in.
+func At(base, over string, x, y, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return base
+	}
+	over = clip(over, width, height)
+
+	// Clamped against the clipped size, never the size asked for: an overlay
+	// wider than the frame is cut down first, and a corner measured before that
+	// puts what is left of it off the right edge.
+	x = max(0, min(x, width-lipgloss.Width(over)))
+	y = max(0, min(y, height-lipgloss.Height(over)))
 
 	out := lipgloss.NewCompositor(
 		lipgloss.NewLayer(base),
@@ -40,6 +54,13 @@ func Over(base, over string, width, height int) string {
 		lines[i] = line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// clip holds an overlay inside the frame. One larger than it would otherwise
+// grow the composite past the terminal, which is the one thing the frame must
+// never do.
+func clip(over string, width, height int) string {
+	return lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(over)
 }
 
 // Modal frames content as a dialog for Over to place. It is a focused pane, so

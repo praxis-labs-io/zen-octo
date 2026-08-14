@@ -137,15 +137,24 @@ func (m Model) Capturing() bool {
 // enter does nothing.
 func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	m.repo = r
+
+	// A mention popup already on the page takes the answer as it lands, whatever
+	// else the screen is doing. It is ahead of every guard below because those
+	// refuse to drop a modal on somebody mid-sentence, and this one cannot be
+	// that: the box being typed in is what asked, and the list under the caret
+	// is what the fetch was for. SetBranches refills an open base picker at the
+	// same point for the same reason.
+	ask := m.refillMentions()
+
 	if !m.picking.want.needsRepo() || !r.Loaded {
-		return nil
+		return ask
 	}
 
 	want, on := m.picking.want, m.picking.wantOn
 	m.picking.want, m.picking.wantOn = pickNone, focusKey{}
 
 	if m.Capturing() || !m.railVisible() || m.focus != paneRail {
-		return nil
+		return ask
 	}
 
 	// And only where they are still standing on the row they asked from. The
@@ -159,14 +168,14 @@ func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	// it open the same picker: a reader who asked from one label and walked to
 	// another has walked away.
 	if m.railRing.on != on {
-		return nil
+		return ask
 	}
 
 	if want == pickMerge {
-		return m.startMerge()
+		return tea.Batch(ask, m.startMerge())
 	}
 	m.startPicker(want)
-	return nil
+	return ask
 }
 
 // openRailPicker opens whatever the rail row under the focus holds. It does

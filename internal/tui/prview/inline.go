@@ -161,6 +161,11 @@ func (m Model) boxIn(t gh.ReviewThread) bool {
 // inlineKey is every key while the box has the keyboard. It answers the handful
 // that belong to it and hands the rest to the text.
 func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
+	// The popup first, for the reason the compose card takes it first: esc here
+	// closes the box and throws an edit's draft away with it.
+	if next, cmd, took := m.mentionKey(keyMsg); took {
+		return next, cmd
+	}
 	k := keys.Detail
 
 	switch {
@@ -184,12 +189,14 @@ func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.inline.area, cmd = m.inline.area.Update(keyMsg)
+	ask := m.syncMention()
 	m.showInline()
-	return m, cmd
+	return m, tea.Batch(cmd, ask)
 }
 
 // sendInline hands the buffer to whichever write the box was opened for.
 func (m Model) sendInline() (Model, tea.Cmd) {
+	m.clearMention()
 	if m.inline.editing() {
 		return m.saveEdit()
 	}
@@ -202,6 +209,7 @@ func (m Model) sendInline() (Model, tea.Cmd) {
 func (m Model) closeInline() (Model, tea.Cmd) {
 	from := m.inline.from
 	m.inline.close()
+	m.clearMention()
 
 	m.convRing.on = from
 	m.conv.ok = false

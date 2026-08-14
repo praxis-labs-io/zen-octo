@@ -35,12 +35,25 @@ func repoUsers() []gh.Actor {
 	}
 }
 
+// repoMentions is who can be named in a comment. Wider than repoUsers, the way
+// the real connection is: sam has never touched this pull request and cannot be
+// assigned to it, and octobot has no name set.
+func repoMentions() []gh.Mention {
+	return []gh.Mention{
+		{Login: "drucial", Name: "Drew White"},
+		{Login: "nkr", Name: "Nikita Rushmanov"},
+		{Login: "octobot"},
+		{Login: "sam", Name: "Sam Reed"},
+	}
+}
+
 func loadedRepo() store.Repo {
 	return store.Repo{
 		Meta: gh.RepoMeta{
-			Labels:  repoLabels(),
-			Users:   repoUsers(),
-			Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
+			Labels:   repoLabels(),
+			Users:    repoUsers(),
+			Mentions: repoMentions(),
+			Methods:  gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
 		},
 		Status: store.StatusReady,
 		Loaded: true,

@@ -19,6 +19,11 @@ const repoMetaBody = `{
       {"id": "U_1", "login": "drucial"},
       {"id": "U_2", "login": "nkr"}
     ]},
+    "mentionableUsers": {"nodes": [
+      {"login": "drucial", "name": "Drew White"},
+      {"login": "nkr", "name": null},
+      {"login": "outsider", "name": "Sam Reed"}
+    ]},
     "mergeCommitAllowed": false,
     "squashMergeAllowed": true,
     "rebaseMergeAllowed": true,
@@ -44,6 +49,79 @@ func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 	}
 	if !strings.Contains(f.gotQuery, "assignableUsers(first: 100)") {
 		t.Error("query does not ask for the repository's assignable users")
+	}
+}
+
+// The whole selection in one assertion. A substring test for "name" would pass
+// off the labels and one for "id" would pass off them too, so the only thing
+// that pins the connection, the page cap, both fields and the absence of an id
+// is the selection written out.
+func TestRepoMetaAsksForTheMentionableUsersByHandleAndName(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo"); err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	want := "mentionableUsers(first: 100) { nodes { login name } }"
+	if !strings.Contains(f.gotQuery, want) {
+		t.Errorf("query does not ask for %q:\n%s", want, f.gotQuery)
+	}
+}
+
+func TestRepoMetaMapsTheMentionableUsers(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	want := []Mention{
+		{Login: "drucial", Name: "Drew White"},
+		{Login: "nkr"},
+		{Login: "outsider", Name: "Sam Reed"},
+	}
+	if !slices.Equal(res.Meta.Mentions, want) {
+		t.Errorf("mentions = %+v, want %+v", res.Meta.Mentions, want)
+	}
+}
+
+// An account that has set no name comes back null. Falling back to the login
+// would make it read exactly like an account whose name is its handle, and the
+// row would say the same thing twice.
+func TestRepoMetaLeavesAMissingNameEmpty(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	i := slices.IndexFunc(res.Meta.Mentions, func(m Mention) bool { return m.Login == "nkr" })
+	if i < 0 {
+		t.Fatalf("mentions = %+v, want one for nkr", res.Meta.Mentions)
+	}
+	if got := res.Meta.Mentions[i].Name; got != "" {
+		t.Errorf("nkr's name = %q, want it empty", got)
+	}
+}
+
+// The two lists are two sets, and the folds are one copy-paste apart. A login in
+// one and not the other is what catches a fold written over the wrong nodes.
+func TestRepoMetaKeepsTheMentionableAndAssignableListsApart(t *testing.T) {
+	f := &fakeDoer{body: repoMetaBody}
+
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	if err != nil {
+		t.Fatalf("RepoMeta: %v", err)
+	}
+
+	if slices.ContainsFunc(res.Meta.Users, func(a Actor) bool { return a.Login == "outsider" }) {
+		t.Errorf("users = %+v, want the mentionable-only login left out", res.Meta.Users)
+	}
+	if !slices.ContainsFunc(res.Meta.Mentions, func(m Mention) bool { return m.Login == "outsider" }) {
+		t.Errorf("mentions = %+v, want the mentionable-only login present", res.Meta.Mentions)
 	}
 }
 

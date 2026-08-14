@@ -264,15 +264,16 @@ func (m *Model) composeCard(width int) rendered {
 	// Only while it has the keyboard. The card is on the page either way, and a
 	// box line recorded for one nobody is typing in would be the last block on
 	// the page overwriting whichever box actually holds the caret.
-	boxAt := 0
+	boxAt, boxCol := 0, 0
 	if m.compose.typing {
-		boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
+		boxAt, boxCol = m.cardLead(width, strings.Count(body, "\n")+1), cardIndent
 	}
 
 	return rendered{
-		block: block,
-		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
-		boxAt: boxAt,
+		block:  block,
+		stops:  []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt:  boxAt,
+		boxCol: boxCol,
 	}
 }
 
@@ -402,6 +403,7 @@ func (m Model) writeComment() (Model, tea.Cmd) { return m.openCompose("") }
 // it, which the conversation cannot answer any other way.
 func (m Model) openCompose(quote string) (Model, tea.Cmd) {
 	cmd := m.compose.start()
+	m.clearMention()
 	if quote != "" {
 		m.compose.quote(quote)
 	}
@@ -422,11 +424,18 @@ func (m Model) openCompose(quote string) (Model, tea.Cmd) {
 // composeKey is every key while the box has the keyboard. It answers the
 // handful that belong to it and hands the rest to the text.
 func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
+	// The popup first. Every key it answers means something under it that the
+	// reader does not want: esc gives the keyboard back, tab steps to the
+	// button, and enter breaks the line in half.
+	if next, cmd, took := m.mentionKey(keyMsg); took {
+		return next, cmd
+	}
 	k := keys.Detail
 
 	switch {
 	case key.Matches(keyMsg, k.Back):
 		m.compose.stop()
+		m.clearMention()
 		m.conv.ok = false
 		m.syncContent()
 		return m, nil
@@ -450,13 +459,14 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.compose.area, cmd = m.compose.area.Update(keyMsg)
+	ask := m.syncMention()
 
 	// The box is content inside a scrolling pane, so the caret leaves the window
 	// as readily as any other line would. It is the last block on the page, so
 	// holding the page at the foot of it is the whole of keeping the caret in
 	// sight.
 	m.showCompose()
-	return m, cmd
+	return m, tea.Batch(cmd, ask)
 }
 
 // showCompose rebuilds the page and brings the box onto it. Typing changes the
@@ -478,6 +488,7 @@ func (m Model) post() (Model, tea.Cmd) {
 
 	id := m.pr.ID
 	m.compose.sent()
+	m.clearMention()
 
 	// Focus goes with the comment. The box is empty and no longer taking keys,
 	// so an accent left on it says the keyboard is somewhere it is not.

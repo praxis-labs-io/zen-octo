@@ -267,7 +267,23 @@ type Model struct {
 	// the page is built and read by the scroll that keeps the caret in sight. A
 	// box grows with what is typed into it, so it can be taller than the window
 	// and the block holding it says nothing about where in it the caret is.
+	//
+	// boxCol is the page column it landed on, recorded beside it and read by
+	// the popup that draws at the caret. A block behind a review's branch is
+	// set in from the measure, and only the render knows by how much.
 	boxLine int
+	boxCol  int
+
+	// mention is the @-autocomplete over an open box, closed when nothing is
+	// being written in.
+	mention mention
+
+	// mentionsAsked is whether this screen has asked for the people a mention
+	// offers. Once per screen rather than once per popup, the way filesAsked
+	// is: every keystroke inside an @word re-enters the open path, and a fetch
+	// that failed must not be retried on each of them. The sync key is the
+	// retry, which is where it is for the rail's pickers too.
+	mentionsAsked bool
 
 	// railOn is what the user last asked for, and railUserSet whether they have
 	// asked at all. Until they do, width decides.
@@ -318,6 +334,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		diff:        diffBody{threads: true},
 		compose:     newComposer(th),
 		inline:      newInline(th),
+		mention:     mention{dismissed: -1},
 		collapsed:   make(map[string]bool),
 		expanded:    make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
@@ -480,8 +497,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		var cmd tea.Cmd
 		box.area, cmd = box.area.Update(msg)
+
+		// A paste can land an @word under the caret as readily as typing one,
+		// and it never reaches handleKey, so the token is re-read here too.
+		ask := m.syncMention()
 		m.showBox()
-		return m, cmd
+		return m, tea.Batch(cmd, ask)
 	}
 }
 
@@ -517,7 +538,8 @@ func (m *Model) showBox() {
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank()
+		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank() ||
+		m.mentionWaiting()
 }
 
 // commitBlank is a commit to show with nothing on the pane yet: the settle
@@ -874,6 +896,10 @@ func (m *Model) changeTab(delta int) tea.Cmd {
 func (m *Model) goToTab(at int) tea.Cmd {
 	m.offsets[m.tab] = m.view.YOffset()
 	m.tab = at
+
+	// The conversation is the only tab a box is drawn on, so a popup anchored to
+	// one has nothing under it anywhere else.
+	m.clearMention()
 
 	// The column comes and goes with the tab, and focus cannot sit on a pane
 	// that is no longer on screen.
@@ -1349,10 +1375,16 @@ func (m Model) View() string {
 	// before them: a modal centred on the panes alone sits low by half the
 	// header.
 	frame := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	lead := 0
 	if head := m.head(); head != "" {
 		frame = lipgloss.JoinVertical(lipgloss.Left, head, frame)
+		lead = strings.Count(head, "\n") + 1
 	}
-	return m.mergeOverlay(m.pickerOverlay(frame))
+
+	// The mention popup goes on first, so a picker or the merge form composites
+	// over it. The three cannot be up together, and the order says so rather
+	// than leaving it to be assumed.
+	return m.mergeOverlay(m.pickerOverlay(m.mentionOverlay(frame, lead)))
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A
