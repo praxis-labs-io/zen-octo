@@ -295,6 +295,39 @@ func TestTheBraceBackFromInsideACardOpensOnItsByline(t *testing.T) {
 	}
 }
 
+// Back re-enters at the foot of the window, on the last card whole on the
+// screen. A long comment with its tail on the top row and cards whole
+// underneath is a screen of travel on a key asked for one step, and it lands on
+// a byline nobody pointed at.
+func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 12)
+
+	// The description's tail on the top rows, two cards whole beneath it, and
+	// the thread under the second one cut off by the foot of the window.
+	m := press(detailed(held(d), 200, 40), strings.Fields(strings.Repeat("j ", 12))...)
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Fatal("setup: the description's byline is still on screen")
+	}
+	// The reply hanging off that thread is below the fold, so the thread's own
+	// card is cut off and the review above it is the last one whole.
+	if strings.Contains(stripANSI(m.View()), "octobot · said") {
+		t.Fatal("setup: the thread is whole on screen, so it is the card { should take")
+	}
+
+	before := lineOf(t, m.View(), cardReview)
+	after := press(m, "{")
+
+	// Not the description, which the top row sits inside and which is a screen
+	// of travel away.
+	if got := focusedCard(t, after.View()); !strings.HasPrefix(got, cardReview) {
+		t.Errorf("{ landed on %q, want the last card whole on the screen", got)
+	}
+	if now := lineOf(t, after.View(), cardReview); now != before {
+		t.Errorf("the page moved from line %d to %d to light a card already on screen whole", before, now)
+	}
+}
+
 // A focus scrolled until its own byline is off the top is no longer where the
 // reader is standing, so the brace stops stepping from it. Stepping would land
 // a screen or more above the window, on a card they left.

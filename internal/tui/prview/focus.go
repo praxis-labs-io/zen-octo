@@ -121,6 +121,12 @@ func (it focusItem) headOn(top, height int) bool {
 	return it.start >= top && it.start < top+height
 }
 
+// whole reports whether all of the item is in the window, which is the reader
+// seeing it entire.
+func (it focusItem) whole(top, height int) bool {
+	return it.start >= top && it.start+it.lines <= top+height
+}
+
 // ring is the focus order of one pane. The items are rebuilt on every render;
 // on survives it, because it names what it points at rather than where that
 // landed on the screen.
@@ -212,7 +218,7 @@ func (r *ring) step(delta, top, height int, wrap bool) bool {
 		return true
 	}
 
-	at, ok := r.seek(delta, top)
+	at, ok := r.seek(delta, top, height)
 	if !ok {
 		if !wrap {
 			return false
@@ -226,19 +232,34 @@ func (r *ring) step(delta, top, height int, wrap bool) bool {
 	return true
 }
 
-// seek is the block a brace moves to when the focus is not where the reader is:
-// forward the first whose heading is at or below the top row, back the last
-// whose heading is above it. Going back that is the head of the block they are
-// inside, which is what { means in vim and the one motion this screen had no
-// way to make.
+// seek is the block a brace moves to when the focus is not where the reader is.
+// Each key re-enters from its own end of the window and walks from there:
+// forward the first heading at or below the top row, back the last card whole
+// on the screen.
+//
+// Back stops at what is on the screen rather than reaching past it for the
+// block the top row sits inside. A long review with its last two lines at the
+// top and three cards whole underneath is a screen of travel on a key that was
+// asked for one step, and the byline it arrives at is one nobody pointed to. A
+// card the reader can see entire is the one they mean, and lighting it moves
+// the page not at all.
+//
+// Only where nothing fits is the block under the top row the answer, and there
+// it is the only one there is: the window is inside one long comment, and its
+// own head is what { means in vim.
 //
 // Forward takes the top row itself, where the two tabs with no focus to
 // disambiguate take the row under it. A screen opened and not yet scrolled has
 // the description's byline on that row, and skipping it would leave the first
 // card on the page unreachable by the first press. Nothing stalls on it,
 // because the press after lands on a heading and steps by index from there.
-func (r ring) seek(delta, top int) (int, bool) {
+func (r ring) seek(delta, top, height int) (int, bool) {
 	if delta < 0 {
+		for i := len(r.items) - 1; i >= 0; i-- {
+			if r.items[i].whole(top, height) {
+				return i, true
+			}
+		}
 		for i := len(r.items) - 1; i >= 0; i-- {
 			if r.items[i].start < top {
 				return i, true
@@ -269,7 +290,7 @@ func (r ring) show(top, height int) int {
 	}
 
 	it := r.items[at]
-	if it.start >= top && it.start+it.lines <= top+height {
+	if it.whole(top, height) {
 		return top
 	}
 	return it.start

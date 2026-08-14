@@ -128,9 +128,17 @@ and past that the braces are motion rather than a step and read the window
 instead. A reader who scrolled has moved, and the block they left is not the one
 to count from: stepping forward off it lands behind where they are reading and
 stepping back lands a screen or more above it, which is each key moving the page
-against itself. So `}` takes the first byline at or below the top row and `{`
-the last one above it, which is the head of the block the reader is inside and
-the one motion this screen had no way to make. `focusItem.headOn` is that test
+against itself. So each key re-enters from its own end of the window and walks
+from there: `}` takes the first byline at or below the top row, `{` the last
+card whole on the screen. Back stops at what is on the screen rather than
+reaching past it for the block the top row sits inside, because a long review
+with its last two lines on that row and three cards whole underneath is a screen
+of travel on a key asked for one step, and the byline it arrives at is one
+nobody pointed to; a card the reader can see entire is the one they mean, and
+lighting it moves the page not at all. Only where nothing fits is the block
+under the top row the answer, and there it is the only one there is: the window
+is inside one long comment, and its own head is what `{` means in vim and the
+one motion this screen had no way to make. `focusItem.headOn` is that test
 and it is deliberately not `covers`: whether a key may act on a block and
 whether that block is where the reader is standing are different questions, and
 a ninety-line review with one line left on the top row answers them differently.
