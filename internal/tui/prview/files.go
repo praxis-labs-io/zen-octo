@@ -660,7 +660,15 @@ func (m *Model) jumpFile(delta int) {
 	}
 
 	next := at
-	if delta < 0 || (m.cursor < len(m.rows) && m.rows[m.cursor].file != nil) {
+	switch {
+	// Back from inside a file is that file's own heading, the way it is in vim
+	// and the way the Commits tab reads it already. The key means the file
+	// before it only once that heading is on the top row.
+	case delta < 0:
+		if m.diff.spans[at].start >= bodyTop(&m.view) {
+			next = at - 1
+		}
+	case m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
 		next = at + delta
 	}
 	next = min(max(next, 0), len(m.diff.spans)-1)

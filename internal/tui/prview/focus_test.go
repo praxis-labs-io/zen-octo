@@ -249,18 +249,64 @@ func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
 	t.Fatalf("no Assignees section in the rail: %q", rows)
 }
 
-// A card filling the whole window is the one the reader is looking at. Scanning
-// for the first card to begin below the top skips straight past it.
-func TestTheRingTakesTheCardFillingTheWindow(t *testing.T) {
+// tall is a screen whose description runs well past the pane, so the reader can
+// be inside one card with its byline off the top.
+func tall() prview.Model {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
 
-	// Scrolled into the middle of the description, which is taller than the pane.
-	m := press(detailed(held(d), 200, 20), strings.Fields(strings.Repeat("j ", 12))...)
+	return detailed(held(d), 200, 20)
+}
 
-	got := focusedCard(t, press(m, "}").View())
+// scrolledIn takes the page twelve lines into that description.
+func scrolledIn(t *testing.T, m prview.Model) prview.Model {
+	t.Helper()
+
+	m = press(m, strings.Fields(strings.Repeat("j ", 12))...)
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Fatal("setup: the byline is still on screen, so this proves nothing")
+	}
+	return m
+}
+
+// Forward from inside a card is the next card, in one press. Taking the card
+// the window is full of would light a byline the reader cannot see and haul the
+// page up to it, which is the page moving against the key.
+func TestTheBraceForwardFromInsideACardLeavesIt(t *testing.T) {
+	m := press(scrolledIn(t, tall()), "}")
+
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
+		t.Errorf("the ring focused %q, want the card after the one the window is full of", got)
+	}
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Error("} scrolled back up to the description's byline")
+	}
+}
+
+// Back from inside a card is that card's own byline. It is what { means in vim,
+// and the one motion this screen had no way to make.
+func TestTheBraceBackFromInsideACardOpensOnItsByline(t *testing.T) {
+	got, at := focusedCardAt(t, press(scrolledIn(t, tall()), "{").View())
 	if !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("the ring focused %q, want the card the window is full of", got)
+		t.Fatalf("the ring focused %q, want the card the window is full of", got)
+	}
+	if at != 1 {
+		t.Errorf("the card's border landed on pane row %d, want the top of the window", at)
+	}
+}
+
+// A focus scrolled until its own byline is off the top is no longer where the
+// reader is standing, so the brace stops stepping from it. Stepping would land
+// a screen or more above the window, on a card they left.
+func TestAFocusScrolledOffItsBylineStopsBeingTheStep(t *testing.T) {
+	m := press(tall(), "}")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: focus landed on %q, want the description", got)
+	}
+
+	// Not the card before the description, which the ring would step to.
+	if got := focusedCard(t, press(scrolledIn(t, m), "{").View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("{ landed on %q, want the byline of the card the reader is in", got)
 	}
 }
 

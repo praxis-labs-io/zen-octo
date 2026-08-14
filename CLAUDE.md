@@ -123,6 +123,23 @@ Key bindings live in `internal/tui/keys`, declared once with their help text. Th
 
 The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. That gives tab and shift+tab back to the tab strip, where they do what they do on the list screen. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
 
+The ring steps from its focus while that focus's own byline is on the screen,
+and past that the braces are motion rather than a step and read the window
+instead. A reader who scrolled has moved, and the block they left is not the one
+to count from: stepping forward off it lands behind where they are reading and
+stepping back lands a screen or more above it, which is each key moving the page
+against itself. So `}` takes the first byline at or below the top row and `{`
+the last one above it, which is the head of the block the reader is inside and
+the one motion this screen had no way to make. `focusItem.headOn` is that test
+and it is deliberately not `covers`: whether a key may act on a block and
+whether that block is where the reader is standing are different questions, and
+a ninety-line review with one line left on the top row answers them differently.
+Forward takes the top row itself where the two tabs with no focus to
+disambiguate take the row under it, because a screen not yet scrolled has the
+description's byline on that row and skipping it would put the first card on the
+page out of reach of the first press; nothing stalls on it, since the press
+after lands on a byline and steps by index from there.
+
 An `@` opening a word in either box draws that list under the caret. It declares no bindings of its own, because every key it wants is one `DetailMap` or `FormMap` already spells and a fifth field would collide in the reflection tests: `enter` and `tab` insert, the arrows move, `esc` closes the list alone. Each of those is a key that destroys something if it leaks through, which is why `mentionKey` runs ahead of both `composeKey` and `inlineKey` rather than beside them: a leaked `esc` closes the box and an edit's draft goes with it, a leaked `tab` blurs the textarea so the box then takes no keys at all, and a leaked `enter` breaks the line in half. The arrows are matched behind the printable guard `comp.Picker.Insert` uses, because `Up` and `Down` carry `k` and `j` and those are letters in a box.
 
 The token is read from the buffer rather than from the keystroke, on `Line()` and `Column()`, which are a logical row and a rune index into it, so a start of line and a start of buffer are the same test. It scans back from the caret rather than forward from the `@`: a line with three handles on it has three tokens and two of them are finished. The `@` has to open a word, which is what keeps an address from dropping a list of logins over the line it is written on. The scan runs on the paste path as well as the key path, because a paste is its own message and never reaches `handleKey`, and a list left open after one shows a query the buffer no longer holds.

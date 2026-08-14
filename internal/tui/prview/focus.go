@@ -109,6 +109,18 @@ func (it focusItem) covers(top, height int) bool {
 	return it.start < top+height && it.start+it.lines > top
 }
 
+// headOn reports whether the item's own heading is in the window, which is the
+// reader being at it rather than somewhere inside it.
+//
+// Deliberately not covers. Whether a key may act on a block and whether that
+// block is where the reader is standing are different questions, and a
+// ninety-line review with one line left on the top row answers them
+// differently: it is still the thing e and D mean, and it is no longer where
+// the reader is.
+func (it focusItem) headOn(top, height int) bool {
+	return it.start >= top && it.start < top+height
+}
+
 // ring is the focus order of one pane. The items are rebuilt on every render;
 // on survives it, because it names what it points at rather than where that
 // landed on the screen.
@@ -166,13 +178,19 @@ func (r *ring) clear() bool {
 	return had
 }
 
-// step moves the focus one item and reports whether the ring took the key. top
-// and height are the window the pane is showing, in the same lines the items
-// were recorded in.
+// step moves the focus and reports whether the ring took the key. top and
+// height are the window the pane is showing, in the same lines the items were
+// recorded in.
 //
-// Focus does not survive being scrolled out of the window. A reader who scrolled
-// away has moved on, and the one thing the ring must not do is haul them back to
-// a card they left behind. So it re-anchors to what is on the screen now.
+// The ring steps from its focus while that focus's own heading is on the
+// screen. A card the reader landed on and has not scrolled off is where they
+// are standing, and the next one along is what the key means.
+//
+// Past that the braces are motion rather than a step, and they read the window
+// instead. A reader who scrolled has moved, and stepping from a card whose
+// byline went off the top hauls them to a block they cannot see: forward it
+// lands behind where they are reading, back it lands a screen or more above it.
+// seek is where they actually are.
 //
 // wrap is the caller's, because the two rings end differently. A page of cards
 // comes back round: the ring is the whole of it and there is nothing past the
@@ -185,43 +203,55 @@ func (r *ring) step(delta, top, height int, wrap bool) bool {
 		return false
 	}
 
-	at := r.index()
-	if at < 0 || !r.items[at].covers(top, height) {
-		r.on = r.items[r.anchor(delta, top, height)].focusKey
+	if at := r.index(); at >= 0 && r.items[at].headOn(top, height) {
+		next := at + delta
+		if !wrap && (next < 0 || next >= len(r.items)) {
+			return false
+		}
+		r.on = r.items[(next+len(r.items))%len(r.items)].focusKey
 		return true
 	}
 
-	next := at + delta
-	if !wrap && (next < 0 || next >= len(r.items)) {
-		return false
+	at, ok := r.seek(delta, top)
+	if !ok {
+		if !wrap {
+			return false
+		}
+		at = 0
+		if delta < 0 {
+			at = len(r.items) - 1
+		}
 	}
-
-	r.on = r.items[(next+len(r.items))%len(r.items)].focusKey
+	r.on = r.items[at].focusKey
 	return true
 }
 
-// anchor is where focus lands when there is none to move: the first item on the
-// screen going forward, the last going back. A window between two items falls to
-// whichever end it is nearer.
+// seek is the block a brace moves to when the focus is not where the reader is:
+// forward the first whose heading is at or below the top row, back the last
+// whose heading is above it. Going back that is the head of the block they are
+// inside, which is what { means in vim and the one motion this screen had no
+// way to make.
 //
-// On the screen means any part of it, not all of it. A card taller than the
-// window is the one the reader is looking at, and a scan for the first item to
-// begin below the top skips straight past it to the next one.
-func (r ring) anchor(delta, top, height int) int {
+// Forward takes the top row itself, where the two tabs with no focus to
+// disambiguate take the row under it. A screen opened and not yet scrolled has
+// the description's byline on that row, and skipping it would leave the first
+// card on the page unreachable by the first press. Nothing stalls on it,
+// because the press after lands on a heading and steps by index from there.
+func (r ring) seek(delta, top int) (int, bool) {
 	if delta < 0 {
 		for i := len(r.items) - 1; i >= 0; i-- {
-			if r.items[i].covers(top, height) {
-				return i
+			if r.items[i].start < top {
+				return i, true
 			}
 		}
-		return 0
+		return 0, false
 	}
 	for i, it := range r.items {
-		if it.covers(top, height) {
-			return i
+		if it.start >= top {
+			return i, true
 		}
 	}
-	return len(r.items) - 1
+	return 0, false
 }
 
 // show is the offset that brings the focused item onto a window of the given
