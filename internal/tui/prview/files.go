@@ -668,6 +668,11 @@ func (m *Model) jumpFile(delta int) {
 		if m.diff.spans[at].start >= bodyTop(&m.view) {
 			next = at - 1
 		}
+	// The last file is the end, the way the ring's last card is. Clamping onto
+	// it and showing it again scrolls back to its heading from inside it, which
+	// is the page moving against the key.
+	case at == len(m.diff.spans)-1 && m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
+		return
 	case m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
 		next = at + delta
 	}

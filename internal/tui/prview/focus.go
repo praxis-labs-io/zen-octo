@@ -167,10 +167,13 @@ func (r ring) index() int {
 }
 
 // live is whether the focus is on the screen. Scrolled out of the window it is
-// nothing the reader can see, so it is nothing for a key to act on either. This
-// is the rule step re-anchors by, and every key that reads the focus holds to
-// it: one that acted on a card off screen would move the page under a reader
-// who had already left it.
+// nothing the reader can see, so it is nothing for a key to act on either: one
+// that acted on a card off screen would move the page under a reader who had
+// already left it.
+//
+// This is the rule every key that acts on the focus holds to, and not the one
+// the braces move by. Whether a card may be replied to and whether it is where
+// the reader is standing are different questions, and headOn is the second.
 func (r ring) live(top, height int) bool {
 	at := r.index()
 	return at >= 0 && r.items[at].covers(top, height)

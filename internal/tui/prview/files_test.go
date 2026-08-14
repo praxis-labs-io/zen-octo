@@ -858,6 +858,27 @@ func TestBraceBackFromInsideAFileOpensOnItsHeading(t *testing.T) {
 	}
 }
 
+// The last file is the end. Clamping onto it and showing it again scrolls back
+// to its heading from inside it, which is the page moving against the key.
+func TestBraceForwardInsideTheLastFileStaysPut(t *testing.T) {
+	files := sampleFiles()
+	files[2] = longFile("internal/tui/prview/files.go", 60)
+
+	m := detailed(held(sampleDetail()), 200, 20)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "2", "G")
+	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
+		t.Fatalf("setup: cursor on %q, want the last file", got)
+	}
+	if strings.Contains(diffHeads(m.View()), "files.go") {
+		t.Fatal("setup: the heading is on screen, so there is nothing to scroll back to")
+	}
+
+	if before, after := stripANSI(m.View()), stripANSI(press(m, "}").View()); before != after {
+		t.Error("} from inside the last file scrolled back to its heading")
+	}
+}
+
 // A directory row has no block of its own, and the reader has not seen the
 // files under it yet.
 func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {

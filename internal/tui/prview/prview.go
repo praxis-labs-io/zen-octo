@@ -762,10 +762,9 @@ func (m Model) refresh() tea.Cmd {
 // else. Both of those point at something; the panes holding prose do not.
 //
 // The rail's cursor stops at each end rather than coming back round, and hands
-// the key to the pane there. Wrapping is what a page of cards wants, where the
-// ring is the whole of the content; the rail is a list of controls inside a
-// pane that holds facts as well, and a cursor that jumped from the last control
-// to the first would move the reader a screen away from what they were reading.
+// the key to the pane there. So does the conversation's ring: a cursor that
+// jumped from the last stop to the first would move the reader a screen away
+// from what they were reading, and a page of cards is the deeper of the two.
 // Scrolling instead is the honest answer to a key with nowhere to put a cursor,
 // though bringing the focused control into view leaves the rail at its end
 // anyway on every layout here, so it currently has nothing left to scroll.
