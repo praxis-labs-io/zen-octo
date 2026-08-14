@@ -89,6 +89,12 @@ type DetailMap struct {
 	Reply      key.Binding
 	QuoteReply key.Binding
 
+	// React opens the list of GitHub's eight over the block the ring is on and
+	// toggles the one chosen. It takes + because that is the button GitHub puts
+	// on every comment, and because it is the one thing a reader does to
+	// somebody else's writing without writing anything back.
+	React key.Binding
+
 	// Edit opens the box over the block the ring is on, with its words in it.
 	// Delete takes one off, behind a confirm. It is shifted because deleting is
 	// not something to do by leaning on a key, and the confirm is there because
@@ -174,6 +180,7 @@ var (
 		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
+		React:      key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
 		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Delete:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
@@ -267,7 +274,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.Expand, k.ToggleRail},
-		{k.Reply, k.QuoteReply},
+		{k.Reply, k.QuoteReply, k.React},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{Form.Next, Form.Prev, k.Toggle},

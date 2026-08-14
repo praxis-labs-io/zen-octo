@@ -630,6 +630,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Delete):
 		return m.startDelete()
 
+	// React reads the focus too, and its gate is the only one of the three that
+	// is not about whose writing it is: GitHub lets anybody react to anything
+	// they can see, their own comment included.
+	case key.Matches(keyMsg, k.React):
+		return m.startReact()
+
 	// Both act on the thread the ring is holding, and both keep their gate
 	// inside: whether GitHub will take a resolve is the thread's answer, and
 	// whether the file is in the diff is the diff's.

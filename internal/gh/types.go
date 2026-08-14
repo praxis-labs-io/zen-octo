@@ -150,6 +150,56 @@ const (
 	CommentThread CommentKind = "THREAD"
 )
 
+// ReactionContent is one of the eight reactions GitHub takes. The constant is
+// the wire word rather than a name chosen here, because the mutation takes this
+// value as an enum and nothing above translates it back.
+type ReactionContent string
+
+const (
+	ReactionThumbsUp   ReactionContent = "THUMBS_UP"
+	ReactionThumbsDown ReactionContent = "THUMBS_DOWN"
+	ReactionLaugh      ReactionContent = "LAUGH"
+	ReactionHooray     ReactionContent = "HOORAY"
+	ReactionConfused   ReactionContent = "CONFUSED"
+	ReactionHeart      ReactionContent = "HEART"
+	ReactionRocket     ReactionContent = "ROCKET"
+	ReactionEyes       ReactionContent = "EYES"
+)
+
+// ReactionOrder is the eight in GitHub's own order, which is the order its page
+// offers them in and the order a card renders them in. A screen picking its own
+// would put the same set of pills in a different place on every comment.
+var ReactionOrder = []ReactionContent{
+	ReactionThumbsUp,
+	ReactionThumbsDown,
+	ReactionLaugh,
+	ReactionHooray,
+	ReactionConfused,
+	ReactionHeart,
+	ReactionRocket,
+	ReactionEyes,
+}
+
+// Reaction is one kind of reaction on one subject, and how many people gave it.
+//
+// Viewer is whether the account holding the token is one of them, which is what
+// makes the key a toggle rather than an add: there is no call that sets a
+// reaction, only one that adds and one that removes.
+//
+// GitHub answers with all eight groups on every subject, nearly all at zero.
+// This package returns the ones somebody actually gave, or every card on the
+// page grows a row of eight pills saying nothing.
+type Reaction struct {
+	Content ReactionContent
+	Count   int
+	Viewer  bool
+
+	// Pending marks a reaction toggled here and not yet answered for. This
+	// package never sets it, on the terms Comment.Pending sets out: the store
+	// sets it on the optimistic copy and the screen keeps the key off it.
+	Pending bool
+}
+
 // Comment is one piece of writing in the conversation, whether it stands alone,
 // heads a review, or sits inside a review thread. One type for all three is what
 // lets one component render them, and what makes issues cheap to add later.
@@ -168,6 +218,10 @@ type Comment struct {
 	CanEdit         bool
 	CanDelete       bool
 	CanReact        bool
+
+	// Reactions is what people gave this comment, in GitHub's order and with the
+	// empty groups dropped.
+	Reactions []Reaction
 
 	// Pending marks a comment written here and not yet acknowledged by GitHub.
 	// This package never sets it: it has nothing pending, everything it returns
@@ -428,6 +482,12 @@ type ViewerActions struct {
 	CanAssign bool
 
 	CanMergeAsAdmin bool
+
+	// CanReact governs the description alone. Every comment carries its own
+	// answer to the same question, and the description is not a comment: it is
+	// a field of the pull request, and the pull request is what a reaction to it
+	// is addressed to.
+	CanReact bool
 }
 
 // PullRequestDetail embeds the row, so a detail response refreshes the header
@@ -439,6 +499,12 @@ type PullRequestDetail struct {
 	Labels    []Label
 	Assignees []Actor
 	Reviewers []Reviewer
+
+	// Reactions is what people gave the description. It hangs off the detail
+	// rather than off a comment because GitHub has no comment here: the
+	// description is a field of the pull request, and the pull request is the
+	// subject a reaction to it names.
+	Reactions []Reaction
 
 	Timeline []TimelineItem
 	Threads  []ReviewThread
@@ -618,6 +684,15 @@ type ThreadResult struct {
 	IsResolved   bool
 	CanResolve   bool
 	CanUnresolve bool
+}
+
+// ReactionResult is a subject's reactions as GitHub recorded them after a
+// toggle: the whole set rather than the one that moved, because the payload
+// answers with all of it and the card renders all of it.
+//
+// It carries no RateLimit, for the reason CommentResult gives.
+type ReactionResult struct {
+	Reactions []Reaction
 }
 
 // SearchResult is one search response: what it matched and what it cost.

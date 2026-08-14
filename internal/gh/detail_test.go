@@ -20,6 +20,11 @@ const detailBody = `{
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "viewerCanAssign": true,
     "viewerCanMergeAsAdmin": false, "isCrossRepository": false,
+    "viewerCanReact": true,
+    "reactionGroups": [
+      {"content": "HEART", "viewerHasReacted": true, "reactors": {"totalCount": 2}},
+      {"content": "EYES", "viewerHasReacted": false, "reactors": {"totalCount": 0}}
+    ],
     "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-05T11:00:00Z",
     "additions": 42, "deletions": 7, "changedFiles": 3,
     "headRefName": "fix-auth", "baseRefName": "main",
@@ -55,7 +60,12 @@ const detailBody = `{
         {"id": "IC_2", "author": {"login": "octobot"}, "createdAt": "2026-08-04T09:00:00Z",
          "body": "Coverage held.",
          "viewerDidAuthor": false, "viewerCanUpdate": true,
-         "viewerCanDelete": true, "viewerCanReact": true}
+         "viewerCanDelete": true, "viewerCanReact": true,
+         "reactionGroups": [
+           {"content": "THUMBS_UP", "viewerHasReacted": true, "reactors": {"totalCount": 3}},
+           {"content": "LAUGH", "viewerHasReacted": false, "reactors": {"totalCount": 0}},
+           {"content": "ROCKET", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+         ]}
       ]
     },
 
@@ -65,7 +75,10 @@ const detailBody = `{
         {"id": "REV_1", "state": "CHANGES_REQUESTED", "body": "Two things.",
          "submittedAt": "2026-08-03T09:00:00Z", "author": {"login": "nkr"},
          "viewerDidAuthor": false, "viewerCanUpdate": false,
-         "viewerCanDelete": true, "viewerCanReact": true},
+         "viewerCanDelete": true, "viewerCanReact": true,
+         "reactionGroups": [
+           {"content": "CONFUSED", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+         ]},
         {"id": "REV_2", "state": "APPROVED", "body": "",
          "submittedAt": "2026-08-05T09:00:00Z", "author": {"login": "nkr"},
          "viewerDidAuthor": false, "viewerCanUpdate": false,
@@ -89,6 +102,9 @@ const detailBody = `{
             "body": "Needs a ceiling.", "pullRequestReview": {"id": "REV_1"},
             "viewerDidAuthor": false, "viewerCanUpdate": false,
             "viewerCanDelete": true, "viewerCanReact": true,
+            "reactionGroups": [
+              {"content": "EYES", "viewerHasReacted": true, "reactors": {"totalCount": 4}}
+            ],
             "diffHunk": "@@ -39,3 +39,4 @@\n \tfor {\n-\t\ttime.Sleep(delay)\n+\t\tdelay = min(delay*2, fetchTimeout)"},
            {"id": "RC_2", "author": {"login": "drucial"}, "createdAt": "2026-08-03T10:00:00Z",
             "body": "Capped.", "pullRequestReview": {"id": "REV_1"},
@@ -570,11 +586,62 @@ func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 
 	want := ViewerActions{
 		CanUpdate: true, CanClose: true, CanReopen: false, CanAssign: true,
-		CanMergeAsAdmin: false,
+		CanMergeAsAdmin: false, CanReact: true,
 	}
 	if res.Detail.Viewer != want {
 		t.Errorf("Viewer = %+v, want %+v", res.Detail.Viewer, want)
 	}
+}
+
+// Four levels carry reactions and each decodes through its own path: three
+// comment types through commentNode and the description through the pull
+// request. A level wired up in the query and not in the fold renders a card
+// whose pills never appear.
+func TestReactionsComeBackAtEveryLevel(t *testing.T) {
+	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+	if err != nil {
+		t.Fatalf("PullRequest() error = %v, want nil", err)
+	}
+	d := res.Detail
+
+	if want := []Reaction{{Content: ReactionHeart, Count: 2, Viewer: true}}; !slices.Equal(d.Reactions, want) {
+		t.Errorf("description reactions = %+v, want %+v", d.Reactions, want)
+	}
+
+	// A group at zero is dropped. GitHub answers with all eight on every
+	// subject, so keeping them puts six empty pills under every card.
+	want := []Reaction{
+		{Content: ReactionThumbsUp, Count: 3, Viewer: true},
+		{Content: ReactionRocket, Count: 1},
+	}
+	if got := commentIn(d.Timeline, "IC_2"); !slices.Equal(got.Reactions, want) {
+		t.Errorf("IC_2 reactions = %+v, want %+v", got.Reactions, want)
+	}
+
+	if got := commentIn(d.Timeline, "REV_1"); len(got.Reactions) != 1 ||
+		got.Reactions[0].Content != ReactionConfused || got.Reactions[0].Viewer {
+		t.Errorf("REV_1 reactions = %+v, want one CONFUSED the viewer is not in", got.Reactions)
+	}
+
+	rc := d.Threads[0].Comments[0]
+	if len(rc.Reactions) != 1 || rc.Reactions[0].Count != 4 || !rc.Reactions[0].Viewer {
+		t.Errorf("RC_1 reactions = %+v, want four EYES the viewer is in", rc.Reactions)
+	}
+
+	// A comment the fixture gave no groups reads as one nobody reacted to,
+	// never as one whose reactions were dropped in decoding.
+	if got := commentIn(d.Timeline, "IC_1"); got.Reactions != nil {
+		t.Errorf("IC_1 reactions = %+v, want none", got.Reactions)
+	}
+}
+
+func commentIn(timeline []TimelineItem, id string) Comment {
+	for _, item := range timeline {
+		if said := item.Said(); said.ID == id {
+			return said
+		}
+	}
+	return Comment{}
 }
 
 // The merge form sends the oid as the commit it means and the ref id as the
@@ -792,6 +859,22 @@ func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 	// carry these, and the count is what says the fragment reached all three.
 	if got := strings.Count(pullRequestQuery, "viewerDidAuthor"); got != 3 {
 		t.Errorf("viewerDidAuthor appears %d times, want 3: issue comments, reviews and thread comments", got)
+	}
+}
+
+// Reactions are asked for on the three comment types and on the pull request
+// itself, which is the subject a reaction to the description is addressed to.
+// A level left out renders a card whose pills are always absent, and the key
+// over it toggles something nobody can see.
+func TestTheQueryAsksForReactionsAtEveryLevel(t *testing.T) {
+	for _, want := range []string{"reactionGroups", "viewerHasReacted", "reactors", "totalCount"} {
+		if !strings.Contains(pullRequestQuery, want) {
+			t.Errorf("the query does not ask for %q", want)
+		}
+	}
+
+	if got := strings.Count(pullRequestQuery, "reactionGroups"); got != 4 {
+		t.Errorf("reactionGroups appears %d times, want 4: three comment types and the pull request", got)
 	}
 }
 

@@ -49,6 +49,7 @@ type fakeSearcher struct {
 	deleted     []string
 	bodies      []string
 	settled     []string
+	toggled     []string
 	labelled    []string
 	assigned    []string
 	reviewed    []string
@@ -345,6 +346,36 @@ func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.Co
 			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
 		},
 	}, nil
+}
+
+// SetReaction records the toggle as "subject content on", and answers with a
+// set that leaves no doubt it was GitHub's rather than the optimistic one.
+func (f *fakeSearcher) SetReaction(_ context.Context, subjectID string,
+	content gh.ReactionContent, on bool,
+) (gh.ReactionResult, error) {
+	f.mu.Lock()
+	f.toggled = append(f.toggled, subjectID+" "+string(content)+" "+strconv.FormatBool(on))
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.ReactionResult{}, err
+	}
+	if !on {
+		return gh.ReactionResult{}, nil
+	}
+	return gh.ReactionResult{Reactions: []gh.Reaction{
+		{Content: content, Count: 9, Viewer: true},
+	}}, nil
+}
+
+// reactions is the toggles the model sent, in order.
+func (f *fakeSearcher) reactions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.toggled)
 }
 
 func (f *fakeSearcher) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
@@ -849,6 +880,12 @@ func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResu
 
 func (f *querySearcher) SetThreadResolved(_ context.Context, _ string, _ bool) (gh.ThreadResult, error) {
 	return gh.ThreadResult{}, nil
+}
+
+func (f *querySearcher) SetReaction(_ context.Context, _ string,
+	_ gh.ReactionContent, _ bool,
+) (gh.ReactionResult, error) {
+	return gh.ReactionResult{}, nil
 }
 
 func (f *querySearcher) UpdateComment(_ context.Context, _ gh.CommentKind, _, _ string) (gh.CommentResult, error) {

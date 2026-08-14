@@ -42,6 +42,8 @@ query PullRequestDetail($id: ID!, $head: String!) {
       viewerCanReopen
       viewerCanAssign
       viewerCanMergeAsAdmin
+      viewerCanReact
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
       isCrossRepository
       createdAt
       updatedAt
@@ -89,6 +91,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
           viewerCanUpdate
           viewerCanDelete
           viewerCanReact
+          reactionGroups { content viewerHasReacted reactors { totalCount } }
         }
       }
 
@@ -104,6 +107,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
           viewerCanUpdate
           viewerCanDelete
           viewerCanReact
+          reactionGroups { content viewerHasReacted reactors { totalCount } }
         }
       }
 
@@ -134,6 +138,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
               viewerCanUpdate
               viewerCanDelete
               viewerCanReact
+              reactionGroups { content viewerHasReacted reactors { totalCount } }
               pullRequestReview { id }
             }
           }
@@ -267,6 +272,7 @@ type commentNode struct {
 	ViewerCanUpdate bool
 	ViewerCanDelete bool
 	ViewerCanReact  bool
+	ReactionGroups  []reactionGroup
 }
 
 func (n commentNode) comment(kind CommentKind, at time.Time) Comment {
@@ -280,6 +286,7 @@ func (n commentNode) comment(kind CommentKind, at time.Time) Comment {
 		CanEdit:         n.ViewerCanUpdate,
 		CanDelete:       n.ViewerCanDelete,
 		CanReact:        n.ViewerCanReact,
+		Reactions:       reactions(n.ReactionGroups),
 	}
 }
 
@@ -303,6 +310,8 @@ type pullRequestResponse struct {
 		ViewerCanReopen       bool
 		ViewerCanAssign       bool
 		ViewerCanMergeAsAdmin bool
+		ViewerCanReact        bool
+		ReactionGroups        []reactionGroup
 		IsCrossRepository     bool
 		CreatedAt             time.Time
 		UpdatedAt             time.Time
@@ -498,6 +507,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			UpdatedAt:      n.UpdatedAt,
 		},
 		Body:            n.Body,
+		Reactions:       reactions(n.ReactionGroups),
 		Merge:           mergeState(n.Mergeable, n.MergeStateStatus),
 		HeadRefOid:      n.HeadRefOid,
 		CrossRepository: n.IsCrossRepository,
@@ -509,6 +519,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			CanReopen:       n.ViewerCanReopen,
 			CanAssign:       n.ViewerCanAssign,
 			CanMergeAsAdmin: n.ViewerCanMergeAsAdmin,
+			CanReact:        n.ViewerCanReact,
 		},
 		MoreComments: max(0, n.Comments.TotalCount-len(n.Comments.Nodes)),
 		MoreThreads:  max(0, n.ReviewThreads.TotalCount-len(n.ReviewThreads.Nodes)),

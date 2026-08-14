@@ -36,6 +36,11 @@ const (
 	// escape and the accent are all the picker's already, and a question with
 	// two answers is a list with two rows.
 	pickDelete
+
+	// pickReact is GitHub's eight over the block + was pressed on. It is the
+	// one picker here whose choices are neither the repository's nor a search:
+	// the eight are fixed, so nothing is fetched and nothing is waited on.
+	pickReact
 )
 
 // needsRepo is whether a field's choices belong to the repository rather than
@@ -84,6 +89,11 @@ type picking struct {
 	// the three above are: a refetch landing behind the modal must not change
 	// what enter deletes.
 	on target
+
+	// react is the block the reaction list was opened over, held for the same
+	// reason and carrying the reactions it was built against: what enter means
+	// depends on whether the viewer was already in the one under the cursor.
+	react reactTarget
 
 	want pickField
 
@@ -412,6 +422,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 		return m.applyState(p)
 	case pickDelete:
 		return m.applyDelete(p)
+	case pickReact:
+		return m.applyReact(p)
 	}
 	return m, nil
 }

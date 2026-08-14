@@ -330,6 +330,36 @@ were. **`viewerCanDelete` is true on a submitted review and no call deletes
 one**, so `D` is absent there and the client refuses the kind rather than
 trusting the flag.
 
+`+` opens GitHub's eight over the same block and toggles the one chosen. It is
+the one write key here that never asks whose writing it is: reacting to your own
+comment is something GitHub's page offers, so `CanReact` is the whole of the
+question, and it reaches the description too, which the other two do not. One
+pair of calls covers all four subjects, because `addReaction` takes a node id
+and no kind where an edit takes three documents; `Reactable` covers the pull
+request as readily as a comment, and offering the key on every card but the
+first would make it read as broken on the one the reader meets first. **GitHub
+answers with all eight groups on every subject**, nearly all at zero, so the ones
+nobody gave are dropped in `internal/gh` or every card grows a row of six empty
+pills. The row renders on every card that has one rather than on the lit one
+alone: a row that came and went with the focus would change a card's height on
+each press of the motion key, which is the same reason the hints ride inside the
+bottom border. It goes under the words, and that is what keeps `cardBoxAt`
+honest, since that measures down to an open box and anything below one is free.
+It goes entirely while a box is over the block, the way the card's byline does:
+the box's last row is its own button, so pills under that read as a comment to
+react to rather than as one being written, and what a card spends around a box
+is a constant that a pill row is not in.
+
+A reaction taken back leaves its group at zero and the group stays on the card
+while the write is out. It is the only thing a second press can read, and the
+row is inert on a marked one, on the terms a resolve sets out: two toggles on
+one reaction settle in the order the responses arrive, which is not the order
+they were pressed. The list is opened on what the viewer has already given,
+which inverts `comp.Picker`'s own reason for doing that: there `enter` with no
+movement is a no-op, and here it takes the reaction off. That is what a toggle
+is. Nothing toasts on success, because the pill is already on the card and a
+toast per reaction spends the status bar on the smallest write on the screen.
+
 Every write the rail makes has a timeline event behind it, and the detail query
 asks for all of them: a write nobody can see happen reads as one that did not
 land. They arrive one per label and one per person, so the conversation folds a
@@ -350,9 +380,11 @@ Beside those it keeps one set of choices per repository, keyed by `owner/name`: 
 
 The two lists of people are two connections because they are two sets. `assignableUsers` is who may be given the pull request or asked for a review; `mentionableUsers` is the wider one, everybody who has taken part, which is who an answer is usually addressed to. `gh.Mention` is its own type rather than an `Actor` with a name on it: an `Actor` carries a node id because the lists a picker writes back are addressed by one, a mention is inserted as text and has none, and typing it as an `Actor` would let a list of people with no id compile straight into `assigneeChoices` and be matched on the id every one of them is missing.
 
-It also holds the writes still in flight, keyed by pull request and folded in on the way out of `Detail`: a comment onto the timeline, a reply into the review thread it answers, a resolve over the thread it settles, and an `Edit` over the metadata it replaces. Beside the fetched detail rather than inside it: a refetch replaces a timeline wholesale, and one fetched before the mutation answered is not evidence the mutation failed. Written in, an optimistic comment would vanish on the next refresh with nothing to say why. A thread the refetch no longer carries has nowhere to hang a reply, and the reply waits out of sight rather than the store inventing a thread GitHub did not send.
+It also holds the writes still in flight, keyed by pull request and folded in on the way out of `Detail`: a comment onto the timeline, a reply into the review thread it answers, a resolve over the thread it settles, a reaction over the block it was given to, and an `Edit` over the metadata it replaces. Beside the fetched detail rather than inside it: a refetch replaces a timeline wholesale, and one fetched before the mutation answered is not evidence the mutation failed. Written in, an optimistic comment would vanish on the next refresh with nothing to say why. A thread the refetch no longer carries has nowhere to hang a reply, and the reply waits out of sight rather than the store inventing a thread GitHub did not send.
 
 Folding a reply clones both slice levels. A thread's comments are their own slice, still the held one after the threads are cloned, and a thread with spare capacity takes the append in place: a detail already handed out then changes under whoever is holding it, which on this screen is a rendered conversation. A resolve needs the outer clone alone, and it folds through the same one the reply used: cloning again from the held slice throws the reply away. It writes the state and never the permissions, because a locally flipped `CanUnresolve` offers a key that opens a write GitHub rejects. It marks the thread pending, and the key goes inert on a marked one: two resolves out at once settle in the order the responses arrive, which is not the order they were pressed.
+
+A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, because that type's delete branch takes a thread away with its last comment and its edit branch marks the comment `Editing`, and a reaction does neither. It reaches one field further out as well: the description carries reactions and has no comment to name, so an empty `CommentID` is what says the subject is the pull request. Its fold rebuilds the set in GitHub's own order rather than appending, or a reaction given here moves sideways the moment the answer lands, and it settles by taking GitHub's whole set: the payload answers with all of it, so somebody else's reaction arriving between the press and the response is on screen a beat later rather than a refetch later.
 
 An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 

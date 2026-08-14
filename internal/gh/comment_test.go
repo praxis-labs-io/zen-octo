@@ -3,6 +3,7 @@ package gh
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,10 @@ const postedBody = `{
         "viewerDidAuthor": true,
         "viewerCanUpdate": true,
         "viewerCanDelete": true,
-        "viewerCanReact": true
+        "viewerCanReact": true,
+        "reactionGroups": [
+          {"content": "THUMBS_UP", "viewerHasReacted": false, "reactors": {"totalCount": 0}}
+        ]
       }
     }
   }
@@ -44,7 +48,7 @@ func TestAPostedCommentComesBackAsTheReadPathWouldHaveIt(t *testing.T) {
 		CanDelete:       true,
 		CanReact:        true,
 	}
-	if res.Comment != want {
+	if !reflect.DeepEqual(res.Comment, want) {
 		t.Errorf("Comment = %+v, want %+v", res.Comment, want)
 	}
 

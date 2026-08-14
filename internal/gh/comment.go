@@ -26,6 +26,7 @@ mutation AddComment($subjectId: ID!, $body: String!) {
         viewerCanUpdate
         viewerCanDelete
         viewerCanReact
+        reactionGroups { content viewerHasReacted reactors { totalCount } }
       }
     }
   }

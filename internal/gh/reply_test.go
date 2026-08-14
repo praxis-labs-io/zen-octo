@@ -3,6 +3,7 @@ package gh
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,10 @@ const repliedBody = `{
       "viewerDidAuthor": true,
       "viewerCanUpdate": true,
       "viewerCanDelete": true,
-      "viewerCanReact": true
+      "viewerCanReact": true,
+      "reactionGroups": [
+        {"content": "HEART", "viewerHasReacted": true, "reactors": {"totalCount": 2}}
+      ]
     }
   }
 }`
@@ -44,8 +48,9 @@ func TestARepliedCommentComesBackAsAThreadComment(t *testing.T) {
 		CanEdit:         true,
 		CanDelete:       true,
 		CanReact:        true,
+		Reactions:       []Reaction{{Content: ReactionHeart, Count: 2, Viewer: true}},
 	}
-	if res.Comment != want {
+	if !reflect.DeepEqual(res.Comment, want) {
 		t.Errorf("Comment = %+v, want %+v", res.Comment, want)
 	}
 

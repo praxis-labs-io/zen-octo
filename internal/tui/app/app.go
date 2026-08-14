@@ -40,6 +40,11 @@ type GitHub interface {
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
 
+	// SetReaction takes a node id and no kind: one pair of calls covers a
+	// comment, a review, a review comment and the pull request whose
+	// description is on screen.
+	SetReaction(ctx context.Context, subjectID string, content gh.ReactionContent, on bool) (gh.ReactionResult, error)
+
 	// The kind picks the mutation: one comment type up here, three documents
 	// down there. A review's own body has no delete, and DeleteComment refuses
 	// one rather than sending a call GitHub answers with a refusal.
@@ -1171,6 +1176,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resolveFailedMsg:
 		return m.resolveFailed(msg)
+
+	case prview.ReactMsg:
+		return m.react(msg)
+
+	case reactedMsg:
+		return m.reactionLanded(msg)
+
+	case reactFailedMsg:
+		return m.reactionFailed(msg)
 
 	// Nothing failed: the reader asked for a place in the diff that is not in
 	// it, and the screen has nowhere of its own to say so.
