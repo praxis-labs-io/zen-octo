@@ -308,6 +308,72 @@ func TestAReplyNamesOnlyTheKeysItAnswersTo(t *testing.T) {
 	}
 }
 
+// o closes a resolved thread whatever is folded inside it, so the footer names
+// it once. Named twice it says expand and close on the same key, and only one
+// of them is what the press does.
+func TestAnOpenedResolvedThreadNamesTheFoldKeyOnce(t *testing.T) {
+	d := sampleDetail()
+	d.Threads[1].Comments[0].Body = "<details><summary>The trace</summary>\n\nA line of it.\n</details>"
+
+	m := press(walked(detailed(held(d), 200, 60), tabResolved), "o")
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	footer := footerRow(t, lines, headingRow(t, lines, "internal/store/store.go:88"))
+
+	if strings.Contains(footer, "o expand") {
+		t.Errorf("the resolved thread names a fold o does not do: %q", footer)
+	}
+	if !strings.Contains(footer, "o close") {
+		t.Errorf("the resolved thread does not name what o does: %q", footer)
+	}
+}
+
+// A card with the box over it says nothing. The box carries its own hint line,
+// and every key the card would name goes into the textarea instead.
+func TestACardWithTheBoxOverItNamesNoKeys(t *testing.T) {
+	for _, at := range []struct {
+		what    string
+		tab     int
+		heading string
+	}{
+		{"a reply", tabReply, "octobot · said · 1h"},
+		{"the comment that opened the thread", tabThread, "internal/gh/client.go:42"},
+	} {
+		t.Run(at.what, func(t *testing.T) {
+			lines := strings.Split(stripANSI(press(onWritable(at.tab), "e").View()), "\n")
+			footer := footerRow(t, lines, headingRow(t, lines, "edit this comment"))
+
+			for _, key := range []string{"r reply", "R quote", "e edit", "D delete"} {
+				if strings.Contains(footer, key) {
+					t.Errorf("%s names %q with the box over it: %q", at.what, key, footer)
+				}
+			}
+		})
+	}
+}
+
+// The card holding a box is lit, wherever the box sits. The comment that opened
+// a thread is no ring stop of its own, so without that the one box in a thread
+// that is not a reply would open with nothing lit on the page.
+func TestTheCardHoldingTheBoxIsLit(t *testing.T) {
+	// The thread card keeps the anchor in its heading while the box is inside it:
+	// the file is still what the card is about, and editHead replaces the byline
+	// over the words rather than the name of the card.
+	for _, at := range []struct {
+		what, heading string
+		tab           int
+	}{
+		{"a reply", "drucial · edit this comment", tabReply},
+		{"the comment that opened the thread", "internal/gh/client.go:42", tabThread},
+	} {
+		t.Run(at.what, func(t *testing.T) {
+			if got := litCards(t, press(onWritable(at.tab), "e").View()); len(got) != 1 ||
+				!strings.HasPrefix(got[0], at.heading) {
+				t.Errorf("editing %s lit %q, want the card holding the box", at.what, got)
+			}
+		})
+	}
+}
+
 // Naming them is one thing and answering them is another. A key inert on the
 // card the reader is on has to do nothing rather than reach past it.
 func TestTheThreadKeysAreInertOnAReply(t *testing.T) {

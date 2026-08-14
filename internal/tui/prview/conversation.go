@@ -507,7 +507,10 @@ func (m Model) card(head, content string, width int, lit bool, hints string) str
 // and the comment the thread was opened with, so the keys that act on the whole
 // of it are named here and nowhere else.
 func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
-	if !lit {
+	// While the box is over the comment this card holds, the card says nothing:
+	// the box carries a hint line of its own, and every key named here would go
+	// into the textarea instead.
+	if !lit || m.boxOn(threadCommentKey(opening(t))) {
 		return ""
 	}
 	k := keys.Detail
@@ -516,7 +519,11 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 		return hintLine(width, append([]string{k.Expand.Help().Key + " open"}, m.threadActs(t)...)...)
 	}
 
-	parts := m.answerParts(t, opening(t))
+	// o is the thread's own key while it is resolved: foldTarget answers with
+	// the whole card there, so closing it is the only thing the press can do.
+	// Naming a fold inside it as well puts one key on the line twice, saying
+	// opposite things.
+	parts := m.answerParts(t, opening(t), !t.IsResolved)
 	parts = append(parts, m.threadActs(t)...)
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
@@ -529,23 +536,27 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 // on it: x settles a thread, v goes to the line it was written against, and
 // neither is a thing an answer has. What is left is answering it and rewriting
 // it.
+// While the box is over it the reply says nothing, the same way a comment card
+// does: the box carries a hint line of its own, and every key named here goes
+// into the textarea instead.
 func (m Model) replyHints(lit bool, t gh.ReviewThread, c gh.Comment, width int) string {
-	if !lit {
+	if !lit || m.boxOn(threadCommentKey(c)) {
 		return ""
 	}
-	return hintLine(width, append(m.answerParts(t, c), writeHints(c)...)...)
+	return hintLine(width, append(m.answerParts(t, c, true), writeHints(c)...)...)
 }
 
 // answerParts is the two keys that answer a comment, named where GitHub will
-// take the press, with the fold key beside them when there is something folded.
-func (m Model) answerParts(t gh.ReviewThread, c gh.Comment) []string {
+// take the press, with the fold key beside them when there is something folded
+// and the press would reach it.
+func (m Model) answerParts(t gh.ReviewThread, c gh.Comment, folds bool) []string {
 	k := keys.Detail
 
 	var parts []string
 	if t.CanReply {
 		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
 	}
-	if foldable(c.Body) {
+	if folds && foldable(c.Body) {
 		parts = append(parts, k.Expand.Help().Key+" expand")
 	}
 	return parts
@@ -841,7 +852,12 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	}
 
 	key := threadKey(t)
-	lit := m.lit(key)
+
+	// The card lights for its own stop, and for a box open over the comment it
+	// holds. That comment is no stop of its own, so without the second half the
+	// one box in a thread that is not a reply opens with nothing lit anywhere on
+	// the page while every other box lights the card it sits in.
+	lit := m.lit(key) || m.lit(threadCommentKey(opening(t)))
 
 	head := lipgloss.NewStyle().Foreground(m.theme.Text).Render(anchor)
 	if t.IsResolved {
@@ -970,9 +986,9 @@ func (m *Model) answers(t gh.ReviewThread, width int) []rendered {
 // is what lets the elbow meet a heading rather than a border.
 //
 // It is a ring stop like any other card, so its own border says when the keys
-// are on it and its own footer names them. The thread it answers is what the
-// thread-level keys reach through it: a resolve or a jump from a reply is the
-// reader meaning the discussion, which is the only thing either could mean.
+// are on it and its own footer names them. Not all of them: x settles a thread
+// and v goes to the line it was written against, and an answer has neither, so
+// both are inert here and named nowhere on it.
 func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	ck := threadCommentKey(c)
 	lit := m.lit(ck)

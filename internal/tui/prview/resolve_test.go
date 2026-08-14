@@ -199,8 +199,7 @@ func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 // last, which are the newest and the least known.
 func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 	whole := map[string]bool{
-		"J/K in thread": true, "r reply": true, "R quote": true,
-		"x resolve": true, "v in diff": true,
+		"r reply": true, "R quote": true, "x resolve": true, "v in diff": true,
 	}
 
 	tests := []struct {

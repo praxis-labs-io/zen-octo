@@ -219,10 +219,11 @@ func (m Model) closeInline() (Model, tea.Cmd) {
 // because a character was typed is the worse of the two wrongs.
 //
 // The caret is the whole of it, and the card holding the box is not consulted.
-// A reply hangs under a thread and an edit can be one comment inside one, and
-// neither is a ring stop: a scroll that went looking for the block would find
-// nothing and do nothing in exactly the two cases the box is nested. The caret
-// is somewhere in every one of them, and the button rides one row below it.
+// The reply box hangs off a thread and an edit can be the comment that opened
+// one, and neither is a ring stop: a scroll that went looking for the block
+// would find nothing and do nothing in exactly the two cases the box is nested.
+// The caret is somewhere in every one of them, and the button rides one row
+// below it.
 func (m *Model) showInline() {
 	m.syncContent()
 	m.showCaret()
