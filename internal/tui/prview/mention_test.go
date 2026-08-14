@@ -386,9 +386,15 @@ func TestTheListGoesAboveTheCaretWhenThereIsNoRoomBelow(t *testing.T) {
 // instead of posting, and on a terminal that cannot send the chord that button
 // is the only way a comment is sent at all.
 func TestShiftTabLeavesTheListAndStepsToTheButton(t *testing.T) {
-	m, _ := typing(writing(t), "thanks @d")
-	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	// The token has to match the row this asserts on. Written against a token
+	// that matched somebody else, the absence it checks for was never there to
+	// begin with and the test passed over a list that stayed open.
+	m, _ := typing(writing(t), "thanks @n")
+	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
+		t.Fatalf("setup: the list is not up:\n%s", out)
+	}
 
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if out := stripANSI(m.View()); strings.Contains(out, onList) {
 		t.Errorf("shift+tab left the list up:\n%s", out)
 	}
@@ -398,7 +404,7 @@ func TestShiftTabLeavesTheListAndStepsToTheButton(t *testing.T) {
 	if !ok {
 		t.Fatalf("enter on the button sent %#v, want a comment", runCmd(cmd))
 	}
-	if want := "thanks @d"; msg.Body != want {
+	if want := "thanks @n"; msg.Body != want {
 		t.Errorf("posted %q, want %q", msg.Body, want)
 	}
 }
@@ -450,5 +456,55 @@ func TestHandingOffToTheEditorClosesTheList(t *testing.T) {
 	m, _ = m.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	if out := stripANSI(m.View()); strings.Contains(out, onList) {
 		t.Errorf("the list survived the handoff to the editor:\n%s", out)
+	}
+}
+
+// blink stands in for the messages that are not keys: a cursor blink, a paste,
+// a clipboard read. They reach the box through Update's default branch, which
+// re-reads the token, and that is a path no keystroke test walks.
+type blink struct{}
+
+// Stepping to the button took the list down and the very next blink put it back
+// up, because the token was still sitting under the caret. Every test here drove
+// keys alone and none of them saw it.
+func TestTheListStaysDownOnceTheButtonHasFocus(t *testing.T) {
+	m, _ := typing(writing(t), "thanks @n")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if out := stripANSI(m.View()); strings.Contains(out, onList) {
+		t.Fatalf("setup: shift+tab left the list up:\n%s", out)
+	}
+
+	for range 3 {
+		m, _ = m.Update(blink{})
+	}
+	if out := stripANSI(m.View()); strings.Contains(out, onList) {
+		t.Errorf("the list came back while the button holds focus:\n%s", out)
+	}
+}
+
+// Stepping back into the text is the reader returning to the word, so the list
+// returns with them.
+func TestTheListComesBackWhenTheTextTakesFocusAgain(t *testing.T) {
+	m, _ := typing(writing(t), "thanks @n")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = m.Update(blink{})
+
+	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
+		t.Errorf("the list did not come back with the caret:\n%s", out)
+	}
+}
+
+// A list escaped away must not return by stepping to the button and back. The
+// dismissal outlives the focus change.
+func TestAnEscapedListDoesNotComeBackWithTheFocus(t *testing.T) {
+	m, _ := typing(writing(t), "thanks @n")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = m.Update(blink{})
+
+	if out := stripANSI(m.View()); strings.Contains(out, onList) {
+		t.Errorf("a dismissed list came back through the button:\n%s", out)
 	}
 }

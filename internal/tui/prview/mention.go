@@ -262,6 +262,19 @@ func (m *Model) syncMention() tea.Cmd {
 		return nil
 	}
 
+	// Nothing is being written while the button holds focus, so there is no word
+	// to answer. This runs on every message rather than every keystroke, and the
+	// blink that follows a step to the button is one: without this it finds the
+	// token still sitting under the caret and puts the list back up over a box
+	// the reader has just left, a moment after the step took it down.
+	//
+	// The dismissal is kept rather than cleared, so a list escaped away does not
+	// come back by stepping to the button and back again.
+	if box.onPost {
+		m.mention.open = false
+		return nil
+	}
+
 	lines := strings.Split(box.area.Value(), "\n")
 	row := min(max(box.area.Line(), 0), len(lines)-1)
 
