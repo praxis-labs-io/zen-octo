@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/zen-octo/zen-octo/internal/tui/prview"
 )
 
 // mentionSet is a repository's mentionable users, one of them somebody who has
@@ -154,4 +156,65 @@ func TestRefreshingDropsThePeopleAndTheNextAtFetchesThemAgain(t *testing.T) {
 	if got := len(client.metaCalls()); got != 2 {
 		t.Errorf("metaCalls = %d after a sync and a second @, want 2", got)
 	}
+}
+
+// A tick that arrives with nothing loading ends the chain, so by the time a
+// reader opens a box there is none running. The glyph would sit on its first
+// frame for the whole fetch, which is what every other lazy fetch here restarts
+// the chain to avoid.
+func TestAskingForThePeopleRestartsTheSpinner(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveRepoMeta(gh.RepoMeta{Mentions: mentionSet()})
+
+	m := press(loaded(t, client, 160, 40), "enter", "c")
+
+	// Driven by hand rather than settled, because settle drops the commands and
+	// the tick chain is a command. The @ asks the root, and it is the root
+	// answering that ask which owes the restart.
+	m, cmd := m.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
+
+	ask := findAsk(cmd)
+	if ask == nil {
+		t.Fatalf("the first @ asked the root for nothing")
+	}
+	if _, restarted := m.Update(ask); !hasTick(restarted) {
+		t.Error("answering the ask started no spinner tick, so the glyph freezes on its first frame")
+	}
+}
+
+// findAsk digs the metadata request out of whatever the keystroke batched.
+func findAsk(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	switch msg := cmd().(type) {
+	case prview.NeedRepoMetaMsg:
+		return msg
+	case tea.BatchMsg:
+		for _, c := range msg {
+			if found := findAsk(c); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+// hasTick reports whether a command tree carries a spinner tick.
+func hasTick(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	switch msg := cmd().(type) {
+	case spinner.TickMsg:
+		return true
+	case tea.BatchMsg:
+		for _, c := range msg {
+			if hasTick(c) {
+				return true
+			}
+		}
+	}
+	return false
 }

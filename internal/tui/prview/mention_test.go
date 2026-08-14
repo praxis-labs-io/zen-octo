@@ -380,3 +380,75 @@ func TestTheListGoesAboveTheCaretWhenThereIsNoRoomBelow(t *testing.T) {
 			list, foot, strings.Join(lines, "\n"))
 	}
 }
+
+// shift+tab leaves the list for the button, so the list has to go with the
+// press. Held open over a blurred box, the enter that follows wrote a handle
+// instead of posting, and on a terminal that cannot send the chord that button
+// is the only way a comment is sent at all.
+func TestShiftTabLeavesTheListAndStepsToTheButton(t *testing.T) {
+	m, _ := typing(writing(t), "thanks @d")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+
+	if out := stripANSI(m.View()); strings.Contains(out, onList) {
+		t.Errorf("shift+tab left the list up:\n%s", out)
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg, ok := runCmd(cmd).(prview.PostCommentMsg)
+	if !ok {
+		t.Fatalf("enter on the button sent %#v, want a comment", runCmd(cmd))
+	}
+	if want := "thanks @d"; msg.Body != want {
+		t.Errorf("posted %q, want %q", msg.Body, want)
+	}
+}
+
+// A caret put back inside a handle means the handle is being corrected, so the
+// whole word goes. Replacing only what is in front of the caret turned @nikita
+// into "@nkr kita".
+func TestCompletingInsideAHandleReplacesTheWholeWord(t *testing.T) {
+	m, _ := typing(writing(t), "hi @nikita")
+	for range 4 {
+		m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "@nkr kita") {
+		t.Errorf("the tail of the old handle survived:\n%s", out)
+	}
+	if !strings.Contains(out, "hi @nkr") {
+		t.Errorf("the handle was not written:\n%s", out)
+	}
+}
+
+// A popup with nothing to insert must not eat the key. It closes and the press
+// carries on, or the reader presses enter for a newline and gets neither.
+func TestEnterWithNothingToChooseStillReachesTheBox(t *testing.T) {
+	m, _ := typing(writing(t), "@zzz")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "No match") {
+		t.Errorf("the popup outlived the key:\n%s", out)
+	}
+	// The newline landed, so the next words go on a line of their own.
+	m, _ = typing(m, "hello")
+	if out := stripANSI(m.View()); strings.Contains(out, "@zzzhello") {
+		t.Errorf("enter was swallowed rather than reaching the box:\n%s", out)
+	}
+}
+
+// The editor replaces the whole buffer, so a list still open over it holds an
+// offset into text that is gone.
+func TestHandingOffToTheEditorClosesTheList(t *testing.T) {
+	m, _ := typing(writing(t), "@nk")
+	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
+		t.Fatalf("setup: the list is not up:\n%s", out)
+	}
+
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	if out := stripANSI(m.View()); strings.Contains(out, onList) {
+		t.Errorf("the list survived the handoff to the editor:\n%s", out)
+	}
+}

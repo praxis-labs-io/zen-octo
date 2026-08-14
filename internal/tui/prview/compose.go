@@ -427,8 +427,11 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// The popup first. Every key it answers means something under it that the
 	// reader does not want: esc gives the keyboard back, tab steps to the
 	// button, and enter breaks the line in half.
-	if next, cmd, took := m.mentionKey(keyMsg); took {
-		return next, cmd
+	// The model comes back whether or not the press was taken: a key the popup
+	// declines can still have closed it on the way past.
+	m, cmd, took := m.mentionKey(keyMsg)
+	if took {
+		return m, cmd
 	}
 	k := keys.Detail
 
@@ -441,6 +444,10 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(keyMsg, k.Editor):
+		// The editor replaces the whole buffer, so a list left open over it is
+		// answering a word that may no longer be there: the offset it holds
+		// would then insert a handle into the middle of whatever came back.
+		m.clearMention()
 		return m, m.compose.editorCmd()
 
 	case key.Matches(keyMsg, keys.Form.Next), key.Matches(keyMsg, keys.Form.Prev):
@@ -457,7 +464,6 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.post()
 	}
 
-	var cmd tea.Cmd
 	m.compose.area, cmd = m.compose.area.Update(keyMsg)
 	ask := m.syncMention()
 

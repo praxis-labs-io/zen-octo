@@ -460,9 +460,17 @@ func (c *composer) insertMention(at int, login string) {
 		return
 	}
 
+	// The whole word goes, not the part in front of the caret. A reader who put
+	// the caret back inside a handle to correct it means to replace the handle,
+	// and keeping the tail turns @nikita into "@nkr kita".
+	end := col
+	for end < len(line) && mentionRune(line[end]) {
+		end++
+	}
+
 	head := strings.Join(append(append([]string{}, lines[:row]...),
 		string(line[:at])+"@"+login+" "), "\n")
-	tail := strings.Join(append([]string{string(line[col:])}, lines[row+1:]...), "\n")
+	tail := strings.Join(append([]string{string(line[end:])}, lines[row+1:]...), "\n")
 
 	c.area.SetValue(tail)
 	c.area.MoveToBegin()
@@ -509,8 +517,25 @@ func (m Model) mentionKey(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	// tab moves to the thing that finishes what is being written, and while a
 	// list is up that is the handle under the cursor.
 	case key.Matches(msg, k.Activate), key.Matches(msg, keys.Form.Next):
+		// Only where there is a row to write. A popup saying the list is on its
+		// way has nothing to insert, and taking the key anyway swallowed it: the
+		// reader pressed enter for a newline, got a closed popup, and had to
+		// press it again.
+		if _, ok := m.mention.chosen(); !ok {
+			m.clearMention()
+			return m, nil, false
+		}
 		next, cmd := m.applyMention()
 		return next, cmd, true
+
+	// shift+tab is the reader leaving the list for the button, so the list goes
+	// and the press carries on to the box that steps there. Taken and dropped,
+	// it left the popup open over a blurred box and the enter that follows
+	// wrote a handle instead of posting: on a terminal that cannot send the
+	// chord, that button is the only way a comment is sent at all.
+	case key.Matches(msg, keys.Form.Prev):
+		m.clearMention()
+		return m, nil, false
 
 	// The arrows alone. Up and Down carry k and j, which are letters in a box,
 	// so the printable guard comp.Picker.Insert uses is what makes this safe.
@@ -568,7 +593,7 @@ func (m Model) mentionWaiting() bool {
 func (n mention) render(th theme.Theme, note string, visible, width int) string {
 	visible = min(max(visible, 0), len(n.rows))
 	if visible == 0 {
-		return comp.Modal(th, "", lipgloss.NewStyle().Foreground(th.Subtle).Render(note))
+		return comp.Modal(th, "", lipgloss.NewStyle().Foreground(th.Subtle).Render(fit(note, width)))
 	}
 
 	top := min(max(n.top, 0), max(0, len(n.rows)-visible))
@@ -590,21 +615,32 @@ func (n mention) render(th theme.Theme, note string, visible, width int) string 
 		handle = max(handle, lipgloss.Width("@"+p.Login))
 	}
 
-	plain := make([]string, len(shown))
+	// Each row stays in two pieces to the end, because the two take different
+	// colours and only the pieces know where one stops. Clipped as one string
+	// and split again afterwards, a cut that reached into the handle left the
+	// prefix matching nothing, and the handle was drawn twice at a width past
+	// anything the pane had to give.
+	heads := make([]string, len(shown))
+	tails := make([]string, len(shown))
 	widest := 0
 	for i, p := range shown {
-		plain[i] = "@" + p.Login
+		head, tail := "@"+p.Login, ""
 		if p.Name != "" {
-			plain[i] += strings.Repeat(" ", handle-lipgloss.Width(plain[i])) + "  " + p.Name
+			tail = strings.Repeat(" ", handle-lipgloss.Width(head)) + "  " + p.Name
 		}
-		if w := lipgloss.Width(plain[i]); w > width {
-			plain[i] = comp.Clip(plain[i], width, lipgloss.NewStyle())
+
+		if room := width - lipgloss.Width(head); room < 0 {
+			head, tail = fit(head, width), ""
+		} else if lipgloss.Width(tail) > room {
+			tail = fit(tail, room)
 		}
-		widest = max(widest, lipgloss.Width(plain[i]))
+
+		heads[i], tails[i] = head, tail
+		widest = max(widest, lipgloss.Width(head)+lipgloss.Width(tail))
 	}
 
 	lines := make([]string, len(shown))
-	for i, p := range shown {
+	for i := range shown {
 		// Every cell carries the background itself. A styled run ends in a full
 		// reset, so setting it once around the joined row paints the handle and
 		// leaves the name beside it bare. The pad is a cell for the same
@@ -616,21 +652,34 @@ func (n mention) render(th theme.Theme, note string, visible, width int) string 
 			cell = cell.Background(th.SelectedBackground)
 		}
 
-		handle, name := cell.Foreground(th.Text), cell.Foreground(th.Subtle)
+		rest := cell.Foreground(th.Subtle)
 		if lit {
-			name = name.Foreground(th.Text)
+			rest = cell.Foreground(th.Text)
 		}
 
-		row := handle.Render("@" + p.Login)
-		row += name.Render(strings.TrimPrefix(plain[i], "@"+p.Login))
-		row += cell.Render(strings.Repeat(" ", max(0, widest-lipgloss.Width(plain[i]))))
+		row := cell.Foreground(th.Text).Render(heads[i])
+		if tails[i] != "" {
+			row += rest.Render(tails[i])
+		}
+		row += cell.Render(strings.Repeat(" ",
+			max(0, widest-lipgloss.Width(heads[i])-lipgloss.Width(tails[i]))))
 		lines[i] = row
 	}
 
 	// Under the rows rather than over them, so the row the cursor opens on is
 	// the first line of the box and a note arriving late moves nothing.
 	if note != "" {
-		lines = append(lines, lipgloss.NewStyle().Foreground(th.Subtle).Render(note))
+		lines = append(lines, lipgloss.NewStyle().Foreground(th.Subtle).Render(fit(note, width)))
 	}
 	return comp.Modal(th, "", strings.Join(lines, "\n"))
+}
+
+// fit is content cut to a width, and left alone when it already fits. comp.Clip
+// marks whatever it is handed, so a caller that clips unconditionally puts an
+// ellipsis on a line with room to spare.
+func fit(content string, width int) string {
+	if lipgloss.Width(content) <= width {
+		return content
+	}
+	return comp.Clip(content, width, lipgloss.NewStyle())
 }

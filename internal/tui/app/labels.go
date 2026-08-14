@@ -55,11 +55,15 @@ func (m Model) needRepoMeta(repo string) (tea.Model, tea.Cmd) {
 	// opened on the answer is drawn before it arrives, and without this it
 	// cannot tell a list on its way from one nobody has asked for. The record is
 	// unloaded either way, so nothing that waits on the answer moves.
-	var shown tea.Cmd
+	// The spinner chain has to be restarted with it, the way every other lazy
+	// fetch here restarts it. A tick that arrives with nothing loading ends the
+	// chain, so by the time a reader opens a box there is none running and the
+	// popup's glyph would sit on its first frame for the whole request.
+	var shown []tea.Cmd
 	if m.showingRepo(repo) {
-		shown = m.detail.SetRepo(m.store.Repo(repo))
+		shown = append(shown, m.detail.SetRepo(m.store.Repo(repo)), m.detail.Init())
 	}
-	return m, tea.Batch(shown, m.fetchRepoMeta(repo))
+	return m, tea.Batch(append(shown, m.fetchRepoMeta(repo))...)
 }
 
 func (m Model) fetchRepoMeta(repo string) tea.Cmd {

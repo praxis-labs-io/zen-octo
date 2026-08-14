@@ -163,8 +163,11 @@ func (m Model) boxIn(t gh.ReviewThread) bool {
 func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// The popup first, for the reason the compose card takes it first: esc here
 	// closes the box and throws an edit's draft away with it.
-	if next, cmd, took := m.mentionKey(keyMsg); took {
-		return next, cmd
+	// The model comes back whether or not the press was taken: a key the popup
+	// declines can still have closed it on the way past.
+	m, cmd, took := m.mentionKey(keyMsg)
+	if took {
+		return m, cmd
 	}
 	k := keys.Detail
 
@@ -173,6 +176,7 @@ func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.closeInline()
 
 	case key.Matches(keyMsg, k.Editor):
+		m.clearMention()
 		return m, m.inline.editorCmd()
 
 	case key.Matches(keyMsg, keys.Form.Next), key.Matches(keyMsg, keys.Form.Prev):
@@ -187,7 +191,6 @@ func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.sendInline()
 	}
 
-	var cmd tea.Cmd
 	m.inline.area, cmd = m.inline.area.Update(keyMsg)
 	ask := m.syncMention()
 	m.showInline()
