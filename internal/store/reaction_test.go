@@ -180,25 +180,79 @@ func TestFoldingAThreadReactionLeavesTheHeldDetailAlone(t *testing.T) {
 	}
 }
 
-// GitHub's answer is the whole set, so somebody else's reaction landing between
-// the press and the response is on screen a beat later rather than a fetch
-// later.
-func TestASettledReactionTakesGitHubsWholeSet(t *testing.T) {
+// A settle takes the count GitHub reported for the reaction the write moved,
+// and leaves every other group where it was.
+func TestASettledReactionTakesGitHubsCount(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
 	key := s.PendingReaction("PR_1", "IC_1", "", gh.ReactionThumbsUp, true)
 
 	s.ReactionApplied("PR_1", key, gh.ReactionResult{Reactions: []gh.Reaction{
 		{Content: gh.ReactionThumbsUp, Count: 9, Viewer: true},
-		{Content: gh.ReactionRocket, Count: 1},
+	}})
+
+	got, ok := reactionOn(s.Detail("PR_1").Detail.Timeline[0].Said().Reactions, gh.ReactionThumbsUp)
+	if !ok || got.Count != 9 || !got.Viewer {
+		t.Errorf("reaction = %+v, want the nine GitHub reported", got)
+	}
+	if got.Pending {
+		t.Error("a settled reaction is still marked as being written")
+	}
+}
+
+// Two toggles on one subject answer in whatever order the network gives them,
+// and each response is a snapshot of the subject as GitHub had it at the time.
+// Taking either one whole lets the older snapshot land last and delete a
+// reaction the other one added.
+func TestTwoReactionsSettlingOutOfOrderKeepBoth(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", reactedDetail())
+
+	up := s.PendingReaction("PR_1", "IC_1", "", gh.ReactionThumbsUp, true)
+	rocket := s.PendingReaction("PR_1", "IC_1", "", gh.ReactionRocket, true)
+
+	// The rocket answers first, from a subject GitHub had already given the
+	// thumbs up. The thumbs up answers second, from before the rocket existed.
+	s.ReactionApplied("PR_1", rocket, gh.ReactionResult{Reactions: []gh.Reaction{
+		{Content: gh.ReactionThumbsUp, Count: 3, Viewer: true},
+		{Content: gh.ReactionRocket, Count: 1, Viewer: true},
+	}})
+	s.ReactionApplied("PR_1", up, gh.ReactionResult{Reactions: []gh.Reaction{
+		{Content: gh.ReactionThumbsUp, Count: 3, Viewer: true},
 	}})
 
 	got := s.Detail("PR_1").Detail.Timeline[0].Said().Reactions
-	if len(got) != 2 || got[0].Count != 9 || got[1].Content != gh.ReactionRocket {
-		t.Errorf("reactions = %+v, want GitHub's set whole", got)
+	if len(got) != 2 {
+		t.Fatalf("reactions = %+v, want both of them", got)
 	}
-	if got[0].Pending {
-		t.Error("a settled reaction is still marked as being written")
+	if got[0].Content != gh.ReactionThumbsUp || got[1].Content != gh.ReactionRocket {
+		t.Errorf("reactions = %+v, want thumbs up then rocket", got)
+	}
+}
+
+// Taking the last reaction off leaves a subject with none, and GitHub answers
+// with nothing for it. That is the write having worked.
+func TestSettlingTheLastReactionTakesThePillOff(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", reactedDetail())
+	key := s.PendingReaction("PR_1", "RC_1", "RT_1", gh.ReactionEyes, false)
+
+	s.ReactionApplied("PR_1", key, gh.ReactionResult{Reactions: []gh.Reaction{
+		{Content: gh.ReactionEyes, Count: 2},
+	}})
+
+	got, ok := reactionOn(s.Detail("PR_1").Detail.Threads[0].Comments[0].Reactions, gh.ReactionEyes)
+	if !ok || got.Count != 2 || got.Viewer || got.Pending {
+		t.Errorf("reaction = %+v, want the two GitHub kept, without the viewer", got)
+	}
+
+	// And the same again where the viewer was the only one in it.
+	s.DetailApplied("PR_2", reactedDetail())
+	last := s.PendingReaction("PR_2", "RC_1", "RT_1", gh.ReactionEyes, false)
+	s.ReactionApplied("PR_2", last, gh.ReactionResult{})
+
+	if got := s.Detail("PR_2").Detail.Threads[0].Comments[0].Reactions; len(got) != 0 {
+		t.Errorf("reactions = %+v, want the pill off the card", got)
 	}
 }
 

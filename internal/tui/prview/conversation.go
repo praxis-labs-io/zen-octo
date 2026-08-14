@@ -368,7 +368,7 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 	}
 
 	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key, boxChrome)
-	block := m.card(head, m.withReactions(content, said.Reactions, key), width,
+	block := m.card(head, m.withReactions(content, said.Reactions, key, m.cardWidth(width)), width,
 		m.lit(key), m.cardHints(key, said, width))
 
 	boxAt, boxCol := m.cardBoxAt(key, width, content)
@@ -418,7 +418,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 		head = m.pendingHead(item.Actor, label, "saving")
 	}
 	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key, boxChrome)
-	block := m.card(head, m.withReactions(content, written.Reactions, key), width,
+	block := m.card(head, m.withReactions(content, written.Reactions, key, m.cardWidth(width)), width,
 		m.lit(key), m.cardHints(key, written, width))
 
 	used := strings.Count(block, "\n") + 1
@@ -749,7 +749,7 @@ func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 	}
 
 	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key, boxChrome)
-	block := m.card(head, m.withReactions(content, d.Reactions, key), width,
+	block := m.card(head, m.withReactions(content, d.Reactions, key, m.cardWidth(width)), width,
 		m.lit(key), m.descriptionHints(key, d, width))
 
 	boxAt, boxCol := m.cardBoxAt(key, width, content)
@@ -936,7 +936,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 			byline = wrap(m.editHead("comment"), inner)
 		}
 		body := m.bodyOrBox(opened.Body, inner, "No comment.", ck, boxChrome+threadChrome)
-		start := push(byline + "\n\n" + m.withReactions(body, opened.Reactions, ck))
+		start := push(byline + "\n\n" + m.withReactions(body, opened.Reactions, ck, inner))
 
 		// The box sits under the byline and the blank line after it.
 		if m.boxOn(ck) {
@@ -1033,7 +1033,7 @@ func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	// leaves it, so a narrow pane costs rows rather than words, and a reply that
 	// dropped its border would take the rail's elbow off the byline with it.
 	body := m.bodyOrBox(c.Body, m.cardWidth(width), "No comment.", ck, boxChrome)
-	v := rendered{block: m.card(head, m.withReactions(body, c.Reactions, ck), width, lit, hints)}
+	v := rendered{block: m.card(head, m.withReactions(body, c.Reactions, ck, m.cardWidth(width)), width, lit, hints)}
 	if m.boxOn(ck) {
 		v.boxAt, v.boxCol = m.cardLead(width, strings.Count(body, "\n")+1), cardIndent
 	}

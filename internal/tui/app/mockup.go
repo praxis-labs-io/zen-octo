@@ -190,8 +190,11 @@ func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool)
 	}, nil
 }
 
-// SetReaction answers with the one reaction that moved and nothing else, which
-// is what a subject nobody else has reacted to comes back as.
+// SetReaction answers with the one reaction that moved and nothing else.
+//
+// That is all the settle reads: it takes the group the write was for and leaves
+// the rest of the card alone. Mock has value receivers and nowhere to keep a
+// subject's set, and it does not need one.
 func (Mock) SetReaction(_ context.Context, _ string,
 	content gh.ReactionContent, on bool,
 ) (gh.ReactionResult, error) {

@@ -257,6 +257,19 @@ func (p *Picker) Insert(msg tea.KeyPressMsg) bool {
 // the screen whether a bare letter is text or a binding.
 func (p Picker) Filtering() bool { return p.filtering }
 
+// NoFilter takes the filter row off a list whose length earned it and whose
+// content does not want it.
+//
+// The threshold counts rows, and pickerFilterFrom's own reason is that below it
+// every choice is already on screen. A fixed list of eight sits in the gap
+// between that number and pickerRows: it earns a filter it has no use for, and
+// the filter then claims every printable key ahead of movement, so j and k stop
+// walking the list and start narrowing it to nothing.
+func (p *Picker) NoFilter() {
+	p.filtering = false
+	p.filter = ""
+}
+
 // Filter is what has been typed. A picker whose choices come from the server
 // reads it to know what to ask for: there the filter is the search.
 func (p Picker) Filter() string { return p.filter }

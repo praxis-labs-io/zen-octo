@@ -52,24 +52,47 @@ func (s *Store) PendingReaction(id, commentID, threadID string,
 	return w.Key
 }
 
-// applyReaction is one toggle over a subject's reactions.
+// putReaction writes one group over a subject's set and rebuilds it in GitHub's
+// own order.
 //
-// Rebuilt in GitHub's own order rather than appended to, so a reaction given
-// here lands where the answer is going to put it. Appending would move the pill
-// sideways the moment the mutation settled.
+// The order rather than an append, so a reaction given here lands where the
+// answer is going to put it: appending would move the pill sideways the moment
+// the mutation settled.
 //
-// A group whose count falls to zero is kept while the write is out. It is the
+// A group at zero comes off, unless it is still being written. That one is the
 // only thing a second press has to read, and the key goes inert on a marked
 // one: two toggles on one reaction settle in the order the responses arrive,
 // which is not the order they were pressed.
-func applyReaction(held []gh.Reaction, content gh.ReactionContent, on bool) []gh.Reaction {
-	by := make(map[gh.ReactionContent]gh.Reaction, len(held))
-	for _, r := range held {
-		by[r.Content] = r
+func putReaction(held []gh.Reaction, r gh.Reaction) []gh.Reaction {
+	by := make(map[gh.ReactionContent]gh.Reaction, len(held)+1)
+	for _, h := range held {
+		by[h.Content] = h
 	}
+	by[r.Content] = r
 
-	r := by[content]
-	r.Content = content
+	var out []gh.Reaction
+	for _, c := range gh.ReactionOrder {
+		if got, ok := by[c]; ok && (got.Count > 0 || got.Pending) {
+			out = append(out, got)
+		}
+	}
+	return out
+}
+
+// reactionIn is a subject's group for one content, or a zero one where nobody
+// has given it.
+func reactionIn(held []gh.Reaction, content gh.ReactionContent) gh.Reaction {
+	for _, r := range held {
+		if r.Content == content {
+			return r
+		}
+	}
+	return gh.Reaction{Content: content}
+}
+
+// applyReaction is one toggle over a subject's reactions.
+func applyReaction(held []gh.Reaction, content gh.ReactionContent, on bool) []gh.Reaction {
+	r := reactionIn(held, content)
 	switch {
 	case on && !r.Viewer:
 		r.Count++
@@ -79,15 +102,7 @@ func applyReaction(held []gh.Reaction, content gh.ReactionContent, on bool) []gh
 		r.Viewer = false
 	}
 	r.Pending = true
-	by[content] = r
-
-	var out []gh.Reaction
-	for _, c := range gh.ReactionOrder {
-		if got, ok := by[c]; ok && (got.Count > 0 || got.Pending) {
-			out = append(out, got)
-		}
-	}
-	return out
+	return putReaction(held, r)
 }
 
 // foldReactions applies every reaction in flight over a fetched description,
@@ -160,18 +175,27 @@ func reactInThread(w ReactionWrite, threads []gh.ReviewThread, fresh bool) ([]gh
 // ReactionApplied writes GitHub's answer into the held detail and drops the
 // write it settles.
 //
-// The whole set rather than the one that moved, because the payload answers
-// with all of it: somebody else's reaction landing between the press and the
-// response is on screen a beat later rather than a refetch later.
+// The one group the write moved, never the whole set the payload carries. Two
+// toggles on one subject answer in whatever order the network gives them, and
+// each response is a snapshot of the subject as it stood when GitHub handled
+// that call: taking either one whole lets the older snapshot land last and
+// delete a reaction the other one added. Writing the group this write is
+// answering for is order-independent, because no two writes on a subject share
+// a content while the first is still out.
 func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 	w, held, ok := s.settleReaction(id, key)
 	if !ok {
 		return
 	}
 
+	// The answer's own group, or a zero one where the removal took the last of
+	// them: putReaction drops a group at zero that nothing is still writing.
+	settled := reactionIn(res.Reactions, w.Content)
+	settled.Pending = false
+
 	switch {
 	case w.CommentID == "":
-		held.Detail.Reactions = res.Reactions
+		held.Detail.Reactions = putReaction(held.Detail.Reactions, settled)
 
 	case w.ThreadID != "":
 		at := threadAt(held.Detail.Threads, w.ThreadID)
@@ -186,7 +210,7 @@ func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 		}
 		threads := slices.Clone(held.Detail.Threads)
 		comments := slices.Clone(threads[at].Comments)
-		comments[in].Reactions = res.Reactions
+		comments[in].Reactions = putReaction(comments[in].Reactions, settled)
 		threads[at].Comments = comments
 		held.Detail.Threads = threads
 
@@ -197,7 +221,7 @@ func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 		}
 		timeline := slices.Clone(held.Detail.Timeline)
 		said := *timeline[at].Comment
-		said.Reactions = res.Reactions
+		said.Reactions = putReaction(said.Reactions, settled)
 		timeline[at].Comment = &said
 		held.Detail.Timeline = timeline
 	}

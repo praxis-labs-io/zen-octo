@@ -122,6 +122,23 @@ func TestEachDirectionReadsItsOwnHalfOfThePayload(t *testing.T) {
 	}
 }
 
+// Taking the last reaction off a subject leaves it with none, and GitHub can
+// answer with an empty list for it. That is the write having worked, and
+// reporting it as a failure would toast an error and put the pill back on a
+// card GitHub had already cleared.
+func TestARemovalThatEmptiesASubjectIsNotAFailure(t *testing.T) {
+	doer := &fakeDoer{body: `{"removeReaction": {"reactionGroups": []}}`}
+
+	res, err := newWithDoer(doer, nil).SetReaction(
+		context.Background(), "IC_1", ReactionThumbsUp, false)
+	if err != nil {
+		t.Fatalf("SetReaction: %v", err)
+	}
+	if len(res.Reactions) != 0 {
+		t.Errorf("Reactions = %+v, want none", res.Reactions)
+	}
+}
+
 func TestAFailedReactionSaysWhichDirectionItWas(t *testing.T) {
 	doer := &fakeDoer{err: errors.New("boom")}
 

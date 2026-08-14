@@ -316,6 +316,67 @@ func TestThePillsComeBackWhenTheBoxCloses(t *testing.T) {
 	}
 }
 
+// j and k walk the list. Eight rows is exactly the length that earns a filter,
+// and a filter claims every printable key ahead of movement: left on, j narrows
+// a list of eight fixed names to nothing, because none of them holds one.
+func TestJAndKWalkTheReactionList(t *testing.T) {
+	m := press(press(reacting(2), "+"), "j")
+
+	if out := stripANSI(m.View()); strings.Contains(out, "No match") {
+		t.Fatalf("j filtered the list instead of walking it:\n%s", out)
+	}
+
+	got := reactAsked(t, m, "enter")
+	if got.Content != gh.ReactionThumbsDown {
+		t.Errorf("j then enter asked for %v, want the second row", got.Content)
+	}
+}
+
+// A card clips what overflows it, silently and mid-cell, so a row of pills
+// wider than the card would lose its last ones with nothing to say they were
+// there. It folds at pill boundaries instead: a line costs a row and keeps
+// every glyph with its number.
+func TestAWideRowOfPillsFoldsRatherThanClipping(t *testing.T) {
+	d := reactive()
+	all := make([]gh.Reaction, 0, len(gh.ReactionOrder))
+	for i, c := range gh.ReactionOrder {
+		all = append(all, gh.Reaction{Content: c, Count: i + 11})
+	}
+	d.Timeline[0].Comment.Reactions = all
+
+	// Narrow enough that eight pills cannot sit on one line. At 60 they can,
+	// and the card clips nothing, so a fixture at the width the other tests use
+	// would prove none of this.
+	for _, width := range []int{50, 44} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			out := stripANSI(detailed(held(d), width, 40).View())
+
+			for _, r := range all {
+				want := reactionGlyphFor(r.Content) + " " + strconv.Itoa(r.Count)
+				if !strings.Contains(out, want) {
+					t.Errorf("the card lost %q off the end of its pill row:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// reactionGlyphFor is the emoji a card draws for a reaction. It is spelled out
+// here rather than reached for in the package, because a test sharing the map
+// under test would pass on a map that had gone wrong.
+func reactionGlyphFor(c gh.ReactionContent) string {
+	return map[gh.ReactionContent]string{
+		gh.ReactionThumbsUp:   "👍",
+		gh.ReactionThumbsDown: "👎",
+		gh.ReactionLaugh:      "😄",
+		gh.ReactionHooray:     "🎉",
+		gh.ReactionConfused:   "😕",
+		gh.ReactionHeart:      "❤️",
+		gh.ReactionRocket:     "🚀",
+		gh.ReactionEyes:       "👀",
+	}[c]
+}
+
 // esc closes the list and writes nothing, the way it does over every picker.
 func TestEscapeClosesTheListWithoutWriting(t *testing.T) {
 	m := press(reacting(2), "+")

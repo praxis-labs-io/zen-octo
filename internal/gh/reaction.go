@@ -62,9 +62,13 @@ func reactions(groups []reactionGroup) []Reaction {
 // reactionResponse decodes either payload. The method reads the half its own
 // document produced rather than whichever field came back filled, so a response
 // landing in the wrong one is a failure instead of a silent pass.
+//
+// Pointers, because the two questions are different and an empty slice answers
+// both: taking the last reaction off a subject leaves it with none, and that is
+// a write that worked. A nil payload is the one that did not.
 type reactionResponse struct {
-	AddReaction    struct{ ReactionGroups []reactionGroup }
-	RemoveReaction struct{ ReactionGroups []reactionGroup }
+	AddReaction    *struct{ ReactionGroups []reactionGroup }
+	RemoveReaction *struct{ ReactionGroups []reactionGroup }
 }
 
 // SetReaction gives a reaction or takes it back, and returns the subject's
@@ -76,8 +80,9 @@ type reactionResponse struct {
 // the card renders it and how the picker offers it. The direction picks the
 // document and the words the error uses.
 //
-// An empty answer is not an error. Removing the last reaction leaves a subject
-// with none, and the eight groups come back at zero.
+// No reactions is not an error. Taking the last one off leaves a subject with
+// none, and that is the write having worked; the failure is the payload the
+// document did not ask for.
 func (c *Client) SetReaction(ctx context.Context, subjectID string,
 	content ReactionContent, on bool,
 ) (ReactionResult, error) {
@@ -93,13 +98,13 @@ func (c *Client) SetReaction(ctx context.Context, subjectID string,
 		return ReactionResult{}, fmt.Errorf("%s: %w", doing, classify(err))
 	}
 
-	groups := resp.RemoveReaction.ReactionGroups
+	payload := resp.RemoveReaction
 	if on {
-		groups = resp.AddReaction.ReactionGroups
+		payload = resp.AddReaction
 	}
-	if len(groups) == 0 {
-		return ReactionResult{}, fmt.Errorf("%s: GitHub returned no reactions", doing)
+	if payload == nil {
+		return ReactionResult{}, fmt.Errorf("%s: GitHub answered for the other one", doing)
 	}
 
-	return ReactionResult{Reactions: reactions(groups)}, nil
+	return ReactionResult{Reactions: reactions(payload.ReactionGroups)}, nil
 }

@@ -118,11 +118,16 @@ func (m Model) startReact() (Model, tea.Cmd) {
 	// no movement changes nothing; here it takes the reaction back off. That is
 	// what a toggle is, and it is what GitHub's own pill does when it is
 	// clicked a second time. The tick is what says which way the press goes.
-	m.picking = picking{
-		field: pickReact,
-		react: w,
-		p:     comp.NewPicker("React", m.reactionItems(w.on), viewerGave(w.on), false),
-	}
+	p := comp.NewPicker("React", m.reactionItems(w.on), viewerGave(w.on), false)
+
+	// Eight rows is exactly the length that earns a filter, and this is the one
+	// list here that has no use for one: the eight are fixed, they all fit on
+	// screen, and nobody is going to type "roc" to reach the rocket. Left on, it
+	// claims every printable key ahead of movement, so j and k narrow the list
+	// to nothing rather than walking it.
+	p.NoFilter()
+
+	m.picking = picking{field: pickReact, react: w, p: p}
 	return m, nil
 }
 
@@ -221,7 +226,12 @@ func (m Model) applyReact(p picking) (Model, tea.Cmd) {
 //
 // The viewer's own read in the accent, the way a focused border does: it is the
 // same question the tick answers in the list, asked of a card.
-func (m Model) reactionRow(on []gh.Reaction) string {
+// It wraps at pill boundaries rather than at columns. A card clips what
+// overflows it, silently and mid-cell, so a row of eight on a narrow pane would
+// lose its last pills with nothing to say they were there; and a pill cut in
+// half is a glyph with no number after it. Folding onto a second row costs a
+// line and keeps every one of them.
+func (m Model) reactionRow(on []gh.Reaction, width int) string {
 	if len(on) == 0 {
 		return ""
 	}
@@ -229,7 +239,8 @@ func (m Model) reactionRow(on []gh.Reaction) string {
 	base := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	mine := lipgloss.NewStyle().Foreground(m.theme.Accent)
 
-	var pills []string
+	var rows []string
+	row, used := "", 0
 	for _, r := range on {
 		// A pill at zero is one being taken back. It stays for as long as the
 		// write is out, because it is what the key reads to stay off it, and it
@@ -243,10 +254,27 @@ func (m Model) reactionRow(on []gh.Reaction) string {
 		if r.Viewer {
 			style = mine
 		}
-		pills = append(pills, style.Render(reactionGlyph[r.Content]+" "+count))
+
+		pill := style.Render(reactionGlyph[r.Content] + " " + count)
+		cells := lipgloss.Width(pill)
+
+		switch {
+		case row == "":
+			row, used = pill, cells
+		case used+len(reactionGap)+cells <= width:
+			row, used = row+reactionGap+pill, used+len(reactionGap)+cells
+		default:
+			rows = append(rows, row)
+			row, used = pill, cells
+		}
 	}
-	return strings.Join(pills, "  ")
+	return strings.Join(append(rows, row), "\n")
 }
+
+// reactionGap is the space between two pills. Wider than a word space, because
+// a glyph and a number read as one thing only when the pair beside them is
+// clearly a second one.
+const reactionGap = "  "
 
 // withReactions is a block's words with its pills under them, which is where
 // they go on every card that has any.
@@ -260,9 +288,12 @@ func (m Model) reactionRow(on []gh.Reaction) string {
 // row: pills under that read as a comment to react to rather than as one being
 // written. Dropping them is also what keeps the box's own height honest, since
 // what a card spends around one is a constant and a pill row is not in it.
-func (m Model) withReactions(content string, on []gh.Reaction, key focusKey) string {
-	row := m.reactionRow(on)
-	if row == "" || m.boxOn(key) {
+func (m Model) withReactions(content string, on []gh.Reaction, key focusKey, width int) string {
+	if m.boxOn(key) {
+		return content
+	}
+	row := m.reactionRow(on, width)
+	if row == "" {
 		return content
 	}
 	return content + "\n\n" + row

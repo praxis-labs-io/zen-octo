@@ -348,7 +348,18 @@ honest, since that measures down to an open box and anything below one is free.
 It goes entirely while a box is over the block, the way the card's byline does:
 the box's last row is its own button, so pills under that read as a comment to
 react to rather than as one being written, and what a card spends around a box
-is a constant that a pill row is not in.
+is a constant that a pill row is not in. The row folds at pill boundaries rather
+than running to one line, because a card clips what overflows it silently and
+mid-cell: eight of them do not fit a narrow pane, and a fixture with two pills
+on a hundred-column frame proves none of that.
+
+The list is the one picker here that turns its own filter off. Eight rows is
+exactly `pickerFilterFrom`, whose stated reason is that a shorter list is
+already on screen whole, and eight is under `pickerRows`, so this list sits in
+the gap between the number and the reason. The filter claims every printable key
+ahead of movement, which is right where a filter is worth having and wrong here:
+no reaction's name holds a `j`, so `j` narrowed the list to nothing rather than
+walking it.
 
 A reaction taken back leaves its group at zero and the group stays on the card
 while the write is out. It is the only thing a second press can read, and the
@@ -384,7 +395,7 @@ It also holds the writes still in flight, keyed by pull request and folded in on
 
 Folding a reply clones both slice levels. A thread's comments are their own slice, still the held one after the threads are cloned, and a thread with spare capacity takes the append in place: a detail already handed out then changes under whoever is holding it, which on this screen is a rendered conversation. A resolve needs the outer clone alone, and it folds through the same one the reply used: cloning again from the held slice throws the reply away. It writes the state and never the permissions, because a locally flipped `CanUnresolve` offers a key that opens a write GitHub rejects. It marks the thread pending, and the key goes inert on a marked one: two resolves out at once settle in the order the responses arrive, which is not the order they were pressed.
 
-A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, because that type's delete branch takes a thread away with its last comment and its edit branch marks the comment `Editing`, and a reaction does neither. It reaches one field further out as well: the description carries reactions and has no comment to name, so an empty `CommentID` is what says the subject is the pull request. Its fold rebuilds the set in GitHub's own order rather than appending, or a reaction given here moves sideways the moment the answer lands, and it settles by taking GitHub's whole set: the payload answers with all of it, so somebody else's reaction arriving between the press and the response is on screen a beat later rather than a refetch later.
+A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, because that type's delete branch takes a thread away with its last comment and its edit branch marks the comment `Editing`, and a reaction does neither. It reaches one field further out as well: the description carries reactions and has no comment to name, so an empty `CommentID` is what says the subject is the pull request. Its fold rebuilds the set in GitHub's own order rather than appending, or a reaction given here moves sideways the moment the answer lands. **It settles the one group the write moved and never the whole set the payload carries**, even though the payload carries all of it. Two toggles on one subject answer in whatever order the network gives them, and each response is a snapshot of the subject as GitHub had it when it handled that call: taking either one whole lets the older snapshot land last and delete a reaction the other one added. Writing the group this write is answering for is order-independent, because no two writes on a subject share a content while the first is still out. It costs the head start the whole set would have given on somebody else's reaction, which is worth less than a pill that vanishes.
 
 An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 
