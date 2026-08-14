@@ -845,18 +845,19 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
-	// The sub-cursor is what a quote reply takes and what the lit border points
-	// at. It is read on a thread holding the focus and holding more than one
-	// comment: on a single-comment thread the card's own border already says
-	// which words the keys have, and a second mark for the same fact is noise.
+	// The sub-cursor is the comment the keys are on, and the card holding it is
+	// the one that lights. Exactly one of them does: two lit borders are two
+	// claims about where a press lands, and the reader cannot act on both.
 	//
-	// An open box takes the focus off the thread, so the mark goes with it: the
-	// keys are all going into the box by then, and a card left lit would claim
-	// they act there.
+	// The comment that opened the thread has no card of its own, so the thread's
+	// own border stands for it. An open box takes the focus off the thread
+	// outright, so nothing here lights at all: the keys are going into the box by
+	// then, and a card left lit would claim they act somewhere they do not.
 	within := ""
-	if lit && len(t.Comments) > 1 {
+	if lit {
 		within = m.within(t)
 	}
+	onOpening := len(t.Comments) == 0 || within == t.Comments[0].ID
 
 	// The card holds the code and the comment that opened the thread, and
 	// nothing else. Everything answering that comment hangs off the rail below,
@@ -897,7 +898,8 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	}
 
 	content := strings.Join(blocks, "\n\n")
-	block := m.card(head, content, width, lit, m.threadHints(lit, t, width))
+	opening := lit && onOpening
+	block := m.card(head, content, width, opening, m.threadHints(opening, t, width))
 	if boxAt > 0 {
 		boxAt += m.cardLead(width, strings.Count(content, "\n")+1)
 	}
@@ -936,8 +938,10 @@ func (m *Model) answers(t gh.ReviewThread, within string, width int) []rendered 
 	if len(t.Comments) > 1 {
 		for _, c := range t.Comments[1:] {
 			// within is empty unless the thread holds the focus, so matching it
-			// is the whole of the question.
-			out = append(out, m.replyCard(c, c.ID == within, width))
+			// is the whole of the question. The hints ride on whichever card is
+			// lit, because that is the card the keys they name act on.
+			lit := c.ID == within
+			out = append(out, m.replyCard(c, lit, m.threadHints(lit, t, width), width))
 		}
 	}
 
@@ -955,11 +959,11 @@ func (m *Model) answers(t gh.ReviewThread, within string, width int) []rendered 
 // heads it the way an anchor heads the thread and a login heads a comment, which
 // is what lets the elbow meet a heading rather than a border.
 //
-// Its border is the whole of the sub-cursor: a reply the keys are on is lit, and
-// the thread card stays lit under it because the keys act on both. The keys the
-// reply answers to are named in the thread's footer beside the ones the thread
-// answers to, so the card carries no hints of its own.
-func (m *Model) replyCard(c gh.Comment, lit bool, width int) rendered {
+// Its border is the whole of the sub-cursor: the reply the keys are on is lit
+// and the thread card is not, so one border on the page says where a press
+// lands. The hints come with it, because a key named on a card it does not act
+// on is the lie the footer exists to avoid.
+func (m *Model) replyCard(c gh.Comment, lit bool, hints string, width int) rendered {
 	ck := threadCommentKey(c)
 
 	head := m.byline(c)
@@ -971,7 +975,7 @@ func (m *Model) replyCard(c gh.Comment, lit bool, width int) rendered {
 	// leaves it, so a narrow pane costs rows rather than words, and a reply that
 	// dropped its border would take the rail's elbow off the byline with it.
 	body := m.bodyOrBox(c.Body, m.cardWidth(width), "No comment.", ck, boxChrome)
-	v := rendered{block: m.card(head, body, width, lit, "")}
+	v := rendered{block: m.card(head, body, width, lit, hints)}
 	if m.boxOn(ck) {
 		v.boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
 	}

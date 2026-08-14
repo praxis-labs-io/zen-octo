@@ -258,8 +258,8 @@ func TestEditingAReviewSendsTheReviewKind(t *testing.T) {
 }
 
 // Tab walks whole threads, so the write keys act on the comment the sub-cursor
-// is on, which is the one a quote reply takes too: the last, until J or K says
-// otherwise.
+// is on, which is the one a quote reply takes too: the one that opened the
+// thread, until J or K says otherwise.
 func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 	m := typed(editing(tabThread), "!")
 
@@ -269,8 +269,8 @@ func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
 	}
 
-	if msg.CommentID != "RC_4" {
-		t.Errorf("CommentID = %q, want the last comment in the thread", msg.CommentID)
+	if msg.CommentID != "RC_1" {
+		t.Errorf("CommentID = %q, want the comment that opened the thread", msg.CommentID)
 	}
 	if msg.ThreadID != "RT_1" {
 		t.Errorf("ThreadID = %q, want the thread it sits in", msg.ThreadID)
@@ -279,10 +279,10 @@ func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 		t.Errorf("Kind = %q, want a review comment", msg.Kind)
 	}
 
-	// K steps back a comment, and the key follows it.
-	_, cmd = chord(typed(press(onWritable(tabThread), "K", "e"), "!"))
-	if msg, _ := runCmd(cmd).(prview.EditCommentMsg); msg.CommentID != "RC_1" {
-		t.Errorf("CommentID = %q after K, want the comment above", msg.CommentID)
+	// J steps on to the reply, and the key follows it.
+	_, cmd = chord(typed(press(onWritable(tabThread), "J", "e"), "!"))
+	if msg, _ := runCmd(cmd).(prview.EditCommentMsg); msg.CommentID != "RC_4" {
+		t.Errorf("CommentID = %q after J, want the reply below", msg.CommentID)
 	}
 }
 

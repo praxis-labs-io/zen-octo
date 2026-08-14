@@ -291,15 +291,21 @@ the screen goes. A reply keeps its frame at every width. The body wraps to
 whatever the card leaves it, so a narrow pane costs rows rather than words, and
 a reply that dropped its border would take the elbow off its byline with it.
 
-Each reply being a card is what says which comment the keys have. A lit border
-is the signal everywhere else on this screen, and one on the reply the
-sub-cursor is on replaces the bar that used to run down the gutter of every
-comment in the thread. The thread card stays lit under it, because the keys act
-on both: `r` and `x` belong to the thread, `e` and `D` to the comment inside it.
-The comment that opened the thread has no card of its own, so the thread's own
-border is what says the keys are there, which is already how a one-comment
-thread reads. An open box takes the focus off the thread outright and is then
-the one lit card on the page.
+Each reply being a card is what says which comment the keys have, and **exactly
+one card is lit at a time**: the reply the sub-cursor is on, or the thread card
+when it is on the comment that opened the thread, which has no card of its own.
+Lighting both reads as the reply being permanently focused, `J` and `K` look
+inert because the border never moves, and the reader cannot tell which of two
+borders a press lands in. The hints go with the light, for the same reason they
+are built per tab: a key named in the border of a card it does not act on is
+the lie the footer exists to avoid. An open box takes the focus off the thread
+outright and is then the one lit card on the page.
+
+The sub-cursor opens on the comment that opened the thread rather than on the
+newest, which is the rail's rule for a pane it has just been handed. Tab lands
+on a thread, and the card naming the file has to be the one that lights or the
+reader is looking at a lit reply hanging off a dark anchor. It is what `R`
+quotes until `J` says otherwise, and it is remembered per thread.
 
 `e` rewrites the block the ring is on and `D` removes it, behind a confirm: a
 delete is the one write here GitHub will not undo. `Comment.Kind` picks the

@@ -66,14 +66,15 @@ func (m *Model) writingCard(width int) string {
 	return m.card(head, m.inlineBox(inner, replyRows, boxChrome), width, m.lit(key), "")
 }
 
-// within is the comment a quote reply would take from a thread, and the one the
-// gutter bar points at.
+// within is the comment a quote reply would take from a thread, and the one
+// whose card is lit.
 //
 // Tab walks whole threads, so landing on one says nothing about which of its
-// comments the reader means. The last is the answer until they say otherwise:
-// it is the one at the bottom of the card, the newest, and the one an answer
-// follows on from. StepWithin moves it, and it is remembered per thread rather
-// than reset by every tab past.
+// comments the reader means. The one that opened it is the answer until they say
+// otherwise: it is the comment the thread is about, it sits in the card the
+// anchor and the code are in, and tab landing anywhere else would light a reply
+// while the card naming the file went dark. stepWithin moves it, and it is
+// remembered per thread rather than reset by every tab past.
 func (m Model) within(t gh.ReviewThread) string {
 	if len(t.Comments) == 0 {
 		return ""
@@ -82,7 +83,7 @@ func (m Model) within(t gh.ReviewThread) string {
 		func(c gh.Comment) bool { return c.ID == held }) {
 		return held
 	}
-	return t.Comments[len(t.Comments)-1].ID
+	return t.Comments[0].ID
 }
 
 // stepWithin moves the sub-cursor through the focused thread's comments. It
