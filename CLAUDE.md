@@ -291,21 +291,22 @@ the screen goes. A reply keeps its frame at every width. The body wraps to
 whatever the card leaves it, so a narrow pane costs rows rather than words, and
 a reply that dropped its border would take the elbow off its byline with it.
 
-Each reply being a card is what says which comment the keys have, and **exactly
-one card is lit at a time**: the reply the sub-cursor is on, or the thread card
-when it is on the comment that opened the thread, which has no card of its own.
-Lighting both reads as the reply being permanently focused, `J` and `K` look
-inert because the border never moves, and the reader cannot tell which of two
-borders a press lands in. The hints go with the light, for the same reason they
-are built per tab: a key named in the border of a card it does not act on is
-the lie the footer exists to avoid. An open box takes the focus off the thread
-outright and is then the one lit card on the page.
+**Every card is a ring stop, replies included**, and exactly one is lit at a
+time. A card the motion key walks past is one the reader can see and cannot
+reach, and lighting two at once is two claims about where a press lands. There
+was a second cursor inside a thread once, on `J` and `K`, from when a thread was
+one card with its comments stacked in it; a reply is a card now, so the ring is
+the only cursor and those keys are gone. The argument for them was that stopping
+on every reply makes a heavily reviewed page a chore to cross, and that is what
+`ctrl+d` and `ctrl+f` are for: crossing a page is a scroll, not a focus walk.
 
-The sub-cursor opens on the comment that opened the thread rather than on the
-newest, which is the rail's rule for a pane it has just been handed. Tab lands
-on a thread, and the card naming the file has to be the one that lights or the
-reader is looking at a lit reply hanging off a dark anchor. It is what `R`
-quotes until `J` says otherwise, and it is remembered per thread.
+The two cards answer to different keys, because a reply is an answer to the code
+comment and not the code comment. `x` settles a thread and `v` goes to the line
+it was written against; neither is a thing an answer has, so both are inert on a
+reply and named on neither its footer nor the help. `threadOnRing` is what
+refuses them, and `threadHolding` is the looser lookup `r`, `R`, `e` and `D` read
+instead: those mean whichever card is under them, and a reply to a reply is a
+reply to the thread, which is the only reply GitHub has.
 
 `e` rewrites the block the ring is on and `D` removes it, behind a confirm: a
 delete is the one write here GitHub will not undo. `Comment.Kind` picks the

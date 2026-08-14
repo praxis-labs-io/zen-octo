@@ -497,7 +497,7 @@ func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
 	}
 
 	// Eight steps walk the ring onto the box without starting to write in it.
-	onIt := press(away, strings.Fields(strings.Repeat("} ", 8))...)
+	onIt := press(away, strings.Fields(strings.Repeat("} ", 9))...)
 	out := stripANSI(onIt.View())
 	if !strings.Contains(out, "⏎ to write") {
 		t.Errorf("with the ring on the box it does not name enter:\n%s", out)

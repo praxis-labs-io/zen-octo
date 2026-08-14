@@ -66,49 +66,22 @@ func (m *Model) writingCard(width int) string {
 	return m.card(head, m.inlineBox(inner, replyRows, boxChrome), width, m.lit(key), "")
 }
 
-// within is the comment a quote reply would take from a thread, and the one
-// whose card is lit.
+// within is the comment the focused card holds: the one that opened the thread
+// when the ring is on the thread's own card, and the reply itself when it is on
+// one of the cards hanging off it.
 //
-// Tab walks whole threads, so landing on one says nothing about which of its
-// comments the reader means. The one that opened it is the answer until they say
-// otherwise: it is the comment the thread is about, it sits in the card the
-// anchor and the code are in, and tab landing anywhere else would light a reply
-// while the card naming the file went dark. stepWithin moves it, and it is
-// remembered per thread rather than reset by every tab past.
+// Every card is a ring stop, so the focus already names a comment and nothing
+// has to be remembered beside it. This is only the lookup.
 func (m Model) within(t gh.ReviewThread) string {
+	on := m.convRing.on
+	if on.kind == focusThreadComment && slices.ContainsFunc(t.Comments,
+		func(c gh.Comment) bool { return c.ID == on.id }) {
+		return on.id
+	}
 	if len(t.Comments) == 0 {
 		return ""
 	}
-	if held, ok := m.sub[t.ID]; ok && slices.ContainsFunc(t.Comments,
-		func(c gh.Comment) bool { return c.ID == held }) {
-		return held
-	}
 	return t.Comments[0].ID
-}
-
-// stepWithin moves the sub-cursor through the focused thread's comments. It
-// clamps rather than wrapping: a run off either end of a thread is a reader
-// asking for the thread above or below, and tab is the key for that.
-func (m Model) stepWithin(delta int) (Model, tea.Cmd) {
-	t, ok := m.focusedThread()
-	if !ok || len(t.Comments) < 2 {
-		return m, nil
-	}
-
-	at := slices.IndexFunc(t.Comments, func(c gh.Comment) bool { return c.ID == m.within(t) })
-	next := min(max(at+delta, 0), len(t.Comments)-1)
-	if next == at {
-		return m, nil
-	}
-
-	if m.sub == nil {
-		m.sub = make(map[string]string)
-	}
-	m.sub[t.ID] = t.Comments[next].ID
-
-	m.conv.ok = false
-	m.syncContent()
-	return m, nil
 }
 
 // threadOpen is whether a thread is showing its comments. Everything unresolved
@@ -118,14 +91,20 @@ func (m Model) threadOpen(t gh.ReviewThread) bool {
 	return !t.IsResolved || m.expanded[threadKey(t)]
 }
 
-// focusedThread is the open thread the ring is on, on the screen.
+// focusedThread is the open thread the ring is anywhere inside, on the screen.
+// A reply answers with the thread it hangs off: r adds to that thread, which is
+// the only reply GitHub has, and e and D pick the card out of it by id.
 func (m Model) focusedThread() (gh.ReviewThread, bool) {
-	t, ok := m.threadOnRing()
+	t, ok := m.threadHolding()
 	return t, ok && m.threadOpen(t)
 }
 
-// threadOnRing is the thread the ring is on whether it is open or not, which is
-// what o needs: closed is the state it exists to change.
+// threadOnRing is the thread whose own card the ring is on, open or not, which
+// is what o needs: closed is the state it exists to change.
+//
+// A reply is not it. The card holding the anchor, the code and the comment that
+// opened the thread is the thread; the cards hanging off it are answers to that
+// comment, and x and v mean the code, not the answer.
 func (m Model) threadOnRing() (gh.ReviewThread, bool) {
 	on := m.convRing.on
 	if !m.answerable() || on.kind != focusThread {
@@ -134,6 +113,23 @@ func (m Model) threadOnRing() (gh.ReviewThread, bool) {
 	for _, t := range m.detail.Detail.Threads {
 		if t.ID == on.id {
 			return t, true
+		}
+	}
+	return gh.ReviewThread{}, false
+}
+
+// threadHolding is the thread the ring is anywhere inside: its own card, or one
+// of the replies hanging off it. It is what the keys that answer or rewrite a
+// comment read, because those mean whichever card is under them.
+func (m Model) threadHolding() (gh.ReviewThread, bool) {
+	if t, ok := m.threadOnRing(); ok {
+		return t, ok
+	}
+	if on := m.convRing.on; m.answerable() && on.kind == focusThreadComment {
+		for _, t := range m.detail.Detail.Threads {
+			if slices.ContainsFunc(t.Comments, func(c gh.Comment) bool { return c.ID == on.id }) {
+				return t, true
+			}
 		}
 	}
 	return gh.ReviewThread{}, false

@@ -12,12 +12,14 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-// Where tab stops on the fixture: the thread GitHub will take a reply to, the
-// one it will not, and a second answerable one further down.
+// Where the ring stops on the fixture: the thread GitHub will take a reply to,
+// the one reply hanging off it, the one thread it will not take a reply to, and
+// a second answerable one further down.
 const (
 	tabThread = 4
-	tabLocked = 6
-	tabOther  = 7
+	tabReply  = 5
+	tabLocked = 7
+	tabOther  = 8
 )
 
 // onThread puts the ring on a card by step count.
@@ -148,7 +150,7 @@ func TestReplyIsInertOnAThreadThatTakesNoReply(t *testing.T) {
 
 	before := locked.View()
 	if got := focusedCard(t, before); !strings.HasPrefix(got, cardLocked) {
-		t.Fatalf("the sixth tab focused %q, want the locked thread", got)
+		t.Fatalf("the ring landed on %q, want the locked thread", got)
 	}
 
 	if after := press(locked, "r").View(); after != before {
@@ -203,11 +205,9 @@ func TestQuoteReplyPutsTheCommentInTheBox(t *testing.T) {
 	}
 }
 
-// Tab lands on a thread, not on a comment inside it, so a quote has to pick one.
-// The comment that opened it is the answer until J or K says otherwise: it is
-// the one the thread is about, and it sits in the card the anchor and the code
-// are in.
-func TestQuoteReplyTakesTheOpeningCommentByDefault(t *testing.T) {
+// A thread's own card holds the comment it was opened with, so that is what a
+// quote takes from it. The replies are cards of their own and quote themselves.
+func TestQuoteReplyTakesTheCommentOfTheCardItIsOn(t *testing.T) {
 	out := stripANSI(replying(t, tabThread, "R").View())
 
 	if !strings.Contains(out, "> This backs off forever.") {
@@ -218,16 +218,16 @@ func TestQuoteReplyTakesTheOpeningCommentByDefault(t *testing.T) {
 	}
 }
 
-// J steps the sub-cursor down the thread, which is what makes answering a reply
-// rather than the comment it answers possible.
-func TestSteppingWithinTheThreadMovesWhatAQuoteTakes(t *testing.T) {
-	out := stripANSI(press(onThread(t, tabThread), "J", "R").View())
+// Landing on the reply is what makes answering it rather than the comment it
+// answers possible.
+func TestQuotingAReplyTakesTheReply(t *testing.T) {
+	out := stripANSI(press(onThread(t, tabReply), "R").View())
 
 	if !strings.Contains(out, "> Seconded, the cap is the fix.") {
-		t.Errorf("J did not move what R quotes:\n%s", out)
+		t.Errorf("R on the reply quoted something else:\n%s", out)
 	}
 	if strings.Contains(out, "> This backs off forever.") {
-		t.Error("R quoted the comment the sub-cursor left")
+		t.Error("R quoted the comment the reply answers rather than the reply")
 	}
 }
 
@@ -268,19 +268,15 @@ func subCursor(t *testing.T, frame string) string {
 	return lit[0]
 }
 
-// One lit border at a time. A reply is a card, so its own border says the keys
-// are on it, and the thread card goes dark when they leave it: two lit borders
-// are two claims about where a press lands.
-func TestTheSubCursorMovesTheLitBorder(t *testing.T) {
-	// It opens on the comment that opened the thread, which is the one the
-	// thread is about and the one the anchor and the code sit with.
+// One lit border at a time. A reply is a card and a stop, so its own border says
+// the keys are on it, and the thread card goes dark when they leave it: two lit
+// borders are two claims about where a press lands.
+func TestOnlyTheCardTheRingIsOnIsLit(t *testing.T) {
 	if got := subCursor(t, onThread(t, tabThread).View()); !strings.HasPrefix(got, cardThread) {
-		t.Errorf("the sub-cursor opens on %q, want the thread card", got)
+		t.Errorf("the thread step lit %q, want the thread card", got)
 	}
-
-	// J moves it down onto the reply, and the thread card goes dark.
-	if got := subCursor(t, press(onThread(t, tabThread), "J").View()); !strings.HasPrefix(got, "octobot · said") {
-		t.Errorf("after J the lit card is %q, want the reply", got)
+	if got := subCursor(t, onThread(t, tabReply).View()); !strings.HasPrefix(got, "octobot · said") {
+		t.Errorf("the reply step lit %q, want the reply", got)
 	}
 
 	// And nothing lights on a thread that is not the focus.
@@ -289,48 +285,47 @@ func TestTheSubCursorMovesTheLitBorder(t *testing.T) {
 	}
 }
 
-// The keys ride in the border of the card that is lit, because that is the card
-// they act on. Left on the thread while a reply holds them, the footer would
-// name e and D over words they no longer reach.
-func TestTheHintsFollowTheLitCard(t *testing.T) {
-	lines := strings.Split(stripANSI(press(onThread(t, tabThread), "J").View()), "\n")
-
+// A reply is an answer to the code comment and not the code comment, so the keys
+// that mean the discussion are not named on it. x settles a thread and v goes to
+// the line it was written against, and neither is a thing an answer has.
+func TestAReplyNamesOnlyTheKeysItAnswersTo(t *testing.T) {
+	lines := strings.Split(stripANSI(onThread(t, tabReply).View()), "\n")
 	reply := footerRow(t, lines, headingRow(t, lines, "octobot · said · 1h"))
+
 	if !strings.Contains(reply, "r reply") {
 		t.Errorf("the reply holding the keys names none of them: %q", reply)
 	}
+	for _, key := range []string{"x resolve", "v in diff", "x unresolve"} {
+		if strings.Contains(reply, key) {
+			t.Errorf("the reply names %q, which acts on the thread and not on it: %q", key, reply)
+		}
+	}
 
+	// And the thread's own card is where they are named.
 	thread := footerRow(t, lines, headingRow(t, lines, "internal/gh/client.go:42"))
 	if strings.Contains(thread, "r reply") {
 		t.Errorf("the thread names keys while a reply holds them: %q", thread)
 	}
 }
 
-// It clamps at both ends. Running off a thread is a reader asking for the block
-// above or below it, and tab is the key for that.
-func TestTheSubCursorStopsAtTheEndsOfTheThread(t *testing.T) {
-	m := onThread(t, tabThread)
+// Naming them is one thing and answering them is another. A key inert on the
+// card the reader is on has to do nothing rather than reach past it.
+func TestTheThreadKeysAreInertOnAReply(t *testing.T) {
+	m := onThread(t, tabReply)
 
-	top := press(m, "K", "K", "K")
-	if got := subCursor(t, top.View()); !strings.HasPrefix(got, cardThread) {
-		t.Errorf("K past the top landed on %q, want the thread card", got)
-	}
-
-	bottom := press(top, "J", "J", "J")
-	if got := subCursor(t, bottom.View()); !strings.HasPrefix(got, "octobot · said") {
-		t.Errorf("J past the end landed on %q, want the last comment", got)
+	for _, key := range []string{"x", "v"} {
+		if after := press(m, key).View(); after != m.View() {
+			t.Errorf("%s did something from a reply:\n%s", key, stripANSI(after))
+		}
 	}
 }
 
-// Where the reader left the sub-cursor is where they find it. Tab past a thread
-// and back is not them changing their mind about which comment they meant.
-func TestTheSubCursorIsRememberedPerThread(t *testing.T) {
-	stepped := press(onThread(t, tabThread), "J")
-
-	// A full lap of the ring, which is eight stops on this fixture.
-	away := walked(stepped, 8)
+// A lap of the ring comes back to the card it started on, replies included.
+func TestALapOfTheRingComesBackToTheReply(t *testing.T) {
+	// A full lap of the ring, which is nine stops on this fixture.
+	away := walked(onThread(t, tabReply), 9)
 	if got := subCursor(t, away.View()); !strings.HasPrefix(got, "octobot · said") {
-		t.Errorf("coming back, the sub-cursor is on %q, want where it was left", got)
+		t.Errorf("a lap of the ring landed on %q, want back on the reply", got)
 	}
 }
 
@@ -470,10 +465,10 @@ func lastRune(hay []rune, want rune) int {
 // the accent.
 func TestAResolvedThreadIsACardThatOpens(t *testing.T) {
 	// The fifth tab is the resolved thread.
-	closed := onThread(t, 5)
+	closed := onThread(t, tabResolved)
 
 	if got := focusedCard(t, closed.View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
-		t.Fatalf("the fifth tab focused %q, want the resolved thread's card", got)
+		t.Fatalf("the ring landed on %q, want the resolved thread's card", got)
 	}
 	out := stripANSI(closed.View())
 	if !strings.Contains(out, "▸ 2 comments") {
@@ -552,15 +547,11 @@ func TestAFoldedBlockIsALineNotABox(t *testing.T) {
 // do anything to it. A key named on a card it is inert on is the lie the line
 // exists to prevent.
 func TestAFocusedCardNamesItsKeysInTheBorder(t *testing.T) {
-	if out := stripANSI(onThread(t, tabThread).View()); !strings.Contains(out, "J/K in thread · r reply · R quote") {
+	if out := stripANSI(onThread(t, tabThread).View()); !strings.Contains(out, "r reply · R quote") {
 		t.Errorf("the thread card names none of its keys:\n%s", out)
 	}
 
-	// One comment, so there is nothing to step between.
 	single := stripANSI(onThread(t, tabOther).View())
-	if strings.Contains(single, "J/K in thread") {
-		t.Error("a one-comment thread offers a key that would do nothing")
-	}
 	if !strings.Contains(single, "r reply · R quote") {
 		t.Errorf("a one-comment thread does not name reply:\n%s", single)
 	}
@@ -571,7 +562,7 @@ func TestAFocusedCardNamesItsKeysInTheBorder(t *testing.T) {
 	}
 
 	// A closed thread offers the one key that changes that.
-	if closed := stripANSI(onThread(t, 5).View()); !strings.Contains(closed, "o open") {
+	if closed := stripANSI(onThread(t, tabResolved).View()); !strings.Contains(closed, "o open") {
 		t.Errorf("the closed thread does not name the key that opens it:\n%s", closed)
 	}
 

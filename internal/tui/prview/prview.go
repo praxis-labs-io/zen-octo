@@ -260,12 +260,6 @@ type Model struct {
 	// keyboard at a time.
 	inline inline
 
-	// sub is which comment inside a thread the keys have, by thread. Tab walks
-	// whole threads, so this is the second level: what a quote takes and what
-	// the gutter bar points at. A thread missing from here is one nobody has
-	// stepped into, and its last comment is the answer.
-	sub map[string]string
-
 	// conv is the conversation above the box, kept while it is being written in.
 	conv convCache
 
@@ -588,11 +582,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.toggleResolved()
 	case key.Matches(keyMsg, k.Jump):
 		return m.showInDiff()
-
-	case key.Matches(keyMsg, k.NextWithin):
-		return m.stepWithin(1)
-	case key.Matches(keyMsg, k.PrevWithin):
-		return m.stepWithin(-1)
 
 	case key.Matches(keyMsg, k.NextTab):
 		return m, m.changeTab(1)
@@ -984,9 +973,9 @@ func (m *Model) toggleExpanded() {
 // foldTarget is what o unfolds.
 //
 // A resolved thread answers with the whole card: closed is its resting state and
-// opening it is the only thing o could usefully mean there. Anywhere else a
-// thread card holds several comments and the fold is per comment, on both tabs
-// that draw one, so the sub-cursor picks which.
+// opening it is the only thing o could usefully mean there. Anywhere else the
+// focus already names one comment, its own or the one its card was opened with,
+// and the fold is per comment on both tabs that draw one.
 func (m Model) foldTarget() focusKey {
 	t, ok := m.threadOnRing()
 	if !ok {

@@ -502,9 +502,10 @@ func (m Model) card(head, content string, width int, lit bool, hints string) str
 	return pane.Size(width, lines+pane.Chrome()).Render(body)
 }
 
-// threadHints is the keys live on a thread card, in the order a reader reaches
-// for them. The write keys name the comment the sub-cursor is on, which is the
-// one they would act on.
+// threadHints is the keys live on a thread's own card, in the order a reader
+// reaches for them. That card is the discussion: it holds the anchor, the code,
+// and the comment the thread was opened with, so the keys that act on the whole
+// of it are named here and nowhere else.
 func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	if !lit {
 		return ""
@@ -515,24 +516,39 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 		return hintLine(width, append([]string{k.Expand.Help().Key + " open"}, m.threadActs(t)...)...)
 	}
 
-	var parts []string
-	if len(t.Comments) > 1 {
-		parts = append(parts, k.NextWithin.Help().Key+"/"+k.PrevWithin.Help().Key+" in thread")
-	}
-	if t.CanReply {
-		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
-	}
+	parts := m.answerParts(t, opening(t))
 	parts = append(parts, m.threadActs(t)...)
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
 	}
-	within := m.within(t)
-	for _, c := range t.Comments {
-		if c.ID == within {
-			parts = append(parts, writeHints(c)...)
-		}
+	return hintLine(width, append(parts, writeHints(opening(t))...)...)
+}
+
+// replyHints is the keys live on one reply. A reply is an answer to the code
+// comment and not the code comment, so the keys that mean the discussion are not
+// on it: x settles a thread, v goes to the line it was written against, and
+// neither is a thing an answer has. What is left is answering it and rewriting
+// it.
+func (m Model) replyHints(lit bool, t gh.ReviewThread, c gh.Comment, width int) string {
+	if !lit {
+		return ""
 	}
-	return hintLine(width, parts...)
+	return hintLine(width, append(m.answerParts(t, c), writeHints(c)...)...)
+}
+
+// answerParts is the two keys that answer a comment, named where GitHub will
+// take the press, with the fold key beside them when there is something folded.
+func (m Model) answerParts(t gh.ReviewThread, c gh.Comment) []string {
+	k := keys.Detail
+
+	var parts []string
+	if t.CanReply {
+		parts = append(parts, k.Reply.Help().Key+" reply", k.QuoteReply.Help().Key+" quote")
+	}
+	if foldable(c.Body) {
+		parts = append(parts, k.Expand.Help().Key+" expand")
+	}
+	return parts
 }
 
 // writeHints is what a comment answers to: the two keys that rewrite it, named
@@ -845,20 +861,6 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
-	// The sub-cursor is the comment the keys are on, and the card holding it is
-	// the one that lights. Exactly one of them does: two lit borders are two
-	// claims about where a press lands, and the reader cannot act on both.
-	//
-	// The comment that opened the thread has no card of its own, so the thread's
-	// own border stands for it. An open box takes the focus off the thread
-	// outright, so nothing here lights at all: the keys are going into the box by
-	// then, and a card left lit would claim they act somewhere they do not.
-	within := ""
-	if lit {
-		within = m.within(t)
-	}
-	onOpening := len(t.Comments) == 0 || within == t.Comments[0].ID
-
 	// The card holds the code and the comment that opened the thread, and
 	// nothing else. Everything answering that comment hangs off the rail below,
 	// the way this thread hangs off the review that opened it.
@@ -898,13 +900,12 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	}
 
 	content := strings.Join(blocks, "\n\n")
-	opening := lit && onOpening
-	block := m.card(head, content, width, opening, m.threadHints(opening, t, width))
+	block := m.card(head, content, width, lit, m.threadHints(lit, t, width))
 	if boxAt > 0 {
 		boxAt += m.cardLead(width, strings.Count(content, "\n")+1)
 	}
 
-	answers, stops := m.answers(t, within, width-treeGutter), []focusItem{{focusKey: key}}
+	answers, stops := m.answers(t, width-treeGutter), []focusItem{{focusKey: key}}
 	used := strings.Count(block, "\n") + 1
 	for i, v := range answers {
 		// The rail opens with a line of its own above each card, so a child
@@ -922,6 +923,15 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	return rendered{block: block, stops: tile(block, stops), boxAt: boxAt}
 }
 
+// opening is the comment a thread was started with, which is the one its own
+// card holds and the one that card's write keys act on.
+func opening(t gh.ReviewThread) gh.Comment {
+	if len(t.Comments) == 0 {
+		return gh.Comment{}
+	}
+	return t.Comments[0]
+}
+
 // answers is every card hanging off a thread: the replies to the comment that
 // opened it, and the box when one is open here.
 //
@@ -933,15 +943,15 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 // It is only ever drawn on the tab with a ring to open it from. The Files tab
 // renders the same threads and has no way to reach a box, so one there would be
 // a card nobody asked for.
-func (m *Model) answers(t gh.ReviewThread, within string, width int) []rendered {
+func (m *Model) answers(t gh.ReviewThread, width int) []rendered {
 	var out []rendered
 	if len(t.Comments) > 1 {
 		for _, c := range t.Comments[1:] {
-			// within is empty unless the thread holds the focus, so matching it
-			// is the whole of the question. The hints ride on whichever card is
-			// lit, because that is the card the keys they name act on.
-			lit := c.ID == within
-			out = append(out, m.replyCard(c, lit, m.threadHints(lit, t, width), width))
+			// Each reply is its own stop, so its own border and its own hints
+			// answer for it: the keys they name act on the card carrying them.
+			v := m.replyCard(c, t, width)
+			v.stops = []focusItem{{focusKey: threadCommentKey(c)}}
+			out = append(out, v)
 		}
 	}
 
@@ -959,12 +969,14 @@ func (m *Model) answers(t gh.ReviewThread, within string, width int) []rendered 
 // heads it the way an anchor heads the thread and a login heads a comment, which
 // is what lets the elbow meet a heading rather than a border.
 //
-// Its border is the whole of the sub-cursor: the reply the keys are on is lit
-// and the thread card is not, so one border on the page says where a press
-// lands. The hints come with it, because a key named on a card it does not act
-// on is the lie the footer exists to avoid.
-func (m *Model) replyCard(c gh.Comment, lit bool, hints string, width int) rendered {
+// It is a ring stop like any other card, so its own border says when the keys
+// are on it and its own footer names them. The thread it answers is what the
+// thread-level keys reach through it: a resolve or a jump from a reply is the
+// reader meaning the discussion, which is the only thing either could mean.
+func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	ck := threadCommentKey(c)
+	lit := m.lit(ck)
+	hints := m.replyHints(lit, t, c, width)
 
 	head := m.byline(c)
 	if m.boxOn(ck) {

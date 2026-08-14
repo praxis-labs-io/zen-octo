@@ -13,7 +13,7 @@ import (
 
 // tabResolved is where tab stops on the thread the fixture already carries as
 // settled, which is the one the key has to reopen.
-const tabResolved = 5
+const tabResolved = 6
 
 // asked presses a key and reads what it sent the root, or nothing.
 func asked(t *testing.T, m prview.Model, k string) tea.Msg {
@@ -52,7 +52,7 @@ func TestXAsksToResolveTheFocusedThread(t *testing.T) {
 func TestXOnAResolvedThreadAsksToUnresolve(t *testing.T) {
 	m := onThread(t, tabResolved)
 	if got := focusedCard(t, m.View()); !strings.Contains(got, "resolved") {
-		t.Fatalf("the fifth tab focused %q, want the resolved thread", got)
+		t.Fatalf("the ring landed on %q, want the resolved thread", got)
 	}
 
 	got := resolveAsked(t, m, "x")
@@ -207,9 +207,9 @@ func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 		width int
 		want  []string
 	}{
-		{200, []string{"J/K in thread", "r reply", "R quote", "x resolve", "v in diff"}},
-		{62, []string{"J/K in thread", "r reply", "R quote", "x resolve"}},
-		{50, []string{"J/K in thread", "r reply", "R quote"}},
+		{200, []string{"r reply", "R quote", "x resolve", "v in diff"}},
+		{44, []string{"r reply", "R quote", "x resolve"}},
+		{34, []string{"r reply", "R quote"}},
 	}
 
 	for _, tt := range tests {
