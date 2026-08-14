@@ -213,6 +213,7 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	// One box takes the keys. The compose card keeps its words: it is furniture,
 	// and esc leaves them there too.
 	m.compose.stop()
+	m.clearMention()
 
 	at := replyKey(t.ID)
 	cmd := m.inline.open(at, m.convRing.on, "", replyWords)

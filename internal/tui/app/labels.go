@@ -50,7 +50,20 @@ func (m Model) needRepoMeta(repo string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	return m, m.fetchRepoMeta(repo)
+
+	// The screen takes the loading state as the request leaves. A mention popup
+	// opened on the answer is drawn before it arrives, and without this it
+	// cannot tell a list on its way from one nobody has asked for. The record is
+	// unloaded either way, so nothing that waits on the answer moves.
+	// The spinner chain has to be restarted with it, the way every other lazy
+	// fetch here restarts it. A tick that arrives with nothing loading ends the
+	// chain, so by the time a reader opens a box there is none running and the
+	// popup's glyph would sit on its first frame for the whole request.
+	var shown []tea.Cmd
+	if m.showingRepo(repo) {
+		shown = append(shown, m.detail.SetRepo(m.store.Repo(repo)), m.detail.Init())
+	}
+	return m, tea.Batch(append(shown, m.fetchRepoMeta(repo))...)
 }
 
 func (m Model) fetchRepoMeta(repo string) tea.Cmd {
@@ -92,9 +105,19 @@ func (m Model) showingRepo(repo string) bool {
 // repoMetaFailed says so and leaves the picker unopened. A modal over an empty
 // list reads as a repository with no labels, which is a worse lie than no
 // modal at all.
+//
+// The screen is handed the failed record all the same. The record stays
+// unloaded, so no picker opens on it, and the mention popup is already on the
+// page with a caret under it: the toast is over the pane and gone in seconds,
+// and the popup has to say for itself that the list is not coming.
 func (m Model) repoMetaFailed(msg repoMetaFailedMsg) (tea.Model, tea.Cmd) {
 	m.store.RepoMetaFailed(msg.repo, msg.err)
-	return m, m.toasts.Show(comp.ToastError, "Could not read the repository: "+msg.err.Error())
+
+	toast := m.toasts.Show(comp.ToastError, "Could not read the repository: "+msg.err.Error())
+	if !m.showingRepo(msg.repo) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetRepo(m.store.Repo(msg.repo)), toast)
 }
 
 // setLabels writes a label set, painting it on the rail before the write

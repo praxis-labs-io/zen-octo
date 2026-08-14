@@ -95,7 +95,7 @@ func (m *Model) entries() string {
 	pushStops := func(v rendered) {
 		blocks = append(blocks, v.block)
 		if v.boxAt > 0 {
-			m.boxLine = at + v.boxAt
+			m.boxLine, m.boxCol = at+v.boxAt, v.boxCol
 		}
 		for _, s := range v.stops {
 			m.convRing.add(s.focusKey, at+s.start, s.lines)
@@ -261,7 +261,7 @@ func (m *Model) withBox(width int) string {
 
 	middle := m.boxBlock(width)
 	if middle.boxAt > 0 {
-		m.boxLine = m.conv.at + middle.boxAt
+		m.boxLine, m.boxCol = m.conv.at+middle.boxAt, middle.boxCol
 	}
 	for _, s := range middle.stops {
 		m.convRing.add(s.focusKey, m.conv.at+s.start, s.lines)
@@ -370,10 +370,12 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key, boxChrome)
 	block := m.card(head, content, width, m.lit(key), m.cardHints(key, said, width))
 
+	boxAt, boxCol := m.cardBoxAt(key, width, content)
 	return rendered{
-		block: block,
-		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
-		boxAt: m.cardBoxAt(key, width, content),
+		block:  block,
+		stops:  []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt:  boxAt,
+		boxCol: boxCol,
 	}
 }
 
@@ -419,7 +421,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
-	boxAt := m.cardBoxAt(key, width, content)
+	boxAt, boxCol := m.cardBoxAt(key, width, content)
 
 	var owned []rendered
 	for i, thread := range threads {
@@ -439,12 +441,12 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + s.start, lines: s.lines})
 		}
 		if t.boxAt > 0 {
-			boxAt = used + t.boxAt
+			boxAt, boxCol = used+t.boxAt, t.boxCol+treeGutter
 		}
 		used += lines
 		block += "\n" + m.branch(t.block, i == len(owned)-1)
 	}
-	return rendered{block: block, stops: stops, boxAt: boxAt}
+	return rendered{block: block, stops: stops, boxAt: boxAt, boxCol: boxCol}
 }
 
 // branch hangs one card off the card above it. The last closes the run, so the
@@ -730,10 +732,12 @@ func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key, boxChrome)
 	block := m.card(head, content, width, m.lit(key), m.descriptionHints(key, d, width))
 
+	boxAt, boxCol := m.cardBoxAt(key, width, content)
 	return rendered{
-		block: block,
-		stops: []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
-		boxAt: m.cardBoxAt(key, width, content),
+		block:  block,
+		stops:  []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt:  boxAt,
+		boxCol: boxCol,
 	}
 }
 
@@ -890,7 +894,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	// at is the content line the next block will start on. The join puts one
 	// blank line between blocks, so a block costs its own lines plus that.
 	var blocks []string
-	at, boxAt := 0, 0
+	at, boxAt, boxCol := 0, 0, 0
 	push := func(block string) int {
 		start := at
 		blocks = append(blocks, block)
@@ -916,7 +920,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 
 		// The box sits under the byline and the blank line after it.
 		if m.boxOn(ck) {
-			boxAt = start + strings.Count(byline, "\n") + 2
+			boxAt, boxCol = start+strings.Count(byline, "\n")+2, cardIndent
 		}
 	}
 
@@ -932,7 +936,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		// The branch draws no line of its own, so a child's first row is the row
 		// straight after its parent's last.
 		if v.boxAt > 0 {
-			boxAt = used + v.boxAt
+			boxAt, boxCol = used+v.boxAt, v.boxCol+treeGutter
 		}
 		for _, s := range v.stops {
 			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + s.start})
@@ -941,7 +945,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		block += "\n" + m.branch(v.block, i == len(answers)-1)
 	}
 
-	return rendered{block: block, stops: tile(block, stops), boxAt: boxAt}
+	return rendered{block: block, stops: tile(block, stops), boxAt: boxAt, boxCol: boxCol}
 }
 
 // opening is the comment a thread was started with, which is the one its own
@@ -978,9 +982,10 @@ func (m *Model) answers(t gh.ReviewThread, width int) []rendered {
 
 	if m.railTab() && m.inline.at == replyKey(t.ID) {
 		out = append(out, rendered{
-			block: m.writingCard(width),
-			stops: []focusItem{{focusKey: replyKey(t.ID)}},
-			boxAt: m.cardLead(width, replyRows+1),
+			block:  m.writingCard(width),
+			stops:  []focusItem{{focusKey: replyKey(t.ID)}},
+			boxAt:  m.cardLead(width, replyRows+1),
+			boxCol: cardIndent,
 		})
 	}
 	return out
@@ -1010,7 +1015,7 @@ func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	body := m.bodyOrBox(c.Body, m.cardWidth(width), "No comment.", ck, boxChrome)
 	v := rendered{block: m.card(head, body, width, lit, hints)}
 	if m.boxOn(ck) {
-		v.boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
+		v.boxAt, v.boxCol = m.cardLead(width, strings.Count(body, "\n")+1), cardIndent
 	}
 	return v
 }
@@ -1031,8 +1036,19 @@ type rendered struct {
 	// it was placed, and every caller that places one does. The page turns it
 	// into the line the caret is on, which is the only thing that can keep the
 	// caret on screen once a box is taller than the window.
-	boxAt int
+	//
+	// boxCol is the column it landed on, relative the same way and for the same
+	// reason. A block hanging off a rail is set in by a gutter it cannot see,
+	// so every caller that hangs one adds its own.
+	boxAt  int
+	boxCol int
 }
+
+// cardIndent is the columns a card draws before its content: its own left
+// border and the gutter inside it. The column counterpart of cardLead, and a
+// constant where that is not, because a border is one cell whatever the
+// heading over it says.
+const cardIndent = 1 + cardGutter
 
 // cardLead is the lines a card draws before its content: its top border, the
 // heading, and the rule under it. Read off the pane rather than counted here,
@@ -1044,13 +1060,13 @@ func (m Model) cardLead(width, lines int) int {
 // cardChrome is what comp.Pane spends on a card with a heading.
 const cardChrome = 4
 
-// cardBoxAt is where a box's first row landed inside a card that holds nothing
-// else: the card's own lead, or zero for a card with no box in it.
-func (m Model) cardBoxAt(key focusKey, width int, content string) int {
+// cardBoxAt is where a box's first cell landed inside a card that holds nothing
+// else: the card's own lead and indent, or zero for a card with no box in it.
+func (m Model) cardBoxAt(key focusKey, width int, content string) (at, col int) {
 	if !m.boxOn(key) {
-		return 0
+		return 0, 0
 	}
-	return m.cardLead(width, strings.Count(content, "\n")+1)
+	return m.cardLead(width, strings.Count(content, "\n")+1), cardIndent
 }
 
 // byline is the line above one comment in a thread. Which one the keys have is

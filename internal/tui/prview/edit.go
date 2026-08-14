@@ -184,6 +184,7 @@ func (m Model) startEdit() (Model, tea.Cmd) {
 	// One box takes the keys. The compose card keeps its words: it is furniture,
 	// and esc leaves them there too.
 	m.compose.stop()
+	m.clearMention()
 
 	cmd := m.inline.open(w.at, m.convRing.on, w.body, updateWords)
 	m.convRing.on = w.at

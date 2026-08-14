@@ -72,6 +72,16 @@ var mockUsers = []gh.Actor{
 	{ID: "U_MOCK_3", Login: "octobot"},
 }
 
+// mockMentions is who can be named in a comment. Wider than mockUsers, the way
+// the real connection is, and one of them has no name so the popup draws both
+// row shapes.
+var mockMentions = []gh.Mention{
+	{Login: "drucial", Name: "Drew White"},
+	{Login: "nkr", Name: "Nikita Rushmanov"},
+	{Login: "octobot"},
+	{Login: "outsider", Name: "Sam Reed"},
+}
+
 // RepoMeta hands back a label set wide enough to exercise the picker's filter
 // row, which only appears once a list outgrows what fits on screen, and a
 // people list short enough to show the same picker without one.
@@ -81,9 +91,10 @@ var mockUsers = []gh.Actor{
 // on the form too.
 func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
 	return gh.RepoMetaResult{Meta: gh.RepoMeta{
-		Labels:  mockLabels,
-		Users:   mockUsers,
-		Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
+		Labels:   mockLabels,
+		Users:    mockUsers,
+		Mentions: mockMentions,
+		Methods:  gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
 	}}, nil
 }
 

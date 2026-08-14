@@ -658,9 +658,10 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	// the picker at all.
 	m.store.InvalidateRepoMeta(pr.Repository)
 	m.store.InvalidateBranches(pr.Repository)
-	// Dropping the held choices opens nothing, so this is always nil. It is
-	// taken rather than discarded because the signature says it may not be, and
-	// a command dropped here is a caret that never blinks.
+	// Dropping the held choices opens no picker, and it does ask again where a
+	// mention popup is up on them: the reader is mid-word over a list that has
+	// just gone empty, and the whole point of the sync key is that what comes
+	// back is current.
 	cmds := []tea.Cmd{m.detail.SetRepo(store.Repo{})}
 	m.detail.SetBranches(store.Branches{})
 
