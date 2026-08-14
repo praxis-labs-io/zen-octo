@@ -52,44 +52,13 @@ func replyKey(threadID string) focusKey {
 	return focusKey{kind: focusReply, id: threadID}
 }
 
-// threadWithReply is a thread and, when a box is answering it, the box under it.
-//
-// The box is a card of its own rather than a block inside the thread's. A
-// thread card holds what people said; the box is where you say something, which
-// is the compose card's job at the foot of the page and the same shape here. It
-// keeps the two apart on the page and out of each other's way in the code: no
-// gutter to dodge, no rule to draw, and the accent lands on whichever of the two
-// the keys are going to.
+// writingCard is the box, rendered through the same card every reply renders
+// through and hung off the same rail, so an answer being written sits among the
+// answers already made rather than beside them.
 //
 // An edit inside the thread needs none of this. It is drawn where the words it
-// replaces were, so the thread renders it and this sees one card as usual.
-func (m *Model) threadWithReply(t gh.ReviewThread, width int) rendered {
-	v := m.thread(t, width, true)
-	if m.inline.at != replyKey(t.ID) {
-		return v
-	}
-
-	// Stacked against the thread rather than spaced off it. Every other pair of
-	// blocks on the page has a blank line between them because they are separate
-	// things; these two are one thing being answered and the answer, and the gap
-	// read as the box belonging to the page rather than to the thread above it.
-	box := m.replyCard(width)
-	at := strings.Count(v.block, "\n") + 1
-	block := v.block + "\n" + box
-
-	return rendered{
-		block: block,
-		stops: tile(block, []focusItem{
-			{focusKey: threadKey(t)},
-			{focusKey: replyKey(t.ID), start: at},
-		}),
-		boxAt: at + m.cardLead(width, replyRows+1),
-	}
-}
-
-// replyCard is the box, rendered through the same card every comment renders
-// through, so an answer being written sits among the answers already made.
-func (m *Model) replyCard(width int) string {
+// replaces were, so the card holding them renders it.
+func (m *Model) writingCard(width int) string {
 	key := replyKey(m.inline.at.id)
 
 	inner := m.cardWidth(width)

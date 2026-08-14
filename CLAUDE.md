@@ -281,6 +281,26 @@ the fetch in flight stale so an answer asked for before the failure cannot be
 believed. Every other write is all or nothing, and reverting one of those says
 the pull request never moved, which needs no request to confirm.
 
+A thread card holds the code, the anchor, and the comment that opened the
+thread. Everything answering that comment hangs off it on `branch`, the same
+rail the threads themselves hang off the review on, and the box a reader is
+writing in is the last card on it: an answer belongs where the answers are, and
+the rail's corner has to land on it or the run closes above the thing it is
+pointing at. That is three levels on a review's own thread, which is the deepest
+the screen goes. A reply keeps its frame at every width. The body wraps to
+whatever the card leaves it, so a narrow pane costs rows rather than words, and
+a reply that dropped its border would take the elbow off its byline with it.
+
+Each reply being a card is what says which comment the keys have. A lit border
+is the signal everywhere else on this screen, and one on the reply the
+sub-cursor is on replaces the bar that used to run down the gutter of every
+comment in the thread. The thread card stays lit under it, because the keys act
+on both: `r` and `x` belong to the thread, `e` and `D` to the comment inside it.
+The comment that opened the thread has no card of its own, so the thread's own
+border is what says the keys are there, which is already how a one-comment
+thread reads. An open box takes the focus off the thread outright and is then
+the one lit card on the page.
+
 `e` rewrites the block the ring is on and `D` removes it, behind a confirm: a
 delete is the one write here GitHub will not undo. `Comment.Kind` picks the
 mutation, because one comment type up here is three of them down there. The
@@ -339,7 +359,7 @@ Each of these looks like working code and produces a broken frame.
 - **Soft wrap costs half the price of setting a viewport's content, and the conversation has nothing for it to fold.** Every block is wrapped to `bodyWidth` before the viewport sees it. Leaving it on spends 12.7ms against 7.0ms on a hundred-and-forty-comment thread, which is a per-keystroke bill once a comment is being written into the page.
 - **A text box inside a scrolling pane rebuilds the whole page on every keystroke.** Cards are re-bordered one by one, so a long thread costs 27ms a character with the markdown cache hitting perfectly. Nothing around the box can change while it has the keyboard, so build the head and the tail once and join a fresh box between them.
 - **The page splits at the outermost block holding the box, not at the block that holds it.** A review renders its own card and every thread it opened as one string with a branch gutter down the side, so cutting between two of them means splicing `├─`, `│ ` and `╰─` back together at the right variant. Cut either side of the whole review instead.
-- **Scrolling the shortest distance is right wherever a box is involved, and wrong everywhere else.** A key that lands on a block is taking the reader somewhere, so the block goes to the top row. A box is different twice over. A character typed is not taking them anywhere, and hauling the page for it is the worse of the two wrongs. Opening one is worse still: the box sits under what it answers, so moving it to the top row scrolls the thread off the screen and leaves the reader writing a reply to something they can no longer see. The caret is the whole of the arithmetic, and the block holding the box is not consulted: a reply hangs under a thread and an edit can be one comment inside one, and neither is a ring stop, so a scroll that goes looking for the block does nothing in exactly the two cases the box is nested. It follows the row under the caret rather than the caret's own, because the button that sends the words sits directly beneath the box, and a foot one line below the fold leaves the reader writing into something with no visible end. The same button is why a box is capped to the pane, and the cap is the render site's to name: a comment inside a thread pays for two cards, and one that spent the pane as though it were a card of its own would push the deeper foot off the screen.
+- **Scrolling the shortest distance is right wherever a box is involved, and wrong everywhere else.** A key that lands on a block is taking the reader somewhere, so the block goes to the top row. A box is different twice over. A character typed is not taking them anywhere, and hauling the page for it is the worse of the two wrongs. Opening one is worse still: the box sits under what it answers, so moving it to the top row scrolls the thread off the screen and leaves the reader writing a reply to something they can no longer see. The caret is the whole of the arithmetic, and the block holding the box is not consulted: a reply hangs under a thread and an edit can be one comment inside one, and neither is a ring stop, so a scroll that goes looking for the block does nothing in exactly the two cases the box is nested. It follows the row under the caret rather than the caret's own, because the button that sends the words sits directly beneath the box, and a foot one line below the fold leaves the reader writing into something with no visible end. The same button is why a box is capped to the pane, and the cap is the render site's to name: the comment that opened a thread pays for two cards, and one that spent the pane as though it were a card of its own would push the deeper foot off the screen. A reply is a card of its own, so it pays for one.
 - **A text input sized during a render is sized on a copy.** `View` is reached through value receivers all the way down, so a `SetWidth` there is thrown away with the copy, and the real widget keeps a width of zero: it renders from the first character, never scrolls, and every keystroke past the visible edge is invisible while the caret sits off the box. Size the fields when the thing opens and when the screen resizes, never while drawing.
 - **A text input recomputes its visible window only when the caret leaves it.** Writing a longer value and then putting the caret inside the window the old one had leaves that window exactly where it was, so the box goes on showing as many characters as the short value did. Ending first and coming back is what forces the recompute. A fixture whose two values are the same length proves none of this.
 - **A block that answers the line above it cannot go to the top row either.** The rule holds past the compose box. A review thread in the diff hangs under the code it was written against, so a jump that tops the card scrolls that code away and lands the reader on a comment about something they cannot see. Open a few lines above it instead, and never above the file's own heading, which reads as the wrong file until the eye finds the border.

@@ -14,9 +14,10 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
 )
 
-// treeGutter is the rail hanging a review's threads off the review that opened
-// them. GitHub draws a line down the side to say the same thing; two columns is
-// what a terminal has to spend on it.
+// treeGutter is the rail hanging one card off the card above it: a review's
+// threads off the review that opened them, and a thread's replies off the
+// comment they answer. GitHub draws a line down the side to say the same thing;
+// two columns is what a terminal has to spend on it.
 const treeGutter = 2
 
 // cardGutter is the space between a card's border and what it holds. Text
@@ -172,7 +173,7 @@ func (m *Model) entries() string {
 			if m.boxIn(thread) {
 				mark()
 			}
-			pushStops(m.threadWithReply(thread, width))
+			pushStops(m.thread(thread, width, true))
 		}
 	}
 
@@ -312,7 +313,7 @@ func (m *Model) boxBlock(width int) rendered {
 
 	for _, t := range d.Threads {
 		if m.boxIn(t) {
-			return m.threadWithReply(t, width)
+			return m.thread(t, width, true)
 		}
 	}
 
@@ -427,7 +428,7 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 		}
 		shown[i] = true
 		inner := width - treeGutter
-		owned = append(owned, m.threadWithReply(thread, inner))
+		owned = append(owned, m.thread(thread, inner, true))
 	}
 
 	for i, t := range owned {
@@ -844,20 +845,28 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		return rendered{block: block, stops: tile(block, []focusItem{{focusKey: key}})}
 	}
 
-	// Every comment gives up two columns whether it is marked or not, so the
-	// mark can appear and disappear without reflowing the text beside it. The
-	// Files tab has no ring, so no bar can ever draw there and the columns would
-	// be nothing but a wider indent.
-	inner := m.cardWidth(width)
-	bars := m.railTab()
-	if bars {
-		inner -= gutterWidth
+	// The sub-cursor is what a quote reply takes and what the lit border points
+	// at. It is read on a thread holding the focus and holding more than one
+	// comment: on a single-comment thread the card's own border already says
+	// which words the keys have, and a second mark for the same fact is noise.
+	//
+	// An open box takes the focus off the thread, so the mark goes with it: the
+	// keys are all going into the box by then, and a card left lit would claim
+	// they act there.
+	within := ""
+	if lit && len(t.Comments) > 1 {
+		within = m.within(t)
 	}
+
+	// The card holds the code and the comment that opened the thread, and
+	// nothing else. Everything answering that comment hangs off the rail below,
+	// the way this thread hangs off the review that opened it.
+	inner := m.cardWidth(width)
 
 	// at is the content line the next block will start on. The join puts one
 	// blank line between blocks, so a block costs its own lines plus that.
 	var blocks []string
-	at := 0
+	at, boxAt := 0, 0
 	push := func(block string) int {
 		start := at
 		blocks = append(blocks, block)
@@ -865,44 +874,23 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 		return start
 	}
 
-	gutter := func(block string, marked bool) string {
-		if !bars {
-			return block
-		}
-		return m.gutter(block, marked)
-	}
-
 	if hunk {
 		if code := m.threadHunk(t, inner); code != "" {
-			push(gutter(code, false))
+			push(code)
 		}
 	}
 
-	// The sub-cursor is what a quote reply takes and what the bar points at. It
-	// is drawn on a thread holding the focus and holding more than one comment:
-	// on a single-comment thread the card's own border already says which words
-	// the keys have, and a second mark for the same fact is noise.
-	//
-	// An open box takes the focus off the thread, so the bar goes with it: the
-	// keys are all going into the box by then, and a bar left on a comment would
-	// claim they act there.
-	within := ""
-	if lit && len(t.Comments) > 1 {
-		within = m.within(t)
-	}
-
-	boxAt := 0
-	for _, c := range t.Comments {
-		ck := threadCommentKey(c)
-		byline := wrap(m.byline(c), inner)
+	if len(t.Comments) > 0 {
+		opened := t.Comments[0]
+		ck := threadCommentKey(opened)
+		byline := wrap(m.byline(opened), inner)
 		if m.boxOn(ck) {
 			byline = wrap(m.editHead("comment"), inner)
 		}
-		body := m.bodyOrBox(c.Body, inner, "No comment.", ck, boxChrome+threadChrome)
-		start := push(gutter(byline+"\n\n"+body, c.ID == within))
+		body := m.bodyOrBox(opened.Body, inner, "No comment.", ck, boxChrome+threadChrome)
+		start := push(byline + "\n\n" + body)
 
-		// The box sits under the byline and the blank line after it, and the
-		// gutter is a prefix rather than a line of its own.
+		// The box sits under the byline and the blank line after it.
 		if m.boxOn(ck) {
 			boxAt = start + strings.Count(byline, "\n") + 2
 		}
@@ -913,31 +901,81 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	if boxAt > 0 {
 		boxAt += m.cardLead(width, strings.Count(content, "\n")+1)
 	}
-	return rendered{
-		block: block,
-		stops: tile(block, []focusItem{{focusKey: key}}),
-		boxAt: boxAt,
+
+	answers, stops := m.answers(t, within, width-treeGutter), []focusItem{{focusKey: key}}
+	used := strings.Count(block, "\n") + 1
+	for i, v := range answers {
+		// The rail opens with a line of its own above each card, so a child
+		// starts one below where its branch does.
+		if v.boxAt > 0 {
+			boxAt = used + 1 + v.boxAt
+		}
+		for _, s := range v.stops {
+			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + 1 + s.start})
+		}
+		used += strings.Count(v.block, "\n") + 2
+		block += "\n" + m.branch(v.block, i == len(answers)-1)
 	}
+
+	return rendered{block: block, stops: tile(block, stops), boxAt: boxAt}
 }
 
-// gutterWidth is the bar down the left of a comment inside a thread, and the
-// space it stands in when there is no bar to draw.
-const gutterWidth = 2
-
-// gutter marks one comment inside a thread card. The bar runs the height of the
-// block rather than sitting on the byline alone, because what the keys act on is
-// the whole comment and a mark on one row of it says otherwise.
-func (m Model) gutter(block string, lit bool) string {
-	bar := strings.Repeat(" ", gutterWidth)
-	if lit {
-		bar = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▍") + " "
+// answers is every card hanging off a thread: the replies to the comment that
+// opened it, and the box when one is open here.
+//
+// The box is the last of them rather than a card stacked under the thread. It is
+// where the next reply is going to appear, so it belongs where the replies are,
+// and the rail's corner lands on it for the same reason: a run that closed on
+// the reply above would leave the box hanging off nothing.
+//
+// It is only ever drawn on the tab with a ring to open it from. The Files tab
+// renders the same threads and has no way to reach a box, so one there would be
+// a card nobody asked for.
+func (m *Model) answers(t gh.ReviewThread, within string, width int) []rendered {
+	var out []rendered
+	if len(t.Comments) > 1 {
+		for _, c := range t.Comments[1:] {
+			// within is empty unless the thread holds the focus, so matching it
+			// is the whole of the question.
+			out = append(out, m.replyCard(c, c.ID == within, width))
+		}
 	}
 
-	lines := strings.Split(block, "\n")
-	for i, line := range lines {
-		lines[i] = bar + line
+	if m.railTab() && m.inline.at == replyKey(t.ID) {
+		out = append(out, rendered{
+			block: m.writingCard(width),
+			stops: []focusItem{{focusKey: replyKey(t.ID)}},
+			boxAt: m.cardLead(width, replyRows+1),
+		})
 	}
-	return strings.Join(lines, "\n")
+	return out
+}
+
+// replyCard is one reply, in a card of its own on the thread's rail. The byline
+// heads it the way an anchor heads the thread and a login heads a comment, which
+// is what lets the elbow meet a heading rather than a border.
+//
+// Its border is the whole of the sub-cursor: a reply the keys are on is lit, and
+// the thread card stays lit under it because the keys act on both. The keys the
+// reply answers to are named in the thread's footer beside the ones the thread
+// answers to, so the card carries no hints of its own.
+func (m *Model) replyCard(c gh.Comment, lit bool, width int) rendered {
+	ck := threadCommentKey(c)
+
+	head := m.byline(c)
+	if m.boxOn(ck) {
+		head = m.editHead("comment")
+	}
+
+	// It keeps its frame at every width. The body wraps to whatever the card
+	// leaves it, so a narrow pane costs rows rather than words, and a reply that
+	// dropped its border would take the rail's elbow off the byline with it.
+	body := m.bodyOrBox(c.Body, m.cardWidth(width), "No comment.", ck, boxChrome)
+	v := rendered{block: m.card(head, body, width, lit, "")}
+	if m.boxOn(ck) {
+		v.boxAt = m.cardLead(width, strings.Count(body, "\n")+1)
+	}
+	return v
 }
 
 // rendered is one block of the conversation and where each of its own ring
