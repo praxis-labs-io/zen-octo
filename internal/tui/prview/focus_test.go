@@ -37,16 +37,23 @@ func TestNothingIsFocusedUntilTheRingIsWalked(t *testing.T) {
 	}
 }
 
-// walked steps the ring n times.
+// walked steps the ring n times. The counts every caller uses are from an
+// unfocused ring at the top of the page, so a model left somewhere else goes
+// through fromTop first: the ring stops at its ends and no longer laps round to
+// the description.
 func walked(m prview.Model, n int) prview.Model {
 	return press(m, strings.Fields(strings.Repeat("} ", n))...)
 }
 
-// The ring walks the cards in the order they were written, and comes back round.
-// Every card is a stop, replies included: a card the motion key walks past is
-// one the reader can see and cannot reach, and crossing a heavily reviewed page
-// is what the scroll keys are for.
-func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
+// fromTop drops whatever the ring is holding and takes the page back to the
+// first card, which is where the step counts are measured from.
+func fromTop(m prview.Model) prview.Model { return press(m, "esc", "g") }
+
+// The ring walks the cards in the order they were written, and stops at the
+// end. Every card is a stop, replies included: a card the motion key walks past
+// is one the reader can see and cannot reach, and crossing a heavily reviewed
+// page is what the scroll keys are for.
+func TestTheRingWalksTheCardsInOrder(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
 	want := []string{cardDescription, cardComment, cardReview, cardThread}
@@ -82,8 +89,22 @@ func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
 		t.Errorf("the ninth step focused %q, want the comment box", got)
 	}
 
-	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("a step past the last card focused %q, want it back at the description", got)
+	// A page is deep enough that coming back round is the longest throw the key
+	// can make, and it arrives at the end the reader walked away from.
+	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("a step past the last card focused %q, want it to stay on the comment box", got)
+	}
+}
+
+// And stops at the other end the same way.
+func TestTheRingStopsAtTheFirstCard(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 60), "}", "{")
+
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: focus landed on %q, want the first card", got)
+	}
+	if got := focusedCard(t, press(m, "{").View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("a step before the first card focused %q, want it to stay put", got)
 	}
 }
 

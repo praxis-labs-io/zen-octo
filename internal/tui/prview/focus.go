@@ -198,12 +198,13 @@ func (r *ring) clear() bool {
 // lands behind where they are reading, back it lands a screen or more above it.
 // seek is where they actually are.
 //
-// wrap is the caller's, because the two rings end differently. A page of cards
-// comes back round: the ring is the whole of it and there is nothing past the
-// last one. The rail is a list of controls inside a pane that is taller than
-// them, so its end is a boundary rather than a seam, and reporting the key
-// untaken is what lets the pane scroll to the facts underneath.
-func (r *ring) step(delta, top, height int, wrap bool) bool {
+// Both ends are boundaries rather than seams, on the rail and on the page
+// alike. The ring came back round once, on the argument that it is the whole of
+// the content and there is nothing past the last card. But a real pull request
+// is a page deep, so the wrap is the longest throw either key can make, and it
+// arrives at the end the reader was walking away from. Reporting the key
+// untaken is what lets the pane scroll to whatever sits under the last stop.
+func (r *ring) step(delta, top, height int) bool {
 	if len(r.items) == 0 {
 		r.on = focusKey{}
 		return false
@@ -211,22 +212,16 @@ func (r *ring) step(delta, top, height int, wrap bool) bool {
 
 	if at := r.index(); at >= 0 && r.items[at].headOn(top, height) {
 		next := at + delta
-		if !wrap && (next < 0 || next >= len(r.items)) {
+		if next < 0 || next >= len(r.items) {
 			return false
 		}
-		r.on = r.items[(next+len(r.items))%len(r.items)].focusKey
+		r.on = r.items[next].focusKey
 		return true
 	}
 
 	at, ok := r.seek(delta, top, height)
 	if !ok {
-		if !wrap {
-			return false
-		}
-		at = 0
-		if delta < 0 {
-			at = len(r.items) - 1
-		}
+		return false
 	}
 	r.on = r.items[at].focusKey
 	return true

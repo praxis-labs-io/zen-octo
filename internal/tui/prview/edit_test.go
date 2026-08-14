@@ -134,9 +134,7 @@ func TestOpeningTheEditBoxKeepsAHalfWrittenComment(t *testing.T) {
 	m := typed(press(viewing(writable(), 200, 60), "c"), "half a thought")
 	m = press(m, "esc")
 
-	// The ring is on the compose card, so one step is the description and two
-	// is the comment.
-	m = press(walked(m, tabComment), "e")
+	m = press(walked(fromTop(m), tabComment), "e")
 	if !strings.Contains(stripANSI(m.View()), "Coverage held at 84.2%") {
 		t.Fatal("the edit box did not open on the comment's own words")
 	}

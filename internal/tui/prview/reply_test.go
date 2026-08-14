@@ -386,12 +386,13 @@ func TestTheThreadKeysAreInertOnAReply(t *testing.T) {
 	}
 }
 
-// A lap of the ring comes back to the card it started on, replies included.
-func TestALapOfTheRingComesBackToTheReply(t *testing.T) {
-	// A full lap of the ring, which is nine stops on this fixture.
+// A reply is on the ring like any other card, and walking off the end of it
+// stops at the comment box rather than lapping back round to the reply.
+func TestTheRingWalksOffAReplyToItsEndAndStops(t *testing.T) {
+	// More steps than the fixture has stops, so the end is what it lands on.
 	away := walked(onThread(t, tabReply), 9)
-	if got := subCursor(t, away.View()); !strings.HasPrefix(got, "octobot · said") {
-		t.Errorf("a lap of the ring landed on %q, want back on the reply", got)
+	if got := subCursor(t, away.View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("walking past the last card landed on %q, want the comment box", got)
 	}
 }
 
@@ -985,7 +986,7 @@ func TestARestoredReplyDoesNotStealTheKeyboard(t *testing.T) {
 
 	// The words are the thread's draft, so the box opens on them once the
 	// keyboard is free again.
-	back := press(walked(press(m, "esc"), tabThread), "r")
+	back := press(walked(fromTop(press(m, "esc")), tabThread), "r")
 	if out := stripANSI(back.View()); !strings.Contains(out, "capped it") {
 		t.Errorf("the words are not waiting on their thread:\n%s", out)
 	}

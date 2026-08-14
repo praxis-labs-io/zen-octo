@@ -961,7 +961,7 @@ func (m *Model) stepFocus(delta int) bool {
 	}
 
 	top := bodyTop(vp)
-	if !r.step(delta, top, vp.Height(), r != &m.railRing) {
+	if !r.step(delta, top, vp.Height()) {
 		return false
 	}
 
