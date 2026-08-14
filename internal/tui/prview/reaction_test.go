@@ -377,6 +377,39 @@ func reactionGlyphFor(c gh.ReactionContent) string {
 	}[c]
 }
 
+// A reaction being taken back sits at zero while its write is out, and a pill
+// reading "0" would say nobody gave it. The dot is what says the count is not
+// known yet. Only a slow network shows this by eye, which is what makes it a
+// test rather than a thing to look at.
+func TestAReactionBeingTakenBackReadsAsPending(t *testing.T) {
+	d := reactive()
+	d.Timeline[0].Comment.Reactions = []gh.Reaction{
+		{Content: gh.ReactionThumbsUp, Viewer: true, Pending: true},
+	}
+
+	out := stripANSI(detailed(held(d), 200, 60).View())
+	if !strings.Contains(out, thumbsUp+" ·") {
+		t.Errorf("a reaction on its way out does not say so:\n%s", out)
+	}
+	if strings.Contains(out, thumbsUp+" 0") {
+		t.Error("a reaction still being written reads as one nobody gave")
+	}
+}
+
+// Threads render in the diff as well as in the conversation, through the same
+// card, so the pills go with them.
+func TestPillsRenderOnAThreadInTheDiff(t *testing.T) {
+	d := reactive()
+	m := detailed(held(d), 200, 60)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	// The Files tab, which is three to the right of the conversation.
+	out := stripANSI(press(m, "]", "]", "]").View())
+	if !strings.Contains(out, "❤️ 2") {
+		t.Errorf("the thread's pills are missing from the diff:\n%s", out)
+	}
+}
+
 // esc closes the list and writes nothing, the way it does over every picker.
 func TestEscapeClosesTheListWithoutWriting(t *testing.T) {
 	m := press(reacting(2), "+")
