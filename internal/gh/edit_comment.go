@@ -30,6 +30,7 @@ mutation UpdateIssueComment($id: ID!, $body: String!) {
       viewerCanUpdate
       viewerCanDelete
       viewerCanReact
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
     }
   }
 }`
@@ -46,6 +47,7 @@ mutation UpdateReviewComment($id: ID!, $body: String!) {
       viewerCanUpdate
       viewerCanDelete
       viewerCanReact
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
     }
   }
 }`
@@ -64,6 +66,7 @@ mutation UpdateReview($id: ID!, $body: String!) {
       viewerCanUpdate
       viewerCanDelete
       viewerCanReact
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
     }
   }
 }`

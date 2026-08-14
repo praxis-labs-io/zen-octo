@@ -3,6 +3,7 @@ package gh
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,10 @@ func TestUpdateSendsTheIdAndBodyAndMapsTheAnswerBack(t *testing.T) {
 			  "id": "IC_1", "createdAt": "2026-08-09T12:00:00Z", "body": "fixed",
 			  "author": {"login": "drucial"},
 			  "viewerDidAuthor": true, "viewerCanUpdate": true,
-			  "viewerCanDelete": true, "viewerCanReact": true}}}`,
+			  "viewerCanDelete": true, "viewerCanReact": true,
+			  "reactionGroups": [
+			    {"content": "ROCKET", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+			  ]}}}`,
 			mutates: "updateIssueComment",
 		},
 		{
@@ -32,7 +36,10 @@ func TestUpdateSendsTheIdAndBodyAndMapsTheAnswerBack(t *testing.T) {
 			  "id": "IC_1", "createdAt": "2026-08-09T12:00:00Z", "body": "fixed",
 			  "author": {"login": "drucial"},
 			  "viewerDidAuthor": true, "viewerCanUpdate": true,
-			  "viewerCanDelete": true, "viewerCanReact": true}}}`,
+			  "viewerCanDelete": true, "viewerCanReact": true,
+			  "reactionGroups": [
+			    {"content": "ROCKET", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+			  ]}}}`,
 			mutates: "updatePullRequestReviewComment",
 		},
 		{
@@ -42,7 +49,10 @@ func TestUpdateSendsTheIdAndBodyAndMapsTheAnswerBack(t *testing.T) {
 			  "id": "IC_1", "createdAt": "2026-08-09T12:00:00Z", "body": "fixed",
 			  "author": {"login": "drucial"},
 			  "viewerDidAuthor": true, "viewerCanUpdate": true,
-			  "viewerCanDelete": true, "viewerCanReact": true}}}`,
+			  "viewerCanDelete": true, "viewerCanReact": true,
+			  "reactionGroups": [
+			    {"content": "ROCKET", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+			  ]}}}`,
 			mutates: "updatePullRequestReview",
 		},
 	}
@@ -79,8 +89,9 @@ func TestUpdateSendsTheIdAndBodyAndMapsTheAnswerBack(t *testing.T) {
 				CanEdit:         true,
 				CanDelete:       true,
 				CanReact:        true,
+				Reactions:       []Reaction{{Content: ReactionRocket, Count: 1}},
 			}
-			if res.Comment != want {
+			if !reflect.DeepEqual(res.Comment, want) {
 				t.Errorf("Comment = %+v, want %+v", res.Comment, want)
 			}
 		})

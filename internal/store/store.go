@@ -140,10 +140,15 @@ type Store struct {
 	// rewrites is the same for a comment edited or deleted, sharing the counter
 	// for the same reason. Its writes reach into the timeline and the threads
 	// rather than adding to them, which is what keeps it apart from pending.
+	//
+	// reacting is the same for a reaction toggled, sharing the counter again. It
+	// is apart from rewrites because it reaches one field further out: the
+	// description has no comment to name and carries reactions of its own.
 	pending   map[string][]Pending
 	resolving map[string][]Resolution
 	edits     map[string][]Edit
 	rewrites  map[string][]CommentWrite
+	reacting  map[string][]ReactionWrite
 	writes    int
 
 	// staleFetch marks a detail fetch that was asked for before a write on the
@@ -257,8 +262,9 @@ func (s *Store) Failed(i int, err error) {
 func (s Store) Detail(id string) Detail {
 	held := s.details[id]
 	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
-	rewriting := s.rewrites[id]
-	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 && len(rewriting) == 0 {
+	rewriting, reacting := s.rewrites[id], s.reacting[id]
+	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 &&
+		len(rewriting) == 0 && len(reacting) == 0 {
 		return held
 	}
 
@@ -280,6 +286,12 @@ func (s Store) Detail(id string) Detail {
 	// key rather than a node id.
 	timeline, threads, freshTimeline, freshThreads = foldWrites(
 		rewriting, timeline, threads, freshTimeline, freshThreads)
+
+	// Reactions go before the appends for the reason the rewrites do: every one
+	// of them names something GitHub already has, so there is nothing among the
+	// pending comments for them to find.
+	held.Detail.Reactions, timeline, threads, freshTimeline, freshThreads = foldReactions(
+		reacting, held.Detail.Reactions, timeline, threads, freshTimeline, freshThreads)
 
 	for _, p := range waiting {
 		if p.ThreadID == "" {

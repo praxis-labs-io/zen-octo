@@ -190,6 +190,22 @@ func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool)
 	}, nil
 }
 
+// SetReaction answers with the one reaction that moved and nothing else.
+//
+// That is all the settle reads: it takes the group the write was for and leaves
+// the rest of the card alone. Mock has value receivers and nowhere to keep a
+// subject's set, and it does not need one.
+func (Mock) SetReaction(_ context.Context, _ string,
+	content gh.ReactionContent, on bool,
+) (gh.ReactionResult, error) {
+	if !on {
+		return gh.ReactionResult{}, nil
+	}
+	return gh.ReactionResult{Reactions: []gh.Reaction{
+		{Content: content, Count: 1, Viewer: true},
+	}}, nil
+}
+
 // AddReply is AddComment for a review thread. The id counts up so two replies
 // to one thread do not come back sharing a node id, which is the one thing the
 // focus ring cannot survive.
@@ -422,8 +438,18 @@ func mockDetail() gh.PullRequestDetail {
 		return perms(kind, id, who, at, body)
 	}
 
+	// Reactions on some cards and not others, so the pill row and its absence
+	// are both on the page, and one the viewer is in beside one they are not.
+	reacted := func(c gh.Comment, rs ...gh.Reaction) gh.Comment {
+		c.Reactions = rs
+		return c
+	}
+
 	return gh.PullRequestDetail{
 		Body: mockBody,
+		Reactions: []gh.Reaction{
+			{Content: gh.ReactionRocket, Count: 3},
+		},
 
 		// Capped as well as sliced: the full set is a package-level literal, and
 		// a window over it with room to spare would let an append write into the
@@ -458,14 +484,16 @@ func mockDetail() gh.PullRequestDetail {
 		// The viewer wrote it, so the state menu has both moves an open pull
 		// request takes and the Assignees section is theirs to change.
 		// CanReopen is what GitHub answers for one already open.
-		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
+		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true, CanReact: true},
 
 		Commits: mockCommits(),
 
 		Timeline: []gh.TimelineItem{
 			{Kind: gh.TimelineComment, Actor: gh.Actor{Login: "octobot"}, CreatedAt: ago(20 * time.Hour),
-				Comment: ptr(theirs(gh.CommentIssue, "IC_1", "octobot", ago(20*time.Hour),
-					"Coverage held at 84.2%. No new uncovered branches in `internal/gh`."))},
+				Comment: ptr(reacted(theirs(gh.CommentIssue, "IC_1", "octobot", ago(20*time.Hour),
+					"Coverage held at 84.2%. No new uncovered branches in `internal/gh`."),
+					gh.Reaction{Content: gh.ReactionThumbsUp, Count: 4, Viewer: true},
+					gh.Reaction{Content: gh.ReactionEyes, Count: 1}))},
 
 			{Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"},
 				CreatedAt: ago(6 * time.Hour), Review: gh.ReviewStateChangesRequested,

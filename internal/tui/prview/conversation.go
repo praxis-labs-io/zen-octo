@@ -368,7 +368,8 @@ func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
 	}
 
 	content := m.bodyOrBox(said.Body, m.cardWidth(width), "No comment.", key, boxChrome)
-	block := m.card(head, content, width, m.lit(key), m.cardHints(key, said, width))
+	block := m.card(head, m.withReactions(content, said.Reactions, key, m.cardWidth(width)), width,
+		m.lit(key), m.cardHints(key, said, width))
 
 	boxAt, boxCol := m.cardBoxAt(key, width, content)
 	return rendered{
@@ -417,7 +418,8 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 		head = m.pendingHead(item.Actor, label, "saving")
 	}
 	content := m.bodyOrBox(written.Body, m.cardWidth(width), "No comment.", key, boxChrome)
-	block := m.card(head, content, width, m.lit(key), m.cardHints(key, written, width))
+	block := m.card(head, m.withReactions(content, written.Reactions, key, m.cardWidth(width)), width,
+		m.lit(key), m.cardHints(key, written, width))
 
 	used := strings.Count(block, "\n") + 1
 	stops := []focusItem{{focusKey: key, lines: used}}
@@ -535,6 +537,7 @@ func (m Model) threadHints(lit bool, t gh.ReviewThread, width int) string {
 	if t.IsResolved {
 		parts = append(parts, k.Expand.Help().Key+" close")
 	}
+	parts = append(parts, reactParts(opening(t).CanReact)...)
 	return hintLine(width, append(parts, writeHints(opening(t))...)...)
 }
 
@@ -550,7 +553,8 @@ func (m Model) replyHints(lit bool, t gh.ReviewThread, c gh.Comment, width int) 
 	if !lit || m.boxOn(threadCommentKey(c)) {
 		return ""
 	}
-	return hintLine(width, append(m.answerParts(t, c, true), writeHints(c)...)...)
+	parts := append(m.answerParts(t, c, true), reactParts(c.CanReact)...)
+	return hintLine(width, append(parts, writeHints(c)...)...)
 }
 
 // answerParts is the two keys that answer a comment, named where GitHub will
@@ -567,6 +571,20 @@ func (m Model) answerParts(t gh.ReviewThread, c gh.Comment, folds bool) []string
 		parts = append(parts, k.Expand.Help().Key+" expand")
 	}
 	return parts
+}
+
+// reactParts is the key that opens the reaction list, named wherever GitHub
+// will take the press.
+//
+// It is not in writeHints, which is the reader's own writing alone. Reacting to
+// somebody else's comment is the common case and reacting to your own is
+// something GitHub's page offers too, so whose writing it is never comes into
+// it.
+func reactParts(can bool) []string {
+	if !can {
+		return nil
+	}
+	return []string{keys.Detail.React.Help().Key + " react"}
 }
 
 // writeHints is what a comment answers to: the two keys that rewrite it, named
@@ -599,7 +617,8 @@ func (m Model) cardHints(key focusKey, c gh.Comment, width int) string {
 	if !lit || m.boxOn(key) {
 		return ""
 	}
-	return hintLine(width, append(m.quoteParts(c.Body), writeHints(c)...)...)
+	parts := append(m.quoteParts(c.Body), reactParts(c.CanReact)...)
+	return hintLine(width, append(parts, writeHints(c)...)...)
 }
 
 // descriptionHints is cardHints for the one block that is not a comment. It is
@@ -611,7 +630,7 @@ func (m Model) descriptionHints(key focusKey, d gh.PullRequestDetail, width int)
 		return ""
 	}
 
-	parts := m.quoteParts(d.Body)
+	parts := append(m.quoteParts(d.Body), reactParts(d.Viewer.CanReact)...)
 	if m.ownDescription() {
 		parts = append(parts, keys.Detail.Edit.Help().Key+" edit")
 	}
@@ -730,7 +749,8 @@ func (m *Model) description(d gh.PullRequestDetail, width int) rendered {
 	}
 
 	content := m.bodyOrBox(d.Body, m.cardWidth(width), "No description.", key, boxChrome)
-	block := m.card(head, content, width, m.lit(key), m.descriptionHints(key, d, width))
+	block := m.card(head, m.withReactions(content, d.Reactions, key, m.cardWidth(width)), width,
+		m.lit(key), m.descriptionHints(key, d, width))
 
 	boxAt, boxCol := m.cardBoxAt(key, width, content)
 	return rendered{
@@ -916,7 +936,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 			byline = wrap(m.editHead("comment"), inner)
 		}
 		body := m.bodyOrBox(opened.Body, inner, "No comment.", ck, boxChrome+threadChrome)
-		start := push(byline + "\n\n" + body)
+		start := push(byline + "\n\n" + m.withReactions(body, opened.Reactions, ck, inner))
 
 		// The box sits under the byline and the blank line after it.
 		if m.boxOn(ck) {
@@ -1013,7 +1033,7 @@ func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	// leaves it, so a narrow pane costs rows rather than words, and a reply that
 	// dropped its border would take the rail's elbow off the byline with it.
 	body := m.bodyOrBox(c.Body, m.cardWidth(width), "No comment.", ck, boxChrome)
-	v := rendered{block: m.card(head, body, width, lit, hints)}
+	v := rendered{block: m.card(head, m.withReactions(body, c.Reactions, ck, m.cardWidth(width)), width, lit, hints)}
 	if m.boxOn(ck) {
 		v.boxAt, v.boxCol = m.cardLead(width, strings.Count(body, "\n")+1), cardIndent
 	}
@@ -1061,7 +1081,9 @@ func (m Model) cardLead(width, lines int) int {
 const cardChrome = 4
 
 // cardBoxAt is where a box's first cell landed inside a card that holds nothing
-// else: the card's own lead and indent, or zero for a card with no box in it.
+// above it: the card's own lead and indent, or zero for a card with no box in
+// it. A pill row goes under the words, which is why it can be added to the same
+// card without touching this.
 func (m Model) cardBoxAt(key focusKey, width int, content string) (at, col int) {
 	if !m.boxOn(key) {
 		return 0, 0
