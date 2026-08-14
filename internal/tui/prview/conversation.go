@@ -433,22 +433,28 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 
 	for i, t := range owned {
 		lines := strings.Count(t.block, "\n") + 1
-		// The rail opens with a line of its own above the thread's first, so the
-		// thread starts one below where the branch does.
+		// The branch draws no line of its own, so a child's first row is the row
+		// straight after its parent's last.
 		for _, s := range t.stops {
-			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + 1 + s.start, lines: s.lines})
+			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + s.start, lines: s.lines})
 		}
 		if t.boxAt > 0 {
-			boxAt = used + 1 + t.boxAt
+			boxAt = used + t.boxAt
 		}
-		used += lines + 1
+		used += lines
 		block += "\n" + m.branch(t.block, i == len(owned)-1)
 	}
 	return rendered{block: block, stops: stops, boxAt: boxAt}
 }
 
-// branch hangs one thread off the review above it. The last closes the run, so
-// the rail stops rather than trailing into whatever comes next.
+// branch hangs one card off the card above it. The last closes the run, so the
+// rail stops rather than trailing into whatever comes next.
+//
+// It opens no line of its own. A child is stacked against its parent rather
+// than spaced off it: every other pair of blocks on the page has a blank line
+// between them because they are separate things, and these two are one thing
+// and what hangs off it. The gap read as the replies belonging to the page
+// rather than to the comment they answer.
 func (m Model) branch(block string, last bool) string {
 	style := lipgloss.NewStyle().Foreground(m.theme.BorderMutedOrSubtle())
 	down := style.Render("│ ")
@@ -465,8 +471,7 @@ func (m Model) branch(block string, last bool) string {
 	// has no heading to meet.
 	elbow := min(1, len(lines)-1)
 
-	out := make([]string, 0, len(lines)+1)
-	out = append(out, down)
+	out := make([]string, 0, len(lines))
 	for i, line := range lines {
 		switch {
 		case i == elbow:
@@ -924,15 +929,15 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	answers, stops := m.answers(t, width-treeGutter), []focusItem{{focusKey: key}}
 	used := strings.Count(block, "\n") + 1
 	for i, v := range answers {
-		// The rail opens with a line of its own above each card, so a child
-		// starts one below where its branch does.
+		// The branch draws no line of its own, so a child's first row is the row
+		// straight after its parent's last.
 		if v.boxAt > 0 {
-			boxAt = used + 1 + v.boxAt
+			boxAt = used + v.boxAt
 		}
 		for _, s := range v.stops {
-			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + 1 + s.start})
+			stops = append(stops, focusItem{focusKey: s.focusKey, start: used + s.start})
 		}
-		used += strings.Count(v.block, "\n") + 2
+		used += strings.Count(v.block, "\n") + 1
 		block += "\n" + m.branch(v.block, i == len(answers)-1)
 	}
 

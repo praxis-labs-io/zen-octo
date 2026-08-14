@@ -385,12 +385,45 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	m.syncCommits()
 	m.syncChecks()
 
+	// Taken before the relayout, because the answer is about the page the reader
+	// was looking at rather than the one that replaces it.
+	held := m.focusWhole()
+
 	// layout rather than syncContent: the detail replaces the row the header is
 	// built from, and a status line that gains a timestamp can wrap onto a
 	// second row. The panes divide what the header leaves, so its height has to
 	// be taken again before they are sized.
 	m.layout()
+	m.keepFocusWhole(held)
 	return m.armCommit()
+}
+
+// focusWhole is whether the focused card is on the screen entire. A card that
+// was and no longer is has been grown or moved by whatever landed, and the
+// reader is looking at part of a thing they were looking at all of.
+func (m Model) focusWhole() bool {
+	top := bodyTop(&m.view)
+	return m.convRing.show(top, m.view.Height()) == top
+}
+
+// keepFocusWhole brings the focused card back into view after a write changed
+// its height under the reader.
+//
+// A resolve is the one that needs it. Unresolving opens a collapsed thread into
+// its card, its code and every reply hanging off it, and the growth arrives
+// through the store rather than under the key: o re-shows the focus itself and
+// x has no equivalent, so the thread grew off the bottom of the window and sat
+// there.
+//
+// It moves only where the card was whole on the screen before. A refetch
+// landing while the reader has scrolled somewhere else is not a reason to haul
+// them back to the focus they left behind, which is the rule every key that
+// reads the ring already holds to.
+func (m *Model) keepFocusWhole(was bool) {
+	if !was || m.focusWhole() {
+		return
+	}
+	m.view.SetYOffset(contentLead + m.convRing.show(bodyTop(&m.view), m.view.Height()))
 }
 
 func newViewport() viewport.Model {

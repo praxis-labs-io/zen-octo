@@ -227,8 +227,9 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	// reason. Moving the box to the top row takes the thread off the screen with
 	// it: the code, the comments, and the one being answered all sit above the
 	// box, so topping it leaves the reader writing a reply to something they can
-	// no longer see.
-	m.showInline()
+	// no longer see. It goes far enough to land the box's foot, though, or the
+	// reader is writing into something with no visible end.
+	m.showOpenedBox()
 	return m, cmd
 }
 
@@ -298,7 +299,7 @@ func (m *Model) restore(at focusKey, body string, w words,
 	cmd := m.inline.open(at, from(), "", w)
 	m.convRing.on = at
 	m.focus = paneMain
-	m.showInline()
+	m.showOpenedBox()
 	return cmd
 }
 

@@ -423,17 +423,45 @@ func TestTakingTheThreadDoesNotReflowTheCommentThatOpenedIt(t *testing.T) {
 	}
 }
 
+// Opening a box brings the whole of it onto the page, down to the control that
+// sends the words. The caret opens on the box's first row, so a scroll that
+// follows the caret leaves the rest of the writing area, the button and the
+// border below the fold, and the reader is writing into something with no
+// visible end and no way out but a chord nothing on the screen has named.
+func TestOpeningTheBoxLandsTheControlThatSendsIt(t *testing.T) {
+	for _, at := range []struct {
+		what, key, sends string
+	}{
+		{"a reply box", "r", "post"},
+		{"an edit box", "e", "save"},
+	} {
+		t.Run(at.what, func(t *testing.T) {
+			// A reply tall enough that the box opens against the bottom of the
+			// window, which is the case the scroll has to get right. Focus tops
+			// the reply, so a short one leaves room below it either way.
+			d := writable()
+			d.Threads[0].Comments[1].Body = strings.Repeat("A line of the answer.\n\n", 20)
+
+			out := stripANSI(press(walked(viewing(d, 160, 24), tabReply), at.key).View())
+			if !strings.Contains(out, at.sends) {
+				t.Errorf("%s opened with its %s control below the fold:\n%s", at.what, at.sends, out)
+			}
+		})
+	}
+}
+
 // Opening a box must not take the thread off the screen with it. The comments
 // sit above the box, so a scroll that puts the box on the top row leaves the
 // reader answering something they can no longer see.
 func TestOpeningTheBoxKeepsTheThreadInView(t *testing.T) {
 	// Short enough that the card and its box cannot both fit whole, which is
-	// the case the scroll has to get right.
-	m := walked(detailed(held(sampleDetail()), 160, 24), tabThread)
+	// the case the scroll has to get right. On the reply, so the words being
+	// answered are on the screen before the box opens.
+	m := walked(detailed(held(sampleDetail()), 160, 24), tabReply)
 
 	before := stripANSI(m.View())
 	if !strings.Contains(before, "Seconded, the cap is the fix.") {
-		t.Fatal("the thread is not on screen to begin with, so this proves nothing")
+		t.Fatal("the reply is not on screen to begin with, so this proves nothing")
 	}
 
 	out := stripANSI(press(m, "r").View())

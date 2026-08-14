@@ -229,6 +229,43 @@ func (m *Model) showInline() {
 	m.showCaret()
 }
 
+// showOpenedBox brings a box that has just appeared onto the page whole, foot
+// and all. Opening one is a journey where typing in one is not: the reader
+// asked for a control, and the control is the writing area, the button under it
+// and the border that closes them.
+//
+// showCaret cannot do it. The caret opens on the box's first row, so following
+// it leaves everything below that row off the screen, which on a fresh reply is
+// three rows of box, the button and the border. Its own claim that a caret
+// brings the button with it holds only once the writing has reached the last
+// row.
+//
+// It still moves the shortest distance, and never past the caret's own row. A
+// box taller than the window cannot be shown whole, and there the caret is the
+// part to keep: the reader is about to type into it.
+func (m *Model) showOpenedBox() {
+	m.syncContent()
+
+	box := m.writing()
+	if box == nil || m.boxLine <= 0 {
+		return
+	}
+	top, height := bodyTop(&m.view), m.view.Height()
+	if height <= 0 {
+		return
+	}
+
+	// The button rides one row under the writing area and the border one under
+	// that, and neither is in the height the textarea reports.
+	foot := m.boxLine + box.area.Height() + 1
+	switch {
+	case foot >= top+height:
+		m.view.SetYOffset(contentLead + min(foot-height+1, m.boxLine))
+	case m.boxLine < top:
+		m.view.SetYOffset(contentLead + m.boxLine)
+	}
+}
+
 // showCaret brings the line being written on back onto the page, and it has the
 // last word over anything that scrolled to the block.
 //

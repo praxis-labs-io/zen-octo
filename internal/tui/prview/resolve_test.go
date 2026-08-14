@@ -152,6 +152,35 @@ func TestAThreadPushedBackResolvedCollapsesAndKeepsFocus(t *testing.T) {
 	}
 }
 
+// Unresolving opens a collapsed thread into its card, its code and every reply
+// hanging off it, and that growth arrives through the store rather than under
+// the key. o re-shows the focus itself and x has no equivalent, so without this
+// the thread grows off the bottom of the window and sits there.
+func TestAThreadPushedBackOpenComesBackIntoView(t *testing.T) {
+	// A comment long enough that the opened card cannot grow in place, which is
+	// the case the scroll has to get right. Collapsed it is three lines and sits
+	// low in the window; opened it runs past the bottom of it.
+	long := strings.Repeat("A line of the nit.\n\n", 3) + "The last line of it."
+
+	d := sampleDetail()
+	d.Threads[1].CanUnresolve = true
+	d.Threads[1].Comments[0].Body = long
+
+	m := walked(detailed(held(d), 160, 20), tabResolved)
+	if !strings.Contains(stripANSI(m.View()), "✓ internal/store/store.go:88") {
+		t.Fatal("the resolved thread is not on screen to begin with")
+	}
+
+	open := sampleDetail()
+	open.Threads[1].IsResolved = false
+	open.Threads[1].Comments[0].Body = long
+	m.SetDetail(held(open))
+
+	if out := stripANSI(m.View()); !strings.Contains(out, "The last line of it.") {
+		t.Errorf("the thread grew off the bottom of the window:\n%s", out)
+	}
+}
+
 // One write per thread. Two out at once settle in the order the responses
 // arrive rather than the order they were pressed, and the card would then read
 // the opposite of the last press until a refetch.
