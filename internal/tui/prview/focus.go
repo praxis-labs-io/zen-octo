@@ -109,6 +109,24 @@ func (it focusItem) covers(top, height int) bool {
 	return it.start < top+height && it.start+it.lines > top
 }
 
+// headOn reports whether the item's own heading is in the window, which is the
+// reader being at it rather than somewhere inside it.
+//
+// Deliberately not covers. Whether a key may act on a block and whether that
+// block is where the reader is standing are different questions, and a
+// ninety-line review with one line left on the top row answers them
+// differently: it is still the thing e and D mean, and it is no longer where
+// the reader is.
+func (it focusItem) headOn(top, height int) bool {
+	return it.start >= top && it.start < top+height
+}
+
+// whole reports whether all of the item is in the window, which is the reader
+// seeing it entire.
+func (it focusItem) whole(top, height int) bool {
+	return it.start >= top && it.start+it.lines <= top+height
+}
+
 // ring is the focus order of one pane. The items are rebuilt on every render;
 // on survives it, because it names what it points at rather than where that
 // landed on the screen.
@@ -149,10 +167,13 @@ func (r ring) index() int {
 }
 
 // live is whether the focus is on the screen. Scrolled out of the window it is
-// nothing the reader can see, so it is nothing for a key to act on either. This
-// is the rule step re-anchors by, and every key that reads the focus holds to
-// it: one that acted on a card off screen would move the page under a reader
-// who had already left it.
+// nothing the reader can see, so it is nothing for a key to act on either: one
+// that acted on a card off screen would move the page under a reader who had
+// already left it.
+//
+// This is the rule every key that acts on the focus holds to, and not the one
+// the braces move by. Whether a card may be replied to and whether it is where
+// the reader is standing are different questions, and headOn is the second.
 func (r ring) live(top, height int) bool {
 	at := r.index()
 	return at >= 0 && r.items[at].covers(top, height)
@@ -166,62 +187,90 @@ func (r *ring) clear() bool {
 	return had
 }
 
-// step moves the focus one item and reports whether the ring took the key. top
-// and height are the window the pane is showing, in the same lines the items
-// were recorded in.
+// step moves the focus and reports whether the ring took the key. top and
+// height are the window the pane is showing, in the same lines the items were
+// recorded in.
 //
-// Focus does not survive being scrolled out of the window. A reader who scrolled
-// away has moved on, and the one thing the ring must not do is haul them back to
-// a card they left behind. So it re-anchors to what is on the screen now.
+// The ring steps from its focus while that focus's own heading is on the
+// screen. A card the reader landed on and has not scrolled off is where they
+// are standing, and the next one along is what the key means.
 //
-// wrap is the caller's, because the two rings end differently. A page of cards
-// comes back round: the ring is the whole of it and there is nothing past the
-// last one. The rail is a list of controls inside a pane that is taller than
-// them, so its end is a boundary rather than a seam, and reporting the key
-// untaken is what lets the pane scroll to the facts underneath.
-func (r *ring) step(delta, top, height int, wrap bool) bool {
+// Past that the braces are motion rather than a step, and they read the window
+// instead. A reader who scrolled has moved, and stepping from a card whose
+// byline went off the top hauls them to a block they cannot see: forward it
+// lands behind where they are reading, back it lands a screen or more above it.
+// seek is where they actually are.
+//
+// Both ends are boundaries rather than seams, on the rail and on the page
+// alike. The ring came back round once, on the argument that it is the whole of
+// the content and there is nothing past the last card. But a real pull request
+// is a page deep, so the wrap is the longest throw either key can make, and it
+// arrives at the end the reader was walking away from. Reporting the key
+// untaken is what lets the pane scroll to whatever sits under the last stop.
+func (r *ring) step(delta, top, height int) bool {
 	if len(r.items) == 0 {
 		r.on = focusKey{}
 		return false
 	}
 
-	at := r.index()
-	if at < 0 || !r.items[at].covers(top, height) {
-		r.on = r.items[r.anchor(delta, top, height)].focusKey
+	if at := r.index(); at >= 0 && r.items[at].headOn(top, height) {
+		next := at + delta
+		if next < 0 || next >= len(r.items) {
+			return false
+		}
+		r.on = r.items[next].focusKey
 		return true
 	}
 
-	next := at + delta
-	if !wrap && (next < 0 || next >= len(r.items)) {
+	at, ok := r.seek(delta, top, height)
+	if !ok {
 		return false
 	}
-
-	r.on = r.items[(next+len(r.items))%len(r.items)].focusKey
+	r.on = r.items[at].focusKey
 	return true
 }
 
-// anchor is where focus lands when there is none to move: the first item on the
-// screen going forward, the last going back. A window between two items falls to
-// whichever end it is nearer.
+// seek is the block a brace moves to when the focus is not where the reader is.
+// Each key re-enters from its own end of the window and walks from there:
+// forward the first heading at or below the top row, back the last card whole
+// on the screen.
 //
-// On the screen means any part of it, not all of it. A card taller than the
-// window is the one the reader is looking at, and a scan for the first item to
-// begin below the top skips straight past it to the next one.
-func (r ring) anchor(delta, top, height int) int {
+// Back stops at what is on the screen rather than reaching past it for the
+// block the top row sits inside. A long review with its last two lines at the
+// top and three cards whole underneath is a screen of travel on a key that was
+// asked for one step, and the byline it arrives at is one nobody pointed to. A
+// card the reader can see entire is the one they mean, and lighting it moves
+// the page not at all.
+//
+// Only where nothing fits is the block under the top row the answer, and there
+// it is the only one there is: the window is inside one long comment, and its
+// own head is what { means in vim.
+//
+// Forward takes the top row itself, where the two tabs with no focus to
+// disambiguate take the row under it. A screen opened and not yet scrolled has
+// the description's byline on that row, and skipping it would leave the first
+// card on the page unreachable by the first press. Nothing stalls on it,
+// because the press after lands on a heading and steps by index from there.
+func (r ring) seek(delta, top, height int) (int, bool) {
 	if delta < 0 {
 		for i := len(r.items) - 1; i >= 0; i-- {
-			if r.items[i].covers(top, height) {
-				return i
+			if r.items[i].whole(top, height) {
+				return i, true
 			}
 		}
-		return 0
+		for i := len(r.items) - 1; i >= 0; i-- {
+			if r.items[i].start < top {
+				return i, true
+			}
+		}
+		return 0, false
 	}
 	for i, it := range r.items {
-		if it.covers(top, height) {
-			return i
+		if it.start >= top {
+			return i, true
 		}
 	}
-	return len(r.items) - 1
+	return 0, false
 }
 
 // show is the offset that brings the focused item onto a window of the given
@@ -239,7 +288,7 @@ func (r ring) show(top, height int) int {
 	}
 
 	it := r.items[at]
-	if it.start >= top && it.start+it.lines <= top+height {
+	if it.whole(top, height) {
 		return top
 	}
 	return it.start

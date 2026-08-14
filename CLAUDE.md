@@ -123,6 +123,31 @@ Key bindings live in `internal/tui/keys`, declared once with their help text. Th
 
 The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. That gives tab and shift+tab back to the tab strip, where they do what they do on the list screen. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
 
+The ring steps from its focus while that focus's own byline is on the screen,
+and past that the braces are motion rather than a step and read the window
+instead. A reader who scrolled has moved, and the block they left is not the one
+to count from: stepping forward off it lands behind where they are reading and
+stepping back lands a screen or more above it, which is each key moving the page
+against itself. So each key re-enters from its own end of the window and walks
+from there: `}` takes the first byline at or below the top row, `{` the last
+card whole on the screen. Back stops at what is on the screen rather than
+reaching past it for the block the top row sits inside, because a long review
+with its last two lines on that row and three cards whole underneath is a screen
+of travel on a key asked for one step, and the byline it arrives at is one
+nobody pointed to; a card the reader can see entire is the one they mean, and
+lighting it moves the page not at all. Only where nothing fits is the block
+under the top row the answer, and there it is the only one there is: the window
+is inside one long comment, and its own head is what `{` means in vim and the
+one motion this screen had no way to make. `focusItem.headOn` is that test
+and it is deliberately not `covers`: whether a key may act on a block and
+whether that block is where the reader is standing are different questions, and
+a ninety-line review with one line left on the top row answers them differently.
+Forward takes the top row itself where the two tabs with no focus to
+disambiguate take the row under it, because a screen not yet scrolled has the
+description's byline on that row and skipping it would put the first card on the
+page out of reach of the first press; nothing stalls on it, since the press
+after lands on a byline and steps by index from there.
+
 An `@` opening a word in either box draws that list under the caret. It declares no bindings of its own, because every key it wants is one `DetailMap` or `FormMap` already spells and a fifth field would collide in the reflection tests: `enter` and `tab` insert, the arrows move, `esc` closes the list alone. Each of those is a key that destroys something if it leaks through, which is why `mentionKey` runs ahead of both `composeKey` and `inlineKey` rather than beside them: a leaked `esc` closes the box and an edit's draft goes with it, a leaked `tab` blurs the textarea so the box then takes no keys at all, and a leaked `enter` breaks the line in half. The arrows are matched behind the printable guard `comp.Picker.Insert` uses, because `Up` and `Down` carry `k` and `j` and those are letters in a box.
 
 The token is read from the buffer rather than from the keystroke, on `Line()` and `Column()`, which are a logical row and a rune index into it, so a start of line and a start of buffer are the same test. It scans back from the caret rather than forward from the `@`: a line with three handles on it has three tokens and two of them are finished. The `@` has to open a word, which is what keeps an address from dropping a list of logins over the line it is written on. The scan runs on the paste path as well as the key path, because a paste is its own message and never reaches `handleKey`, and a list left open after one shows a query the buffer no longer holds.
@@ -131,7 +156,7 @@ Inserting rebuilds the buffer back to front. `SetValue` is a `Reset` and an `Ins
 
 The list is offered before anything is fetched, because the people on the pull request are known from the detail and are who a reply usually names. `mentionableUsers` rides on the repo-meta query, so the first `@` costs a request only where no picker has opened yet, and the note under the rows is what stops a short list of participants reading as everybody there is: on its way, or refused, or matched nobody, each in its own words. The one that had to be built for it is the refusal. `SetRepo` declines to act while `Capturing()` is true, and a compose box always is, so `refillMentions` runs on its first line ahead of every guard; and `repoMetaFailed` told the screen nothing at all, which made a dead fetch and an unasked one render identically, which is the exact failure a silent empty list is.
 
-The rail is the exception, and the braces are dead on it. Its rows are a list of controls rather than blocks of prose, so it answers to the movement keys the way the file column does: `railDriving` sends `j` and `k` to the cursor, and taking the pane lands the cursor on its first control rather than waiting to be pressed once before it will say where the keys go. Two things fall out of it being a list with facts in it. The cursor stops at each end rather than coming back round, which the conversation's ring does not: wrapping is right where the ring is the whole of the content, and on the rail it would jump the reader a screen away from what they were reading. `ring.step` takes that choice from its caller, because it is modular otherwise and a rail that wrapped reported the key taken every time. And `g`, `G` and the page keys never move the cursor, because those go to the ends of a pane and the rail's ends are past its last stop.
+The rail is the exception, and the braces are dead on it. Its rows are a list of controls rather than blocks of prose, so it answers to the movement keys the way the file column does: `railDriving` sends `j` and `k` to the cursor, and taking the pane lands the cursor on its first control rather than waiting to be pressed once before it will say where the keys go. Two things fall out of it being a list with facts in it. The cursor stops at each end rather than coming back round, which the conversation's ring does too: that one lapped once, on the argument that the ring is the whole of the content and there is nothing past the last card, but a real pull request is a page deep and the wrap is then the longest throw either key can make, arriving at the end the reader was walking away from. Both report the key untaken there, which is what lets the pane scroll to whatever sits under the last stop. And `g`, `G` and the page keys never move the cursor, because those go to the ends of a pane and the rail's ends are past its last stop.
 
 The bar's hints are the detail screen's own, built per tab from what that tab can do. The keymap is the same on all four and the tabs are not: Checks has no blocks to walk, Commits and Checks have nothing to expand, and the three with a column have no rail to toggle. A hint for a key that is inert under it is worse than no hint, since the reader presses it, nothing happens, and the line stops being worth reading. The same rule takes the hints off entirely while a picker or a form is up: it has the keys they name and carries a hint line of its own.
 

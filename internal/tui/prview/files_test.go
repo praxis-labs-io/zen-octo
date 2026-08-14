@@ -809,6 +809,76 @@ func TestBraceWalksBackUpTheFiles(t *testing.T) {
 	}
 }
 
+// longFile is a file whose diff runs well past a test window, so the reader can
+// be inside it with its heading off the top.
+func longFile(path string, lines int) gh.ChangedFile {
+	body := make([]gh.DiffLine, lines)
+	for i := range body {
+		body[i] = gh.DiffLine{Kind: gh.DiffContext, Old: i + 1, New: i + 1, Content: fmt.Sprintf("\tcase %d:", i)}
+	}
+	return gh.ChangedFile{
+		Path:  path,
+		Hunks: []gh.Hunk{{Header: fmt.Sprintf("@@ -1,%d +1,%d @@", lines, lines), Lines: body}},
+	}
+}
+
+// Back from inside a file is that file's own heading. Landing on the file before
+// it opens the reader above code they were still reading, and the heading they
+// wanted scrolls away with it.
+func TestBraceBackFromInsideAFileOpensOnItsHeading(t *testing.T) {
+	files := sampleFiles()
+	files[1] = longFile("internal/store/store.go", 60)
+
+	m := detailed(held(sampleDetail()), 200, 20)
+	m.SetFiles(loadedFiles(files, 0))
+	// screenshot.png, client.go, then the long one. The diff pane holds the keys.
+	m = press(m, "]", "]", "]", "2", "}", "}")
+	if got := cursorFile(m.View()); !strings.Contains(got, "store.go") {
+		t.Fatalf("setup: cursor on %q, want the long file", got)
+	}
+
+	m = press(m, strings.Fields(strings.Repeat("j ", 12))...)
+	if strings.Contains(diffHeads(m.View()), "store.go") {
+		t.Fatal("setup: the heading is still on screen, so this proves nothing")
+	}
+
+	m = press(m, "{")
+	if got := cursorFile(m.View()); !strings.Contains(got, "store.go") {
+		t.Fatalf("{ from inside the file moved the cursor to %q", got)
+	}
+	// Row zero is the pane's own border and row one the file box's, so a file
+	// opened at the top of the window puts its heading on row two.
+	if at := lineOf(t, m.View(), "▾ internal/store/store.go") - paneTopAt(m.View()); at != 2 {
+		t.Errorf("the heading landed on pane row %d, want the top of the window", at)
+	}
+
+	// From the heading it means the file before it, the way it always did.
+	if got := cursorFile(press(m, "{").View()); !strings.Contains(got, "client.go") {
+		t.Errorf("{ from the heading landed on %q, want the file before it", got)
+	}
+}
+
+// The last file is the end. Clamping onto it and showing it again scrolls back
+// to its heading from inside it, which is the page moving against the key.
+func TestBraceForwardInsideTheLastFileStaysPut(t *testing.T) {
+	files := sampleFiles()
+	files[2] = longFile("internal/tui/prview/files.go", 60)
+
+	m := detailed(held(sampleDetail()), 200, 20)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "2", "G")
+	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
+		t.Fatalf("setup: cursor on %q, want the last file", got)
+	}
+	if strings.Contains(diffHeads(m.View()), "files.go") {
+		t.Fatal("setup: the heading is on screen, so there is nothing to scroll back to")
+	}
+
+	if before, after := stripANSI(m.View()), stripANSI(press(m, "}").View()); before != after {
+		t.Error("} from inside the last file scrolled back to its heading")
+	}
+}
+
 // A directory row has no block of its own, and the reader has not seen the
 // files under it yet.
 func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {

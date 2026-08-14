@@ -37,16 +37,23 @@ func TestNothingIsFocusedUntilTheRingIsWalked(t *testing.T) {
 	}
 }
 
-// walked steps the ring n times.
+// walked steps the ring n times. The counts every caller uses are from an
+// unfocused ring at the top of the page, so a model left somewhere else goes
+// through fromTop first: the ring stops at its ends and no longer laps round to
+// the description.
 func walked(m prview.Model, n int) prview.Model {
 	return press(m, strings.Fields(strings.Repeat("} ", n))...)
 }
 
-// The ring walks the cards in the order they were written, and comes back round.
-// Every card is a stop, replies included: a card the motion key walks past is
-// one the reader can see and cannot reach, and crossing a heavily reviewed page
-// is what the scroll keys are for.
-func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
+// fromTop drops whatever the ring is holding and takes the page back to the
+// first card, which is where the step counts are measured from.
+func fromTop(m prview.Model) prview.Model { return press(m, "esc", "g") }
+
+// The ring walks the cards in the order they were written, and stops at the
+// end. Every card is a stop, replies included: a card the motion key walks past
+// is one the reader can see and cannot reach, and crossing a heavily reviewed
+// page is what the scroll keys are for.
+func TestTheRingWalksTheCardsInOrder(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
 	want := []string{cardDescription, cardComment, cardReview, cardThread}
@@ -82,8 +89,22 @@ func TestTheRingWalksTheCardsInOrderAndWraps(t *testing.T) {
 		t.Errorf("the ninth step focused %q, want the comment box", got)
 	}
 
-	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("a step past the last card focused %q, want it back at the description", got)
+	// A page is deep enough that coming back round is the longest throw the key
+	// can make, and it arrives at the end the reader walked away from.
+	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardCompose) {
+		t.Errorf("a step past the last card focused %q, want it to stay on the comment box", got)
+	}
+}
+
+// And stops at the other end the same way.
+func TestTheRingStopsAtTheFirstCard(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 60), "}", "{")
+
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: focus landed on %q, want the first card", got)
+	}
+	if got := focusedCard(t, press(m, "{").View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("a step before the first card focused %q, want it to stay put", got)
 	}
 }
 
@@ -249,18 +270,97 @@ func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
 	t.Fatalf("no Assignees section in the rail: %q", rows)
 }
 
-// A card filling the whole window is the one the reader is looking at. Scanning
-// for the first card to begin below the top skips straight past it.
-func TestTheRingTakesTheCardFillingTheWindow(t *testing.T) {
+// tall is a screen whose description runs well past the pane, so the reader can
+// be inside one card with its byline off the top.
+func tall() prview.Model {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
 
-	// Scrolled into the middle of the description, which is taller than the pane.
-	m := press(detailed(held(d), 200, 20), strings.Fields(strings.Repeat("j ", 12))...)
+	return detailed(held(d), 200, 20)
+}
 
-	got := focusedCard(t, press(m, "}").View())
+// scrolledIn takes the page twelve lines into that description.
+func scrolledIn(t *testing.T, m prview.Model) prview.Model {
+	t.Helper()
+
+	m = press(m, strings.Fields(strings.Repeat("j ", 12))...)
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Fatal("setup: the byline is still on screen, so this proves nothing")
+	}
+	return m
+}
+
+// Forward from inside a card is the next card, in one press. Taking the card
+// the window is full of would light a byline the reader cannot see and haul the
+// page up to it, which is the page moving against the key.
+func TestTheBraceForwardFromInsideACardLeavesIt(t *testing.T) {
+	m := press(scrolledIn(t, tall()), "}")
+
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
+		t.Errorf("the ring focused %q, want the card after the one the window is full of", got)
+	}
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Error("} scrolled back up to the description's byline")
+	}
+}
+
+// Back from inside a card is that card's own byline. It is what { means in vim,
+// and the one motion this screen had no way to make.
+func TestTheBraceBackFromInsideACardOpensOnItsByline(t *testing.T) {
+	got, at := focusedCardAt(t, press(scrolledIn(t, tall()), "{").View())
 	if !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("the ring focused %q, want the card the window is full of", got)
+		t.Fatalf("the ring focused %q, want the card the window is full of", got)
+	}
+	if at != 1 {
+		t.Errorf("the card's border landed on pane row %d, want the top of the window", at)
+	}
+}
+
+// Back re-enters at the foot of the window, on the last card whole on the
+// screen. A long comment with its tail on the top row and cards whole
+// underneath is a screen of travel on a key asked for one step, and it lands on
+// a byline nobody pointed at.
+func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
+	d := sampleDetail()
+	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 12)
+
+	// The description's tail on the top rows, two cards whole beneath it, and
+	// the thread under the second one cut off by the foot of the window.
+	m := press(detailed(held(d), 200, 40), strings.Fields(strings.Repeat("j ", 12))...)
+	if strings.Contains(stripANSI(m.View()), cardDescription) {
+		t.Fatal("setup: the description's byline is still on screen")
+	}
+	// The reply hanging off that thread is below the fold, so the thread's own
+	// card is cut off and the review above it is the last one whole.
+	if strings.Contains(stripANSI(m.View()), "octobot · said") {
+		t.Fatal("setup: the thread is whole on screen, so it is the card { should take")
+	}
+
+	before := lineOf(t, m.View(), cardReview)
+	after := press(m, "{")
+
+	// Not the description, which the top row sits inside and which is a screen
+	// of travel away.
+	if got := focusedCard(t, after.View()); !strings.HasPrefix(got, cardReview) {
+		t.Errorf("{ landed on %q, want the last card whole on the screen", got)
+	}
+	if now := lineOf(t, after.View(), cardReview); now != before {
+		t.Errorf("the page moved from line %d to %d to light a card already on screen whole", before, now)
+	}
+}
+
+// A focus scrolled until its own byline is off the top is no longer where the
+// reader is standing, so the brace stops stepping from it. Stepping would land
+// a screen or more above the window, on a card they left.
+func TestAFocusScrolledOffItsBylineStopsBeingTheStep(t *testing.T) {
+	m := press(tall(), "}")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: focus landed on %q, want the description", got)
+	}
+
+	// Not the card before the description, which the ring would step to.
+	if got := focusedCard(t, press(scrolledIn(t, m), "{").View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("{ landed on %q, want the byline of the card the reader is in", got)
 	}
 }
 
