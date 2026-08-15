@@ -47,10 +47,11 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 
 	drive(t, app.New(recentConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	if len(client.queries) == 0 {
+	asked := client.asked()
+	if len(asked) == 0 {
 		t.Fatal("the section was never fetched")
 	}
-	query := client.queries[0]
+	query := asked[0]
 	if strings.Contains(query, "{{") {
 		t.Fatalf("query = %q, want the token rendered before the search", query)
 	}
@@ -69,16 +70,17 @@ func TestEveryFetchRendersItsOwnWindow(t *testing.T) {
 	m := drive(t, app.New(recentConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40})
 	settle(m, list.RefreshMsg{})
 
-	if len(client.queries) < 2 {
-		t.Fatalf("the client saw %d queries, want the refresh to have fetched again", len(client.queries))
+	asked := client.asked()
+	if len(asked) < 2 {
+		t.Fatalf("the client saw %d queries, want the refresh to have fetched again", len(asked))
 	}
-	for i, query := range client.queries {
+	for i, query := range asked {
 		if strings.Contains(query, "{{") {
 			t.Fatalf("query %d = %q, want every fetch to render the token", i, query)
 		}
 	}
 
-	first, second := boundIn(t, client.queries[0]), boundIn(t, client.queries[len(client.queries)-1])
+	first, second := boundIn(t, asked[0]), boundIn(t, asked[len(asked)-1])
 	if second.Before(first) {
 		t.Errorf("the refresh asked about %s, older than the first fetch's %s",
 			second.Format(time.RFC3339), first.Format(time.RFC3339))

@@ -143,7 +143,17 @@ func TestLoadRejectsInvalidConfigs(t *testing.T) {
 		{
 			name:     "since token that is not a duration",
 			body:     "prSections:\n  - title: Recent\n    filters: 'is:pr closed:>={{since:one day}}'\n",
-			wantText: `prSections[0] ("Recent"): "one day" is not a duration`,
+			wantText: `prSections[0] ("Recent"): "one day" is not a length of time`,
+		},
+		{
+			name:     "since token looking forward",
+			body:     "prSections:\n  - title: Recent\n    filters: 'is:pr closed:>={{since:-24h}}'\n",
+			wantText: `prSections[0] ("Recent"): "-24h" is not a length of time`,
+		},
+		{
+			name:     "since token of no length at all",
+			body:     "prSections:\n  - title: Recent\n    filters: 'is:pr closed:>={{since:0s}}'\n",
+			wantText: `prSections[0] ("Recent"): "0s" is not a length of time`,
 		},
 	}
 

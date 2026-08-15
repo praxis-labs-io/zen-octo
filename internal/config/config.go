@@ -177,8 +177,10 @@ func validateSections(field string, sections []Section) error {
 			return fmt.Errorf("%s[%d] (%q): filters is required", field, i, s.Title)
 		}
 		for _, m := range sinceToken.FindAllStringSubmatch(s.Filters, -1) {
-			if _, err := time.ParseDuration(m[1]); err != nil {
-				return fmt.Errorf("%s[%d] (%q): %q is not a duration, want something like 24h", field, i, s.Title, m[1])
+			// Zero and negative parse fine and put the bound now or in the
+			// future, which is a window GitHub answers empty.
+			if d, err := time.ParseDuration(m[1]); err != nil || d <= 0 {
+				return fmt.Errorf("%s[%d] (%q): %q is not a length of time to look back, want something like 24h", field, i, s.Title, m[1])
 			}
 		}
 	}

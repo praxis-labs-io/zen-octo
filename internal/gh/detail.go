@@ -471,11 +471,6 @@ type pullRequestResponse struct {
 	}
 }
 
-// PullRequest fetches everything the detail screen shows. It is the most
-// expensive call in the app, which is why the store caches what it returns.
-// headRef is the branch the pull request is merging from. The query needs it up
-// front to ask how far behind the base it has fallen, and GraphQL cannot read
-// it off a sibling field, so the caller passes the one it already has.
 // deletedHeadRef is GitHub refusing the base comparison alone, because the head
 // branch is gone. Match is false unless every error is that one.
 func deletedHeadRef(err error) bool {
@@ -483,6 +478,11 @@ func deletedHeadRef(err error) bool {
 	return errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "node.baseRef.compare")
 }
 
+// PullRequest fetches everything the detail screen shows. It is the most
+// expensive call in the app, which is why the store caches what it returns.
+// headRef is the branch the pull request is merging from. The query needs it up
+// front to ask how far behind the base it has fallen, and GraphQL cannot read
+// it off a sibling field, so the caller passes the one it already has.
 func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailResult, error) {
 	var resp pullRequestResponse
 	vars := map[string]any{"id": id, "head": headRef}
@@ -581,10 +581,12 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Threads = append(detail.Threads, thread)
 	}
 
+	// A comparison that did not run leaves zero, and zero means up to date. Any
+	// answer but a number is the count nobody has.
 	switch ref := n.BaseRef; {
-	case headless:
+	case headless, ref == nil, ref.Compare == nil:
 		detail.BehindBy = BehindNoHead
-	case ref != nil && ref.Compare != nil:
+	default:
 		detail.BehindBy = ref.Compare.BehindBy
 	}
 
