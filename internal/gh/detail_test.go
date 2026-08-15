@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 // detailBody is one pull request with everything the conversation reads: a
@@ -671,6 +673,104 @@ func TestPullRequestSurvivesADeletedHeadBranch(t *testing.T) {
 	}
 	if got := res.Detail.HeadRefID; got != "" {
 		t.Errorf("HeadRefID = %q, want empty on a deleted branch", got)
+	}
+}
+
+// compareErr is GitHub refusing the base comparison because the head branch is
+// gone: the whole pull request comes back beside it.
+func compareErr(paths ...[]any) *api.GraphQLError {
+	items := make([]api.GraphQLErrorItem, len(paths))
+	for i, p := range paths {
+		items[i] = api.GraphQLErrorItem{Type: "NOT_FOUND", Message: "Could not resolve to a Ref", Path: p}
+	}
+	return &api.GraphQLError{Errors: items}
+}
+
+// A merged pull request has its branch deleted, so GitHub nulls the head and
+// refuses the comparison. Reading the error array as fatal threw the rest away.
+func TestPullRequestSurvivesARefusedBaseComparison(t *testing.T) {
+	body := strings.Replace(detailBody, `"headRef": {"id": "REF_88"}`, `"headRef": null`, 1)
+	doer := &fakeDoer{body: body, err: compareErr([]any{"node", "baseRef", "compare"})}
+
+	res, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+	if err != nil {
+		t.Fatalf("PullRequest() error = %v, want the detail GitHub sent with it", err)
+	}
+	if got := res.Detail.ID; got != "PR_412" {
+		t.Errorf("ID = %q, want the pull request the response carried", got)
+	}
+	if got := res.Detail.BehindBy; got != BehindNoHead {
+		t.Errorf("BehindBy = %d, want BehindNoHead (%d)", got, BehindNoHead)
+	}
+}
+
+// A refused comparison beside a head that still exists is not the merged case,
+// and it still costs the count rather than the screen.
+func TestARefusedComparisonCostsTheCountAndNotTheScreen(t *testing.T) {
+	doer := &fakeDoer{body: detailBody, err: compareErr([]any{"node", "baseRef", "compare"})}
+
+	res, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+	if err != nil {
+		t.Fatalf("PullRequest() error = %v, want the detail to open anyway", err)
+	}
+	if got := res.Detail.HeadRefID; got != "REF_88" {
+		t.Errorf("HeadRefID = %q, want the branch the response still carried", got)
+	}
+	if got := res.Detail.BehindBy; got != BehindNoHead {
+		t.Errorf("BehindBy = %d, want the count nobody has (%d)", got, BehindNoHead)
+	}
+}
+
+// GitHub can null the comparison without saying why. Zero already means up to
+// date, so leaving it there claims a distance nobody measured.
+func TestPullRequestCountsNothingWhereTheComparisonIsNull(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "no comparison", body: strings.Replace(detailBody, `"compare": {"behindBy": 4}`, `"compare": null`, 1)},
+		{name: "no base ref", body: strings.Replace(detailBody, `"baseRef": {"compare": {"behindBy": 4}}`, `"baseRef": null`, 1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.body == detailBody {
+				t.Fatal("the fixture did not change, so this asserts nothing")
+			}
+
+			res, err := newWithDoer(&fakeDoer{body: tt.body}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
+			if err != nil {
+				t.Fatalf("PullRequest() error = %v, want nil", err)
+			}
+			if got := res.Detail.BehindBy; got != BehindNoHead {
+				t.Errorf("BehindBy = %d, want BehindNoHead (%d)", got, BehindNoHead)
+			}
+		})
+	}
+}
+
+// Only that one path is tolerated. A second error beside the comparison means
+// the response cannot be trusted, and Match is what refuses it.
+func TestPullRequestStillFailsOnAnyOtherError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *api.GraphQLError
+	}{
+		{name: "another path", err: compareErr([]any{"node", "labels"})},
+		{
+			name: "the comparison and something else",
+			err:  compareErr([]any{"node", "baseRef", "compare"}, []any{"node", "timelineItems"}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doer := &fakeDoer{body: detailBody, err: tt.err}
+
+			if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err == nil {
+				t.Fatal("PullRequest() error = nil, want the failure reported")
+			}
+		})
 	}
 }
 

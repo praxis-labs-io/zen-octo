@@ -3,9 +3,12 @@ package gh
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 // pullRequestQuery asks by node id rather than owner, name and number. The id
@@ -468,6 +471,13 @@ type pullRequestResponse struct {
 	}
 }
 
+// deletedHeadRef is GitHub refusing the base comparison alone, because the head
+// branch is gone. Match is false unless every error is that one.
+func deletedHeadRef(err error) bool {
+	var gqlErr *api.GraphQLError
+	return errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "node.baseRef.compare")
+}
+
 // PullRequest fetches everything the detail screen shows. It is the most
 // expensive call in the app, which is why the store caches what it returns.
 // headRef is the branch the pull request is merging from. The query needs it up
@@ -477,8 +487,12 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	var resp pullRequestResponse
 	vars := map[string]any{"id": id, "head": headRef}
 
+	headless := false
 	if err := c.gql.DoWithContext(ctx, pullRequestQuery, vars, &resp); err != nil {
-		return DetailResult{}, fmt.Errorf("fetching pull request (%s): %w", id, classify(err))
+		if !deletedHeadRef(err) {
+			return DetailResult{}, fmt.Errorf("fetching pull request (%s): %w", id, classify(err))
+		}
+		headless = true
 	}
 
 	n := resp.Node
@@ -567,7 +581,12 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Threads = append(detail.Threads, thread)
 	}
 
-	if ref := n.BaseRef; ref != nil && ref.Compare != nil {
+	// A comparison that did not run leaves zero, and zero means up to date. Any
+	// answer but a number is the count nobody has.
+	switch ref := n.BaseRef; {
+	case headless, ref == nil, ref.Compare == nil:
+		detail.BehindBy = BehindNoHead
+	default:
 		detail.BehindBy = ref.Compare.BehindBy
 	}
 

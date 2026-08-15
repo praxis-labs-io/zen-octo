@@ -571,6 +571,10 @@ func (d PullRequestDetail) MergeMessage(m MergeMethod) MergeMessage {
 // already spoken for: it means up to date.
 const BehindUnknown = -1
 
+// BehindNoHead is BehindBy with no head branch left to compare, which is the
+// ordinary state of a merged pull request. Never counted, not uncounted yet.
+const BehindNoHead = -2
+
 // FileStatus is what happened to a file in the pull request.
 type FileStatus string
 

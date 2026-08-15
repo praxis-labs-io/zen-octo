@@ -12,7 +12,8 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// fakeDoer answers a GraphQL call with canned JSON or a canned error.
+// fakeDoer answers a GraphQL call with canned JSON, a canned error, or both.
+// go-gh decodes the payload before it reads the errors array, so both is real.
 type fakeDoer struct {
 	body string
 	err  error
@@ -24,10 +25,12 @@ type fakeDoer struct {
 func (f *fakeDoer) DoWithContext(_ context.Context, query string, vars map[string]any, response any) error {
 	f.gotQuery = query
 	f.gotVars = vars
-	if f.err != nil {
-		return f.err
+	if f.body != "" {
+		if err := json.Unmarshal([]byte(f.body), response); err != nil {
+			return err
+		}
 	}
-	return json.Unmarshal([]byte(f.body), response)
+	return f.err
 }
 
 const twoPRsBody = `{

@@ -545,7 +545,9 @@ func (m Model) fetchSection(index int, query string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 
-		res, err := client.SearchPullRequests(ctx, query, limit)
+		// Expanded here rather than at the call site, so a window named in the
+		// filter is measured from when the request goes out.
+		res, err := client.SearchPullRequests(ctx, config.ExpandQuery(query, time.Now()), limit)
 		if err != nil {
 			return sectionFailedMsg{index: index, err: err}
 		}

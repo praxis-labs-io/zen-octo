@@ -615,6 +615,11 @@ func mockSubset(query string) []gh.PullRequest {
 	const least = 4
 
 	rows := mockPullRequests()
+	// Ahead of authored, which this query also matches: a section asking for
+	// what closed must not be handed the open rows.
+	if settled(query) {
+		return closedRows(rows)
+	}
 	// The floor is also what keeps the modulus below from dividing by zero if
 	// the fixtures are ever cut back.
 	if authored(query) || len(rows) <= least {
@@ -640,6 +645,21 @@ func mockSubset(query string) []gh.PullRequest {
 // substring check hands it the full set too.
 func authored(query string) bool {
 	return strings.Contains(query, "author:@me") && !strings.Contains(query, "-author:@me")
+}
+
+// settled reports the section asking for what is finished rather than open.
+func settled(query string) bool { return strings.Contains(query, "is:closed") }
+
+// closedRows is the merged and closed fixtures, which is all a settled section
+// can honestly show.
+func closedRows(rows []gh.PullRequest) []gh.PullRequest {
+	out := make([]gh.PullRequest, 0, len(rows))
+	for _, pr := range rows {
+		if pr.State == gh.PRStateMerged || pr.State == gh.PRStateClosed {
+			out = append(out, pr)
+		}
+	}
+	return out
 }
 
 // mockPullRequests covers what the list has to tell apart: all four states,

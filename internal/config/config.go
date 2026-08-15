@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -25,6 +27,21 @@ const (
 type Section struct {
 	Title   string `yaml:"title"`
 	Filters string `yaml:"filters"`
+}
+
+// sinceToken matches {{since:24h}} and captures the duration inside it.
+var sinceToken = regexp.MustCompile(`\{\{since:([^}]*)\}\}`)
+
+// ExpandQuery renders a filter's time tokens against now: {{since:24h}} becomes
+// the RFC 3339 instant that long before it, which is all GitHub's dates take.
+func ExpandQuery(filters string, now time.Time) string {
+	return sinceToken.ReplaceAllStringFunc(filters, func(token string) string {
+		d, err := time.ParseDuration(sinceToken.FindStringSubmatch(token)[1])
+		if err != nil {
+			return token
+		}
+		return now.UTC().Add(-d).Format(time.RFC3339)
+	})
 }
 
 // Defaults holds settings that aren't tied to a single section.
@@ -57,6 +74,9 @@ func Default() *Config {
 			{Title: "My PRs", Filters: "is:open is:pr author:@me"},
 			{Title: "Needs My Review", Filters: "is:open is:pr review-requested:@me"},
 			{Title: "Involved", Filters: "is:open is:pr involves:@me -author:@me"},
+			// sort:updated-desc because the limit is applied before the list
+			// re-sorts, so relevance order decides which twenty come back.
+			{Title: "Recently Closed", Filters: "is:pr is:closed author:@me closed:>={{since:24h}} sort:updated-desc"},
 		},
 		IssueSections: []Section{
 			{Title: "My Issues", Filters: "is:open is:issue author:@me"},
@@ -155,6 +175,13 @@ func validateSections(field string, sections []Section) error {
 		}
 		if s.Filters == "" {
 			return fmt.Errorf("%s[%d] (%q): filters is required", field, i, s.Title)
+		}
+		for _, m := range sinceToken.FindAllStringSubmatch(s.Filters, -1) {
+			// Zero and negative parse fine and put the bound now or in the
+			// future, which is a window GitHub answers empty.
+			if d, err := time.ParseDuration(m[1]); err != nil || d <= 0 {
+				return fmt.Errorf("%s[%d] (%q): %q is not a length of time to look back, want something like 24h", field, i, s.Title, m[1])
+			}
 		}
 	}
 	return nil
