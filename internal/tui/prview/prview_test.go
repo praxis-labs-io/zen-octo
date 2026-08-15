@@ -20,9 +20,12 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
+const sampleURL = "https://github.com/zen-octo/zen-octo/pull/412"
+
 func samplePR() gh.PullRequest {
 	return gh.PullRequest{
 		ID: "PR_412", Number: 412, Title: "Fix the auth retry backoff loop",
+		URL:        sampleURL,
 		Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
 		State: gh.PRStateOpen, BaseRefName: "main", HeadRefName: "fix-auth-retry",
 		Additions: 42, Deletions: 7, ChangedFiles: 3,

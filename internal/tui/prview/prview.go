@@ -75,6 +75,12 @@ type ThreadNotInDiffMsg struct{ Path string }
 // the toast, because the screen has nowhere to say it.
 type EditorFailedMsg struct{ Err error }
 
+// CopyLinkMsg asks the root to put the pull request's URL on the clipboard.
+type CopyLinkMsg struct{ PR gh.PullRequest }
+
+// BrowseMsg asks the root to open the pull request in a browser.
+type BrowseMsg struct{ PR gh.PullRequest }
+
 // RailPreference is what the user last asked of the details rail. The root
 // carries it from one pull request to the next, so hiding the rail stays hidden
 // instead of having to be redone on every open.
@@ -592,6 +598,14 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Sync):
 		return m, m.refresh()
+
+	// Both mean the pull request on every tab, whatever the ring is on: nothing
+	// below it carries a URL to reach.
+	case key.Matches(keyMsg, k.CopyLink):
+		return m, func() tea.Msg { return CopyLinkMsg{PR: m.pr} }
+
+	case key.Matches(keyMsg, k.Browse):
+		return m, func() tea.Msg { return BrowseMsg{PR: m.pr} }
 
 	// A top-level comment lands in the conversation, so it is written from
 	// there. The three tabs with a column each anchor their own kind of comment
