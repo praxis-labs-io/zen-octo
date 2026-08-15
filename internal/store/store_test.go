@@ -90,6 +90,94 @@ func TestCorrectingARowLeavesAnEarlierSnapshotAlone(t *testing.T) {
 	}
 }
 
+// reviewed is a pull request one reviewer asked for changes on, with two
+// threads open under that review.
+func reviewed() gh.DetailResult {
+	review := gh.Comment{ID: "PRR_1", Author: gh.Actor{Login: "nkr"}}
+	detail := gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "pr1"},
+		Reviewers: []gh.Reviewer{
+			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
+		},
+		Timeline: []gh.TimelineItem{{
+			Kind: gh.TimelineReview, Actor: gh.Actor{Login: "nkr"},
+			Comment: &review, Review: gh.ReviewStateChangesRequested,
+		}},
+		Threads: []gh.ReviewThread{
+			{ID: "RT_1", ReviewID: "PRR_1"},
+			{ID: "RT_2", ReviewID: "PRR_1"},
+		},
+	}
+	// The counts arrive derived, the way every fetched detail carries them.
+	gh.RecountThreads(&detail)
+	return gh.DetailResult{Detail: detail}
+}
+
+// The rail colours a reviewer from these two counts, so a resolve that leaves
+// them where they were says the change was never made until the next sync.
+func TestResolvingAThreadMovesTheReviewersCount(t *testing.T) {
+	s := store.New(configured())
+	s.BeginDetail("pr1")
+	s.DetailApplied("pr1", reviewed())
+
+	if got := s.Detail("pr1").Detail.Reviewers[0]; got.Unresolved != 2 || got.Threads != 2 {
+		t.Fatalf("setup: fetched %d of %d open, want 2 of 2", got.Unresolved, got.Threads)
+	}
+
+	first := s.PendingResolve("pr1", "RT_1", true)
+	if got := s.Detail("pr1").Detail.Reviewers[0]; got.Unresolved != 1 {
+		t.Errorf("with one held, %d open, want 1: the mark has to move on the press", got.Unresolved)
+	}
+
+	s.ResolveApplied("pr1", first, gh.ThreadResult{IsResolved: true, CanUnresolve: true})
+	got := s.Detail("pr1").Detail.Reviewers[0]
+	if got.Unresolved != 1 || got.Threads != 2 {
+		t.Errorf("settled at %d of %d, want 1 of 2", got.Unresolved, got.Threads)
+	}
+
+	// The last one closed is what turns the mark from blocking to addressed.
+	second := s.PendingResolve("pr1", "RT_2", true)
+	s.ResolveApplied("pr1", second, gh.ThreadResult{IsResolved: true, CanUnresolve: true})
+	if got := s.Detail("pr1").Detail.Reviewers[0]; got.Unresolved != 0 || got.Threads != 2 {
+		t.Errorf("all closed at %d of %d, want 0 of 2", got.Unresolved, got.Threads)
+	}
+}
+
+// Unresolving is the same move back, and the count is what the rail reads to
+// go red again.
+func TestUnresolvingPutsTheCountBack(t *testing.T) {
+	s := store.New(configured())
+	s.BeginDetail("pr1")
+	s.DetailApplied("pr1", reviewed())
+
+	key := s.PendingResolve("pr1", "RT_1", true)
+	s.ResolveApplied("pr1", key, gh.ThreadResult{IsResolved: true, CanUnresolve: true})
+
+	back := s.PendingResolve("pr1", "RT_1", false)
+	s.ResolveApplied("pr1", back, gh.ThreadResult{IsResolved: false, CanResolve: true})
+
+	if got := s.Detail("pr1").Detail.Reviewers[0]; got.Unresolved != 2 {
+		t.Errorf("%d open after unresolving, want 2", got.Unresolved)
+	}
+}
+
+// The held slice is inside a rail already rendered from a detail handed out
+// earlier, so the recount goes to a copy.
+func TestRecountingLeavesAnEarlierDetailAlone(t *testing.T) {
+	s := store.New(configured())
+	s.BeginDetail("pr1")
+	s.DetailApplied("pr1", reviewed())
+
+	before := s.Detail("pr1").Detail.Reviewers
+
+	key := s.PendingResolve("pr1", "RT_1", true)
+	s.ResolveApplied("pr1", key, gh.ThreadResult{IsResolved: true, CanUnresolve: true})
+
+	if before[0].Unresolved != 2 {
+		t.Errorf("a detail handed out before the resolve now reads %d open, want 2", before[0].Unresolved)
+	}
+}
+
 func TestTheBudgetFallsThroughABurst(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	later := window.Add(time.Hour)

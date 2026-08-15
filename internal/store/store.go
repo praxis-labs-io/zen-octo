@@ -356,6 +356,13 @@ func (s Store) Detail(id string) Detail {
 
 	held.Detail.Timeline = timeline
 	held.Detail.Threads = threads
+
+	// A thread that changed moved a count the rail reads off the reviewer who
+	// opened it, and a delete takes a whole thread with it.
+	if freshThreads {
+		held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
+		gh.RecountThreads(&held.Detail)
+	}
 	return held
 }
 
@@ -434,6 +441,10 @@ func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 	threads[at].CanResolve = res.CanResolve
 	threads[at].CanUnresolve = res.CanUnresolve
 	held.Detail.Threads = threads
+
+	// The rail counts open threads per reviewer, and this one just changed.
+	held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
+	gh.RecountThreads(&held.Detail)
 	s.put(id, held)
 }
 
