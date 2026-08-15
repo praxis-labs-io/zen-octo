@@ -209,29 +209,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
           }
         }
       }
-
-      statusCheckRollup: commits(last: 1) {
-        nodes {
-          commit {
-            statusCheckRollup {
-              state
-              contexts(first: 100) {
-                nodes {
-                  __typename
-                  ... on CheckRun {
-                    name
-                    status
-                    conclusion
-                    startedAt
-                    checkSuite { workflowRun { workflow { name } } }
-                  }
-                  ... on StatusContext { context state }
-                }
-              }
-            }
-          }
-        }
-      }
+` + rollupSelection + `
     }
   }
 }`
@@ -442,32 +420,7 @@ type pullRequestResponse struct {
 			}
 		}
 
-		StatusCheckRollup struct {
-			Nodes []struct {
-				Commit struct {
-					StatusCheckRollup *struct {
-						State    string
-						Contexts struct {
-							Nodes []struct {
-								Typename   string `json:"__typename"`
-								Name       string
-								Context    string
-								Status     string
-								Conclusion string
-								State      string
-								StartedAt  time.Time
-
-								CheckSuite struct {
-									WorkflowRun *struct {
-										Workflow struct{ Name string }
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		StatusCheckRollup rollupNode
 	}
 }
 
@@ -599,7 +552,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	detail.Timeline = timeline(resp, detail.Commits)
 	// After the timeline, which is what attributes a thread to its reviewer.
 	RecountThreads(&detail)
-	detail.Rollup = rollup(resp)
+	detail.Rollup = rollup(resp.Node.StatusCheckRollup)
 	// The embedded row's Checks is the same rollup the search result carries, so
 	// a screen reading either one sees the same answer.
 	detail.Checks = detail.Rollup.State
@@ -845,60 +798,6 @@ var eventKinds = map[string]TimelineKind{
 	"BaseRefChangedEvent":       TimelineBaseChanged,
 }
 
-// rollup counts the head commit's checks. GitHub gives the summary state; the
-// breakdown behind it is what makes the rail worth reading.
-func rollup(n pullRequestResponse) CheckRollup {
-	commits := n.Node.StatusCheckRollup.Nodes
-	if len(commits) == 0 || commits[0].Commit.StatusCheckRollup == nil {
-		return CheckRollup{}
-	}
-
-	src := commits[0].Commit.StatusCheckRollup
-	out := CheckRollup{State: CheckState(src.State)}
-
-	// A re-run leaves the previous attempt in the connection, so the same job
-	// arrives twice with two different answers. Only the latest one is true.
-	at := make(map[string]int, len(src.Contexts.Nodes))
-	started := make([]time.Time, 0, len(src.Contexts.Nodes))
-
-	for _, c := range src.Contexts.Nodes {
-		check := Check{
-			Name:  cmp.Or(c.Name, c.Context),
-			State: checkState(c.Typename, c.Status, c.Conclusion, c.State),
-		}
-		// A job is named for what it does, so half a repository's checks are
-		// called "test". The workflow it ran under is what tells them apart.
-		if run := c.CheckSuite.WorkflowRun; run != nil {
-			check.Workflow = run.Workflow.Name
-		}
-
-		key := check.Key()
-		i, seen := at[key]
-		switch {
-		case !seen:
-			at[key] = len(out.Checks)
-			out.Checks = append(out.Checks, check)
-			started = append(started, c.StartedAt)
-		case c.StartedAt.After(started[i]):
-			out.Checks[i], started[i] = check, c.StartedAt
-		}
-	}
-
-	for _, check := range out.Checks {
-		switch check.State {
-		case CheckStateSuccess:
-			out.Passed++
-		case CheckStatePending, CheckStateExpected:
-			out.Pending++
-		case CheckStateSkipped:
-			out.Skipped++
-		default:
-			out.Failed++
-		}
-	}
-	return out
-}
-
 // mergeState folds the two fields GitHub answers with. mergeable is the one
 // that knows about conflicts; mergeStateStatus knows everything else, and
 // reports only the topmost reason a merge is held up.
@@ -913,34 +812,6 @@ func mergeState(mergeable, status string) MergeState {
 		return MergeClean
 	}
 	return MergeUnknown
-}
-
-// checkState folds a check run and a status context into the one vocabulary.
-// They are different types on the wire carrying the same news: a check run has
-// a status and a conclusion, a status context only a state.
-func checkState(typename, status, conclusion, state string) CheckState {
-	if typename != "CheckRun" {
-		switch state {
-		case "SUCCESS":
-			return CheckStateSuccess
-		case "PENDING":
-			return CheckStatePending
-		case "EXPECTED":
-			return CheckStateExpected
-		}
-		return CheckStateFailure
-	}
-
-	if status != "COMPLETED" {
-		return CheckStatePending
-	}
-	switch conclusion {
-	case "SUCCESS", "NEUTRAL":
-		return CheckStateSuccess
-	case "SKIPPED":
-		return CheckStateSkipped
-	}
-	return CheckStateFailure
 }
 
 func login(a actorNode) Actor {

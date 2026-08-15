@@ -649,6 +649,27 @@ type DetailResult struct {
 	RateLimit RateLimit
 }
 
+// Pulse is what a pull request answers about itself for two points: where it
+// sits, where review stands, whether it merges, and how its checks are doing.
+type Pulse struct {
+	State          PRState
+	IsDraft        bool
+	ReviewDecision ReviewDecision
+	Merge          MergeState
+	Rollup         CheckRollup
+	UpdatedAt      time.Time
+
+	// HeadRefOid is the tip of the head branch. Moved since the last answer, it
+	// is the one thing here that says the held diff is against a gone commit.
+	HeadRefOid string
+}
+
+// PulseResult is one pulse response: what it returned and what it cost.
+type PulseResult struct {
+	Pulse     Pulse
+	RateLimit RateLimit
+}
+
 // RateLimit is the GraphQL point budget as of the last response. GitHub bills
 // by query complexity rather than request count, so this is the ceiling worth
 // watching.

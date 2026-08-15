@@ -160,6 +160,54 @@ func TestLiveDetailAndFiles(t *testing.T) {
 	}
 }
 
+// TestLiveThePulseDocumentMatchesTheSchema proves the recheck resolves live:
+//
+//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Merged, which the detail query survives only through deletedHeadRef. This
+	// one asks for no comparison, so it is meant to answer cleanly.
+	found, err := client.SearchPullRequests(ctx, "is:pr is:merged author:@me", 1)
+	if err != nil {
+		t.Fatalf("SearchPullRequests() error = %v", err)
+	}
+	if len(found.PullRequests) == 0 {
+		t.Skip("the authenticated account has no pull requests to check against")
+	}
+	pr := found.PullRequests[0]
+
+	res, err := client.Pulse(ctx, pr.ID)
+	if err != nil {
+		t.Fatalf("Pulse() error = %v", err)
+	}
+
+	// The budget is what says every field resolved rather than the query coming
+	// back an empty shell, the way the repo-meta check reads it.
+	if res.RateLimit.Limit == 0 {
+		t.Error("no rate limit came back, so the query is not selecting it")
+	}
+	if res.Pulse.State != pr.State {
+		t.Errorf("pulse says %q, search said %q, for the same pull request", res.Pulse.State, pr.State)
+	}
+	if res.Pulse.HeadRefOid == "" {
+		t.Error("no head commit came back, which is what says a held diff went stale")
+	}
+	if res.Pulse.UpdatedAt.IsZero() {
+		t.Error("no updatedAt came back, which is what says the page moved")
+	}
+}
+
 // TestLiveViewer is the same schema check over the one query that has no
 // variables. A token that authenticates always has an account behind it, so an
 // empty login here is the query being wrong rather than the account being odd.

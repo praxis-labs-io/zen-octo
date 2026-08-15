@@ -283,7 +283,8 @@ either, but that one is a wait rather than an answer: GitHub computes
 mergeability lazily and the query that reads it is what starts the computation,
 so a pull request nothing has looked at recently opens on "Checking" and the row
 is inert. One probe is armed for that, on the first landing in a session alone,
-which is what keeps it to a single extra request rather than a loop.
+which is what keeps it to a single extra request rather than a loop. It re-asks
+as a pulse rather than as a page.
 
 **The commit message is GitHub's own, per method**, from
 `viewerMergeHeadlineText` and `viewerMergeBodyText`: the repository decides
@@ -468,6 +469,42 @@ The fake had to change with it: one that answers with a body or an error, never
 both, cannot produce the shape this bug lives in.
 
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
+
+A detail is not the only question this asks about a pull request. The detail
+query costs about fifty-six points of the five thousand an hour, nearly all of
+it `reviewThreads(first:100){comments(first:50)}`, so anything that re-asks it
+often spends the budget before it is useful. `gh.Pulse` is the cheap question
+beside it: the lifecycle, the review decision, mergeability, `updatedAt`,
+`headRefOid` and the head commit's check rollup, at a hundred and one nodes and
+two points. It asks for no branch comparison, which is what lets a merged pull
+request answer it cleanly where the detail query survives only through
+`deletedHeadRef`. `rollupSelection` and `rollupNode` are shared by the two
+documents rather than written twice, so one of them changing shape cannot leave
+the other decoding the old one.
+
+`PulseApplied` writes those fields over the held detail one at a time, where
+`DetailApplied` replaces the struct. The timeline, threads, reviewers,
+permissions, `BehindBy` and the merge messages are not on the wire, and a zero
+written over any of them empties a page for a refresh nobody asked for. A moved
+`headRefOid` is the one thing on it that says somebody pushed, so it marks the
+diff stale; the fold ends in `syncRow`, so a pull request merged in the browser
+reaches the row behind the screen for no extra request.
+
+Two maps carry it, `pulsing` and `stalePulse`, and they are on the `Store`
+rather than on `Detail` for a reason worth keeping: `DetailApplied` builds a
+fresh `Detail{}`, so a flag written there is dropped by the next fetch without
+anything failing. `StateWriting` and `BaseWriting` are already derived at read
+time rather than stored, and staleness already lives in maps beside these, so
+this is where per-pull-request bookkeeping goes. Ordering runs both ways. A
+pulse never starts under a full fetch, because that fetch answers everything the
+pulse would and answers it later. The reverse has to stay open, since `s`, a
+write's correction and the probe all run while a pulse is out, so `BeginDetail`
+marks the pulse stale and the overtaken answer is dropped. `markStale` marks it
+too, on its own first line rather than at each of its twelve call sites: a write
+that invalidates a fetch invalidates a pulse, and making that structural is what
+stops the thirteenth write path forgetting. Timestamps cannot do this job, since
+a check turning green and a `mergeStateStatus` settling both leave `updatedAt`
+where it was, so two responses can carry the same instant and disagree.
 
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 
