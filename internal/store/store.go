@@ -611,6 +611,28 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		return
 	}
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
+	s.syncRow(res.Detail.PullRequest)
+}
+
+// syncRow writes a row back over every section holding that pull request. A
+// detail builds one exactly as search does, so it is the same row fetched later.
+func (s *Store) syncRow(pr gh.PullRequest) {
+	if pr.ID == "" {
+		return
+	}
+	for i := range s.sections {
+		at := slices.IndexFunc(s.sections[i].PRs, func(held gh.PullRequest) bool {
+			return held.ID == pr.ID
+		})
+		if at < 0 {
+			continue
+		}
+		// Cloned before the write: the held slice is inside a snapshot the list
+		// screen is already rendering from.
+		rows := slices.Clone(s.sections[i].PRs)
+		rows[at] = pr
+		s.sections[i].PRs = rows
+	}
 }
 
 // StaleDetail reports whether the detail fetch in flight, or the one that just

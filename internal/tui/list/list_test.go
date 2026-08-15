@@ -954,48 +954,64 @@ func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 	}
 }
 
-// A reloading or failed section shows a spinner or an error, not its rows, but
-// the store keeps those rows. Every key that reads the cursor would otherwise
-// act on a pull request off a screen showing neither it nor any other.
+// A failed section shows the error and not its rows, so every key that reads
+// the cursor would act on a pull request off a screen showing none.
 func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
-	tests := []struct {
-		name   string
-		status store.Status
+	m := newList(140, 20, numbered(10))
+	m = press(m, key('j'), key('j'))
+
+	held := ready([]string{"My PRs"}, numbered(10))
+	held[0].Status = store.StatusFailed
+	held[0].Err = errors.New("boom")
+	m.SetSections(held)
+
+	inert := []struct {
+		key  tea.KeyPressMsg
+		said string
 	}{
-		{name: "loading", status: store.StatusLoading},
-		{name: "failed", status: store.StatusFailed},
+		{key: tea.KeyPressMsg{Code: tea.KeyEnter}, said: "enter opened"},
+		{key: key('y'), said: "y copied the link to"},
+		{key: key('O'), said: "O browsed to"},
+	}
+	for _, in := range inert {
+		if _, cmd := m.Update(in.key); cmd != nil {
+			t.Errorf("%s a pull request that was not on screen", in.said)
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newList(140, 20, numbered(10))
-			m = press(m, key('j'), key('j'))
+	m = press(m, key('j'))
+	m.SetSections(ready([]string{"My PRs"}, numbered(10)))
+	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 2") {
+		t.Errorf("selection = %q, want it where it was left before the failure", got)
+	}
+}
 
-			held := ready([]string{"My PRs"}, numbered(10))
-			held[0].Status = tt.status
-			held[0].Err = errors.New("boom")
-			m.SetSections(held)
+// A reload keeps its rows and the keyboard with them. They are the rows the key
+// was pressed on, so taking them away locks the screen being refreshed.
+func TestAReloadKeepsItsRowsAndItsKeys(t *testing.T) {
+	m := newList(140, 20, numbered(10))
+	m = press(m, key('j'), key('j'))
 
-			inert := []struct {
-				key  tea.KeyPressMsg
-				said string
-			}{
-				{key: tea.KeyPressMsg{Code: tea.KeyEnter}, said: "enter opened"},
-				{key: key('y'), said: "y copied the link to"},
-				{key: key('O'), said: "O browsed to"},
-			}
-			for _, in := range inert {
-				if _, cmd := m.Update(in.key); cmd != nil {
-					t.Errorf("%s a pull request that was not on screen", in.said)
-				}
-			}
+	held := ready([]string{"My PRs"}, numbered(10))
+	held[0].Status = store.StatusLoading
+	m.SetSections(held)
 
-			m = press(m, key('j'))
-			m.SetSections(ready([]string{"My PRs"}, numbered(10)))
-			if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 2") {
-				t.Errorf("selection = %q, want it where it was left before the reload", got)
-			}
-		})
+	if got := stripANSI(m.View()); !strings.Contains(got, "Change 1") {
+		t.Errorf("body = %q, want the rows still on it through the reload", got)
+	}
+
+	live := []struct {
+		key  tea.KeyPressMsg
+		said string
+	}{
+		{key: tea.KeyPressMsg{Code: tea.KeyEnter}, said: "enter"},
+		{key: key('y'), said: "y"},
+		{key: key('O'), said: "O"},
+	}
+	for _, in := range live {
+		if _, cmd := m.Update(in.key); cmd == nil {
+			t.Errorf("%s did nothing on rows that are on the screen", in.said)
+		}
 	}
 }
 

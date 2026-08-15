@@ -47,6 +47,49 @@ func TestResponsesLandInTheirOwnSectionWhateverTheOrder(t *testing.T) {
 	}
 }
 
+// A detail is the same row search returned, fetched later, so it corrects every
+// section carrying it rather than only the one the reader opened it from.
+func TestADetailCorrectsTheRowInEverySectionHoldingIt(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, result("a1", "shared"))
+	s.Applied(1, result("shared"))
+
+	s.BeginDetail("shared")
+	s.DetailApplied("shared", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "shared", State: gh.PRStateMerged, Title: "Landed"},
+	}})
+
+	for _, at := range []struct{ section, row int }{{0, 1}, {1, 0}} {
+		got := s.Sections()[at.section].PRs[at.row]
+		if got.State != gh.PRStateMerged || got.Title != "Landed" {
+			t.Errorf("section %d row %d = %+v, want the detail's row", at.section, at.row, got)
+		}
+	}
+	if got := s.Sections()[0].PRs[0].ID; got != "a1" {
+		t.Errorf("row beside it = %q, want it untouched", got)
+	}
+}
+
+// The held slice is inside a snapshot the list screen is already rendering
+// from, so the write goes to a copy.
+func TestCorrectingARowLeavesAnEarlierSnapshotAlone(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, result("a1"))
+
+	before := s.Sections()[0].PRs
+
+	s.BeginDetail("a1")
+	s.DetailApplied("a1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "a1", State: gh.PRStateClosed},
+	}})
+
+	if before[0].State == gh.PRStateClosed {
+		t.Error("the correction reached a snapshot handed out before it")
+	}
+}
+
 func TestTheBudgetFallsThroughABurst(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	later := window.Add(time.Hour)
