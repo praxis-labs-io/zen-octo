@@ -123,6 +123,23 @@ Key bindings live in `internal/tui/keys`, declared once with their help text. Th
 
 The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. That gives tab and shift+tab back to the tab strip, where they do what they do on the list screen. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
 
+`y` copies a pull request's link and `O` opens it in a browser, on both screens
+and on all four tabs. Neither reads the ring, because nothing under the pull
+request carries a URL: the detail query fetches one field and no comment,
+commit, check or file has a permalink to reach. So a lit card changes nothing
+about what either key means, and a later key for a block's own link is a later
+key rather than a second meaning for these two. On the list they sit below the
+guard `enter` sits below, since a section showing a spinner is showing no rows
+and the rows behind it are not what the key was pressed on. `internal/link` is
+where both leave the process. The clipboard is written natively and falls back
+to OSC52, which is the transport that survives ssh; that failure is not
+reported, because the only thing it says is that this machine has no `pbcopy`,
+and an error beside a copy that worked reads as one that did not. The browser
+goes through `go-gh`'s own resolver, so `GH_BROWSER` and gh's config answer here
+the way they answer for `gh`, and its streams are discarded: a launcher printing
+into the alt screen tears the frame open. A copy toasts because a clipboard is
+invisible; a browser does not, because it takes the focus and says so itself.
+
 The ring steps from its focus while that focus's own byline is on the screen,
 and past that the braces are motion rather than a step and read the window
 instead. A reader who scrolled has moved, and the block they left is not the one

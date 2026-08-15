@@ -23,6 +23,12 @@ import (
 // screen exists.
 type OpenMsg struct{ PR gh.PullRequest }
 
+// CopyLinkMsg asks the root to put a pull request's URL on the clipboard.
+type CopyLinkMsg struct{ PR gh.PullRequest }
+
+// BrowseMsg asks the root to open a pull request in a browser.
+type BrowseMsg struct{ PR gh.PullRequest }
+
 // RefreshMsg asks the root to refetch. The store holds every section, so what a
 // refresh covers is the root's call; the list only reports the key.
 type RefreshMsg struct{}
@@ -127,6 +133,20 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, func() tea.Msg { return OpenMsg{PR: pr} }
+
+	case key.Matches(msg, k.CopyLink):
+		pr, ok := m.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m, func() tea.Msg { return CopyLinkMsg{PR: pr} }
+
+	case key.Matches(msg, k.Browse):
+		pr, ok := m.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m, func() tea.Msg { return BrowseMsg{PR: pr} }
 	}
 
 	return m, nil

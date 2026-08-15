@@ -953,6 +953,7 @@ func samplePRs() []gh.PullRequest {
 	return []gh.PullRequest{
 		{
 			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "zen-octo/zen-octo",
+			URL:    "https://github.com/zen-octo/zen-octo/pull/412",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
 			HeadRefName: "fix-auth", Additions: 42, Deletions: 7, ChangedFiles: 3,
 			Checks: gh.CheckStateSuccess, UpdatedAt: time.Now().Add(-2 * time.Hour),

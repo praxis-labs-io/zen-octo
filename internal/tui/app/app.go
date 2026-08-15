@@ -1204,6 +1204,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case list.RefreshMsg:
 		return m.refresh()
 
+	case list.CopyLinkMsg:
+		return m, copyLinkCmd(msg.PR)
+
+	case prview.CopyLinkMsg:
+		return m, copyLinkCmd(msg.PR)
+
+	case list.BrowseMsg:
+		return m, browseCmd(msg.PR)
+
+	case prview.BrowseMsg:
+		return m, browseCmd(msg.PR)
+
+	case linkCopiedMsg:
+		return m.linkCopied(msg)
+
+	case browseFailedMsg:
+		return m, m.toasts.Show(comp.ToastError, "Could not open a browser: "+msg.err.Error())
+
 	case prview.BackMsg:
 		m.screen = screenList
 		// A refresh left behind never settles: every settle path drops a response

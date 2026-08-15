@@ -63,6 +63,7 @@ var fixtureTime = time.Now().Add(-2 * time.Hour)
 func pr(title string) gh.PullRequest {
 	return gh.PullRequest{
 		ID: "PR_" + title, Number: 412, Title: title, Repository: "zen-octo/zen-octo",
+		URL:    "https://github.com/zen-octo/zen-octo/pull/412",
 		Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen,
 		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 6,
 		Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
@@ -78,6 +79,7 @@ func numbered(n int) []gh.PullRequest {
 		prs[i] = pr(fmt.Sprintf("Change %d", i))
 		prs[i].ID = fmt.Sprintf("PR_%d", i)
 		prs[i].Number = i
+		prs[i].URL = fmt.Sprintf("https://github.com/zen-octo/zen-octo/pull/%d", i)
 	}
 	return prs
 }
@@ -953,8 +955,8 @@ func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 }
 
 // A reloading or failed section shows a spinner or an error, not its rows, but
-// the store keeps those rows. Enter would otherwise open a pull request off a
-// screen that was showing neither it nor any other.
+// the store keeps those rows. Every key that reads the cursor would otherwise
+// act on a pull request off a screen showing neither it nor any other.
 func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -974,14 +976,51 @@ func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 			held[0].Err = errors.New("boom")
 			m.SetSections(held)
 
-			if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
-				t.Error("enter opened a pull request that was not on screen")
+			inert := []struct {
+				key  tea.KeyPressMsg
+				said string
+			}{
+				{key: tea.KeyPressMsg{Code: tea.KeyEnter}, said: "enter opened"},
+				{key: key('y'), said: "y copied the link to"},
+				{key: key('O'), said: "O browsed to"},
+			}
+			for _, in := range inert {
+				if _, cmd := m.Update(in.key); cmd != nil {
+					t.Errorf("%s a pull request that was not on screen", in.said)
+				}
 			}
 
 			m = press(m, key('j'))
 			m.SetSections(ready([]string{"My PRs"}, numbered(10)))
 			if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 2") {
 				t.Errorf("selection = %q, want it where it was left before the reload", got)
+			}
+		})
+	}
+}
+
+// Both keys name the pull request under the cursor rather than the one the
+// section opened on, or walking the list and pressing y copies the wrong link.
+func TestCopyAndBrowseCarryTheSelectedPullRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		key  tea.KeyPressMsg
+		want tea.Msg
+	}{
+		{name: "y", key: key('y'), want: list.CopyLinkMsg{PR: numbered(10)[2]}},
+		{name: "O", key: key('O'), want: list.BrowseMsg{PR: numbered(10)[2]}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(newList(140, 20, numbered(10)), key('j'), key('j'))
+
+			_, cmd := m.Update(tt.key)
+			if cmd == nil {
+				t.Fatalf("%s said nothing about the pull request under the cursor", tt.name)
+			}
+			if got := cmd(); got != tt.want {
+				t.Fatalf("%s produced %+v, want %+v", tt.name, got, tt.want)
 			}
 		})
 	}

@@ -31,6 +31,11 @@ type ListMap struct {
 	PrevSection  key.Binding
 	Open         key.Binding
 	Sync         key.Binding
+
+	// CopyLink and Browse take the pull request under the cursor out of the
+	// terminal. Both mean the pull request itself, on either screen.
+	CopyLink key.Binding
+	Browse   key.Binding
 }
 
 // DetailMap is live on the pull request detail screen. The same movement keys
@@ -111,6 +116,11 @@ type DetailMap struct {
 	Resolve key.Binding
 	Jump    key.Binding
 
+	// CopyLink and Browse mean the pull request on all four tabs and never the
+	// block the ring is on: nothing but the pull request carries a URL.
+	CopyLink key.Binding
+	Browse   key.Binding
+
 	// Toggle checks and unchecks a row in a picker that takes a set. It is live
 	// only while one is open, which is why it can take space: nothing else on
 	// this screen wants it, and a picker owns the keyboard whenever it is up.
@@ -151,6 +161,8 @@ var (
 		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
 		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
+		CopyLink:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
+		Browse:       key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
 	}
 
 	Detail = DetailMap{
@@ -185,6 +197,8 @@ var (
 		Delete:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
 		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
+		CopyLink:   key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
+		Browse:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
 		Toggle:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
 	}
 
@@ -212,6 +226,8 @@ func (k ListMap) ShortHelp() []key.Binding {
 		hint(k.Down, "j/k", "move"),
 		k.Open,
 		hint(k.NextSection, "[/]", "tab"),
+		k.CopyLink,
+		hint(k.Browse, "O", "browser"),
 		k.Sync,
 		Global.Help,
 		Global.Quit,
@@ -225,6 +241,7 @@ func (k ListMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextSection, k.PrevSection, k.Open, k.Sync},
+		{k.CopyLink, k.Browse},
 		{Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }
@@ -276,6 +293,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
+		{k.CopyLink, k.Browse},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{Form.Next, Form.Prev, k.Toggle},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
