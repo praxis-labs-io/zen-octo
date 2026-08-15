@@ -81,6 +81,12 @@ type rows struct {
 	total      int
 }
 
+// same reports whether these rows would render identically. items carries the
+// pull requests whole, so it answers for every field a row draws.
+func (r rows) same(other rows) bool {
+	return slices.Equal(r.items, other.items)
+}
+
 // newRows groups the pull requests, orders each group, and measures the result.
 func newRows(prs []gh.PullRequest) rows {
 	items := arrange(prs)

@@ -160,6 +160,12 @@ type Store struct {
 	// for a diff once per open, so nothing else would ever ask again.
 	staleFetch map[string]bool
 	staleFiles map[string]bool
+
+	// seq orders a section's fetch against the rows written into it since, so a
+	// response that predates a write cannot land on top of one.
+	seq        int
+	sectionSeq []int
+	rowSeq     map[string]int
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -210,7 +216,22 @@ func Loading(sections []Section) bool {
 func (s *Store) BeginAll() {
 	for i := range s.sections {
 		s.sections[i].Status = StatusLoading
+		s.stampSection(i)
 	}
+}
+
+func (s *Store) nextSeq() int {
+	s.seq++
+	return s.seq
+}
+
+// stampSection records when this section's fetch went out, so a row written
+// after it can be told from one the response is entitled to replace.
+func (s *Store) stampSection(i int) {
+	if len(s.sectionSeq) != len(s.sections) {
+		s.sectionSeq = make([]int, len(s.sections))
+	}
+	s.sectionSeq[i] = s.nextSeq()
 }
 
 // Begin marks one section in flight and reports whether it started. It refuses
@@ -222,6 +243,7 @@ func (s *Store) Begin(i int) bool {
 		return false
 	}
 	s.sections[i].Status = StatusLoading
+	s.stampSection(i)
 	return true
 }
 
@@ -234,7 +256,30 @@ func (s *Store) Applied(i int, res gh.SearchResult) {
 	s.sections[i].Status = StatusReady
 	s.sections[i].Err = nil
 	s.sections[i].Loaded = true
+	s.restoreRows(i)
 	s.adopt(res.RateLimit)
+}
+
+// restoreRows puts back every row a write moved after this section's fetch went
+// out, since GitHub answered it from before the write.
+func (s *Store) restoreRows(i int) {
+	var began int
+	if i < len(s.sectionSeq) {
+		began = s.sectionSeq[i]
+	}
+
+	// The response's own slice, shared with nothing, so this writes into it.
+	rows := s.sections[i].PRs
+	for n, row := range rows {
+		if s.rowSeq[row.ID] <= began {
+			continue
+		}
+		// The folded detail rather than the held one: a write still in flight is
+		// on the screen, and the response must not take it off.
+		if held := s.Detail(row.ID).Detail.PullRequest; held.ID != "" {
+			rows[n] = held
+		}
+	}
 }
 
 // Failed puts a section into its error state, keeping whatever rows it had. The
@@ -356,6 +401,13 @@ func (s Store) Detail(id string) Detail {
 
 	held.Detail.Timeline = timeline
 	held.Detail.Threads = threads
+
+	// A thread that changed moved a count the rail reads off the reviewer who
+	// opened it, and a delete takes a whole thread with it.
+	if freshThreads {
+		held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
+		gh.RecountThreads(&held.Detail)
+	}
 	return held
 }
 
@@ -434,6 +486,10 @@ func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 	threads[at].CanResolve = res.CanResolve
 	threads[at].CanUnresolve = res.CanUnresolve
 	held.Detail.Threads = threads
+
+	// The rail counts open threads per reviewer, and this one just changed.
+	held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
+	gh.RecountThreads(&held.Detail)
 	s.put(id, held)
 }
 
@@ -611,6 +667,35 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		return
 	}
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
+	s.syncRow(res.Detail.PullRequest)
+}
+
+// syncRow writes a row back over every section holding that pull request. A
+// detail builds one exactly as search does, so it is the same row fetched later.
+func (s *Store) syncRow(pr gh.PullRequest) {
+	if pr.ID == "" {
+		return
+	}
+	// Stamped whether or not a section carries it today: a fetch already out may
+	// bring the row back, and this is what says the write came after it.
+	if s.rowSeq == nil {
+		s.rowSeq = make(map[string]int)
+	}
+	s.rowSeq[pr.ID] = s.nextSeq()
+
+	for i := range s.sections {
+		at := slices.IndexFunc(s.sections[i].PRs, func(held gh.PullRequest) bool {
+			return held.ID == pr.ID
+		})
+		if at < 0 {
+			continue
+		}
+		// Cloned before the write: the held slice is inside a snapshot the list
+		// screen is already rendering from.
+		rows := slices.Clone(s.sections[i].PRs)
+		rows[at] = pr
+		s.sections[i].PRs = rows
+	}
 }
 
 // StaleDetail reports whether the detail fetch in flight, or the one that just

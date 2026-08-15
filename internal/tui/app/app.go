@@ -577,7 +577,9 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 
 	m.refreshing = started
 	m.list.SetSections(m.store.Sections())
-	return m, tea.Batch(append(cmds, m.list.Init())...)
+	// The screen's own chain, for a section that has never answered and has the
+	// pane; and the bar's, which is the only sign a reload gives.
+	return m, tea.Batch(append(cmds, m.list.Init(), m.refreshSpin.Tick())...)
 }
 
 // sectionSettled pushes the new snapshot down and, once the sections a refresh
@@ -924,6 +926,10 @@ func (m Model) fetchDetail(id, headRef string) tea.Cmd {
 func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 	held := m.store.Detail(id)
 
+	// The store wrote this pull request back over the row search returned, and
+	// the list is holding a snapshot taken before it did.
+	m.list.SetSections(m.store.Sections())
+
 	// The response that just answered was asked for before a write settled, so
 	// the store dropped it. Ask again, from wherever the reader now is: the
 	// correction belongs to the store rather than to the screen showing it.
@@ -998,7 +1004,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var listCmd, detailCmd tea.Cmd
 		m.list, listCmd = m.list.Update(msg)
 		m.detail, detailCmd = m.detail.Update(msg)
-		spinCmd := m.refreshSpin.Advance(msg, m.detailRefreshing.running())
+		spinCmd := m.refreshSpin.Advance(msg, m.refreshRunning())
 		return m, tea.Batch(listCmd, detailCmd, spinCmd)
 
 	case comp.ToastExpiredMsg:
@@ -1387,10 +1393,16 @@ func (m Model) statusMessage() string {
 	if !m.toasts.Empty() {
 		return m.toasts.Render(m.theme)
 	}
-	if m.detailRefreshing.running() {
+	if m.refreshRunning() {
 		return m.refreshSpin.RenderAccent("Refreshing")
 	}
 	return ""
+}
+
+// refreshRunning is whether a refresh the reader asked for is still out, on
+// either screen. A first load is not one: it spins over the pane it is filling.
+func (m Model) refreshRunning() bool {
+	return m.detailRefreshing.running() || len(m.refreshing) > 0
 }
 
 // statusReadout is the right side the rest of the time, and the remaining

@@ -2679,6 +2679,42 @@ func TestARefreshSpinsInTheStatusBar(t *testing.T) {
 	}
 }
 
+// The list keeps its rows through a reload, so the bar is the only place a
+// sync can say it is running.
+func TestASyncOnTheListSpinsInTheStatusBar(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.holdPosts()
+
+	waiting, pending := refreshing(loaded(t, client, 160, 40))
+
+	if !strings.Contains(lastLine(render(t, waiting)), "Refreshing") {
+		t.Errorf("status bar = %q, want the sync on it", strings.TrimSpace(lastLine(render(t, waiting))))
+	}
+
+	done := settle(waiting, immediate(pending)...)
+	if strings.Contains(lastLine(render(t, done)), "Refreshing") {
+		t.Error("the bar is still spinning after the sync landed")
+	}
+}
+
+// A first load has the pane to spin over, and the bar is where a toast lands.
+// Spinning in both places says one fetch is two.
+func TestAFirstLoadDoesNotSpinInTheStatusBar(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	// Sized but not settled: New marks every section in flight, so this is the
+	// frame between startup and the first response.
+	m, _ := app.New(testConfig(), client).Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "Loading pull requests") {
+		t.Fatalf("setup: the first load never spun over the pane:\n%s", out)
+	}
+	if strings.Contains(lastLine(render(t, m)), "Refreshing") {
+		t.Error("the bar spun over a first load, which the pane is already reporting")
+	}
+}
+
 // A refresh usually comes back with the same conversation, so the toast is the
 // only sign it happened.
 func TestTheDetailRefreshToastNamesThePullRequest(t *testing.T) {

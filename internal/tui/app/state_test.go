@@ -91,6 +91,42 @@ func TestAStateWriteRefetchesTheDetail(t *testing.T) {
 	}
 }
 
+// The list renders the row search returned, and a lifecycle change made here
+// is the freshest thing this session has about it.
+func TestClosingAPullRequestCorrectsTheRowBehindIt(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+
+	closed := press(openStateMenu(t, client), "j", "enter")
+
+	out := stripANSI(render(t, press(closed, "esc")))
+	group, ok := groupOf(t, out, "Fix auth retry")
+	if !ok {
+		t.Fatalf("the pull request left the list entirely:\n%s", out)
+	}
+	if group != "Closed" {
+		t.Errorf("the row sits under %q, want it under Closed once the write landed:\n%s", group, out)
+	}
+}
+
+// groupOf is the group header the named row sits under, which is what the list
+// says about a pull request's lifecycle.
+func groupOf(t *testing.T, frame, row string) (string, bool) {
+	t.Helper()
+
+	var group string
+	for _, line := range strings.Split(frame, "\n") {
+		for _, name := range []string{"Ready", "Draft", "Merged", "Closed"} {
+			if strings.Contains(line, name) {
+				group = name
+			}
+		}
+		if strings.Contains(line, row) {
+			return group, true
+		}
+	}
+	return "", false
+}
+
 // The refetch borrows no refresh leg, so the toast that says what happened is
 // the only one raised. A summary behind it would report the same action twice.
 func TestAStateWriteRaisesOneToast(t *testing.T) {

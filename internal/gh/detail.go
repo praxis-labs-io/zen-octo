@@ -597,6 +597,8 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}
 
 	detail.Timeline = timeline(resp, detail.Commits)
+	// After the timeline, which is what attributes a thread to its reviewer.
+	RecountThreads(&detail)
 	detail.Rollup = rollup(resp)
 	// The embedded row's Checks is the same rollup the search result carries, so
 	// a screen reading either one sees the same answer.
@@ -613,13 +615,43 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}, nil
 }
 
-// reviewers is everyone GitHub lists on the reviewers panel. A submitted review
-// takes its author off reviewRequests, so building the list from requests alone
-// loses whoever has already looked at it, which is most of the point.
+// RecountThreads rewrites each reviewer's thread tallies in place, from the
+// threads the detail carries. A resolve after a fetch has to run it.
+func RecountThreads(d *PullRequestDetail) {
+	// A review's own comment carries its node id, which is what a thread names
+	// as the review that opened it.
+	byReview := make(map[string]string, len(d.Timeline))
+	for _, item := range d.Timeline {
+		if item.Kind == TimelineReview {
+			byReview[item.Said().ID] = item.Actor.Login
+		}
+	}
+
+	at := make(map[string]int, len(d.Reviewers))
+	for i := range d.Reviewers {
+		d.Reviewers[i].Threads, d.Reviewers[i].Unresolved = 0, 0
+		at[d.Reviewers[i].Actor.Login] = i
+	}
+
+	// Every thread counts, not only the open ones: all of theirs resolved and
+	// none of theirs opened are opposite answers that both leave zero.
+	for _, t := range d.Threads {
+		i, seen := at[byReview[t.ReviewID]]
+		if !seen {
+			continue
+		}
+		d.Reviewers[i].Threads++
+		if !t.IsResolved {
+			d.Reviewers[i].Unresolved++
+		}
+	}
+}
+
+// reviewers is everyone GitHub lists on the panel. A submitted review takes its
+// author off reviewRequests, so requests alone lose whoever has already looked.
 func reviewers(n pullRequestResponse) []Reviewer {
 	var out []Reviewer
 	at := make(map[string]int)
-	byReview := make(map[string]string) // review id -> login
 
 	for _, r := range n.Node.Reviews.Nodes {
 		// A pending review is the viewer's own unsubmitted draft, and its state
@@ -632,8 +664,6 @@ func reviewers(n pullRequestResponse) []Reviewer {
 			continue
 		}
 
-		byReview[r.ID] = login
-
 		// Someone can review more than once, and the last word is the one that
 		// counts.
 		if i, seen := at[login]; seen {
@@ -642,33 +672,6 @@ func reviewers(n pullRequestResponse) []Reviewer {
 		}
 		at[login] = len(out)
 		out = append(out, Reviewer{Actor: Actor{Login: login}, State: ReviewState(r.State)})
-	}
-
-	// A reviewer who only commented is still waiting on something if any of
-	// their threads are open, which is the difference between "had a look" and
-	// "asked for a change".
-	//
-	// Every thread is counted, not only the open ones. A reviewer with all of
-	// theirs resolved and one who opened none both leave Unresolved at zero, and
-	// they are opposite answers: the first has had every point met, the second
-	// has had nothing done about the changes they asked for in prose.
-	for _, t := range n.Node.ReviewThreads.Nodes {
-		if len(t.Comments.Nodes) == 0 {
-			continue
-		}
-		review := t.Comments.Nodes[0].PullRequestReview
-		if review == nil {
-			continue
-		}
-		i, seen := at[byReview[review.ID]]
-		if !seen {
-			continue
-		}
-
-		out[i].Threads++
-		if !t.IsResolved {
-			out[i].Unresolved++
-		}
 	}
 
 	for _, r := range n.Node.ReviewRequests.Nodes {

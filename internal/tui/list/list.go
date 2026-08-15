@@ -3,6 +3,7 @@
 package list
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -79,10 +80,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case spinner.TickMsg:
-		// Re-arm while any section is in flight, not just the one on screen.
-		// Gating on the active section kills the chain the moment it lands, and
-		// a switch onto a slower tab then finds a frozen spinner.
-		cmd := m.spinner.Advance(msg, store.Loading(m.sections))
+		// Any section, not just the one on screen: gating on the active one
+		// kills the chain, and a switch onto a slower tab finds it frozen.
+		cmd := m.spinner.Advance(msg, spinning(m.sections))
 		return m, cmd
 	}
 	return m, nil
@@ -102,10 +102,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return RefreshMsg{} }
 	}
 
-	// Everything below acts on rows, and a section that is loading or failed is
-	// not showing any. Its rows are still held, so without this enter opens a
-	// pull request that was never on the screen it was pressed on.
-	if m.activeSection().Status != store.StatusReady {
+	// A reload keeps its rows up, so taking the keyboard for the length of one
+	// would lock the screen the fetch is refreshing.
+	if !showsRows(m.activeSection()) {
 		return m, nil
 	}
 
@@ -270,7 +269,13 @@ func (m *Model) SetSections(sections []store.Section) {
 
 	next := newRows(m.activeSection().PRs)
 	m.restoreCursor(next)
+	same := m.rows.same(next)
 	m.rows = next
+	// Grouping is cheap and rendering every row is not, so a snapshot another
+	// section triggered pays for the compare rather than the repaint.
+	if same {
+		return
+	}
 	m.syncContent()
 	m.scrollToCursor()
 }
@@ -379,7 +384,7 @@ func (m Model) body() string {
 		label := lipgloss.NewStyle().Foreground(m.theme.Error).Bold(true).Render("Failed to load")
 		// Scope errors carry a multi-line fix; keep the newlines the error wrote.
 		block = label + "\n" + faint.Render(section.Err.Error())
-	case section.Status != store.StatusReady:
+	case !section.Loaded:
 		block = m.spinner.Render("Loading pull requests")
 	case m.rows.len() == 0:
 		block = faint.Render("Nothing matches this section.")
@@ -389,8 +394,22 @@ func (m Model) body() string {
 	return comp.Centered(block, m.pane.InnerWidth(), m.pane.InnerHeight())
 }
 
+// showsRows is whether the pane holds the section's rows rather than a block
+// standing in for them. A section that has answered keeps them through a reload.
+func showsRows(s store.Section) bool {
+	return s.Loaded && s.Status != store.StatusFailed
+}
+
+// spinning is whether any section would draw the pane's spinner, which is the
+// only thing the chain feeds. A reload keeps its rows and draws none.
+func spinning(sections []store.Section) bool {
+	return slices.ContainsFunc(sections, func(s store.Section) bool {
+		return !s.Loaded && s.Status != store.StatusFailed
+	})
+}
+
 func (m Model) footer() string {
-	if m.activeSection().Status != store.StatusReady || m.rows.len() == 0 {
+	if !showsRows(m.activeSection()) || m.rows.len() == 0 {
 		return ""
 	}
 	return strconv.Itoa(m.cursor+1) + " of " + strconv.Itoa(m.rows.len())
