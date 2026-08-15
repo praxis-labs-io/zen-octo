@@ -129,8 +129,12 @@ request carries a URL: the detail query fetches one field and no comment,
 commit, check or file has a permalink to reach. So a lit card changes nothing
 about what either key means, and a later key for a block's own link is a later
 key rather than a second meaning for these two. On the list they sit below the
-guard `enter` sits below, since a section showing a spinner is showing no rows
-and the rows behind it are not what the key was pressed on. `internal/link` is
+guard `enter` sits below, and that guard reads whether the rows are on the
+screen rather than whether a fetch is out. A section that has never answered is
+showing a block instead of them, and a failed one is showing its error, and in
+neither case are the rows behind it what the key was pressed on. A reload is not
+that: it keeps its rows, so the keys keep working over them and the status bar
+carries the spinner the pane no longer does. `internal/link` is
 where both leave the process. The clipboard is written natively and falls back
 to OSC52, which is the transport that survives ssh; that failure is not
 reported, because the only thing it says is that this machine has no `pbcopy`,
@@ -468,6 +472,10 @@ both, cannot produce the shape this bug lives in.
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 
 The two lists of people are two connections because they are two sets. `assignableUsers` is who may be given the pull request or asked for a review; `mentionableUsers` is the wider one, everybody who has taken part, which is who an answer is usually addressed to. `gh.Mention` is its own type rather than an `Actor` with a name on it: an `Actor` carries a node id because the lists a picker writes back are addressed by one, a mention is inserted as text and has none, and typing it as an `Actor` would let a list of people with no id compile straight into `assigneeChoices` and be matched on the id every one of them is missing.
+
+A detail is the same row search returned, fetched later: `internal/gh` builds the two field for field the same way, down to counting comments as the conversation plus its review threads. So `syncRow` writes a landed detail back over every section carrying that pull request, and a lifecycle change made on the rail corrects the list behind it with no request of its own. Which section a pull request belongs to is a search query and stays GitHub's answer; the row's own fields are all this reaches, so a closed pull request keeps its place in an `is:open` tab until the next fetch and sits under the Closed group meanwhile.
+
+Two of a reviewer's fields are derived rather than fetched, and the rail colours them: `Unresolved` and `Threads`, which is how a reviewer who only commented still reads as blocking while their threads are open, and how a changes-requested review whose every thread has been dealt with goes amber instead of red. Nothing on the wire carries either, so anything moving a thread here has to recompute them or the mark sits where the last fetch left it. `gh.RecountThreads` is the one implementation, called at the end of the detail's own parse and again by the store wherever threads change, reading `ReviewThread.ReviewID` against the timeline's review items rather than the response it came in. It runs on any thread change rather than on a resolve alone, because a comment deleted takes its thread with it. Both callers clone the panel first, on the terms the threads are cloned.
 
 It also holds the writes still in flight, keyed by pull request and folded in on the way out of `Detail`: a comment onto the timeline, a reply into the review thread it answers, a resolve over the thread it settles, a reaction over the block it was given to, and an `Edit` over the metadata it replaces. Beside the fetched detail rather than inside it: a refetch replaces a timeline wholesale, and one fetched before the mutation answered is not evidence the mutation failed. Written in, an optimistic comment would vanish on the next refresh with nothing to say why. A thread the refetch no longer carries has nowhere to hang a reply, and the reply waits out of sight rather than the store inventing a thread GitHub did not send.
 
