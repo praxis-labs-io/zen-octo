@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zen-octo/zen-octo/internal/config"
 )
@@ -139,6 +140,11 @@ func TestLoadRejectsInvalidConfigs(t *testing.T) {
 			body:     "prSections: [oh dear\n",
 			wantText: "parsing",
 		},
+		{
+			name:     "since token that is not a duration",
+			body:     "prSections:\n  - title: Recent\n    filters: 'is:pr closed:>={{since:one day}}'\n",
+			wantText: `prSections[0] ("Recent"): "one day" is not a duration`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -170,6 +176,66 @@ func TestDefaultSectionsQualifyTheSearchType(t *testing.T) {
 	for _, s := range cfg.IssueSections {
 		if !strings.Contains(s.Filters, "is:issue") {
 			t.Errorf("issue section %q has filters %q, want is:issue", s.Title, s.Filters)
+		}
+	}
+}
+
+// GitHub's date qualifiers take an absolute instant and nothing relative, so
+// the filter carries a token and the client renders it before the search.
+func TestExpandQueryRendersTheSinceToken(t *testing.T) {
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		filters string
+		want    string
+	}{
+		{
+			name:    "a day back",
+			filters: "is:pr is:closed closed:>={{since:24h}}",
+			want:    "is:pr is:closed closed:>=2026-08-14T12:00:00Z",
+		},
+		{
+			name:    "no token passes through untouched",
+			filters: "is:open is:pr author:@me",
+			want:    "is:open is:pr author:@me",
+		},
+		{
+			name:    "two tokens both render",
+			filters: "closed:{{since:48h}}..{{since:24h}}",
+			want:    "closed:2026-08-13T12:00:00Z..2026-08-14T12:00:00Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := config.ExpandQuery(tt.filters, now); got != tt.want {
+				t.Errorf("ExpandQuery() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A bound written in the reader's zone would move the window by hours twice a
+// year, so the instant is always UTC whatever clock now came off.
+func TestExpandQueryWritesTheBoundInUTC(t *testing.T) {
+	zone := time.FixedZone("well east", 11*60*60)
+	now := time.Date(2026, 8, 15, 6, 0, 0, 0, zone)
+
+	want := "closed:>=2026-08-13T19:00:00Z"
+	if got := config.ExpandQuery("closed:>={{since:24h}}", now); got != want {
+		t.Errorf("ExpandQuery() = %q, want %q", got, want)
+	}
+}
+
+// The shipped defaults never reach validate: Load answers with them before it
+// runs, so a token typo in one of them would only surface as a failed search.
+func TestDefaultSectionsExpandCleanly(t *testing.T) {
+	cfg := config.Default()
+
+	for _, s := range append(append([]config.Section{}, cfg.PRSections...), cfg.IssueSections...) {
+		if got := config.ExpandQuery(s.Filters, time.Now()); strings.Contains(got, "{{") {
+			t.Errorf("section %q expands to %q, want no token left in it", s.Title, got)
 		}
 	}
 }

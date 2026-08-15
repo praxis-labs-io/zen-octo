@@ -3,9 +3,12 @@ package gh
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 // pullRequestQuery asks by node id rather than owner, name and number. The id
@@ -473,12 +476,23 @@ type pullRequestResponse struct {
 // headRef is the branch the pull request is merging from. The query needs it up
 // front to ask how far behind the base it has fallen, and GraphQL cannot read
 // it off a sibling field, so the caller passes the one it already has.
+// deletedHeadRef is GitHub refusing the base comparison alone, because the head
+// branch is gone. Match is false unless every error is that one.
+func deletedHeadRef(err error) bool {
+	var gqlErr *api.GraphQLError
+	return errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "node.baseRef.compare")
+}
+
 func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailResult, error) {
 	var resp pullRequestResponse
 	vars := map[string]any{"id": id, "head": headRef}
 
+	headless := false
 	if err := c.gql.DoWithContext(ctx, pullRequestQuery, vars, &resp); err != nil {
-		return DetailResult{}, fmt.Errorf("fetching pull request (%s): %w", id, classify(err))
+		if !deletedHeadRef(err) {
+			return DetailResult{}, fmt.Errorf("fetching pull request (%s): %w", id, classify(err))
+		}
+		headless = true
 	}
 
 	n := resp.Node
@@ -567,7 +581,10 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Threads = append(detail.Threads, thread)
 	}
 
-	if ref := n.BaseRef; ref != nil && ref.Compare != nil {
+	switch ref := n.BaseRef; {
+	case headless:
+		detail.BehindBy = BehindNoHead
+	case ref != nil && ref.Compare != nil:
 		detail.BehindBy = ref.Compare.BehindBy
 	}
 

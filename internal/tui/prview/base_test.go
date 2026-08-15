@@ -267,6 +267,24 @@ func TestTheBaseRowSaysNothingAboutACountItDoesNotHave(t *testing.T) {
 	}
 }
 
+// A merged pull request has no head branch, so nothing compared it to its base.
+// "Merging into" is the retarget's word and would report a write nobody made.
+func TestTheBaseRowNamesTheBaseWithNothingToCompare(t *testing.T) {
+	d := sampleDetail()
+	d.State = gh.PRStateMerged
+	d.BehindBy = gh.BehindNoHead
+
+	out := stripANSI(detailed(held(d), 200, 60).View())
+	if !strings.Contains(out, "Based on main") {
+		t.Errorf("the rail is missing %q:\n%s", "Based on main", out)
+	}
+	for _, wrong := range []string{"behind main", "Merging into main", "Up to date with main"} {
+		if strings.Contains(out, wrong) {
+			t.Errorf("the rail says %q about a comparison that never ran:\n%s", wrong, out)
+		}
+	}
+}
+
 // railStops is every row tab lands on while walking the rail, which is what
 // says whether a row is a control or a fact.
 //

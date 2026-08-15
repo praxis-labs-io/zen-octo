@@ -376,6 +376,11 @@ func (m Model) baseRow(d gh.PullRequestDetail, width int) []railEntry {
 	case d.BehindBy == gh.BehindUnknown:
 		text, c = "Merging into "+base, m.theme.Subtle
 
+	// No head branch left to compare, so the row names the base and claims
+	// nothing about the distance to it.
+	case d.BehindBy == gh.BehindNoHead:
+		text, c = "Based on "+base, m.theme.Subtle
+
 	case d.BehindBy > 0:
 		text, c = comp.Plural(d.BehindBy, "commit")+" behind "+base, m.theme.Warning
 	}

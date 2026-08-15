@@ -427,6 +427,42 @@ which is what PR #20's own history produces.
 
 Built so far: `cmd/zen-octo`, `internal/config`, `internal/gh`, `internal/store`, `internal/version`, and `internal/tui/{app,comp,keys,list,prview,theme}`. The rest lands milestone by milestone; see the **v1** project in Linear.
 
+A section's filter goes to GitHub as the user wrote it, and `internal/config`
+owns the one piece of grammar this client adds: `{{since:24h}}` renders to the
+RFC 3339 instant that long ago, in UTC. GitHub's date qualifiers take an
+absolute instant and nothing relative, and the search returns `createdAt` and
+`updatedAt` and neither `mergedAt` nor `closedAt`, so a window filtered on this
+side would spend the limit before the filter ran and show an empty tab on a busy
+week. `fetchSection` expands it inside the command rather than around it, so the
+window is measured when the request goes out: a session left open all day would
+otherwise keep asking about a day that ended hours ago. A bare date would lean
+on GitHub's own reading of it and the boundary is the whole point, so the bound
+is written full and ending in `Z`. A duration that will not parse is refused by
+`validate` with its section named, except in the shipped defaults, which `Load`
+answers with before it validates anything and a test pins instead. Search
+indexing lags up to a minute, so a pull request merged seconds ago is missing
+until the next sync; that is what a section called recent is.
+
+Recently Closed is one section rather than two because `closed:` covers merged
+and closed together and the list already renders them apart, under their own
+group headers. It carries `sort:updated-desc` because the limit is applied
+before the rows reach this side, so without it GitHub's relevance order decides
+which twenty come back.
+
+**A merged pull request has no head branch, and the detail query compares
+against one.** GitHub answers with the whole pull request, `compare` null, and a
+`NOT_FOUND` scoped to `node.baseRef.compare`; go-gh decodes the payload into the
+caller's struct before it reads the errors array, so reading that array as fatal
+threw away a pull request already in hand and made every merged one unopenable.
+`deletedHeadRef` tolerates that one path, on `GraphQLError.Match`, which answers
+false unless every error in the array is that one: a real failure arriving
+beside it is still a failure. The count then goes to `gh.BehindNoHead` rather
+than `BehindUnknown`, which the rail reads as a retarget that has landed and
+would render "Merging into main" over a write nobody made. The row says "Based
+on main" instead, naming the base and claiming nothing about the distance to it.
+The fake had to change with it: one that answers with a body or an error, never
+both, cannot produce the shape this bug lives in.
+
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
 
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
