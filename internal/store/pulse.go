@@ -15,9 +15,6 @@ func (s *Store) BeginPulse(id string) bool {
 		return false
 	}
 
-	if s.pulsing == nil {
-		s.pulsing = make(map[string]bool)
-	}
 	delete(s.stalePulse, id)
 	s.pulsing[id] = true
 	return true
@@ -29,9 +26,10 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) {
 	delete(s.pulsing, id)
 	s.adopt(res.RateLimit)
 
+	// The mark is left standing, the way DetailApplied leaves staleFetch: it is
+	// what tells the caller it owes another. BeginPulse clears it.
 	held, ok := s.details[id]
 	if id == "" || !ok || s.stalePulse[id] {
-		delete(s.stalePulse, id)
 		return
 	}
 
@@ -57,7 +55,7 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) {
 
 	held.Detail = d
 	s.put(id, held)
-	s.syncRow(d.PullRequest)
+	s.syncRow(id)
 }
 
 // PulseFailed clears the flight and keeps everything held. It takes no error:
@@ -67,14 +65,15 @@ func (s *Store) PulseFailed(id string) {
 	delete(s.stalePulse, id)
 }
 
+// StalePulse reports whether the pulse that just answered was overtaken. A
+// caller that started one and finds this true owes another.
+func (s Store) StalePulse(id string) bool { return s.stalePulse[id] }
+
 // markPulseStale records that the pulse in flight predates something that knows
 // better. Only while one is out, the way markStale reads its own flight.
 func (s *Store) markPulseStale(id string) {
 	if !s.pulsing[id] {
 		return
-	}
-	if s.stalePulse == nil {
-		s.stalePulse = make(map[string]bool)
 	}
 	s.stalePulse[id] = true
 }

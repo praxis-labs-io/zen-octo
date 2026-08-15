@@ -201,7 +201,7 @@ func (s *Store) StateApplied(id, key string, res gh.PRStateResult) {
 	held.Detail.State = res.State
 	held.Detail.IsDraft = res.IsDraft
 	s.put(id, held)
-	s.syncRow(held.Detail.PullRequest)
+	s.syncRow(id)
 	s.markStale(id)
 }
 
@@ -255,7 +255,7 @@ func (s *Store) MergeApplied(id, key string, res gh.MergeResult) {
 
 	held.Detail.State = res.State
 	s.put(id, held)
-	s.syncRow(held.Detail.PullRequest)
+	s.syncRow(id)
 	s.markStale(id)
 }
 
@@ -309,7 +309,7 @@ func (s *Store) BaseApplied(id, key string, res gh.BaseResult) {
 	held.Detail.BaseRefName = res.BaseRefName
 	held.Detail.BehindBy = gh.BehindUnknown
 	s.put(id, held)
-	s.syncRow(held.Detail.PullRequest)
+	s.syncRow(id)
 	s.markStale(id)
 	s.markFilesStale(id)
 }

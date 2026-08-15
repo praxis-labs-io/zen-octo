@@ -48,8 +48,15 @@ func (m Model) pulseSettled(id string) (tea.Model, tea.Cmd) {
 	// The fold wrote the pull request back over the row search returned.
 	m.list.SetSections(m.store.Sections())
 
-	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
-		return m, nil
+	// Overtaken by a write, so the store dropped it. Nothing else would ask
+	// again: the probe spends one wait, and the row would latch on "Checking".
+	var owed tea.Cmd
+	if m.store.StalePulse(id) {
+		owed = m.pulse(id)
 	}
-	return m, m.detail.SetDetail(m.store.Detail(id))
+
+	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
+		return m, owed
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(id)), owed)
 }

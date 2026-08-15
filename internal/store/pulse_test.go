@@ -27,6 +27,23 @@ func held(t *testing.T) store.Store {
 	return s
 }
 
+// beginOnCopy is how the app reaches it. Model.pulse has a value receiver and
+// returns only a command, so the Store it marks is a copy that is thrown away.
+func beginOnCopy(s store.Store) bool { return s.BeginPulse("pr1") }
+
+// A map built on first write is built on that copy and goes with it, which
+// leaves every guard below reading a nil map and refusing nothing.
+func TestTheFlightSurvivesTheCopyItIsMarkedOn(t *testing.T) {
+	s := held(t)
+
+	if !beginOnCopy(s) {
+		t.Fatal("setup: the copy could not start a pulse")
+	}
+	if s.BeginPulse("pr1") {
+		t.Error("a second pulse started while the first was still out")
+	}
+}
+
 // The whole point of folding field by field: the pulse carries no timeline, no
 // threads and no reviewers, and a struct replaced wholesale would empty them.
 func TestAPulseLeavesThePageAlone(t *testing.T) {
@@ -120,6 +137,25 @@ func TestAPulseCorrectsTheRowBehindIt(t *testing.T) {
 	}
 }
 
+// A write held and not yet answered for is on the screen, and GitHub knows
+// nothing about it. The row has to keep it rather than take the fetched one.
+func TestAPulseDoesNotPutTheRowBackUnderAHeldWrite(t *testing.T) {
+	s := store.New(configured())
+	s.Applied(0, gh.SearchResult{PullRequests: []gh.PullRequest{{ID: "pr1", State: gh.PRStateOpen}}})
+	s.BeginDetail("pr1")
+	s.DetailApplied("pr1", reviewed())
+
+	// Closed on the rail, still in flight.
+	s.PendingState("pr1", gh.TransitionClose)
+
+	s.BeginPulse("pr1")
+	s.PulseApplied("pr1", pulsed(gh.Pulse{State: gh.PRStateOpen}))
+
+	if got := s.Sections()[0].PRs[0].State; got != gh.PRStateClosed {
+		t.Errorf("row reads %q, want the held close kept: GitHub has not seen it yet", got)
+	}
+}
+
 // The pulse was asked for before the write settled, so it answers from the
 // state the pull request was in beforehand.
 func TestAPulseAnsweringAfterAWriteIsDropped(t *testing.T) {
@@ -133,6 +169,11 @@ func TestAPulseAnsweringAfterAWriteIsDropped(t *testing.T) {
 
 	if got := s.Detail("pr1").Detail.State; got != gh.PRStateClosed {
 		t.Errorf("state = %q, want it still closed: the pulse predates the write", got)
+	}
+	// The mark stands after the drop, which is what says another is owed. The
+	// probe spends one wait, so nothing else would ever ask.
+	if !s.StalePulse("pr1") {
+		t.Error("the dropped pulse left no debt, so the row latches on what it had")
 	}
 }
 

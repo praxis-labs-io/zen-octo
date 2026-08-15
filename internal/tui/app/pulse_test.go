@@ -58,6 +58,35 @@ func TestAFailedPulseSaysNothingAndKeepsThePage(t *testing.T) {
 	}
 }
 
+// A write settling mid-flight makes the store drop the answer, and the probe
+// has spent its one wait. Without another, the Merge row latches on "Checking".
+func TestAPulseDroppedByAWriteIsAskedAgain(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 44), "enter")
+
+	// The probe's recheck is held back, so a write can settle underneath it.
+	m, held := holdBack(m, app.MergeProbe("PR_412"), "pulseFetched")
+	if len(held) == 0 {
+		t.Fatal("setup: the probe started no recheck")
+	}
+
+	// Convert to draft while that answer is on its way.
+	m = press(m, "2", "enter", "enter")
+	client.serveMergeable("PR_412")
+
+	before := len(client.pulsed())
+	m = settle(m, held...)
+
+	if got := len(client.pulsed()); got <= before {
+		t.Fatal("the dropped recheck was never asked for again")
+	}
+	if out := stripANSI(render(t, m)); strings.Contains(out, "Checking") {
+		t.Errorf("the Merge row latched on Checking:\n%s", out)
+	}
+}
+
 // The pulse carries the lifecycle, so a pull request merged elsewhere reaches
 // the row behind the screen without the whole page being fetched for it.
 func TestAPulseCorrectsTheRowBehindTheScreen(t *testing.T) {

@@ -186,6 +186,11 @@ func New(sections []config.Section) Store {
 		commits:  make(map[string]Files),
 		repos:    make(map[string]Repo),
 		branches: make(map[string]Branches),
+
+		// Built here rather than on first write, because the only writer runs on
+		// a copy of the model: a map made there is dropped with the copy.
+		pulsing:    make(map[string]bool),
+		stalePulse: make(map[string]bool),
 	}
 }
 
@@ -674,12 +679,13 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		return
 	}
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
-	s.syncRow(res.Detail.PullRequest)
+	s.syncRow(id)
 }
 
-// syncRow writes a row back over every section holding that pull request. A
-// detail builds one exactly as search does, so it is the same row fetched later.
-func (s *Store) syncRow(pr gh.PullRequest) {
+// syncRow writes the folded row back over every section holding that pull
+// request, on the terms restoreRows reads one: a write in flight stays on.
+func (s *Store) syncRow(id string) {
+	pr := s.Detail(id).Detail.PullRequest
 	if pr.ID == "" {
 		return
 	}
