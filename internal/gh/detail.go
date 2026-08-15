@@ -615,9 +615,6 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}, nil
 }
 
-// reviewers is everyone GitHub lists on the reviewers panel. A submitted review
-// takes its author off reviewRequests, so building the list from requests alone
-// loses whoever has already looked at it, which is most of the point.
 // RecountThreads rewrites each reviewer's thread tallies in place, from the
 // threads the detail carries. A resolve after a fetch has to run it.
 func RecountThreads(d *PullRequestDetail) {
@@ -650,6 +647,8 @@ func RecountThreads(d *PullRequestDetail) {
 	}
 }
 
+// reviewers is everyone GitHub lists on the panel. A submitted review takes its
+// author off reviewRequests, so requests alone lose whoever has already looked.
 func reviewers(n pullRequestResponse) []Reviewer {
 	var out []Reviewer
 	at := make(map[string]int)

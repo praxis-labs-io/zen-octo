@@ -3,6 +3,7 @@
 package list
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -79,10 +80,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case spinner.TickMsg:
-		// Re-arm while any section is in flight, not just the one on screen.
-		// Gating on the active section kills the chain the moment it lands, and
-		// a switch onto a slower tab then finds a frozen spinner.
-		cmd := m.spinner.Advance(msg, store.Loading(m.sections))
+		// Any section, not just the one on screen: gating on the active one
+		// kills the chain, and a switch onto a slower tab finds it frozen.
+		cmd := m.spinner.Advance(msg, spinning(m.sections))
 		return m, cmd
 	}
 	return m, nil
@@ -398,6 +398,14 @@ func (m Model) body() string {
 // standing in for them. A section that has answered keeps them through a reload.
 func showsRows(s store.Section) bool {
 	return s.Loaded && s.Status != store.StatusFailed
+}
+
+// spinning is whether any section would draw the pane's spinner, which is the
+// only thing the chain feeds. A reload keeps its rows and draws none.
+func spinning(sections []store.Section) bool {
+	return slices.ContainsFunc(sections, func(s store.Section) bool {
+		return !s.Loaded && s.Status != store.StatusFailed
+	})
 }
 
 func (m Model) footer() string {

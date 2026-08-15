@@ -161,6 +161,72 @@ func TestUnresolvingPutsTheCountBack(t *testing.T) {
 	}
 }
 
+// A reload keeps its rows and its keys, so a pull request can be closed while
+// its section's request is out. That response was answered before the write.
+func TestASectionResponseDoesNotUndoAWriteMadeWhileItWasOut(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, result("a1"))
+
+	s.BeginDetail("a1")
+	s.DetailApplied("a1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "a1"},
+	}})
+
+	// The reader presses s, then closes a1 before the answer comes back.
+	s.Begin(0)
+	key := s.PendingState("a1", gh.TransitionClose)
+	s.StateApplied("a1", key, gh.PRStateResult{State: gh.PRStateClosed})
+
+	s.Applied(0, result("a1"))
+
+	if got := s.Sections()[0].PRs[0].State; got != gh.PRStateClosed {
+		t.Errorf("row = %v, want it still closed: the response predates the write", got)
+	}
+}
+
+// The same response is entitled to every row nothing was written to, or a
+// stale detail from an hour ago would pin a row nobody has touched since.
+func TestASectionResponseStillReplacesRowsNothingWrote(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, result("a1"))
+
+	s.BeginDetail("a1")
+	s.DetailApplied("a1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "a1", Title: "from the detail"},
+	}})
+
+	// A fetch started after that detail landed, so its answer is the newer one.
+	s.Begin(0)
+	fresh := gh.SearchResult{PullRequests: []gh.PullRequest{{ID: "a1", Title: "from the search"}}}
+	s.Applied(0, fresh)
+
+	if got := s.Sections()[0].PRs[0].Title; got != "from the search" {
+		t.Errorf("row = %q, want the response that was asked for after the write", got)
+	}
+}
+
+// The corrective fetch a lifecycle write fires can fail, and the write is
+// GitHub's own answer either way.
+func TestALifecycleWriteReachesTheRowWithoutARefetch(t *testing.T) {
+	s := store.New(configured())
+	s.BeginAll()
+	s.Applied(0, result("a1"))
+
+	s.BeginDetail("a1")
+	s.DetailApplied("a1", gh.DetailResult{Detail: gh.PullRequestDetail{
+		PullRequest: gh.PullRequest{ID: "a1"},
+	}})
+
+	key := s.PendingState("a1", gh.TransitionClose)
+	s.StateApplied("a1", key, gh.PRStateResult{State: gh.PRStateClosed})
+
+	if got := s.Sections()[0].PRs[0].State; got != gh.PRStateClosed {
+		t.Errorf("row = %v, want it closed on the write rather than on a refetch", got)
+	}
+}
+
 // The held slice is inside a rail already rendered from a detail handed out
 // earlier, so the recount goes to a copy.
 func TestRecountingLeavesAnEarlierDetailAlone(t *testing.T) {

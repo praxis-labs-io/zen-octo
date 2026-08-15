@@ -160,6 +160,12 @@ type Store struct {
 	// for a diff once per open, so nothing else would ever ask again.
 	staleFetch map[string]bool
 	staleFiles map[string]bool
+
+	// seq orders a section's fetch against the rows written into it since, so a
+	// response that predates a write cannot land on top of one.
+	seq        int
+	sectionSeq []int
+	rowSeq     map[string]int
 }
 
 // New builds a store over the configured sections, none of them fetched.
@@ -210,7 +216,22 @@ func Loading(sections []Section) bool {
 func (s *Store) BeginAll() {
 	for i := range s.sections {
 		s.sections[i].Status = StatusLoading
+		s.stampSection(i)
 	}
+}
+
+func (s *Store) nextSeq() int {
+	s.seq++
+	return s.seq
+}
+
+// stampSection records when this section's fetch went out, so a row written
+// after it can be told from one the response is entitled to replace.
+func (s *Store) stampSection(i int) {
+	if len(s.sectionSeq) != len(s.sections) {
+		s.sectionSeq = make([]int, len(s.sections))
+	}
+	s.sectionSeq[i] = s.nextSeq()
 }
 
 // Begin marks one section in flight and reports whether it started. It refuses
@@ -222,6 +243,7 @@ func (s *Store) Begin(i int) bool {
 		return false
 	}
 	s.sections[i].Status = StatusLoading
+	s.stampSection(i)
 	return true
 }
 
@@ -234,7 +256,30 @@ func (s *Store) Applied(i int, res gh.SearchResult) {
 	s.sections[i].Status = StatusReady
 	s.sections[i].Err = nil
 	s.sections[i].Loaded = true
+	s.restoreRows(i)
 	s.adopt(res.RateLimit)
+}
+
+// restoreRows puts back every row a write moved after this section's fetch went
+// out, since GitHub answered it from before the write.
+func (s *Store) restoreRows(i int) {
+	var began int
+	if i < len(s.sectionSeq) {
+		began = s.sectionSeq[i]
+	}
+
+	// The response's own slice, shared with nothing, so this writes into it.
+	rows := s.sections[i].PRs
+	for n, row := range rows {
+		if s.rowSeq[row.ID] <= began {
+			continue
+		}
+		// The folded detail rather than the held one: a write still in flight is
+		// on the screen, and the response must not take it off.
+		if held := s.Detail(row.ID).Detail.PullRequest; held.ID != "" {
+			rows[n] = held
+		}
+	}
 }
 
 // Failed puts a section into its error state, keeping whatever rows it had. The
@@ -631,6 +676,13 @@ func (s *Store) syncRow(pr gh.PullRequest) {
 	if pr.ID == "" {
 		return
 	}
+	// Stamped whether or not a section carries it today: a fetch already out may
+	// bring the row back, and this is what says the write came after it.
+	if s.rowSeq == nil {
+		s.rowSeq = make(map[string]int)
+	}
+	s.rowSeq[pr.ID] = s.nextSeq()
+
 	for i := range s.sections {
 		at := slices.IndexFunc(s.sections[i].PRs, func(held gh.PullRequest) bool {
 			return held.ID == pr.ID
