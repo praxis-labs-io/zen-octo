@@ -201,7 +201,7 @@ func (m Model) probeMergeability(id string, res gh.DetailResult) tea.Cmd {
 }
 
 // mergeProbe asks the question again, as a pulse: mergeability is one of the
-// fields it carries, and the whole page costs twenty-eight times as much.
+// fields it carries, and the whole page is megabytes to read one of them.
 //
 // A wait that runs out on a question already answered asks nothing: the answer
 // can arrive from the sync key or from a write's own refetch while this is still

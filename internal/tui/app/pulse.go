@@ -8,8 +8,8 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 )
 
-// A pulse re-asks the volatile fields alone, for two points against the detail
-// query's fifty-six.
+// A pulse re-asks the volatile fields alone, and answers in a few hundred bytes
+// where the detail query answers in megabytes.
 type pulseFetchedMsg struct {
 	id  string
 	res gh.PulseResult

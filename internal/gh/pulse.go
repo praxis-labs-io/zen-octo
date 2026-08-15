@@ -7,7 +7,7 @@ import (
 )
 
 // pulseQuery re-asks the fields that move without anyone here touching them.
-// A hundred and one nodes against the detail query's five thousand six hundred.
+// Three hundred bytes back where the detail query answers with megabytes.
 const pulseQuery = `
 query PullRequestPulse($id: ID!) {
   rateLimit { limit cost remaining resetAt }

@@ -470,17 +470,26 @@ both, cannot produce the shape this bug lives in.
 
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
 
-A detail is not the only question this asks about a pull request. The detail
-query costs about fifty-six points of the five thousand an hour, nearly all of
-it `reviewThreads(first:100){comments(first:50)}`, so anything that re-asks it
-often spends the budget before it is useful. `gh.Pulse` is the cheap question
-beside it: the lifecycle, the review decision, mergeability, `updatedAt`,
-`headRefOid` and the head commit's check rollup, at a hundred and one nodes and
-two points. It asks for no branch comparison, which is what lets a merged pull
-request answer it cleanly where the detail query survives only through
-`deletedHeadRef`. `rollupSelection` and `rollupNode` are shared by the two
-documents rather than written twice, so one of them changing shape cannot leave
-the other decoding the old one.
+A detail is not the only question this asks about a pull request. `gh.Pulse` is
+the small one beside it: the lifecycle, the review decision, mergeability,
+`updatedAt`, `headRefOid` and the head commit's check rollup. It asks for no
+branch comparison, which is what lets a merged pull request answer it cleanly
+where the detail query survives only through `deletedHeadRef`.
+`rollupSelection` and `rollupNode` are shared by the two documents rather than
+written twice, so one of them changing shape cannot leave the other decoding
+the old one.
+
+**What makes it cheap is the payload, not the point.** Every query this client
+sends costs one point of the five thousand an hour: a section search, a detail,
+a pulse, measured against the real documents. GitHub bills the requests needed
+to fulfil a call's connections, divided by a hundred with a minimum of one, and
+the five hundred thousand nodes a call may name is a separate ceiling that
+nothing here comes near. Reading the node count as the price says the detail
+query costs fifty-six, and that number was wrong wherever it was written down.
+What the two documents really differ by is what comes back: on a pull request
+with two hundred and twenty-five review threads, four and a third megabytes
+against three hundred and thirteen bytes. So the budget was never what stopped
+this being asked often. Bandwidth is, and the relayout a landed answer costs.
 
 `PulseApplied` writes those fields over the held detail one at a time, where
 `DetailApplied` replaces the struct. The timeline, threads, reviewers,

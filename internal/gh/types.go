@@ -649,8 +649,8 @@ type DetailResult struct {
 	RateLimit RateLimit
 }
 
-// Pulse is what a pull request answers about itself for two points: where it
-// sits, where review stands, whether it merges, and how its checks are doing.
+// Pulse is the small answer about a pull request: where it sits, where review
+// stands, whether it merges, and how its checks are doing.
 type Pulse struct {
 	State          PRState
 	IsDraft        bool
