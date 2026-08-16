@@ -1355,6 +1355,12 @@ func (m *Model) resize() {
 		return
 	}
 
+	// Nothing below the floor is drawn, and relaying the conversation out costs
+	// milliseconds a step on a resize drag that renders no frame at all.
+	if m.width < minWidth || m.height < minHeight {
+		return
+	}
+
 	body := max(0, m.height-statusBarHeight-m.noticeHeight())
 	m.status = m.status.Size(m.width)
 	m.help.SetWidth(m.width)
@@ -1395,6 +1401,12 @@ func (m Model) View() tea.View {
 func (m Model) render() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
+	}
+
+	// Ahead of the help overlay and of whatever else has the keyboard. A picker
+	// or a form is still open under this, and closes on the key that closes it.
+	if m.width < minWidth || m.height < minHeight {
+		return m.tooSmall()
 	}
 
 	parts := make([]string, 0, 3)

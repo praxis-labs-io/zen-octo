@@ -117,6 +117,25 @@ Writes are optimistic: apply locally, toast, reconcile on response, revert on er
 
 The shell divides the frame top-down: `app` owns the terminal size, subtracts the status bar, and calls `SetSize` on the screen that has focus, which sizes its own panes. **No component reads terminal dimensions or counts chrome lines.** A test asserts the rendered frame never exceeds the size it was given.
 
+Under 56 by 23 the shell draws its size instead of a screen. **The height is a
+cliff and the width is a judgment**, which is why only one of them is derived.
+An overlay is clipped rather than scrolled, so the merge form at its tallest,
+three methods with a branch to delete and a bypass to warn about, is twenty-one
+rows that have to be there: with the status bar's one and the config notice's
+one, twenty-three, and at twenty-two the form loses its own bottom border. A
+test opens that form under a notice at exactly the floor, because a number
+carrying a reason nothing checks is a number that drifts off it. Nothing has a
+cliff in width. The form gives up its hint line and keeps its button, the
+columns narrow, the rows shed cells, and 56 is where the rail still lands whole
+and the form still names the keys it has taken. What settles it either way is
+that the floor has to leave a drawer beside an editor alone: a floor set where
+every control is comfortable would refuse the window this is most used in. It
+names what it needs and drops what it is where the sentence will not fit, since
+the size a reader can already see is the half worth losing. Nothing is torn down
+under it: `resize` returns early, so a terminal dragged small and back is the
+one it was with whatever was open still open, and the relayout a conversation
+costs is not paid per step of a drag that renders no frame.
+
 Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never sits on the root model.
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
@@ -176,6 +195,23 @@ The token is read from the buffer rather than from the keystroke, on `Line()` an
 Inserting rebuilds the buffer back to front. `SetValue` is a `Reset` and an `InsertString`, which leaves the caret at the end of what it inserted rather than at the end of the buffer, and there is no exported setter for the cursor's row: the tail goes in first, the caret goes to the top, and the head is inserted in front of it so it comes to rest where the head ends. Nothing may read the caret until a render has sized the textarea again, because `Reset` scrolls the box to its top and neither call repositions.
 
 The list is offered before anything is fetched, because the people on the pull request are known from the detail and are who a reply usually names. `mentionableUsers` rides on the repo-meta query, so the first `@` costs a request only where no picker has opened yet, and the note under the rows is what stops a short list of participants reading as everybody there is: on its way, or refused, or matched nobody, each in its own words. The one that had to be built for it is the refusal. `SetRepo` declines to act while `Capturing()` is true, and a compose box always is, so `refillMentions` runs on its first line ahead of every guard; and `repoMetaFailed` told the screen nothing at all, which made a dead fetch and an unasked one render identically, which is the exact failure a silent empty list is.
+
+**`d` answers at every width the shell will draw, because the rail is the only
+route to five writes**: state, labels, reviewers, assignees and the base branch.
+It used to be refused below `railColumnFrom`, where the key set the preference
+and rendered nothing, and a client in a drawer beside an editor was read-only
+with the bar still offering the key. What that width decides now is where the
+rail lands rather than whether it comes: above it a column, below it the same
+pane painted over the right of the conversation. The frame under it is
+untouched, so nothing is relaid out on the toggle and the words behind the rail
+are covered rather than rewrapped; it goes on before the pickers, so the modal a
+rail row opens still draws over it. It sits against the right edge and not
+centred, which is where the eye already looks for it. The key hands the keys
+over as it opens and takes them back as it closes, at both widths rather than
+only the one that needed it: a reader reaching for a control is reaching to use
+it, and a panel over a page that does not take the keys is `j` scrolling
+something the reader cannot see. 120 is a separate question and unchanged: that
+is where the rail comes up unasked, and between the two the reader asks.
 
 The rail is the exception, and the braces are dead on it. Its rows are a list of controls rather than blocks of prose, so it answers to the movement keys the way the file column does: `railDriving` sends `j` and `k` to the cursor, and taking the pane lands the cursor on its first control rather than waiting to be pressed once before it will say where the keys go. Two things fall out of it being a list with facts in it. The cursor stops at each end rather than coming back round, which the conversation's ring does too: that one lapped once, on the argument that the ring is the whole of the content and there is nothing past the last card, but a real pull request is a page deep and the wrap is then the longest throw either key can make, arriving at the end the reader was walking away from. Both report the key untaken there, which is what lets the pane scroll to whatever sits under the last stop. And `g`, `G` and the page keys never move the cursor, because those go to the ends of a pane and the rail's ends are past its last stop.
 

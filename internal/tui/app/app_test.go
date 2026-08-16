@@ -1374,14 +1374,13 @@ func TestTheFrameNeverExceedsTheTerminal(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 60},
 		{width: 120, height: 40},
-		{width: 120, height: 14},
 		{width: 90, height: 24},
-		{width: 60, height: 8},
+		{width: app.MinWidth + 1, height: app.MinHeight + 1},
+		{width: app.MinWidth, height: app.MinHeight},
+		// Under the floor, where the size message is the frame rather than the
+		// panes. It owes the same fit, and on a frame too small to say it in full.
 		{width: 40, height: 5},
-		// Below this a pane is borders and nothing else, and one line has to be
-		// the status bar rather than a config notice.
-		{width: 60, height: 3},
-		{width: 40, height: 2},
+		{width: 20, height: 2},
 	}
 
 	for _, size := range sizes {
@@ -1413,7 +1412,7 @@ func TestTheFrameNeverExceedsTheTerminal(t *testing.T) {
 }
 
 func TestCursorStaysVisibleWhenScrollingPastTheFold(t *testing.T) {
-	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
+	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 24)
 
 	for range 30 {
 		m = press(m, "j")
@@ -1817,7 +1816,7 @@ func TestKnownThemeShowsNoNotice(t *testing.T) {
 // once the cursor is already outside the window and then puts it on the top
 // line, which turned one press into a page jump and the next ten into nothing.
 func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
-	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
+	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 24)
 
 	prev := topRow(t, m)
 	for i := range 30 {
@@ -1862,7 +1861,7 @@ func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
 		m = press(m, "j")
 	}
 
-	m = settle(m, tea.WindowSizeMsg{Width: 120, Height: 14})
+	m = settle(m, tea.WindowSizeMsg{Width: 120, Height: 24})
 
 	if got := selectedText(t, m); !strings.Contains(got, "#30") {
 		t.Errorf("selection = %q, want row 30 still on screen after the shrink", got)
@@ -1877,15 +1876,15 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 		keys []tea.KeyPressMsg
 		want string
 	}{
-		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#3"},
+		{name: "page down", keys: []tea.KeyPressMsg{ctrl('f')}, want: "#7"},
 		{name: "page down then back up", keys: []tea.KeyPressMsg{ctrl('f'), ctrl('b')}, want: "#0"},
-		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#1"},
-		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#1"},
+		{name: "half page down", keys: []tea.KeyPressMsg{ctrl('d')}, want: "#3"},
+		{name: "half page down twice, half back", keys: []tea.KeyPressMsg{ctrl('d'), ctrl('d'), ctrl('u')}, want: "#3"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 14)
+			m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 24)
 			for _, k := range tt.keys {
 				m = settle(m, k)
 			}
@@ -3153,7 +3152,7 @@ func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
 		{width: 120, height: 40},
 		{width: 100, height: 30},
 		{width: 80, height: 24},
-		{width: 60, height: 20},
+		{width: app.MinWidth, height: app.MinHeight},
 	}
 
 	for _, size := range sizes {
@@ -3237,7 +3236,7 @@ func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
 	}
 
 	// Too small to hold it, so it says so rather than quietly dropping nine.
-	cramped := stripANSI(render(t, press(loaded(t, client, 60, 20), "enter", "?")))
+	cramped := stripANSI(render(t, press(loaded(t, client, app.MinWidth, app.MinHeight), "enter", "?")))
 	if !strings.Contains(cramped, "more keys than this frame") {
 		t.Errorf("the overlay drops bindings without saying so:\n%s", cramped)
 	}

@@ -104,9 +104,9 @@ const columnWidth = 37
 // conversation drops past the point where a diff inside a review comment reads.
 const railMinFrame = 120
 
-// railMinForced is the floor even when the user asks for the rail by hand. A
-// conversation narrower than this is not worth the trade.
-const railMinForced = columnWidth + 40
+// railColumnFrom is the width at which the rail is worth a column of its own.
+// Below it a conversation has too little left to give, so the rail lands over.
+const railColumnFrom = columnWidth + 40
 
 // railGutter is the space between the rail's left border and what it holds.
 // Text against a border reads as a rendering fault rather than as a column.
@@ -709,11 +709,16 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.ToggleRail):
 		m.railOn, m.railUserSet = !m.railVisible(), true
-		// Focus cannot stay on a rail that just went away.
-		if !m.railVisible() && m.focus == paneRail {
+		// The rail takes the keys as it opens, and gives them back as it goes. A
+		// reader asking for the controls is asking to use them.
+		switch {
+		case m.railVisible():
+			m.focus = paneRail
+		case m.focus == paneRail:
 			m.focus = paneMain
 		}
 		m.layout()
+		m.railLand()
 
 	case key.Matches(keyMsg, k.Down):
 		m.move(1)
@@ -1182,7 +1187,11 @@ func (m *Model) layout() {
 		m.sideView.SetHeight(m.sideHeight())
 	}
 	if m.railVisible() {
-		mainWidth -= columnWidth
+		// An overlaid rail costs the conversation no width. It covers the right of
+		// it instead, and toggling the rail then relays nothing out.
+		if m.railColumn() {
+			mainWidth -= columnWidth
+		}
 		m.rail = m.rail.Size(columnWidth, paneHeight)
 		m.railView.SetWidth(m.rail.InnerWidth())
 		m.railView.SetHeight(m.rail.InnerHeight())
@@ -1194,21 +1203,21 @@ func (m *Model) layout() {
 	m.syncContent()
 }
 
-// railVisible decides whether the rail is on screen. Width decides until the
-// user overrides it, and even then the conversation keeps a floor.
-//
-// The rail belongs to the conversation. Everything it carries is about the
-// pull request rather than about what a tab is showing, and the three tabs with
-// a column already spend that side of the frame on one.
+// railVisible is whether the rail is on screen. Width decides until the reader
+// asks, and a reader who asks is answered at every width this client draws.
 func (m Model) railVisible() bool {
 	if !m.railTab() {
 		return false
 	}
 	if m.railUserSet {
-		return m.railOn && m.width >= railMinForced
+		return m.railOn
 	}
 	return m.width >= railMinFrame
 }
+
+// railColumn is whether the rail takes a column of the frame or lands over the
+// right of the conversation. The same pane in the same state either way.
+func (m Model) railColumn() bool { return m.width >= railColumnFrom }
 
 // railTab is whether this tab has a rail at all, at any width.
 func (m Model) railTab() bool { return !m.sideVisibleTab() }
@@ -1385,23 +1394,32 @@ func (m Model) View() string {
 		panes = append([]string{column}, panes...)
 	}
 
+	rail := ""
 	if m.railVisible() {
-		panes = append(panes, m.rail.
+		rail = m.rail.
 			Index(index[paneRail]).
 			Title("Details").
 			Footer(scrollFooter(m.railView)).
 			Focus(m.focus == paneRail).
-			Render(m.railView.View()))
+			Render(m.railView.View())
+	}
+	if m.railColumn() && rail != "" {
+		panes, rail = append(panes, rail), ""
 	}
 
 	// The overlays composite against the whole screen, so the header goes on
-	// before them: a modal centred on the panes alone sits low by half the
-	// header.
+	// first: a modal centred on the panes sits low by half the header.
 	frame := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 	lead := 0
 	if head := m.head(); head != "" {
 		frame = lipgloss.JoinVertical(lipgloss.Left, head, frame)
 		lead = strings.Count(head, "\n") + 1
+	}
+
+	// Against the right edge rather than centred: it is a column that ran out of
+	// room for one, and the eye looks for it where it sits on a wide frame.
+	if rail != "" {
+		frame = comp.At(frame, rail, m.width-columnWidth, lead, m.width, m.height)
 	}
 
 	// The mention popup goes on first, so a picker or the merge form composites

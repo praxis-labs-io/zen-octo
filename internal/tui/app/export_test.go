@@ -7,6 +7,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// MinWidth and MinHeight are the floor, so a test sizes itself against the real
+// numbers rather than one it chose and left behind when the floor moved.
+const (
+	MinWidth  = minWidth
+	MinHeight = minHeight
+)
+
 // PollTick is one beat of the background poll, for a test outside this package
 // to fire by hand. It carries its instant, so a test names when it fired.
 func PollTick(at time.Time) tea.Msg { return pollTickMsg{at: at} }
