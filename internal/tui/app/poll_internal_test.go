@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
 )
 
@@ -63,17 +62,7 @@ func (m Model) pulseSettledCmd(moved bool) tea.Cmd {
 func onTheCommitsTab(t *testing.T) Model {
 	t.Helper()
 
-	pr := gh.PullRequest{ID: "PR_1", Number: 1, State: gh.PRStateOpen, Repository: "zen-octo/zen-octo"}
-	m := New(pollConfig(), Mock{})
-	m.width, m.height = 160, 44
-	m.store.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
-		PullRequest: pr,
-		Commits:     []gh.Commit{{SHA: "9f1c2b7", Short: "9f1c2b7", Headline: "Cap the backoff"}},
-	}})
-
-	model, _ := m.open(pr)
-	m = model.(Model)
-	model, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model, _ := onADetail(t).Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	return model.(Model)
 }
 

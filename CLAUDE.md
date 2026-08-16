@@ -597,6 +597,22 @@ report off the screen with nothing having succeeded. Nothing else about a poll i
 for a section that has already loaded, so a reload draws no spinner, and neither
 path takes a refresh leg, so the bar neither spins nor speaks.
 
+Unless a sync adopts it. `Begin` refuses a section already in flight and
+`refresh` used to drop the ones it refused, which the beat turned from an edge
+into the common case: a poll holds the section on screen every half minute, so
+`s` pressed inside one refreshed every tab except the one being read and toasted
+a count that included it. It waits on the answer already coming instead, the way
+`refreshDetail` waits on a detail a write asked for. That is what makes the
+failure two answers rather than one. `PollFailed` is the quiet one; an adopted
+flight gets `Failed`, because the reader did press the key, and a summary reading
+the quiet one would report a failure as a pass. The same hole ran one screen over
+on `pageFailedMsg` and ran worse: it reached the store and never the leg, so a
+refresh that adopted a background page never ended at all and the bar spun for
+the rest of the session. All three legs adopt now, the two diffs included, since
+one leg behaving differently from the others is worse than either behaviour: `r`
+pressed while a diff is still on its way named the pull request and never the
+diff it was waiting on.
+
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 
 The two lists of people are two connections because they are two sets. `assignableUsers` is who may be given the pull request or asked for a review; `mentionableUsers` is the wider one, everybody who has taken part, which is who an answer is usually addressed to. `gh.Mention` is its own type rather than an `Actor` with a name on it: an `Actor` carries a node id because the lists a picker writes back are addressed by one, a mention is inserted as text and has none, and typing it as an `Actor` would let a list of people with no id compile straight into `assigneeChoices` and be matched on the id every one of them is missing.

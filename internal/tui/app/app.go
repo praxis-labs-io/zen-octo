@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -562,23 +563,22 @@ func (m Model) fetchSection(index int, query string) tea.Cmd {
 	}
 }
 
-// refresh refetches every section that is not already on its way. The tab
-// counts are on screen too, so a refresh that left them as they were would be
-// making only part of the frame true.
+// refresh refetches every section not already on its way and waits on the ones
+// that are. The tab counts are on screen too: a partial refresh is a part-true frame.
 func (m Model) refresh() (tea.Model, tea.Cmd) {
 	sections := m.store.Sections()
 
 	var cmds []tea.Cmd
 	started := make([]int, 0, len(sections))
 	for i, section := range sections {
-		if !m.store.Begin(i) {
-			continue
-		}
+		// Begin refuses one already in flight and nothing else, so a section it
+		// turns down has an answer coming: wait on that rather than drop it.
 		started = append(started, i)
-		cmds = append(cmds, m.fetchSection(i, section.Filters))
+		if m.store.Begin(i) {
+			cmds = append(cmds, m.fetchSection(i, section.Filters))
+		}
 	}
-	// Every section is already on its way; the refresh is the one running.
-	if len(cmds) == 0 {
+	if len(started) == 0 {
 		return m, nil
 	}
 
@@ -704,6 +704,10 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.detail.SetFiles(held))
 		}
 		cmds = append(cmds, m.fetchFiles(msg.ID, pr.Repository, pr.Number, pr.ChangedFiles))
+	} else if msg.Files && m.store.Files(msg.ID).Status == store.StatusLoading {
+		// Already out, so wait on it the way the detail above is waited on: a
+		// summary that skipped it named half of what r asked for.
+		started.files = leg{key: msg.ID}
 	}
 	if msg.SHA != "" && m.store.BeginCommitFiles(msg.SHA) {
 		started.commit = leg{key: msg.SHA}
@@ -711,6 +715,8 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 			m.detail.SetCommitFiles(msg.SHA, held)
 		}
 		cmds = append(cmds, m.fetchCommitFiles(pr.Repository, msg.SHA))
+	} else if msg.SHA != "" && m.store.CommitFiles(msg.SHA).Status == store.StatusLoading {
+		started.commit = leg{key: msg.SHA}
 	}
 	// Everything this refresh would have asked for is already on its way.
 	if !started.running() {
@@ -1009,8 +1015,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sectionPollFailedMsg:
 		// Stamped like any other answer: a beat nobody asked for costs one
 		// interval when it fails, rather than being retried on the next.
-		m.store.PollFailed(msg.index)
 		m.poller.stampSection(msg.index, len(m.store.Sections()), time.Now())
+		// A refresh adopted this one, so the reader did ask. It gets the answer a
+		// manual fetch gets: the error on the tab and a place in the summary.
+		if slices.Contains(m.refreshing, msg.index) {
+			m.store.Failed(msg.index, msg.err)
+			return m.sectionSettled()
+		}
+		m.store.PollFailed(msg.index)
 		return m, nil
 
 	case spinner.TickMsg:
@@ -1058,7 +1070,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.store.DetailFailed(msg.id, msg.err)
 		m.poller.stampDetail(msg.id, time.Now())
 		m.poller.stampPageFailed(msg.id, time.Now())
-		return m, nil
+		// Unless r adopted this flight. A leg nobody claims never ends: the bar
+		// spins for the rest of the session and the summary never lands.
+		cmd, _ := m.claim(legDetail, msg.id, msg.err)
+		return m, cmd
 
 	case pollTickMsg:
 		return m.poll(msg)
@@ -1553,9 +1568,8 @@ func helpStyles(th theme.Theme) help.Styles {
 	}
 }
 
-// refreshSummary names what came back. It counts sections rather than rows,
-// because sections are what a refresh covers, and only the ones it started: a
-// section left in flight is not a section this refresh can claim.
+// refreshSummary names what came back. It counts sections rather than rows, and
+// only the ones this refresh is waiting on: started or adopted, never neither.
 func refreshSummary(sections []store.Section, started []int) (comp.ToastKind, string) {
 	failed := 0
 	for _, i := range started {

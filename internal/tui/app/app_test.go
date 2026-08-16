@@ -1738,10 +1738,9 @@ func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
 	}
 }
 
-// store.Begin refuses a section already in flight, so a refresh does not always
-// reach every tab. The toast counts what it fetched, not what it asked for, or
-// it claims work it never did and failures it never caused.
-func TestTheRefreshToastCountsOnlyTheSectionsItStarted(t *testing.T) {
+// store.Begin refuses a section already in flight. Dropping it there let the
+// toast count a tab this refresh never refetched, so it waits on it instead.
+func TestTheRefreshWaitsOnASectionAlreadyInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	var m tea.Model = app.New(testConfig(), client)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -1755,15 +1754,17 @@ func TestTheRefreshToastCountsOnlyTheSectionsItStarted(t *testing.T) {
 	sections := initial[1:]
 
 	// One section home, the other still out, and then r: only the settled one
-	// can be refetched.
+	// can be refetched, and the other is adopted where it stands.
 	m, _ = m.Update(sections[0])
 	m, cmd := m.Update(list.RefreshMsg{})
 
-	m = settle(m, sections[1])
 	m = settle(m, responses(cmd)...)
+	if out := stripANSI(render(t, m)); strings.Contains(out, "Refreshed") {
+		t.Error("the toast fired while the section the refresh adopted was still out")
+	}
 
-	if out := render(t, m); !strings.Contains(out, "Refreshed 1 section") {
-		t.Errorf("view = %q, want the toast to count the one section the refresh started", out)
+	if out := stripANSI(render(t, settle(m, sections[1]))); !strings.Contains(out, "Refreshed 2 sections") {
+		t.Errorf("view = %q, want the toast to count the section it waited on", out)
 	}
 }
 
