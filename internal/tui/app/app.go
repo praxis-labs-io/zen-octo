@@ -571,15 +571,11 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	started := make([]int, 0, len(sections))
 	for i, section := range sections {
+		// Begin refuses one already in flight and nothing else, so a section it
+		// turns down has an answer coming: wait on that rather than drop it.
+		started = append(started, i)
 		if m.store.Begin(i) {
-			started = append(started, i)
 			cmds = append(cmds, m.fetchSection(i, section.Filters))
-			continue
-		}
-		// A beat or startup holds this one. Wait on the answer already coming,
-		// the way refreshDetail waits on a detail somebody else asked for.
-		if section.Status == store.StatusLoading {
-			started = append(started, i)
 		}
 	}
 	if len(started) == 0 {
@@ -708,6 +704,10 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.detail.SetFiles(held))
 		}
 		cmds = append(cmds, m.fetchFiles(msg.ID, pr.Repository, pr.Number, pr.ChangedFiles))
+	} else if msg.Files && m.store.Files(msg.ID).Status == store.StatusLoading {
+		// Already out, so wait on it the way the detail above is waited on: a
+		// summary that skipped it named half of what r asked for.
+		started.files = leg{key: msg.ID}
 	}
 	if msg.SHA != "" && m.store.BeginCommitFiles(msg.SHA) {
 		started.commit = leg{key: msg.SHA}
@@ -715,6 +715,8 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 			m.detail.SetCommitFiles(msg.SHA, held)
 		}
 		cmds = append(cmds, m.fetchCommitFiles(pr.Repository, msg.SHA))
+	} else if msg.SHA != "" && m.store.CommitFiles(msg.SHA).Status == store.StatusLoading {
+		started.commit = leg{key: msg.SHA}
 	}
 	// Everything this refresh would have asked for is already on its way.
 	if !started.running() {

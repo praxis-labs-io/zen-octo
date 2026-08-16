@@ -608,7 +608,10 @@ flight gets `Failed`, because the reader did press the key, and a summary readin
 the quiet one would report a failure as a pass. The same hole ran one screen over
 on `pageFailedMsg` and ran worse: it reached the store and never the leg, so a
 refresh that adopted a background page never ended at all and the bar spun for
-the rest of the session.
+the rest of the session. All three legs adopt now, the two diffs included, since
+one leg behaving differently from the others is worse than either behaviour: `r`
+pressed while a diff is still on its way named the pull request and never the
+diff it was waiting on.
 
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 
