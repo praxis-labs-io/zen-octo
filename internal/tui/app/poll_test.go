@@ -181,6 +181,55 @@ func TestAFailedBeatKeepsTheRowsUp(t *testing.T) {
 	}
 }
 
+// A beat holds the section on screen every half minute, so s pressed during one
+// used to refresh every tab except the one being read and call it a success.
+func TestASyncWaitsOnTheSectionABeatIsHolding(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, 160, 44)
+
+	m, held := polling(t, m)
+	m = press(m, "s")
+	if out := stripANSI(render(t, m)); strings.Contains(out, "Refreshed") {
+		t.Error("the sync reported itself while the section on screen was still out")
+	}
+
+	if out := stripANSI(render(t, settle(m, held...))); !strings.Contains(out, "Refreshed 2 sections") {
+		t.Errorf("view = %q, want the sync to count the section it adopted", out)
+	}
+}
+
+// PollFailed keeps the rows and the ready status, which is right for a beat and
+// wrong for one somebody is waiting on: the summary would call a failure a pass.
+func TestASyncReportsTheBeatItAdoptedFailing(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, 160, 44)
+
+	client.err = errors.New("502 Bad Gateway")
+	m, held := polling(t, m)
+	client.err = nil
+
+	out := stripANSI(render(t, settle(press(m, "s"), held...)))
+	if !strings.Contains(out, "1 failed") {
+		t.Errorf("view = %q, want the sync to report the flight it adopted failing", out)
+	}
+	if !strings.Contains(out, "Failed to load") {
+		t.Errorf("the tab kept its rows over a failure the reader asked for:\n%s", out)
+	}
+}
+
+// polling sends one beat and holds its answer, which is the section on screen
+// left in flight: the state a sync pressed a moment later has to reckon with.
+func polling(t *testing.T, m tea.Model) (tea.Model, []tea.Msg) {
+	t.Helper()
+
+	m, cmd := m.Update(app.PollTick(time.Now().Add(app.PollIdle + time.Second)))
+	held := responses(cmd)
+	if len(held) != 1 {
+		t.Fatalf("setup: the beat produced %d responses, want the one section on screen", len(held))
+	}
+	return m, held
+}
+
 // The contrast that makes the point: the key the reader pressed does report it.
 func TestAFailedSyncStillSaysSoOnTheList(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}

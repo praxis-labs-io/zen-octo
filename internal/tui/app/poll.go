@@ -14,9 +14,12 @@ import (
 // is a comparison rather than a clock read inside Update.
 type pollTickMsg struct{ at time.Time }
 
-// sectionPollFailedMsg is a background section fetch that did not answer. It
-// carries no error, the way pulseFailedMsg carries none, and for that reason.
-type sectionPollFailedMsg struct{ index int }
+// sectionPollFailedMsg is a background section fetch that did not answer. The
+// error rides along for the one reader waiting on it: a refresh that adopted it.
+type sectionPollFailedMsg struct {
+	index int
+	err   error
+}
 
 // pageFailedMsg is a background page fetch that did not answer. It reaches the
 // store and never the screen: nobody asked for this one, so nothing reports it.
@@ -219,7 +222,7 @@ func (m Model) pollSection(index int, query string) tea.Cmd {
 
 		res, err := client.SearchPullRequests(ctx, config.ExpandQuery(query, time.Now()), limit)
 		if err != nil {
-			return sectionPollFailedMsg{index: index}
+			return sectionPollFailedMsg{index: index, err: err}
 		}
 		return sectionFetchedMsg{index: index, res: res}
 	}
