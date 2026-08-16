@@ -209,11 +209,20 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 	// everything it does not recognise onto it, so an empty string never
 	// reaches the app and a fixture carrying one would not be a fixture of
 	// anything.
-	f.details[id] = gh.PullRequestDetail{
+	detail := gh.PullRequestDetail{
 		Body:   body,
 		Merge:  gh.MergeUnknown,
 		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 	}
+	// Seeded with the row and a rollup summarising it. A pulse answers off this
+	// without the echo a fetch gets, so a bare one has the first recheck moving.
+	for _, pr := range f.prs {
+		if pr.ID == id {
+			detail.PullRequest = pr
+			detail.Rollup = gh.CheckRollup{State: pr.Checks}
+		}
+	}
+	f.details[id] = detail
 }
 
 // serveLabels stages the labels one pull request carries.

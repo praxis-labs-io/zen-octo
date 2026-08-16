@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -42,21 +43,27 @@ func (m Model) fetchPulse(id string) tea.Cmd {
 	}
 }
 
-// pulseSettled pushes the answer onto the screen still showing it. It registers
-// no refresh leg, so nothing spins and nothing toasts.
-func (m Model) pulseSettled(id string) (tea.Model, tea.Cmd) {
-	// The fold wrote the pull request back over the row search returned.
-	m.list.SetSections(m.store.Sections())
-
+// pulseSettled pushes the answer onto the screen still showing it, and pushes
+// nothing where nothing moved: on a timer, a relayout a beat is a hitch a beat.
+func (m Model) pulseSettled(id string, moved bool) (tea.Model, tea.Cmd) {
 	// Overtaken by a write, so the store dropped it. Nothing else would ask
 	// again: the probe spends one wait, and the row would latch on "Checking".
 	var owed tea.Cmd
 	if m.store.StalePulse(id) {
 		owed = m.pulse(id)
 	}
+	// A dropped pulse reports the same false, and means it: it wrote nothing.
+	if !moved {
+		return m, owed
+	}
+
+	// The fold wrote the pull request back over the row search returned.
+	m.list.SetSections(m.store.Sections())
 
 	if m.screen != screenDetail || m.detail.PullRequest().ID != id {
 		return m, owed
 	}
-	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(id)), owed)
+	// A comment or a review is not on this wire, so the page may owe a real
+	// fetch. The tab on screen is what decides whether to spend it.
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(id)), m.correctTimeline(id, time.Now()), owed)
 }

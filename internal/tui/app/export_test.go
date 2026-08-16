@@ -2,9 +2,18 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// PollTick is one beat of the background poll, for a test outside this package
+// to fire by hand. It carries its instant, so a test names when it fired.
+func PollTick(at time.Time) tea.Msg { return pollTickMsg{at: at} }
+
+// PollIdle is the interval a settled pull request and the list are re-asked on,
+// so a test can step past it rather than restate the number.
+const PollIdle = pollIdle
 
 // MergeProbe is the wait the mergeability probe arms, for a test outside this
 // package to fire by hand.

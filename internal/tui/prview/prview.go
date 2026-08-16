@@ -1256,6 +1256,10 @@ func (m Model) sideHeight() int {
 // PullRequest is what the screen is showing.
 func (m Model) PullRequest() gh.PullRequest { return m.pr }
 
+// ShowsTimeline is whether the conversation is the tab up. It is the only tab a
+// comment, a review or a label reaches, and the only one worth a refetch.
+func (m Model) ShowsTimeline() bool { return m.railTab() }
+
 // Keys is the keymap live while this screen is up.
 func (m Model) Keys() keys.DetailMap { return keys.Detail }
 

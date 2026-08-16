@@ -239,6 +239,10 @@ type Model struct {
 	detailRefreshing detailRefresh
 	refreshSpin      comp.Spinner
 
+	// poller is the background beat's own bookkeeping, kept apart from the two
+	// above because nothing it starts is a refresh anybody asked for.
+	poller poller
+
 	width  int
 	height int
 }
@@ -335,7 +339,9 @@ func New(cfg *config.Config, client GitHub) Model {
 // section. tea.Batch runs its commands concurrently, which is the whole of the
 // concurrency here: no goroutine of ours touches the model.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer()}
+	// The background beat starts here and is armed nowhere else, which is what
+	// keeps it to one chain for the life of the session.
+	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll()}
 	for i, section := range m.store.Sections() {
 		cmds = append(cmds, m.fetchSection(i, section.Filters))
 	}
@@ -992,11 +998,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// No staleness guard: store.Begin refuses a section that already has a
 		// request out, so a response always belongs in the slot it names.
 		m.store.Applied(msg.index, msg.res)
+		m.poller.stampSection(msg.index, len(m.store.Sections()), time.Now())
 		return m.sectionSettled()
 
 	case sectionFailedMsg:
 		m.store.Failed(msg.index, msg.err)
+		m.poller.stampSection(msg.index, len(m.store.Sections()), time.Now())
 		return m.sectionSettled()
+
+	case sectionPollFailedMsg:
+		// Stamped like any other answer: a beat nobody asked for costs one
+		// interval when it fails, rather than being retried on the next.
+		m.store.PollFailed(msg.index)
+		m.poller.stampSection(msg.index, len(m.store.Sections()), time.Now())
+		return m, nil
 
 	case spinner.TickMsg:
 		// Both screens get every tick, and each drops the ones that are not its
@@ -1013,26 +1028,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case detailFetchedMsg:
-		// Before the response replaces what is held: a first landing is what
-		// the probe is armed on, and by the next line there is no telling one
-		// from a refetch.
+		// Before the response replaces what is held: the probe arms on a first
+		// landing, and past this line one cannot be told from a refetch.
 		probe := m.probeMergeability(msg.id, msg.res)
 
 		m.store.DetailApplied(msg.id, msg.res)
+		m.poller.stampDetail(msg.id, time.Now())
 		model, cmd := m.detailSettled(msg.id, nil)
 		return model, tea.Batch(cmd, probe)
 
 	case detailFailedMsg:
 		m.store.DetailFailed(msg.id, msg.err)
+		m.poller.stampDetail(msg.id, time.Now())
 		return m.detailSettled(msg.id, msg.err)
 
 	case pulseFetchedMsg:
-		m.store.PulseApplied(msg.id, msg.res)
-		return m.pulseSettled(msg.id)
+		moved := m.store.PulseApplied(msg.id, msg.res)
+		m.poller.stampDetail(msg.id, time.Now())
+		return m.pulseSettled(msg.id, moved)
 
 	case pulseFailedMsg:
 		m.store.PulseFailed(msg.id)
+		m.poller.stampDetail(msg.id, time.Now())
 		return m, nil
+
+	case pageFailedMsg:
+		// The store keeps what it held and the screen is told nothing. The debt
+		// stands, and the stamp is what keeps it from being retried every beat.
+		m.store.DetailFailed(msg.id, msg.err)
+		m.poller.stampDetail(msg.id, time.Now())
+		m.poller.stampPageFailed(msg.id, time.Now())
+		return m, nil
+
+	case pollTickMsg:
+		return m.poll(msg)
 
 	case filesFetchedMsg:
 		m.store.FilesApplied(msg.id, msg.res)

@@ -166,6 +166,10 @@ type Store struct {
 	pulsing    map[string]bool
 	stalePulse map[string]bool
 
+	// staleTimeline is the debt a pulse leaves when GitHub's instant moved: a
+	// comment or a review it cannot carry, which only a full fetch holds.
+	staleTimeline map[string]bool
+
 	// seq orders a section's fetch against the rows written into it since, so a
 	// response that predates a write cannot land on top of one.
 	seq        int
@@ -189,8 +193,9 @@ func New(sections []config.Section) Store {
 
 		// Built here rather than on first write, because the only writer runs on
 		// a copy of the model: a map made there is dropped with the copy.
-		pulsing:    make(map[string]bool),
-		stalePulse: make(map[string]bool),
+		pulsing:       make(map[string]bool),
+		stalePulse:    make(map[string]bool),
+		staleTimeline: make(map[string]bool),
 	}
 }
 
@@ -230,6 +235,8 @@ func (s *Store) BeginAll() {
 	}
 }
 
+// nextSeq is the one write here a caller can lose: an int where the rest of
+// this store lands in a map or a slice and survives being made on a copy.
 func (s *Store) nextSeq() int {
 	s.seq++
 	return s.seq
@@ -301,6 +308,21 @@ func (s *Store) Failed(i int, err error) {
 	}
 	s.sections[i].Status = StatusFailed
 	s.sections[i].Err = err
+}
+
+// PollFailed ends a background poll's flight and keeps everything held, the
+// error state included. A request nobody made must not take the rows off screen.
+func (s *Store) PollFailed(i int) {
+	if i < 0 || i >= len(s.sections) || s.sections[i].Status != StatusLoading {
+		return
+	}
+	// Back to whichever answer the section last had. Applied clears the error, so
+	// one still held means the last real answer failed and the reader was told.
+	if s.sections[i].Err != nil {
+		s.sections[i].Status = StatusFailed
+		return
+	}
+	s.sections[i].Status = StatusReady
 }
 
 // Detail is what is held for a pull request, with whatever is still in flight
@@ -678,6 +700,9 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		s.put(id, held)
 		return
 	}
+	// The whole page is what the debt was for, and this is it. The dropped path
+	// above leaves it standing, because that response was never stored.
+	delete(s.staleTimeline, id)
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
 	s.syncRow(id)
 }
@@ -751,6 +776,19 @@ func (s *Store) markFilesStale(id string) {
 		s.staleFiles = make(map[string]bool)
 	}
 	s.staleFiles[id] = true
+}
+
+// StaleTimeline reports whether the pull request has changed in ways a pulse
+// cannot carry. A caller showing the conversation owes a full fetch.
+func (s Store) StaleTimeline(id string) bool { return s.staleTimeline[id] }
+
+// markTimelineStale records that GitHub's instant moved under a pulse.
+// Unconditional, for the reason markFilesStale is.
+func (s *Store) markTimelineStale(id string) {
+	if id == "" {
+		return
+	}
+	s.staleTimeline[id] = true
 }
 
 // DetailFailed puts a pull request into its error state, keeping whatever it
