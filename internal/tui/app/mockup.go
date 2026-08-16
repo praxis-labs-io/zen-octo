@@ -300,6 +300,23 @@ func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error
 	}, nil
 }
 
+// Pulse answers with the fixture's own fields, so nothing moves under a recheck.
+func (Mock) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
+	d := mockDetail()
+	return gh.PulseResult{
+		Pulse: gh.Pulse{
+			State:          d.State,
+			IsDraft:        d.IsDraft,
+			ReviewDecision: d.ReviewDecision,
+			Merge:          d.Merge,
+			Rollup:         d.Rollup,
+			UpdatedAt:      d.UpdatedAt,
+			HeadRefOid:     d.HeadRefOid,
+		},
+		RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4818},
+	}, nil
+}
+
 // PullRequestFiles answers with one diff whatever is asked for. It covers what
 // the Files tab has to tell apart: nesting deep enough to fold, a rename, a
 // file with no patch, and lines two of the fixture's review threads anchor to.

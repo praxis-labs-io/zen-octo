@@ -161,6 +161,11 @@ type Store struct {
 	staleFetch map[string]bool
 	staleFiles map[string]bool
 
+	// pulsing is the cheap rechecks in flight, stalePulse the ones overtaken.
+	// Here rather than on Detail, which DetailApplied rebuilds from nothing.
+	pulsing    map[string]bool
+	stalePulse map[string]bool
+
 	// seq orders a section's fetch against the rows written into it since, so a
 	// response that predates a write cannot land on top of one.
 	seq        int
@@ -181,6 +186,11 @@ func New(sections []config.Section) Store {
 		commits:  make(map[string]Files),
 		repos:    make(map[string]Repo),
 		branches: make(map[string]Branches),
+
+		// Built here rather than on first write, because the only writer runs on
+		// a copy of the model: a map made there is dropped with the copy.
+		pulsing:    make(map[string]bool),
+		stalePulse: make(map[string]bool),
 	}
 }
 
@@ -636,6 +646,8 @@ func (s *Store) BeginDetail(id string) bool {
 	// This one is being asked for now, so it will answer with everything that
 	// has settled so far.
 	delete(s.staleFetch, id)
+	// A pulse already out answers less and answers later, so it is overtaken.
+	s.markPulseStale(id)
 
 	held.Status = StatusLoading
 	s.put(id, held)
@@ -667,12 +679,13 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		return
 	}
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
-	s.syncRow(res.Detail.PullRequest)
+	s.syncRow(id)
 }
 
-// syncRow writes a row back over every section holding that pull request. A
-// detail builds one exactly as search does, so it is the same row fetched later.
-func (s *Store) syncRow(pr gh.PullRequest) {
+// syncRow writes the folded row back over every section holding that pull
+// request, on the terms restoreRows reads one: a write in flight stays on.
+func (s *Store) syncRow(id string) {
+	pr := s.Detail(id).Detail.PullRequest
 	if pr.ID == "" {
 		return
 	}
@@ -707,6 +720,10 @@ func (s Store) StaleDetail(id string) bool { return s.staleFetch[id] }
 // settled. Only while one is actually out: with nothing in flight the next
 // fetch is asked for after the write and carries it.
 func (s *Store) markStale(id string) {
+	// A pulse flies under its own flag rather than Status, so every write that
+	// invalidates a fetch has to invalidate one here too.
+	s.markPulseStale(id)
+
 	if s.details[id].Status != StatusLoading {
 		return
 	}

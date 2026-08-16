@@ -180,9 +180,8 @@ func TestAFailedMergePutsTheStateBack(t *testing.T) {
 	}
 }
 
-// GitHub computes mergeability lazily and the first query is what starts it, so
-// a pull request nothing has looked at recently answers UNKNOWN and has a real
-// answer a moment later.
+// GitHub computes mergeability lazily and the first query starts it, so a cold
+// pull request answers UNKNOWN. The probe re-asks as a pulse, not as a page.
 func TestADetailThatCannotSayWhetherItMergesIsAskedAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -194,8 +193,11 @@ func TestADetailThatCannotSayWhetherItMergesIsAskedAgain(t *testing.T) {
 	client.serveMergeable("PR_412")
 	m = settle(m, app.MergeProbe("PR_412"))
 
-	if got := len(client.opened()); got != before+1 {
-		t.Fatalf("the detail was fetched %d more times, want exactly one probe", got-before)
+	if got := len(client.pulsed()); got != 1 {
+		t.Fatalf("the probe made %d pulses, want exactly one", got)
+	}
+	if got := len(client.opened()); got != before {
+		t.Errorf("the detail was fetched %d more times, want the probe to cost no page", got-before)
 	}
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Ready to merge") {
 		t.Errorf("the probe's answer is not on the rail:\n%s", out)
@@ -218,6 +220,9 @@ func TestTheProbeAsksNothingOnceTheAnswerIsIn(t *testing.T) {
 
 	if got := len(client.opened()); got != before {
 		t.Errorf("the detail was fetched %d more times, want none", got-before)
+	}
+	if got := client.pulsed(); len(got) != 0 {
+		t.Errorf("the probe rechecked %v, want nothing asked once the answer is in", got)
 	}
 }
 
@@ -275,6 +280,11 @@ func TestAProbeSwallowedByAFetchInFlightIsArmedAgain(t *testing.T) {
 	_, cmd := m.Update(app.MergeProbe("PR_412"))
 	if cmd == nil {
 		t.Fatal("the probe was swallowed by the fetch in flight and nothing was armed to ask again")
+	}
+	// What it armed is the wait, not a recheck: the fetch already out answers
+	// everything a pulse would and would land after it.
+	if got := client.pulsed(); len(got) != 0 {
+		t.Errorf("the probe rechecked %v under a fetch already in flight", got)
 	}
 }
 

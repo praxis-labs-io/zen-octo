@@ -34,6 +34,7 @@ type GitHub interface {
 	Viewer(ctx context.Context) (gh.ViewerResult, error)
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
+	Pulse(ctx context.Context, id string) (gh.PulseResult, error)
 	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
@@ -1024,6 +1025,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailFailedMsg:
 		m.store.DetailFailed(msg.id, msg.err)
 		return m.detailSettled(msg.id, msg.err)
+
+	case pulseFetchedMsg:
+		m.store.PulseApplied(msg.id, msg.res)
+		return m.pulseSettled(msg.id)
+
+	case pulseFailedMsg:
+		m.store.PulseFailed(msg.id)
+		return m, nil
 
 	case filesFetchedMsg:
 		m.store.FilesApplied(msg.id, msg.res)

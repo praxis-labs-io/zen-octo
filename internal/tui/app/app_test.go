@@ -38,6 +38,7 @@ type fakeSearcher struct {
 	prs         []gh.PullRequest
 	queries     []string
 	opens       []string
+	pulses      []string
 	diffs       []string
 	commitDiffs []string
 	details     map[string]gh.PullRequestDetail
@@ -74,6 +75,7 @@ type fakeSearcher struct {
 	// zero to leave the count alone.
 	retargetedFiles int
 	detailErr       error
+	pulseErr        error
 	filesErr        error
 	commitErr       error
 	postErr         error
@@ -154,6 +156,38 @@ func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailRe
 		return gh.DetailResult{}, err
 	}
 	return gh.DetailResult{Detail: detail, RateLimit: f.rate}, nil
+}
+
+// Pulse answers off the same staged detail, so serveMergeable stages a recheck
+// as readily as a fetch. Recorded apart from opens, which is what tells them apart.
+func (f *fakeSearcher) Pulse(_ context.Context, id string) (gh.PulseResult, error) {
+	f.mu.Lock()
+	f.pulses = append(f.pulses, id)
+	held, err := f.details[id], f.pulseErr
+	f.mu.Unlock()
+
+	if err != nil {
+		return gh.PulseResult{}, err
+	}
+	return gh.PulseResult{
+		Pulse: gh.Pulse{
+			State:          held.State,
+			IsDraft:        held.IsDraft,
+			ReviewDecision: held.ReviewDecision,
+			Merge:          held.Merge,
+			Rollup:         held.Rollup,
+			UpdatedAt:      held.UpdatedAt,
+			HeadRefOid:     held.HeadRefOid,
+		},
+		RateLimit: f.rate,
+	}, nil
+}
+
+// pulsed is every recheck that reached the client, in order.
+func (f *fakeSearcher) pulsed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.pulses)
 }
 
 // serveDetail stages one pull request's conversation. It is per id because a
@@ -860,6 +894,10 @@ func (f *querySearcher) SearchPullRequests(_ context.Context, query string, _ in
 
 func (f *querySearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	return gh.DetailResult{Detail: gh.PullRequestDetail{PullRequest: gh.PullRequest{ID: id}}}, nil
+}
+
+func (f *querySearcher) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
+	return gh.PulseResult{}, nil
 }
 
 func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {

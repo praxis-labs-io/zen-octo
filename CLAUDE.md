@@ -283,7 +283,8 @@ either, but that one is a wait rather than an answer: GitHub computes
 mergeability lazily and the query that reads it is what starts the computation,
 so a pull request nothing has looked at recently opens on "Checking" and the row
 is inert. One probe is armed for that, on the first landing in a session alone,
-which is what keeps it to a single extra request rather than a loop.
+which is what keeps it to a single extra request rather than a loop. It re-asks
+as a pulse rather than as a page.
 
 **The commit message is GitHub's own, per method**, from
 `viewerMergeHeadlineText` and `viewerMergeBodyText`: the repository decides
@@ -469,11 +470,56 @@ both, cannot produce the shape this bug lives in.
 
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
 
+A detail is not the only question this asks about a pull request. `gh.Pulse` is
+the small one beside it: the lifecycle, the review decision, mergeability,
+`updatedAt`, `headRefOid` and the head commit's check rollup. It asks for no
+branch comparison, which is what lets a merged pull request answer it cleanly
+where the detail query survives only through `deletedHeadRef`.
+`rollupSelection` and `rollupNode` are shared by the two documents rather than
+written twice, so one of them changing shape cannot leave the other decoding
+the old one.
+
+**What makes it cheap is the payload, not the point.** Every query this client
+sends costs one point of the five thousand an hour: a section search, a detail,
+a pulse, measured against the real documents. GitHub bills the requests needed
+to fulfil a call's connections, divided by a hundred with a minimum of one, and
+the five hundred thousand nodes a call may name is a separate ceiling that
+nothing here comes near. Reading the node count as the price says the detail
+query costs fifty-six, and that number was wrong wherever it was written down.
+What the two documents really differ by is what comes back: on a pull request
+with two hundred and twenty-five review threads, four and a third megabytes
+against three hundred and thirteen bytes. So the budget was never what stopped
+this being asked often. Bandwidth is, and the relayout a landed answer costs.
+
+`PulseApplied` writes those fields over the held detail one at a time, where
+`DetailApplied` replaces the struct. The timeline, threads, reviewers,
+permissions, `BehindBy` and the merge messages are not on the wire, and a zero
+written over any of them empties a page for a refresh nobody asked for. A moved
+`headRefOid` is the one thing on it that says somebody pushed, so it marks the
+diff stale; the fold ends in `syncRow`, so a pull request merged in the browser
+reaches the row behind the screen for no extra request.
+
+Two maps carry it, `pulsing` and `stalePulse`, and they are on the `Store`
+rather than on `Detail` for a reason worth keeping: `DetailApplied` builds a
+fresh `Detail{}`, so a flag written there is dropped by the next fetch without
+anything failing. `StateWriting` and `BaseWriting` are already derived at read
+time rather than stored, and staleness already lives in maps beside these, so
+this is where per-pull-request bookkeeping goes. Ordering runs both ways. A
+pulse never starts under a full fetch, because that fetch answers everything the
+pulse would and answers it later. The reverse has to stay open, since `s`, a
+write's correction and the probe all run while a pulse is out, so `BeginDetail`
+marks the pulse stale and the overtaken answer is dropped. `markStale` marks it
+too, on its own first line rather than at each of its twelve call sites: a write
+that invalidates a fetch invalidates a pulse, and making that structural is what
+stops the thirteenth write path forgetting. Timestamps cannot do this job, since
+a check turning green and a `mergeStateStatus` settling both leave `updatedAt`
+where it was, so two responses can carry the same instant and disagree.
+
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 
 The two lists of people are two connections because they are two sets. `assignableUsers` is who may be given the pull request or asked for a review; `mentionableUsers` is the wider one, everybody who has taken part, which is who an answer is usually addressed to. `gh.Mention` is its own type rather than an `Actor` with a name on it: an `Actor` carries a node id because the lists a picker writes back are addressed by one, a mention is inserted as text and has none, and typing it as an `Actor` would let a list of people with no id compile straight into `assigneeChoices` and be matched on the id every one of them is missing.
 
-A detail is the same row search returned, fetched later: `internal/gh` builds the two field for field the same way, down to counting comments as the conversation plus its review threads. So `syncRow` writes a landed detail back over every section carrying that pull request, and a lifecycle change made on the rail corrects the list behind it with no request of its own. Which section a pull request belongs to is a search query and stays GitHub's answer; the row's own fields are all this reaches, so a closed pull request keeps its place in an `is:open` tab until the next fetch and sits under the Closed group meanwhile.
+A detail is the same row search returned, fetched later: `internal/gh` builds the two field for field the same way, down to counting comments as the conversation plus its review threads. So `syncRow` writes a landed detail back over every section carrying that pull request, and a lifecycle change made on the rail corrects the list behind it with no request of its own. It reads the folded row rather than being handed one, on the terms `restoreRows` reads one: a write applied here and not yet answered for is on the screen, and a response that knows nothing about it must not take it off the list. Taking the row from the caller put that decision at five call sites, and the one added last got it wrong. Which section a pull request belongs to is a search query and stays GitHub's answer; the row's own fields are all this reaches, so a closed pull request keeps its place in an `is:open` tab until the next fetch and sits under the Closed group meanwhile.
 
 Two of a reviewer's fields are derived rather than fetched, and the rail colours them: `Unresolved` and `Threads`, which is how a reviewer who only commented still reads as blocking while their threads are open, and how a changes-requested review whose every thread has been dealt with goes amber instead of red. Nothing on the wire carries either, so anything moving a thread here has to recompute them or the mark sits where the last fetch left it. `gh.RecountThreads` is the one implementation, called at the end of the detail's own parse and again by the store wherever threads change, reading `ReviewThread.ReviewID` against the timeline's review items rather than the response it came in. It runs on any thread change rather than on a resolve alone, because a comment deleted takes its thread with it. Both callers clone the panel first, on the terms the threads are cloned.
 

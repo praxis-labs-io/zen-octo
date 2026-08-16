@@ -200,9 +200,8 @@ func (m Model) probeMergeability(id string, res gh.DetailResult) tea.Cmd {
 	return tea.Tick(mergeProbeDelay, func(time.Time) tea.Msg { return mergeProbeMsg{id: id} })
 }
 
-// mergeProbe asks the question again. correctDetail registers no refresh leg,
-// so the answer lands on the screen the ordinary way with no "Refreshed" behind
-// it.
+// mergeProbe asks the question again, as a pulse: mergeability is one of the
+// fields it carries, and the whole page is megabytes to read one of them.
 //
 // A wait that runs out on a question already answered asks nothing: the answer
 // can arrive from the sync key or from a write's own refetch while this is still
@@ -219,7 +218,7 @@ func (m Model) mergeProbe(msg mergeProbeMsg) (tea.Model, tea.Cmd) {
 	if m.store.Detail(msg.id).Detail.Merge != gh.MergeUnknown {
 		return m, nil
 	}
-	if cmd := m.correctDetail(msg.id); cmd != nil {
+	if cmd := m.pulse(msg.id); cmd != nil {
 		return m, cmd
 	}
 	return m, tea.Tick(mergeProbeDelay, func(time.Time) tea.Msg { return msg })
