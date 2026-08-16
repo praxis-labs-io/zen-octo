@@ -110,7 +110,7 @@ Scratch, never committed. `docs/` describes only what is true today. Durable con
 Package boundaries that matter:
 
 - **`internal/gh` is the only package that touches the network.** It returns domain types, never raw API structs, so everything above it is testable against a fake. Two transports, two seams: `graphQLDoer` for everything, `restDoer` for the diff alone, because GraphQL has no field carrying a patch.
-- **`internal/store` owns fetched state and refresh timing.** Views read from it, they never fetch.
+- **`internal/store` owns fetched state and what is owed a refetch.** Views read from it, they never fetch. It owns no clock: ordering is a counter and staleness is a mark, and every duration in this repo sits in the TUI layer, where the timers are.
 - **`internal/tui/*` packages never import each other sideways.** Shared widgets live in `internal/tui/comp`.
 
 Writes are optimistic: apply locally, toast, reconcile on response, revert on error. Every write path needs the revert branch, not just the happy one.
@@ -514,6 +514,69 @@ that invalidates a fetch invalidates a pulse, and making that structural is what
 stops the thirteenth write path forgetting. Timestamps cannot do this job, since
 a check turning green and a `mergeStateStatus` settling both leave `updatedAt`
 where it was, so two responses can carry the same instant and disagree.
+
+Nothing asked for any of it until a beat did. `pollTickMsg` is one self-arming
+tick at `pollBeat`, armed in `Init` and in its own handler and nowhere else:
+one chain with one starting point, which is the whole defence against two of
+them running at double the rate. The probe next door can avoid that by arming
+only on a state transition, and the spinner by tagging, because both are chains
+that end; this one never ends, so it cannot be re-armed from anywhere. It
+carries the instant it fired, and every interval here is a comparison against
+that rather than a clock read inside `Update`, which is what lets a test fire a
+beat from any point in time it likes. **Only the screen in front of the reader
+polls**: the detail's own pull request, or the one section the tab strip is on,
+never both and never a tab nobody is looking at. A beat under `Capturing()`
+asks for nothing at all and still arms the next, because a chain that ended
+where it found no work would never restart.
+
+Freshness is measured from when something last answered rather than from when
+it was asked, and the stamps live on the root beside the two refresh trackers,
+not in the store. A failure stamps too: a beat that could not reach GitHub costs
+one interval rather than being retried on every beat after it, which is also
+what answers a pulse that failed leaving the Merge row on "Checking". **Only
+what has already answered is polled at all**, which is why a zero stamp is never
+due: `Init` fetches every section without calling `Begin`, and a first beat
+reading a zero as due would fire a duplicate of a request still in flight.
+
+`pollBeat` is also the interval for a pull request that is still moving, which is
+checks running or a mergeability GitHub has not worked out; `pollIdle` is
+everything else and the list. The list cannot usefully go faster: search indexing
+lags up to a minute, so asking twice inside one returns the same rows. Neither
+can the budget be what stops this. Every query costs one point of five thousand
+an hour, and a beat on each screen at these intervals is under a fifth of it, so
+the minimum-interval floor and the backpressure earlier drafts called for guard a
+threat that does not exist.
+
+**What does cost is rendering, and that is why `PulseApplied` reports whether
+anything moved.** `prview.SetDetail` drops both render caches and relayouts, 7
+to 12.7ms and 27ms a keystroke with a compose box open, and it has no early-out
+of its own. Pushed on every beat that would be a hitch every beat for a pull
+request sitting still, so `pulseSettled` pushes nothing where nothing moved.
+`pulseMoved` sits beside the fold and compares the same fields it writes, which
+is what stops a ninth being written and left uncompared. A pulse the store
+dropped reports the same false and means it: it wrote nothing. None of this
+shows in a frame, since the same detail draws the same page; arming the commit
+debounce is the one place calling `SetDetail` can be told from not calling it,
+and that is where the test stands.
+
+A moved `updatedAt` is the other half. It is the only thing on this wire that
+reports a comment, a review or a label, and it carries none of them, so it marks
+`staleTimeline` and only a full fetch pays that debt. `correctTimeline` spends it
+behind `ShowsTimeline()`, because the conversation is the only tab any of it
+reaches and the page is megabytes; the debt keeps until the reader goes there,
+and the beat is what notices when they do. It is `staleFiles` one field over,
+down to being marked unconditionally and cleared where the fetch it was for
+lands.
+
+A polled section needs a failure of its own. `Failed` puts a section into its
+error state and the list renders that **instead of** its rows, so a background
+poll going through it would replace a list the reader is reading fine with a
+message about a request they never made. `PollFailed` ends the flight and keeps
+everything held, which is `PulseFailed`'s argument one screen over; ending it is
+the other half of the job, since a section left loading would have `Begin` refuse
+every poll after it. Nothing else about a poll is visible: `spinning` is false
+for a section that has already loaded, so a reload draws no spinner, and neither
+path takes a refresh leg, so the bar neither spins nor speaks.
 
 Beside those it keeps one set of choices per repository, keyed by `owner/name`: the labels, the assignable users, the mentionable users, the branches, and which merge methods the repository allows. They belong to the repository rather than to any pull request, so they outlive the screen that asked and are fetched once. `BeginRepoMeta` refuses one already loaded as well as one in flight; `InvalidateRepoMeta` is what lets a sync reach them.
 

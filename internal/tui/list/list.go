@@ -286,6 +286,10 @@ func (m Model) Selected() (gh.PullRequest, bool) { return m.rows.pr(m.cursor) }
 // Section is the section currently on screen.
 func (m Model) Section() store.Section { return m.activeSection() }
 
+// ActiveIndex is where that section sits. The store keys sections by position,
+// so refetching the one on screen takes the number rather than the value.
+func (m Model) ActiveIndex() int { return m.active }
+
 func (m Model) activeSection() store.Section {
 	if m.active < 0 || m.active >= len(m.sections) {
 		return store.Section{}

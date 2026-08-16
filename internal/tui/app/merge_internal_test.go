@@ -89,6 +89,12 @@ func TestADetailLandingArmsTheProbe(t *testing.T) {
 // carries runs a command and everything it batches, and reports whether any of
 // them answers with the message type asked for inside the budget.
 func carries[T tea.Msg](cmd tea.Cmd, budget time.Duration) bool {
+	// No command carries nothing, which is a real answer where a caller is
+	// asking whether one was armed at all.
+	if cmd == nil {
+		return false
+	}
+
 	done := make(chan tea.Msg, 1)
 	go func() { done <- cmd() }()
 

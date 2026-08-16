@@ -1,6 +1,10 @@
 package store
 
-import "github.com/zen-octo/zen-octo/internal/gh"
+import (
+	"slices"
+
+	"github.com/zen-octo/zen-octo/internal/gh"
+)
 
 // BeginPulse marks a cheap recheck in flight and reports whether it started. It
 // refuses a detail never fetched: a pulse refreshes a page, it never builds one.
@@ -20,9 +24,9 @@ func (s *Store) BeginPulse(id string) bool {
 	return true
 }
 
-// PulseApplied writes the volatile fields over the held detail, field by field
-// where DetailApplied replaces the struct, and folds the response into the budget.
-func (s *Store) PulseApplied(id string, res gh.PulseResult) {
+// PulseApplied writes the volatile fields over the held detail, folds the budget,
+// and reports whether any of them moved: an unchanged recheck must cost no render.
+func (s *Store) PulseApplied(id string, res gh.PulseResult) bool {
 	delete(s.pulsing, id)
 	s.adopt(res.RateLimit)
 
@@ -30,7 +34,7 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) {
 	// what tells the caller it owes another. BeginPulse clears it.
 	held, ok := s.details[id]
 	if id == "" || !ok || s.stalePulse[id] {
-		return
+		return false
 	}
 
 	// Somebody pushed, so the held diff is measured against a commit that is no
@@ -38,6 +42,12 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) {
 	if res.Pulse.HeadRefOid != held.Detail.HeadRefOid {
 		s.markFilesStale(id)
 	}
+	// A later instant means something this query cannot carry has changed: a
+	// comment, a review, a label. Only a full fetch holds any of it.
+	if res.Pulse.UpdatedAt.After(held.Detail.UpdatedAt) {
+		s.markTimelineStale(id)
+	}
+	moved := pulseMoved(held.Detail, res.Pulse)
 
 	// Everything else is left alone. The timeline, threads, reviewers and
 	// permissions are not on the wire, and a zero over any of them empties a page.
@@ -56,6 +66,29 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) {
 	held.Detail = d
 	s.put(id, held)
 	s.syncRow(id)
+	return moved
+}
+
+// pulseMoved is whether the answer differs from what is held, over the same
+// fields the fold writes. It sits here so a ninth cannot be written uncompared.
+func pulseMoved(held gh.PullRequestDetail, p gh.Pulse) bool {
+	return held.State != p.State ||
+		held.IsDraft != p.IsDraft ||
+		held.ReviewDecision != p.ReviewDecision ||
+		!held.UpdatedAt.Equal(p.UpdatedAt) ||
+		held.HeadRefOid != p.HeadRefOid ||
+		held.Merge != p.Merge ||
+		held.Checks != p.Rollup.State ||
+		rollupMoved(held.Rollup, p.Rollup)
+}
+
+// rollupMoved compares the checks behind the summary. gh.Check is three strings,
+// so the slice compares by value and a re-run that changed nothing reads as such.
+func rollupMoved(held, next gh.CheckRollup) bool {
+	return held.State != next.State ||
+		held.Passed != next.Passed || held.Failed != next.Failed ||
+		held.Pending != next.Pending || held.Skipped != next.Skipped ||
+		!slices.Equal(held.Checks, next.Checks)
 }
 
 // PulseFailed clears the flight and keeps everything held. It takes no error:
