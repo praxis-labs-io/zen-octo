@@ -1311,7 +1311,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// A screen writing a comment or filtering a picker owns the keyboard. q is
 	// a letter in there, and the root's own bindings would each eat one.
-	if m.screen == screenDetail && m.detail.Capturing() {
+	capturing := m.screen == screenDetail && m.detail.Capturing()
+
+	// Below the floor the frame is a message, so a key acts on a screen nobody
+	// can see: a blind enter is a merge. Only the ways out answer.
+	if m.width < minWidth || m.height < minHeight {
+		switch {
+		case msg.String() == "esc":
+			return m.delegate(msg)
+		case key.Matches(msg, keys.Global.Quit) && !capturing:
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	if capturing {
 		return m.delegate(msg)
 	}
 

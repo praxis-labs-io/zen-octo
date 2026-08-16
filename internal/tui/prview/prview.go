@@ -1209,6 +1209,11 @@ func (m Model) railVisible() bool {
 	if !m.railTab() {
 		return false
 	}
+	// An overlaid rail covers the box a comment is written in, which is drawn
+	// down the page rather than over it. It steps aside until the box is done.
+	if !m.railColumn() && m.Composing() {
+		return false
+	}
 	if m.railUserSet {
 		return m.railOn
 	}

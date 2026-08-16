@@ -93,6 +93,32 @@ func TestARailWithRoomForAColumnTakesOne(t *testing.T) {
 	}
 }
 
+// A box is drawn down the page and not over it, so an overlaid rail covers the
+// half of it carrying the button, with d a letter and esc the only way out.
+func TestAnOverlaidRailStepsAsideForABox(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), narrowFrame, 30), "d", "c")
+	if out := stripANSI(m.View()); strings.Contains(out, "Reviewers") {
+		t.Errorf("the rail is still over the box being written in:\n%s", out)
+	}
+	if out := stripANSI(m.View()); !strings.Contains(out, "post") {
+		t.Errorf("the box has no footer, so the rail is not what was covering it:\n%s", out)
+	}
+
+	// Back when the box is done, and without having to be asked for again.
+	if out := stripANSI(press(m, "esc").View()); !strings.Contains(out, "Reviewers") {
+		t.Errorf("the rail did not come back when the box closed:\n%s", out)
+	}
+}
+
+// A column has made room for the box already, so it stays. Stepping aside there
+// would rewrap the conversation around a box that had the width it needed.
+func TestAColumnRailStaysUnderABox(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), wideFrame, 30), "d", "c")
+	if out := stripANSI(m.View()); !strings.Contains(out, "Reviewers") {
+		t.Errorf("the rail gave up its column for a box that fits beside it:\n%s", out)
+	}
+}
+
 // The key that opens the rail is a reader reaching for a control, so it hands
 // the keys over and takes them back. Both widths, since one is the bug's shape.
 func TestOpeningTheRailFocusesIt(t *testing.T) {

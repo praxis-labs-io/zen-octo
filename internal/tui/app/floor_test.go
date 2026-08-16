@@ -151,6 +151,25 @@ func footerRow(t *testing.T, lines []string) int {
 	return 0
 }
 
+// A key under the message acts on a layout nobody can see, and one of them
+// merges. Only the way out of what is open answers.
+func TestKeysUnderTheMessageDoNotReachTheScreen(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := settle(openLabelPicker(t, client), tea.WindowSizeMsg{Width: 30, Height: 8})
+
+	// space toggles a label and enter writes the set. Neither may land here.
+	m = press(m, " ", "enter")
+	if got := client.labelWrites(); len(got) != 0 {
+		t.Errorf("a label set was written from under the message: %v", got)
+	}
+
+	// esc is the exception, or a picker opened before the drag has no way out.
+	m = settle(press(m, "esc"), tea.WindowSizeMsg{Width: 160, Height: 40})
+	if out := stripANSI(render(t, m)); strings.Contains(out, "space toggle") {
+		t.Errorf("esc under the message did not close the picker:\n%s", out)
+	}
+}
+
 // The narrowest frame this client draws still reaches the rail, which is the
 // only route to state, labels, reviewers, assignees and the base branch.
 func TestTheRailReachesTheNarrowestFrame(t *testing.T) {

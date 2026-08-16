@@ -134,7 +134,14 @@ names what it needs and drops what it is where the sentence will not fit, since
 the size a reader can already see is the half worth losing. Nothing is torn down
 under it: `resize` returns early, so a terminal dragged small and back is the
 one it was with whatever was open still open, and the relayout a conversation
-costs is not paid per step of a drag that renders no frame.
+costs is not paid per step of a drag that renders no frame. **What is torn down
+is the keyboard**, everything but the ways out: `ctrl+c`, the `esc` that closes
+what is open, and `q` where nothing has the keys, which is the rule `q` already
+answers to a line further down. The screen is still there under the message and still holds the keys, so
+every one of them acts on a layout nobody can see: a picker takes a space and an
+enter and writes the set it was left holding, which on the labels is every label
+off the pull request, and the merge form's button is one blind enter from a
+merge. Dropping them costs a reader nothing they could have aimed.
 
 Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never sits on the root model.
 
@@ -206,7 +213,15 @@ pane painted over the right of the conversation. The frame under it is
 untouched, so nothing is relaid out on the toggle and the words behind the rail
 are covered rather than rewrapped; it goes on before the pickers, so the modal a
 rail row opens still draws over it. It sits against the right edge and not
-centred, which is where the eye already looks for it. The key hands the keys
+centred, which is where the eye already looks for it. **An overlaid rail steps
+aside for a box**, on `Composing()` and not on `Capturing()`: a picker and the
+merge form are drawn over the page and cover it themselves, where a compose or
+reply box is drawn down the page and gets covered instead, losing the half of
+itself that carries the button. There is no way back out of that one, since `d`
+is a letter while a box has the keys and `esc` closes the box with the draft
+inside it. A column stays put under the same box, because a column already made
+the room and stepping aside there would rewrap the conversation around a box
+that had the width it needed. The key hands the keys
 over as it opens and takes them back as it closes, at both widths rather than
 only the one that needed it: a reader reaching for a control is reaching to use
 it, and a panel over a page that does not take the keys is `j` scrolling
