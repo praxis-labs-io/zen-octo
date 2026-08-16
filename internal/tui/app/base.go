@@ -178,10 +178,12 @@ func (m Model) correctFiles(id string) tea.Cmd {
 	if !m.store.StaleFiles(id) || !m.store.Files(id).Loaded {
 		return nil
 	}
-	if !m.store.BeginFiles(id) {
+	// Ahead of BeginFiles, the way correctDetail and correctTimeline read theirs:
+	// a refusal there leaves the mark set, and this leaves it set too.
+	pr := m.store.Detail(id).Detail.PullRequest
+	if pr.ID == "" || !m.store.BeginFiles(id) {
 		return nil
 	}
-	pr := m.store.Detail(id).Detail.PullRequest
 	return m.fetchFiles(id, pr.Repository, pr.Number, pr.ChangedFiles)
 }
 

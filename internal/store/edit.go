@@ -411,7 +411,7 @@ func (s *Store) settleEdit(id, key string, f editField) (Edit, Detail, bool) {
 		return nil, Detail{}, false
 	}
 
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if !ok || s.laterEdit(id, f) {
 		return nil, Detail{}, false
 	}

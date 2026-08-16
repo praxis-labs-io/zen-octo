@@ -637,6 +637,9 @@ func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, m.detail.Init())
 
 	cmds = append(cmds, m.detail.SetDetail(m.store.Detail(pr.ID)))
+	// Reading a held diff is using it. Without this the cache ages a diff on
+	// time since it was fetched, and one reopened daily still falls out.
+	m.store.UseFiles(pr.ID)
 	cmds = append(cmds, m.detail.SetFiles(m.store.Files(pr.ID)))
 	m.resize()
 	return m, tea.Batch(cmds...)
@@ -862,6 +865,9 @@ func (m Model) needCommit(sha string) (tea.Model, tea.Cmd) {
 	// selecting resets the pane to idle, and a spinner over an idle pane stops
 	// ticking and sits there until the first response happens to land.
 	if held := m.store.CommitFiles(sha); held.Loaded || held.Status == store.StatusLoading {
+		// The commit a reader keeps coming back to is the oldest fetch on a long
+		// branch, and without this it is the first one dropped.
+		m.store.UseCommitFiles(sha)
 		m.detail.SetCommitFiles(sha, held)
 		return m, m.detail.Init()
 	}

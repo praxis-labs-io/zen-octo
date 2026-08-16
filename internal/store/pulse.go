@@ -9,7 +9,7 @@ import (
 // BeginPulse marks a cheap recheck in flight and reports whether it started. It
 // refuses a detail never fetched: a pulse refreshes a page, it never builds one.
 func (s *Store) BeginPulse(id string) bool {
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if id == "" || !ok || !held.Loaded {
 		return false
 	}
@@ -32,7 +32,7 @@ func (s *Store) PulseApplied(id string, res gh.PulseResult) bool {
 
 	// The mark is left standing, the way DetailApplied leaves staleFetch: it is
 	// what tells the caller it owes another. BeginPulse clears it.
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if id == "" || !ok || s.stalePulse[id] {
 		return false
 	}

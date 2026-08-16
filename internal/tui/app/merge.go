@@ -184,8 +184,8 @@ func (m Model) mergeFailed(msg mergeFailedMsg) (tea.Model, tea.Cmd) {
 //
 // It reads the detail the store is still holding, so it has to be called before
 // the response replaces it: a first landing is one with nothing loaded behind
-// it. That is what keeps it to one extra request. A refetch lands over a loaded
-// detail, so a pull request GitHub keeps answering UNKNOWN for is asked twice
+// it, which eviction can make true again. A refetch lands over a loaded detail,
+// so a pull request GitHub keeps answering UNKNOWN for is asked twice an open
 // and then left alone.
 //
 // Merged and closed pull requests are not asked about at all. Nothing is going
