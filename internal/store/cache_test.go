@@ -85,7 +85,7 @@ func TestADetailBeingFetchedIsNotDropped(t *testing.T) {
 
 	openMany(&s, store.DetailCap+1)
 
-	if !s.BeginDetail("PR_fetching") == false {
+	if s.BeginDetail("PR_fetching") {
 		t.Error("the fetch in flight was dropped with the detail it was for")
 	}
 }
@@ -106,6 +106,70 @@ func TestAnEvictedDetailTakesItsDebtsWithIt(t *testing.T) {
 	if s.StaleTimeline("PR_owing") {
 		t.Error("the debt outlived the detail it was owed for")
 	}
+}
+
+// staleFiles is keyed by pull request and belongs to the diff cache, so it grows
+// for the session unless eviction takes it: the leak this bound exists to stop.
+func TestAnEvictedDiffTakesItsDebtWithIt(t *testing.T) {
+	s := store.New(configured())
+	open(&s, "PR_owing")
+	s.BeginFiles("PR_owing")
+	s.FilesApplied("PR_owing", oneFile())
+
+	s.BeginPulse("PR_owing")
+	s.PulseApplied("PR_owing", gh.PulseResult{Pulse: gh.Pulse{HeadRefOid: "deadbee"}})
+	if !s.StaleFiles("PR_owing") {
+		t.Fatal("setup: the push left no debt to drop")
+	}
+
+	for i := range store.FilesCap + 1 {
+		key := "PR_" + strconv.Itoa(i)
+		s.BeginFiles(key)
+		s.FilesApplied(key, oneFile())
+	}
+
+	if s.StaleFiles("PR_owing") {
+		t.Error("the debt outlived the diff it was owed for")
+	}
+}
+
+// syncRow stamps every detail that lands, and the map used to keep every stamp
+// for the session: the same growth one map over, past the cap on the details.
+func TestTheRowStampsAreBoundedWithTheDetails(t *testing.T) {
+	s := store.New(configured())
+	openMany(&s, store.DetailCap*2)
+
+	if got := s.RowStamps(); got > store.DetailCap {
+		t.Errorf("%d row stamps held for %d details, want one per detail", got, s.Cached())
+	}
+}
+
+// A commit read again is a commit in use. Ordered by fetch alone, the two a
+// reader keeps returning to on a long branch are the first two dropped.
+func TestADiffReadAgainIsNotTheFirstDropped(t *testing.T) {
+	s := store.New(configured())
+
+	keys := make([]string, store.CommitCap)
+	for i := range keys {
+		keys[i] = "sha_" + strconv.Itoa(i)
+		s.BeginCommitFiles(keys[i])
+		s.CommitFilesApplied(keys[i], oneFile())
+	}
+
+	s.UseCommitFiles(keys[0])
+	s.BeginCommitFiles("sha_new")
+	s.CommitFilesApplied("sha_new", oneFile())
+
+	if !s.CommitFiles(keys[0]).Loaded {
+		t.Error("the commit read again was dropped as though it had only been fetched")
+	}
+	if s.CommitFiles(keys[1]).Loaded {
+		t.Error("the oldest read is still held, so reading again moved nothing")
+	}
+}
+
+func oneFile() gh.FilesResult {
+	return gh.FilesResult{Files: []gh.ChangedFile{{Path: "main.go"}}}
 }
 
 // A pin outranks a cap: the alternative is dropping what a write is about to

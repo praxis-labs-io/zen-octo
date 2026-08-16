@@ -194,9 +194,9 @@ func New(sections []config.Section) Store {
 
 		// Built here rather than on first write, because the only writer runs on
 		// a copy of the model: a map made there is dropped with the copy.
-		details:       newCache[Detail](),
-		files:         newCache[Files](),
-		commits:       newCache[Files](),
+		details:       newCache[Detail](detailCap),
+		files:         newCache[Files](filesCap),
+		commits:       newCache[Files](commitCap),
 		pulsing:       make(map[string]bool),
 		stalePulse:    make(map[string]bool),
 		staleTimeline: make(map[string]bool),
@@ -811,19 +811,24 @@ func (s *Store) DetailFailed(id string, err error) {
 }
 
 // put writes a detail and drops the oldest past the cap, taking each dropped
-// one's debts with it: nothing is owed for a pull request no longer held.
+// one's debts with it: nothing is owed about a pull request no longer held.
 func (s *Store) put(id string, d Detail) {
 	s.details.put(id, d)
-	for _, gone := range s.details.evict(detailCap, id, s.detailPinned) {
+	for _, gone := range s.details.evict(id, s.detailPinned) {
 		delete(s.staleFetch, gone)
 		delete(s.staleTimeline, gone)
 		delete(s.stalePulse, gone)
+		// The stamp claims a correction restoreRows can no longer make: it
+		// reads the folded row, and there is no longer one to fold.
+		delete(s.rowSeq, gone)
 	}
 }
 
 // detailPinned is a pull request something is still going to write to. A write
 // folds over an evicted detail onto nothing, leaving a comment on no pull request.
 func (s Store) detailPinned(id string) bool {
+	// Not the one on screen, which needs none: every fetch site asks about it
+	// and PulseApplied puts it each beat, so it is already the newest entry.
 	if s.details.get(id).Status == StatusLoading || s.pulsing[id] {
 		return true
 	}
@@ -848,20 +853,38 @@ func (s Store) Files(id string) Files { return s.files.get(id) }
 // refusal leaves it set, and the caller owes another once the request already
 // out has answered: that one was measured against the old base too.
 func (s *Store) BeginFiles(id string) bool {
-	if !beginDiff(&s.files, filesCap, id) {
+	dropped, ok := beginDiff(&s.files, id)
+	if !ok {
 		return false
 	}
+	s.dropFileDebts(dropped)
 	delete(s.staleFiles, id)
 	return true
 }
 
+// dropFileDebts clears the stale marks of diffs that have been evicted. Only the
+// pull request's own cache owes any: staleFiles is keyed by the same id.
+func (s *Store) dropFileDebts(dropped []string) {
+	for _, gone := range dropped {
+		delete(s.staleFiles, gone)
+	}
+}
+
 // FilesApplied stores a pull request's diff. No budget to fold: the REST API
 // bills against a separate allowance the GraphQL response knows nothing about.
-func (s *Store) FilesApplied(id string, res gh.FilesResult) { diffApplied(&s.files, filesCap, id, res) }
+func (s *Store) FilesApplied(id string, res gh.FilesResult) {
+	s.dropFileDebts(diffApplied(&s.files, id, res))
+}
 
 // FilesFailed puts a diff into its error state, keeping whatever it already
 // held. A refetch that fails must not empty a diff that was reading fine.
-func (s *Store) FilesFailed(id string, err error) { diffFailed(&s.files, filesCap, id, err) }
+func (s *Store) FilesFailed(id string, err error) {
+	s.dropFileDebts(diffFailed(&s.files, id, err))
+}
+
+// UseFiles restamps a diff read from the cache rather than fetched. Without it
+// the order is time since first fetch, and a diff reopened daily ages out.
+func (s *Store) UseFiles(id string) { s.files.touch(id) }
 
 // CommitFiles is the diff held for one commit, keyed by its sha rather than by
 // the pull request. A commit belongs to whichever pull requests carry it, and
@@ -870,35 +893,41 @@ func (s Store) CommitFiles(sha string) Files { return s.commits.get(sha) }
 
 // BeginCommitFiles marks a commit's diff in flight and reports whether it
 // started.
-func (s *Store) BeginCommitFiles(sha string) bool { return beginDiff(&s.commits, commitCap, sha) }
+func (s *Store) BeginCommitFiles(sha string) bool {
+	_, ok := beginDiff(&s.commits, sha)
+	return ok
+}
+
+// UseCommitFiles is UseFiles for a commit's own diff, which is the cache a
+// reader walking back and forth over a long branch reads most often.
+func (s *Store) UseCommitFiles(sha string) { s.commits.touch(sha) }
 
 // CommitFilesApplied stores a commit's diff.
 func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
-	diffApplied(&s.commits, commitCap, sha, res)
+	diffApplied(&s.commits, sha, res)
 }
 
 // CommitFilesFailed puts a commit's diff into its error state, keeping whatever
 // it already held.
-func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, commitCap, sha, err) }
+func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, sha, err) }
 
 // The four below are the diff lifecycle, shared by the pull request's own and by
-// each commit's. Each takes the cache by pointer and its own cap, since they differ.
+// each commit's. Each answers with the keys its write evicted, for the debts.
 
-func beginDiff(held *cache[Files], cap int, key string) bool {
+func beginDiff(held *cache[Files], key string) ([]string, bool) {
 	at := held.get(key)
 	if key == "" || at.Status == StatusLoading {
-		return false
+		return nil, false
 	}
 	at.Status = StatusLoading
-	putDiff(held, cap, key, at)
-	return true
+	return putDiff(held, key, at), true
 }
 
-func diffApplied(held *cache[Files], cap int, key string, res gh.FilesResult) {
+func diffApplied(held *cache[Files], key string, res gh.FilesResult) []string {
 	if key == "" {
-		return
+		return nil
 	}
-	putDiff(held, cap, key, Files{
+	return putDiff(held, key, Files{
 		Files:     res.Files,
 		MoreFiles: res.MoreFiles,
 		Truncated: res.Truncated,
@@ -907,19 +936,19 @@ func diffApplied(held *cache[Files], cap int, key string, res gh.FilesResult) {
 	})
 }
 
-func diffFailed(held *cache[Files], cap int, key string, err error) {
+func diffFailed(held *cache[Files], key string, err error) []string {
 	at, ok := held.look(key)
 	if key == "" || !ok {
-		return
+		return nil
 	}
 	at.Status = StatusFailed
 	at.Err = err
-	putDiff(held, cap, key, at)
+	return putDiff(held, key, at)
 }
 
-func putDiff(held *cache[Files], cap int, key string, f Files) {
+func putDiff(held *cache[Files], key string, f Files) []string {
 	held.put(key, f)
-	held.evict(cap, key, diffPinned(held))
+	return held.evict(key, diffPinned(held))
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever
