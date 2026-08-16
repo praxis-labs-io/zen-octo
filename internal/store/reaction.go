@@ -242,7 +242,7 @@ func (s *Store) settleReaction(id, key string) (ReactionWrite, Detail, bool) {
 		return ReactionWrite{}, Detail{}, false
 	}
 
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if !ok {
 		return ReactionWrite{}, Detail{}, false
 	}

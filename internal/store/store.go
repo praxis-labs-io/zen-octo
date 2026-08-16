@@ -117,9 +117,13 @@ type Resolution struct {
 // the point budget across all of them.
 type Store struct {
 	sections []Section
-	details  map[string]Detail
-	files    map[string]Files
-	commits  map[string]Files
+
+	// The three that grow with use, each bounded and evicted least recently
+	// fetched first. repos and branches are one per repository and are not.
+	details cache[Detail]
+	files   cache[Files]
+	commits cache[Files]
+
 	repos    map[string]Repo
 	branches map[string]Branches
 	rate     gh.RateLimit
@@ -185,14 +189,14 @@ func New(sections []config.Section) Store {
 	}
 	return Store{
 		sections: held,
-		details:  make(map[string]Detail),
-		files:    make(map[string]Files),
-		commits:  make(map[string]Files),
 		repos:    make(map[string]Repo),
 		branches: make(map[string]Branches),
 
 		// Built here rather than on first write, because the only writer runs on
 		// a copy of the model: a map made there is dropped with the copy.
+		details:       newCache[Detail](),
+		files:         newCache[Files](),
+		commits:       newCache[Files](),
 		pulsing:       make(map[string]bool),
 		stalePulse:    make(map[string]bool),
 		staleTimeline: make(map[string]bool),
@@ -337,7 +341,7 @@ func (s *Store) PollFailed(i int) {
 // flight returns above, and one with only a comment out must not pay for cloning
 // every thread's comments to append to a timeline.
 func (s Store) Detail(id string) Detail {
-	held := s.details[id]
+	held := s.details.get(id)
 	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
 	rewriting, reacting := s.rewrites[id], s.reacting[id]
 	if len(waiting) == 0 && len(settling) == 0 && len(editing) == 0 &&
@@ -497,7 +501,7 @@ func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 		return
 	}
 
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if !ok {
 		return
 	}
@@ -562,7 +566,7 @@ func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 		return
 	}
 
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if !ok {
 		return
 	}
@@ -661,7 +665,7 @@ func timelineComment(c gh.Comment) gh.TimelineItem {
 // refuses one already on its way, so opening a screen twice in quick succession
 // costs one request rather than two.
 func (s *Store) BeginDetail(id string) bool {
-	held := s.details[id]
+	held := s.details.get(id)
 	if id == "" || held.Status == StatusLoading {
 		return false
 	}
@@ -695,7 +699,7 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 	s.adopt(res.RateLimit)
 
 	if s.staleFetch[id] {
-		held := s.details[id]
+		held := s.details.get(id)
 		held.Status = StatusReady
 		s.put(id, held)
 		return
@@ -749,7 +753,7 @@ func (s *Store) markStale(id string) {
 	// invalidates a fetch has to invalidate one here too.
 	s.markPulseStale(id)
 
-	if s.details[id].Status != StatusLoading {
+	if s.details.get(id).Status != StatusLoading {
 		return
 	}
 	if s.staleFetch == nil {
@@ -795,7 +799,7 @@ func (s *Store) markTimelineStale(id string) {
 // already held. A background refetch that fails must not empty a screen that
 // was reading fine a moment ago.
 func (s *Store) DetailFailed(id string, err error) {
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if id == "" || !ok {
 		return
 	}
@@ -806,18 +810,36 @@ func (s *Store) DetailFailed(id string, err error) {
 	s.put(id, held)
 }
 
-// put writes a detail, building the map if this Store was made without New. A
-// nil map panics on write, and it would do it inside Update.
+// put writes a detail and drops the oldest past the cap, taking each dropped
+// one's debts with it: nothing is owed for a pull request no longer held.
 func (s *Store) put(id string, d Detail) {
-	if s.details == nil {
-		s.details = make(map[string]Detail)
+	s.details.put(id, d)
+	for _, gone := range s.details.evict(detailCap, id, s.detailPinned) {
+		delete(s.staleFetch, gone)
+		delete(s.staleTimeline, gone)
+		delete(s.stalePulse, gone)
 	}
-	s.details[id] = d
+}
+
+// detailPinned is a pull request something is still going to write to. A write
+// folds over an evicted detail onto nothing, leaving a comment on no pull request.
+func (s Store) detailPinned(id string) bool {
+	if s.details.get(id).Status == StatusLoading || s.pulsing[id] {
+		return true
+	}
+	return len(s.pending[id]) > 0 || len(s.resolving[id]) > 0 || len(s.edits[id]) > 0 ||
+		len(s.rewrites[id]) > 0 || len(s.reacting[id]) > 0
+}
+
+// diffPinned is a diff whose own fetch is out, for either cache. Nothing writes
+// to a diff, so a fetch in flight is the whole of it.
+func diffPinned(held *cache[Files]) func(string) bool {
+	return func(key string) bool { return held.get(key).Status == StatusLoading }
 }
 
 // Files is the diff held for a pull request. The zero value is one never
 // fetched, which reads as idle and unloaded.
-func (s Store) Files(id string) Files { return s.files[id] }
+func (s Store) Files(id string) Files { return s.files.get(id) }
 
 // BeginFiles marks a diff in flight and reports whether it started. It refuses
 // one already on its way, so tabbing in and out of Files costs one request.
@@ -826,7 +848,7 @@ func (s Store) Files(id string) Files { return s.files[id] }
 // refusal leaves it set, and the caller owes another once the request already
 // out has answered: that one was measured against the old base too.
 func (s *Store) BeginFiles(id string) bool {
-	if !beginDiff(&s.files, id) {
+	if !beginDiff(&s.files, filesCap, id) {
 		return false
 	}
 	delete(s.staleFiles, id)
@@ -835,50 +857,48 @@ func (s *Store) BeginFiles(id string) bool {
 
 // FilesApplied stores a pull request's diff. No budget to fold: the REST API
 // bills against a separate allowance the GraphQL response knows nothing about.
-func (s *Store) FilesApplied(id string, res gh.FilesResult) { diffApplied(&s.files, id, res) }
+func (s *Store) FilesApplied(id string, res gh.FilesResult) { diffApplied(&s.files, filesCap, id, res) }
 
 // FilesFailed puts a diff into its error state, keeping whatever it already
 // held. A refetch that fails must not empty a diff that was reading fine.
-func (s *Store) FilesFailed(id string, err error) { diffFailed(&s.files, id, err) }
+func (s *Store) FilesFailed(id string, err error) { diffFailed(&s.files, filesCap, id, err) }
 
 // CommitFiles is the diff held for one commit, keyed by its sha rather than by
 // the pull request. A commit belongs to whichever pull requests carry it, and
 // its diff is the same either way.
-func (s Store) CommitFiles(sha string) Files { return s.commits[sha] }
+func (s Store) CommitFiles(sha string) Files { return s.commits.get(sha) }
 
 // BeginCommitFiles marks a commit's diff in flight and reports whether it
 // started.
-func (s *Store) BeginCommitFiles(sha string) bool { return beginDiff(&s.commits, sha) }
+func (s *Store) BeginCommitFiles(sha string) bool { return beginDiff(&s.commits, commitCap, sha) }
 
 // CommitFilesApplied stores a commit's diff.
 func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
-	diffApplied(&s.commits, sha, res)
+	diffApplied(&s.commits, commitCap, sha, res)
 }
 
 // CommitFilesFailed puts a commit's diff into its error state, keeping whatever
 // it already held.
-func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, sha, err) }
+func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, commitCap, sha, err) }
 
-// The three below are the diff lifecycle, shared by the pull request's own and
-// by each commit's. They take the map by pointer so a Store built without New
-// can still be written to: a nil map panics on write, and it would do it inside
-// Update.
+// The four below are the diff lifecycle, shared by the pull request's own and by
+// each commit's. Each takes the cache by pointer and its own cap, since they differ.
 
-func beginDiff(held *map[string]Files, key string) bool {
-	at := (*held)[key]
+func beginDiff(held *cache[Files], cap int, key string) bool {
+	at := held.get(key)
 	if key == "" || at.Status == StatusLoading {
 		return false
 	}
 	at.Status = StatusLoading
-	putDiff(held, key, at)
+	putDiff(held, cap, key, at)
 	return true
 }
 
-func diffApplied(held *map[string]Files, key string, res gh.FilesResult) {
+func diffApplied(held *cache[Files], cap int, key string, res gh.FilesResult) {
 	if key == "" {
 		return
 	}
-	putDiff(held, key, Files{
+	putDiff(held, cap, key, Files{
 		Files:     res.Files,
 		MoreFiles: res.MoreFiles,
 		Truncated: res.Truncated,
@@ -887,21 +907,19 @@ func diffApplied(held *map[string]Files, key string, res gh.FilesResult) {
 	})
 }
 
-func diffFailed(held *map[string]Files, key string, err error) {
-	at, ok := (*held)[key]
+func diffFailed(held *cache[Files], cap int, key string, err error) {
+	at, ok := held.look(key)
 	if key == "" || !ok {
 		return
 	}
 	at.Status = StatusFailed
 	at.Err = err
-	putDiff(held, key, at)
+	putDiff(held, cap, key, at)
 }
 
-func putDiff(held *map[string]Files, key string, f Files) {
-	if *held == nil {
-		*held = make(map[string]Files)
-	}
-	(*held)[key] = f
+func putDiff(held *cache[Files], cap int, key string, f Files) {
+	held.put(key, f)
+	held.evict(cap, key, diffPinned(held))
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever

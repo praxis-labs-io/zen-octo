@@ -237,7 +237,7 @@ func (s *Store) settleWrite(id, key string) (CommentWrite, Detail, bool) {
 		return CommentWrite{}, Detail{}, false
 	}
 
-	held, ok := s.details[id]
+	held, ok := s.details.look(id)
 	if !ok {
 		return CommentWrite{}, Detail{}, false
 	}

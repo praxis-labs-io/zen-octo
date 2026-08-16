@@ -470,6 +470,36 @@ both, cannot produce the shape this bug lives in.
 
 `internal/store` holds the viewer's login, asked for once at startup, pull request sections, one detail per pull request opened, one diff per pull request whose Files tab was opened, and one diff per commit the cursor settled on in the Commits tab. The two per-pull-request caches are keyed the same and filled separately: the diff costs a second request, so it waits until the tab is asked for. The commit cache is keyed by sha instead, because a commit's diff is the same wherever it is opened from. It follows the cursor on a debounce rather than on every keystroke: the cursor has to sit still for `commitSettleDelay` before its commit is asked for, so walking a long branch costs one request rather than one per commit passed through. Issue sections need their own domain type, query, and row shape, and land with ZNO-15.
 
+All three of those grow with use, so all three are bounded: twenty-five pull
+requests, twenty-five diffs, forty commit diffs, evicted least recently fetched
+first. A detail on a heavily reviewed pull request is megabytes and a branch
+walked in the Commits tab fetches one diff per commit the cursor rests on, so
+a day of reading held hundreds of megabytes it would never open again. The bound
+is entries rather than bytes, which bounds memory only against a typical entry:
+sizing each one wants either a length method per domain type, silently
+under-counting the first field somebody adds, or a counting transport in
+`internal/gh`, and neither is worth building for a cache policy.
+
+The stamp saying which is oldest is `max(seen)+1` read from the map, never a
+counter on the `Store`, and `newCache` builds the maps rather than the first
+write. Both are the same reason `nextSeq` carries a comment and `pulsing` has a
+test: half this store's writers run on a copy of the model, so a map built there
+and an int incremented there are dropped with the copy. A slice of keys in
+fetch order has the defect too.
+
+Nothing is dropped while a fetch or a write is out for it, and never the key
+just written. `Detail` folds a write over the held detail at read time, so
+folding one over an evicted detail folds it over nothing and puts an optimistic
+comment on a pull request with no id; and the entry just written is the most
+recently fetched thing there is, which makes it the one an eviction must never
+choose, though it is the only candidate on a cache where everything else is
+pinned. Where everything is pinned the cache goes over its cap instead. A pin
+outranks a cap. Evicting a detail drops its `staleFetch`, `staleTimeline` and
+`stalePulse` marks with it, since nothing is owed about a pull request no longer
+held; `rowSeq` stays, because that belongs to a section's rows rather than to
+this cache. The sections themselves are not part of any of this: that slice is
+one entry per configured tab holding at most `PRsLimit` rows, and it never grows.
+
 A detail is not the only question this asks about a pull request. `gh.Pulse` is
 the small one beside it: the lifecycle, the review decision, mergeability,
 `updatedAt`, `headRefOid` and the head commit's check rollup. It asks for no
