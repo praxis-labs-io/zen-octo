@@ -235,6 +235,8 @@ func (s *Store) BeginAll() {
 	}
 }
 
+// nextSeq is the one write here a caller can lose: an int where the rest of
+// this store lands in a map or a slice and survives being made on a copy.
 func (s *Store) nextSeq() int {
 	s.seq++
 	return s.seq
@@ -314,7 +316,12 @@ func (s *Store) PollFailed(i int) {
 	if i < 0 || i >= len(s.sections) || s.sections[i].Status != StatusLoading {
 		return
 	}
-	// Only a loaded section is ever polled, so this is the state it came from.
+	// Back to whichever answer the section last had. Applied clears the error, so
+	// one still held means the last real answer failed and the reader was told.
+	if s.sections[i].Err != nil {
+		s.sections[i].Status = StatusFailed
+		return
+	}
 	s.sections[i].Status = StatusReady
 }
 

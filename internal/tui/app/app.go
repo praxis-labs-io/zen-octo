@@ -1052,6 +1052,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.poller.stampDetail(msg.id, time.Now())
 		return m, nil
 
+	case pageFailedMsg:
+		// The store keeps what it held and the screen is told nothing. The debt
+		// stands, and the stamp is what keeps it from being retried every beat.
+		m.store.DetailFailed(msg.id, msg.err)
+		m.poller.stampDetail(msg.id, time.Now())
+		m.poller.stampPageFailed(msg.id, time.Now())
+		return m, nil
+
 	case pollTickMsg:
 		return m.poll(msg)
 

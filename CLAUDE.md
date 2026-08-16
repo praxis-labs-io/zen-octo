@@ -566,7 +566,23 @@ behind `ShowsTimeline()`, because the conversation is the only tab any of it
 reaches and the page is megabytes; the debt keeps until the reader goes there,
 and the beat is what notices when they do. It is `staleFiles` one field over,
 down to being marked unconditionally and cleared where the fetch it was for
-lands.
+lands. It goes out as `fetchPage` rather than through `correctDetail`, and that
+is two differences rather than one. **`DetailFailed` leaves the debt standing**,
+so nothing else would stop a beat re-sending a megabyte query every five seconds
+against a broken network; the poller stamps the failure and costs it an interval,
+which is `stampSection`'s rule one screen over. And a failure reaching
+`detailSettled` toasts "Could not refresh" over a page nobody asked to have
+refreshed, so `pageFailedMsg` ends at the store and says nothing.
+
+**A store write made on a model nobody keeps is a write that did not happen**,
+and the two halves of one can land differently: `store.Begin` stamps the section
+into a slice and takes the number from `s.seq`, an int, so on a copy the stamp
+lands and the counter does not. The next write then shares its number, and
+`restoreRows` reads `rowSeq <= began` as the write being older than the fetch and
+throws it away. That is why `pollSectionDue` hands the model back where
+`pollDetail` needs only a command: everything `BeginPulse` and `BeginDetail`
+touch is a map, and maps survive. `nextSeq` is the only write here with that
+shape, and it is commented as such.
 
 A polled section needs a failure of its own. `Failed` puts a section into its
 error state and the list renders that **instead of** its rows, so a background
@@ -574,7 +590,10 @@ poll going through it would replace a list the reader is reading fine with a
 message about a request they never made. `PollFailed` ends the flight and keeps
 everything held, which is `PulseFailed`'s argument one screen over; ending it is
 the other half of the job, since a section left loading would have `Begin` refuse
-every poll after it. Nothing else about a poll is visible: `spinning` is false
+every poll after it. What it puts back is whichever answer the section last had
+rather than Ready: `Applied` clears the error, so one still held means the last
+real answer failed and the reader was shown it, and clearing that would take the
+report off the screen with nothing having succeeded. Nothing else about a poll is visible: `spinning` is false
 for a section that has already loaded, so a reload draws no spinner, and neither
 path takes a refresh leg, so the bar neither spins nor speaks.
 

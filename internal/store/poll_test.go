@@ -219,6 +219,25 @@ func TestAFailedSyncStillSaysSo(t *testing.T) {
 	}
 }
 
+// The reader pressed s, was told it failed, and is looking at that. A beat
+// failing behind it must not clear the report and put stale rows back.
+func TestAFailedPollLeavesAReportedFailureStanding(t *testing.T) {
+	s := loadedSection(t)
+
+	s.Begin(0)
+	s.Failed(0, errors.New("502 Bad Gateway"))
+
+	// Thirty seconds later the beat tries the same section and fails too.
+	if !s.Begin(0) {
+		t.Fatal("setup: the store refused the poll")
+	}
+	s.PollFailed(0)
+
+	if got := s.Sections()[0]; got.Status != store.StatusFailed {
+		t.Errorf("the section reads %v beside a %v, want the failure still shown", got.Status, got.Err)
+	}
+}
+
 // Ending the flight is the other half of its job: leaving the section loading
 // would have store.Begin refuse every poll after it for the rest of the session.
 func TestAFailedPollLetsTheNextOneStart(t *testing.T) {

@@ -269,6 +269,51 @@ func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 	}
 }
 
+// The page is megabytes and DetailFailed leaves the debt standing, so nothing
+// else would keep a beat from re-sending it every five seconds forever.
+func TestAFailedPageIsNotAskedForOnEveryBeat(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := opened(t, client)
+
+	client.bumpUpdated("PR_412", time.Now())
+	client.detailErr = errors.New("502 Bad Gateway")
+
+	before := len(client.opened())
+	m = beat(m, 6*time.Second)
+	if got := len(client.opened()) - before; got != 1 {
+		t.Fatalf("setup: the beat asked for the page %d times, want the one that fails", got)
+	}
+
+	beat(beat(m, 12*time.Second), 18*time.Second)
+	if got := len(client.opened()) - before; got != 1 {
+		t.Errorf("the failed page was asked for %d times over three beats, want one", got)
+	}
+}
+
+// Still a beat nobody asked for, so its failure says nothing either: the page
+// on screen is unchanged and a toast is the only thing that would deny it.
+func TestAFailedPageSaysNothing(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := opened(t, client)
+
+	client.bumpUpdated("PR_412", time.Now())
+	client.detailErr = errors.New("502 Bad Gateway")
+
+	before := len(client.opened())
+	m = beat(m, 6*time.Second)
+	if len(client.opened()) == before {
+		t.Fatal("setup: the beat asked for no page, so nothing failed")
+	}
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "Caps the backoff") {
+		t.Errorf("the failed page took the conversation with it:\n%s", out)
+	}
+	if bar := lastLine(render(t, m)); strings.Contains(bar, "Could not refresh") || strings.Contains(bar, "502") {
+		t.Errorf("status bar = %q, want a beat's failure kept quiet", strings.TrimSpace(bar))
+	}
+}
+
 // A recheck that changed nothing must cost no rendering, and the frame is what
 // the reader sees of that. The store's own tests are what prove the answer.
 func TestARecheckThatChangesNothingLeavesTheFrameAlone(t *testing.T) {

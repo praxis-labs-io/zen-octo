@@ -18,6 +18,13 @@ type pollTickMsg struct{ at time.Time }
 // carries no error, the way pulseFailedMsg carries none, and for that reason.
 type sectionPollFailedMsg struct{ index int }
 
+// pageFailedMsg is a background page fetch that did not answer. It reaches the
+// store and never the screen: nobody asked for this one, so nothing reports it.
+type pageFailedMsg struct {
+	id  string
+	err error
+}
+
 const (
 	// pollBeat is the tick, and how often a pull request still moving is re-asked.
 	// CI is what a reader sits and watches.
@@ -34,6 +41,11 @@ type poller struct {
 	sections []time.Time
 	detailID string
 	detailAt time.Time
+
+	// pageID and pageAt are when a background page fetch last failed. Nothing
+	// else slows one down: DetailFailed leaves the debt it was for standing.
+	pageID string
+	pageAt time.Time
 }
 
 // stampSection records that a section answered, whether or not it answered well.
@@ -50,6 +62,19 @@ func (p *poller) stampSection(i, count int, at time.Time) {
 
 func (p *poller) stampDetail(id string, at time.Time) {
 	p.detailID, p.detailAt = id, at
+}
+
+func (p *poller) stampPageFailed(id string, at time.Time) {
+	p.pageID, p.pageAt = id, at
+}
+
+// pageDue is whether a background page fetch is worth making. One that has never
+// failed goes at once; one that has costs an interval, since it is megabytes.
+func (p poller) pageDue(id string, at time.Time) bool {
+	if id != p.pageID {
+		return true
+	}
+	return at.Sub(p.pageAt) >= pollIdle
 }
 
 // sectionDue is whether that section has gone long enough without an answer. One
@@ -90,7 +115,11 @@ func (m Model) poll(msg pollTickMsg) (tea.Model, tea.Cmd) {
 	if m.screen == screenDetail {
 		return m, tea.Batch(next, m.pollDetail(msg.at))
 	}
-	return m, tea.Batch(next, m.pollSectionDue(msg.at))
+
+	// The model comes back rather than the command alone: store.Begin stamps the
+	// section against a counter that is an int, and an int does not survive a copy.
+	model, cmd := m.pollSectionDue(msg.at)
+	return model, tea.Batch(next, cmd)
 }
 
 // pollDetail re-asks the pull request on screen, and asks for the whole page
@@ -101,7 +130,7 @@ func (m Model) pollDetail(at time.Time) tea.Cmd {
 		return nil
 	}
 
-	owed := m.correctTimeline(id)
+	owed := m.correctTimeline(id, at)
 	if !m.poller.detailDue(id, m.detailEvery(id), at) {
 		return owed
 	}
@@ -133,26 +162,50 @@ func moving(d gh.PullRequestDetail) bool {
 
 // correctTimeline asks for the whole page once a pulse reports something it
 // cannot carry, gated on the conversation: the only tab any of it reaches.
-func (m Model) correctTimeline(id string) tea.Cmd {
+func (m Model) correctTimeline(id string, at time.Time) tea.Cmd {
 	if !m.store.StaleTimeline(id) || !m.detail.ShowsTimeline() {
 		return nil
 	}
-	return m.correctDetail(id)
+	if !m.poller.pageDue(id, at) {
+		return nil
+	}
+
+	pr := m.store.Detail(id).Detail.PullRequest
+	if pr.ID == "" || !m.store.BeginDetail(id) {
+		return nil
+	}
+	return m.fetchPage(id, pr.HeadRefName)
+}
+
+// fetchPage is fetchDetail with the one branch that differs, the way pollSection
+// is fetchSection with one: a page that arrives is the same page either way.
+func (m Model) fetchPage(id, headRef string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.PullRequest(ctx, id, headRef)
+		if err != nil {
+			return pageFailedMsg{id: id, err: err}
+		}
+		return detailFetchedMsg{id: id, res: res}
+	}
 }
 
 // pollSectionDue re-asks the section the tab strip is on. Only that one: the
 // others are off screen, and their counts follow when the reader arrives.
-func (m Model) pollSectionDue(at time.Time) tea.Cmd {
+func (m Model) pollSectionDue(at time.Time) (Model, tea.Cmd) {
 	i := m.list.ActiveIndex()
 	if !m.poller.sectionDue(i, at) {
-		return nil
+		return m, nil
 	}
 
 	sections := m.store.Sections()
 	if i >= len(sections) || !sections[i].Loaded || !m.store.Begin(i) {
-		return nil
+		return m, nil
 	}
-	return m.pollSection(i, sections[i].Filters)
+	return m, m.pollSection(i, sections[i].Filters)
 }
 
 // pollSection is fetchSection with the one branch that differs: a failure nobody

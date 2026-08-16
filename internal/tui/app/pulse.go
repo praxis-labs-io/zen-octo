@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -64,5 +65,5 @@ func (m Model) pulseSettled(id string, moved bool) (tea.Model, tea.Cmd) {
 	}
 	// A comment or a review is not on this wire, so the page may owe a real
 	// fetch. The tab on screen is what decides whether to spend it.
-	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(id)), m.correctTimeline(id), owed)
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(id)), m.correctTimeline(id, time.Now()), owed)
 }
