@@ -10,6 +10,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
 
@@ -290,7 +291,7 @@ func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
 	churn := m.fileChurn(f)
 	room := max(0, width-lipgloss.Width(churn)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, m.faint())
+		lead = paint.Clip(lead, room, m.faint())
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(churn))
@@ -348,7 +349,7 @@ func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int)
 		kind.Render(marker) + base.Render(" ") + code(tokens, base)
 
 	if w := lipgloss.Width(line); w > width {
-		return comp.Clip(line, width, faint)
+		return paint.Clip(line, width, faint)
 	} else if l.Kind != gh.DiffContext {
 		// A context line needs no fill: it has no background to run out.
 		line += base.Render(strings.Repeat(" ", width-w))
@@ -528,7 +529,7 @@ func clipTo(line string, width int, mark lipgloss.Style) string {
 	if lipgloss.Width(line) <= width {
 		return line
 	}
-	return comp.Clip(line, width, mark)
+	return paint.Clip(line, width, mark)
 }
 
 // treeBody is the file column. It paints its own selection, so it hands the

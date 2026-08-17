@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -58,11 +59,11 @@ func (s StatusBar) render(left, right string, rightWins bool) string {
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
 	if rightWins {
 		if room := inner - rw - 2; lw > room {
-			left = Clip(left, max(0, room), clip)
+			left = paint.Clip(left, max(0, room), clip)
 			lw = lipgloss.Width(left)
 		}
 	} else if room := inner - lw - 2; rw > room {
-		right = Clip(right, max(0, room), clip)
+		right = paint.Clip(right, max(0, room), clip)
 		rw = lipgloss.Width(right)
 	}
 

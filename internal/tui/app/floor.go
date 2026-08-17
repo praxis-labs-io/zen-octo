@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 )
 
 const (
@@ -46,5 +46,5 @@ func fit(text string, width int, mark lipgloss.Style) string {
 	if w := lipgloss.Width(text); w <= width {
 		return text + strings.Repeat(" ", width-w)
 	}
-	return comp.Clip(text, width, mark)
+	return paint.Clip(text, width, mark)
 }

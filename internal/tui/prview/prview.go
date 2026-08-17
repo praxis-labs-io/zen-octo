@@ -17,6 +17,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
@@ -1573,12 +1574,12 @@ func (m Model) spread(left, right string, width int) string {
 		// only where it overruns on its own: clipping it because the left could
 		// not fit beside it marks a cut that never happened.
 		if lipgloss.Width(right) > width {
-			return comp.Clip(right, width, faint)
+			return paint.Clip(right, width, faint)
 		}
 		return right
 	}
 	if lipgloss.Width(left) > room {
-		left = comp.Clip(left, room, faint)
+		left = paint.Clip(left, room, faint)
 	}
 
 	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(right))
@@ -1610,7 +1611,7 @@ func (m Model) branchLine(width int) string {
 	branches := faint.Render(m.pr.BaseRefName + " ← " + m.pr.HeadRefName)
 
 	if lipgloss.Width(branches) > width {
-		return comp.Clip(branches, width, faint)
+		return paint.Clip(branches, width, faint)
 	}
 	return branches
 }

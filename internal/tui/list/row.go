@@ -9,6 +9,7 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -234,7 +235,7 @@ func titled(th theme.Theme, pr gh.PullRequest, width int, base lipgloss.Style) s
 
 	text := pr.Title
 	if lipgloss.Width(text) > room {
-		text = comp.Clip(text, room, lipgloss.NewStyle())
+		text = paint.Clip(text, room, lipgloss.NewStyle())
 	}
 	pad := width - lipgloss.Width(text) - lipgloss.Width(count) - 2
 
@@ -300,7 +301,7 @@ func line(indent int, cells []string, width int, base lipgloss.Style) string {
 	case w < width:
 		return s + base.Render(strings.Repeat(" ", width-w))
 	case w > width:
-		return comp.Clip(s, width, base)
+		return paint.Clip(s, width, base)
 	}
 	return s
 }
@@ -315,7 +316,7 @@ func cell(width int, content string, style lipgloss.Style) string {
 		return ""
 	}
 	if lipgloss.Width(content) > width {
-		content = comp.Clip(content, width, lipgloss.NewStyle())
+		content = paint.Clip(content, width, lipgloss.NewStyle())
 	}
 	pad := max(0, width-lipgloss.Width(content))
 	return style.Render(content + strings.Repeat(" ", pad))

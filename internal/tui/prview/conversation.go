@@ -12,6 +12,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
 
@@ -860,7 +861,7 @@ func (m *Model) pushedRow(c gh.Commit) string {
 	line := indent + sha + m.faint().Render("  "+c.Headline)
 
 	if width := m.bodyWidth(); lipgloss.Width(line) > width {
-		return comp.Clip(line, width, m.faint())
+		return paint.Clip(line, width, m.faint())
 	}
 	return line
 }

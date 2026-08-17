@@ -10,6 +10,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 )
 
 // commitRowHeight is what one commit takes in the column. The sha, the marker
@@ -243,7 +244,7 @@ func commitBy(c gh.Commit) string {
 func (m Model) padTo(line string, width int, base lipgloss.Style) string {
 	switch w := lipgloss.Width(line); {
 	case w > width:
-		return comp.Clip(line, width, base.Foreground(m.theme.Subtle))
+		return paint.Clip(line, width, base.Foreground(m.theme.Subtle))
 	case w < width:
 		return line + base.Render(strings.Repeat(" ", width-w))
 	}

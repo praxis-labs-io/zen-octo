@@ -30,35 +30,6 @@ func RelativeTime(t time.Time) string {
 	}
 }
 
-// Clip truncates to width, marking the cut. It always marks: a caller that
-// wants the content left alone when it fits checks the width first.
-//
-// A single column has room for the mark and nothing else, and MaxWidth(0)
-// means no limit rather than no room.
-//
-// The mark carries its own style, because the content is already rendered by
-// the time it is cut: a caller that restyles the result afterwards passes a
-// plain one, and a caller clipping a finished line passes the row's, or a
-// selection background stops one cell short of the edge.
-func Clip(content string, width int, mark lipgloss.Style) string {
-	switch {
-	case width <= 0:
-		return ""
-	case width == 1:
-		return mark.Render("…")
-	}
-	cut := lipgloss.NewStyle().MaxWidth(width - 1).Render(content)
-
-	// A two-cell rune cannot half-fill the last column, so a cut landing on one
-	// comes back short and the row's background stops before the edge.
-	if lipgloss.Width(content) > width-1 {
-		if gap := width - 1 - lipgloss.Width(cut); gap > 0 {
-			cut += mark.Render(strings.Repeat(" ", gap))
-		}
-	}
-	return cut + mark.Render("…")
-}
-
 // Plural is a count and its noun, with the s only when it is earned.
 func Plural(n int, noun string) string {
 	if n == 1 {

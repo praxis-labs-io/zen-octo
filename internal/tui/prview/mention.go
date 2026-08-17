@@ -13,6 +13,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -694,5 +695,5 @@ func fit(content string, width int) string {
 	if lipgloss.Width(content) <= width {
 		return content
 	}
-	return comp.Clip(content, width, lipgloss.NewStyle())
+	return paint.Clip(content, width, lipgloss.NewStyle())
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 )
 
 // statusGroup names the bucket for checks with no workflow behind them. A
@@ -212,7 +213,7 @@ func (m Model) checkRow(g checkGroup, width int, selected bool) string {
 func (m Model) checkLine(lead, right string, width int, base lipgloss.Style) string {
 	room := max(0, width-lipgloss.Width(right)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, base.Foreground(m.theme.Subtle))
+		lead = paint.Clip(lead, room, base.Foreground(m.theme.Subtle))
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(right))
