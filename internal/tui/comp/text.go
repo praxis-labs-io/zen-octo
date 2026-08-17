@@ -47,7 +47,16 @@ func Clip(content string, width int, mark lipgloss.Style) string {
 	case width == 1:
 		return mark.Render("…")
 	}
-	return lipgloss.NewStyle().MaxWidth(width-1).Render(content) + mark.Render("…")
+	cut := lipgloss.NewStyle().MaxWidth(width - 1).Render(content)
+
+	// A two-cell rune cannot half-fill the last column, so a cut landing on one
+	// comes back short and the row's background stops before the edge.
+	if lipgloss.Width(content) > width-1 {
+		if gap := width - 1 - lipgloss.Width(cut); gap > 0 {
+			cut += mark.Render(strings.Repeat(" ", gap))
+		}
+	}
+	return cut + mark.Render("…")
 }
 
 // Plural is a count and its noun, with the s only when it is earned.
