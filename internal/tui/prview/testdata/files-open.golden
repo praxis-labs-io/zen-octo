@@ -4,17 +4,15 @@
   Open · Opened 2 days ago by @drucial                               ✗ failing · changes requested 
                                                                                                     
 ╭─[1]─4 files──────────╮╭─[2]─Conversation - Commits - Checks - Files──────────────────────────────╮
-│▾ docs/               ││                                                                          │
-│    screenshot.png    ││▾ docs/screenshot.png                                                +0 −0│
-│▾ internal/           ││ binary, or too large for GitHub to return a diff                         │
-│  ▾ gh/               ││                                                                          │
-│      client.go       ││▾ internal/gh/client.go                                              +2 −1│
-│  ▾ store/            ││         @@ -40,4 +40,5 @@ func New() (*Client, error) {                  │
-│      store.go        ││ 40 40       for {                                                        │
-│  ▾ tui/prview/       ││ 41    −         time.Sleep(delay)                                        │
-│      files.go        ││    41 +         delay = min(delay*2, fetchTimeout)                       │
-│                      ││    42 +         time.Sleep(delay)                                        │
-│                      ││   ╭─────────────────────────────────────────────────────────────────────╮│
+│▾ docs/               ││ internal/gh/client.go                                               +2 −1│
+│    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
+│▾ internal/           ││                                                                          │
+│  ▾ gh/               ││         @@ -40,4 +40,5 @@ func New() (*Client, error) {                  │
+│      client.go       ││ 40 40       for {                                                        │
+│  ▾ store/            ││ 41    −         time.Sleep(delay)                                        │
+│      store.go        ││    41 +         delay = min(delay*2, fetchTimeout)                       │
+│  ▾ tui/prview/       ││    42 +         time.Sleep(delay)                                        │
+│      files.go        ││   ╭─────────────────────────────────────────────────────────────────────╮│
 │                      ││   │ internal/gh/client.go:42                                            ││
 │                      ││   ├─────────────────────────────────────────────────────────────────────┤│
 │                      ││   │ nkr · said · 2h                                                     ││
@@ -27,4 +25,6 @@
 │                      ││     │ Seconded, the cap is the fix.                                     ││
 │                      ││     ╰───────────────────────────────────────────────────────────────────╯│
 │                      ││ 42 43       }                                                            │
-╰──────────────────────╯╰────────────────────────────────────────────────────────────────────23/40─╯
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯

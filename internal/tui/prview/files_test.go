@@ -101,12 +101,25 @@ func TestTheFilesTabRendersTheDiff(t *testing.T) {
 		"internal/gh/client.go",
 		"@@ -40,4 +40,5 @@ func New() (*Client, error) {",
 		"delay = min(delay*2, fetchTimeout)",
-		"docs/screenshot.png",
-		"binary, or too large for GitHub to return a diff",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the Files tab does not show %q", want)
 		}
+	}
+}
+
+// The tab opens on something to read. A binary file has no body, and opening on
+// one shows a reader an empty pane and a note.
+func TestTheFilesTabOpensOnAFileWithADiff(t *testing.T) {
+	if got := diffHeads(onFiles(200, 50).View()); !strings.Contains(got, "internal/gh/client.go") {
+		t.Errorf("the tab opened on %q, want the first file with hunks", got)
+	}
+}
+
+func TestAFileWithNoBodySaysWhyWhenItIsReached(t *testing.T) {
+	m := showFile(t, onFiles(200, 50), "docs/screenshot.png")
+	if !strings.Contains(stripANSI(m.View()), "binary, or too large for GitHub to return a diff") {
+		t.Error("the omitted body is not explained")
 	}
 }
 
@@ -152,7 +165,7 @@ func TestTheChurnIsOnTheFileHeadingAndNotInTheColumn(t *testing.T) {
 }
 
 func TestARenameShowsThePathItCameFrom(t *testing.T) {
-	out := stripANSI(onFiles(200, 56).View())
+	out := stripANSI(showFile(t, onFiles(200, 56), "internal/tui/prview/files.go").View())
 	if !strings.Contains(out, "internal/tui/prview/diff.go → internal/tui/prview/files.go") {
 		t.Error("the rename does not show the path it came from")
 	}
@@ -222,7 +235,7 @@ func TestAReviewThreadRendersUnderTheLineItAnchorsTo(t *testing.T) {
 // A comment on a deleted line and one on an added line can carry the same
 // number. Only the side tells them apart.
 func TestAThreadOnTheLeftAnchorsToTheRemovedLine(t *testing.T) {
-	out := stripANSI(onFiles(200, 60).View())
+	out := stripANSI(showFile(t, onFiles(200, 60), "internal/store/store.go").View())
 
 	removed := strings.Index(out, "// It refuces a duplicate.")
 	resolved := strings.Index(out, "resolved")
@@ -250,23 +263,6 @@ func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 
 	if !strings.Contains(stripANSI(m.View()), "Long since moved.") {
 		t.Error("a thread with no line left in the diff vanished")
-	}
-}
-
-func TestFoldingAFileTakesItsDiffWithIt(t *testing.T) {
-	m := press(onFiles(200, 50), "1")
-	if !strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
-		t.Fatal("the first file's hunk is not on screen to fold")
-	}
-
-	// The tree opens on the first file, so g first: docs/, screenshot.png,
-	// internal/, gh/, client.go.
-	m = press(m, "g", "j", "j", "j", "j", "o")
-	if strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
-		t.Error("folding the file left its hunk on screen")
-	}
-	if !strings.Contains(stripANSI(m.View()), "internal/gh/client.go") {
-		t.Error("folding the file took its heading with it")
 	}
 }
 
@@ -317,7 +313,7 @@ func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
 // The cursor says which file the diff is showing, which is the question the
 // column exists to answer whether or not the keys are pointed at it.
 func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
-	m := press(onFiles(200, 40), "1", "j", "j")
+	m := press(onFiles(200, 40), "1", "g", "j", "j", "j")
 	if !strings.Contains(cursorFile(m.View()), "gh/") {
 		t.Fatal("the cursor is not where the test put it")
 	}
@@ -479,49 +475,6 @@ func TestThePanesAreNumberedLeftToRight(t *testing.T) {
 	}
 }
 
-// The column answers "which file am I in". A diff scrolled three files past its
-// cursor answers it wrongly rather than not at all.
-func TestTheFileColumnFollowsTheDiffAsItScrolls(t *testing.T) {
-	m := press(onFiles(200, 20), "2")
-
-	// Scrolling a line at a time, the cursor should walk the files in the same
-	// order the diff has them.
-	want := []string{"screenshot.png", "client.go", "store.go", "files.go"}
-	at := 0
-
-	for range 60 {
-		on := cursorFile(m.View())
-		switch {
-		case strings.Contains(on, want[at]):
-		case at+1 < len(want) && strings.Contains(on, want[at+1]):
-			at++
-		default:
-			t.Fatalf("the cursor jumped to %q, want %q or the file after it",
-				strings.TrimSpace(on), want[at])
-		}
-		m = press(m, "j")
-	}
-
-	if at < 2 {
-		t.Errorf("the cursor reached only %q, want it to walk down the diff", want[at])
-	}
-}
-
-// The ends are exact rather than proportional. Scrolled to the bottom the
-// answer is the last file, whatever share of the window it got.
-func TestTheEndsOfTheDiffPointAtTheFirstAndLastFile(t *testing.T) {
-	m := press(onFiles(200, 20), "2", "G")
-	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
-		t.Errorf("G left the cursor on %q, want the last file", got)
-	}
-
-	if got := cursorFile(press(m, "g").View()); !strings.Contains(got, "screenshot.png") {
-		t.Errorf("g left the cursor on %q, want the first file", got)
-	}
-}
-
-// A key that only changes focus must not pull the cursor off the row the
-// reader left it on.
 func TestFocusingTheDiffLeavesTheCursorWhereItWas(t *testing.T) {
 	m := press(onFiles(200, 40), "1", "g")
 	before := cursorFile(m.View())
@@ -705,7 +658,7 @@ func TestAContextLineIsNotTinted(t *testing.T) {
 // says where one ends.
 // A file is not a thing to act on, so it gets a heading and no box. Boxing one
 // put a review thread in the diff three borders deep.
-func TestEachFileGetsAHeadingRowAndNoBox(t *testing.T) {
+func TestTheFileHeadingIsPinnedAboveTheDiff(t *testing.T) {
 	lines := strings.Split(stripANSI(onFiles(200, 50).View()), "\n")
 
 	head := -1
@@ -717,13 +670,33 @@ func TestEachFileGetsAHeadingRowAndNoBox(t *testing.T) {
 	}
 
 	if head < 0 {
-		t.Fatal("no heading row carries the path and the churn")
+		t.Fatal("no heading carries the path and the churn")
 	}
-	if strings.Contains(lines[head-1], "╭") {
-		t.Error("the heading still has a box over it")
+	if strings.Contains(lines[head-1], "╭─[2]") == false {
+		t.Errorf("the heading is not the first row of the pane, over it is %q", lines[head-1])
 	}
-	if !strings.Contains(lines[head+1], "@@ -40,4 +40,5 @@") {
-		t.Errorf("the first hunk is not directly under the heading, got %q", lines[head+1])
+	if !strings.Contains(lines[head+1], "├─") {
+		t.Errorf("the heading is not ruled off from the diff, under it is %q", lines[head+1])
+	}
+}
+
+// Scrolling the diff leaves the heading where it is. A reader sixty lines into
+// a file still has to be told which file it is, and the heading is the only
+// thing on the frame that says so.
+func TestTheFileHeadingSurvivesScrolling(t *testing.T) {
+	files := sampleFiles()
+	files[0] = longFile("internal/gh/client.go", 60)
+
+	m := detailed(held(sampleDetail()), 200, 20)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "2")
+	m = press(m, strings.Fields(strings.Repeat("j ", 40))...)
+
+	if strings.Contains(stripANSI(m.View()), "@@ -1,60 +1,60 @@") {
+		t.Fatal("setup: the diff never scrolled past its own hunk heading")
+	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "internal/gh/client.go") {
+		t.Errorf("the heading scrolled away, the pane names %q", got)
 	}
 }
 
@@ -769,7 +742,7 @@ func TestBraceJumpsAWholeFileFromEitherPane(t *testing.T) {
 		// the tree would land on the directory above it.
 		m := press(onFiles(200, 20), focus)
 
-		want := []string{"screenshot.png", "client.go", "store.go", "files.go"}
+		want := []string{"client.go", "store.go", "files.go"}
 		for i, file := range want {
 			if got := cursorFile(m.View()); !strings.Contains(got, file) {
 				t.Fatalf("pane %s, jump %d: cursor on %q, want %q", focus, i, got, file)
@@ -790,7 +763,7 @@ func TestBraceJumpsAWholeFileFromEitherPane(t *testing.T) {
 }
 
 func TestBraceWalksBackUpTheFiles(t *testing.T) {
-	m := press(onFiles(200, 20), "2", "G")
+	m := press(onFiles(200, 20), "2", "}", "}")
 	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
 		t.Fatalf("setup: cursor on %q, want the last file", got)
 	}
@@ -820,65 +793,6 @@ func longFile(path string, lines int) gh.ChangedFile {
 	}
 }
 
-// Back from inside a file is that file's own heading. Landing on the file before
-// it opens the reader above code they were still reading, and the heading they
-// wanted scrolls away with it.
-func TestBraceBackFromInsideAFileOpensOnItsHeading(t *testing.T) {
-	files := sampleFiles()
-	files[1] = longFile("internal/store/store.go", 60)
-
-	m := detailed(held(sampleDetail()), 200, 20)
-	m.SetFiles(loadedFiles(files, 0))
-	// screenshot.png, client.go, then the long one. The diff pane holds the keys.
-	m = press(m, "]", "]", "]", "2", "}", "}")
-	if got := cursorFile(m.View()); !strings.Contains(got, "store.go") {
-		t.Fatalf("setup: cursor on %q, want the long file", got)
-	}
-
-	m = press(m, strings.Fields(strings.Repeat("j ", 12))...)
-	if strings.Contains(diffHeads(m.View()), "store.go") {
-		t.Fatal("setup: the heading is still on screen, so this proves nothing")
-	}
-
-	m = press(m, "{")
-	if got := cursorFile(m.View()); !strings.Contains(got, "store.go") {
-		t.Fatalf("{ from inside the file moved the cursor to %q", got)
-	}
-	// Row zero is the pane's own border, and a file carries no box of its own,
-	// so a file opened at the top of the window puts its heading on row one.
-	if at := lineOf(t, m.View(), "▾ internal/store/store.go") - paneTopAt(m.View()); at != 1 {
-		t.Errorf("the heading landed on pane row %d, want the top of the window", at)
-	}
-
-	// From the heading it means the file before it, the way it always did.
-	if got := cursorFile(press(m, "{").View()); !strings.Contains(got, "client.go") {
-		t.Errorf("{ from the heading landed on %q, want the file before it", got)
-	}
-}
-
-// The last file is the end. Clamping onto it and showing it again scrolls back
-// to its heading from inside it, which is the page moving against the key.
-func TestBraceForwardInsideTheLastFileStaysPut(t *testing.T) {
-	files := sampleFiles()
-	files[2] = longFile("internal/tui/prview/files.go", 60)
-
-	m := detailed(held(sampleDetail()), 200, 20)
-	m.SetFiles(loadedFiles(files, 0))
-	m = press(m, "]", "]", "]", "2", "G")
-	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
-		t.Fatalf("setup: cursor on %q, want the last file", got)
-	}
-	if strings.Contains(diffHeads(m.View()), "files.go") {
-		t.Fatal("setup: the heading is on screen, so there is nothing to scroll back to")
-	}
-
-	if before, after := stripANSI(m.View()), stripANSI(press(m, "}").View()); before != after {
-		t.Error("} from inside the last file scrolled back to its heading")
-	}
-}
-
-// A directory row has no block of its own, and the reader has not seen the
-// files under it yet.
 func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
 	// docs/, screenshot.png, internal/, gh/, client.go
 	m := press(onFiles(200, 20), "1", "g", "j", "j")
@@ -893,14 +807,37 @@ func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
 
 // diffHeads is every file heading the diff pane has on screen. A heading
 // carries the churn; the same path in the file column does not.
+// diffHeads is the file the diff pane is drawing, read off the pinned heading
+// above its rule. One file per pane, so there is only ever one.
 func diffHeads(frame string) string {
-	var out []string
-	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		if strings.Contains(line, "▾ ") && strings.ContainsAny(line, "+−") {
-			out = append(out, strings.TrimSpace(line))
+	lines := strings.Split(stripANSI(frame), "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "├─") || i == 0 {
+			continue
 		}
+		cells := strings.Split(lines[i-1], "│")
+		if len(cells) < 2 {
+			return ""
+		}
+		return strings.TrimSpace(cells[len(cells)-2])
 	}
-	return strings.Join(out, " | ")
+	return ""
+}
+
+// showFile walks the tree until the diff pane is drawing a named file, the way
+// a reader looking for one does. The bound is generous: it only has to exceed
+// the rows any fixture here builds.
+func showFile(t *testing.T, m prview.Model, path string) prview.Model {
+	t.Helper()
+	m = press(m, "g")
+	for range 200 {
+		if strings.Contains(diffHeads(m.View()), path) {
+			return m
+		}
+		m = press(m, "j")
+	}
+	t.Fatalf("the tree never reached %s, stopped on %q", path, diffHeads(m.View()))
+	return m
 }
 
 // bigDiff is a pull request the size of a real refactor. Rendering one file
@@ -983,41 +920,6 @@ func TestTogglingTheRailOnFilesDoesNotUndoItOnTheConversation(t *testing.T) {
 	}
 }
 
-// Focus lands on the diff after a tab switch, and on a narrow frame the tree
-// is not on screen to take it, so folding cannot depend on which pane has it.
-func TestFoldingWorksFromTheDiffPane(t *testing.T) {
-	// The cursor opens on the first file, docs/screenshot.png, whose body is
-	// the reason it has no diff.
-	const body = "binary, or too large"
-
-	m := press(onFiles(200, 40), "2")
-	if !strings.Contains(stripANSI(m.View()), body) {
-		t.Fatal("setup: the file under the cursor is already folded")
-	}
-
-	if strings.Contains(stripANSI(press(m, "o").View()), body) {
-		t.Error("o with the diff focused did not fold the file")
-	}
-}
-
-// Folding takes lines out from under the viewport offset. Reading a file and
-// folding it, the pane landed in the middle of the next one with the heading
-// that had just collapsed nowhere on screen.
-func TestFoldingTheFileBeingReadKeepsItOnScreen(t *testing.T) {
-	m := press(onFiles(120, 16), "2", "j", "j", "j", "j", "j")
-	if !strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
-		t.Fatal("setup: the diff is not scrolled into the first file")
-	}
-
-	out := stripANSI(press(m, "o").View())
-	if !strings.Contains(out, "▸ internal/gh/client.go") {
-		t.Errorf("the folded file is not on screen:\n%s", out)
-	}
-}
-
-// Threads the diff has no line for are bucketed into a map on the way in.
-// Ranging that map to render them put the same comments in a different order
-// on every repaint, so they swapped places under the file as it was read.
 func TestOutdatedThreadsHoldTheirOrder(t *testing.T) {
 	d := sampleDetail()
 	for _, at := range []int{9001, 9002, 9003, 9004} {

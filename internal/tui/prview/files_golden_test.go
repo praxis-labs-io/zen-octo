@@ -24,11 +24,12 @@ func TestGoldenFilesTab(t *testing.T) {
 		// outruns the diff, which proves both clip before they draw.
 		{name: "files-clipping", width: 74, height: 24},
 
-		// A folded directory, and the file under it gone with it.
-		{name: "files-folded", width: 100, height: 30, keys: []string{"1", "o"}},
+		// A folded directory, and the file being read gone with it, so the pane
+		// has had to find another.
+		{name: "files-folded", width: 100, height: 30, keys: []string{"1", "k", "o"}},
 
-		// A folded file, which keeps its heading and drops its diff.
-		{name: "files-folded-file", width: 100, height: 30, keys: []string{"1", "j", "o"}},
+		// A file GitHub returned no body for, which is a heading and a reason.
+		{name: "files-omitted", width: 100, height: 30, keys: []string{"1", "g", "j"}},
 	}
 
 	for _, tt := range tests {

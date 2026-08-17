@@ -206,6 +206,10 @@ type Model struct {
 	cursor    int
 	collapsed map[string]bool
 
+	// shownPath is the one file the diff pane draws. The cursor names it as it
+	// passes a file row, and a directory row leaves whatever was there.
+	shownPath string
+
 	// diff is the rendered Files tab: where each file's block sits, and the
 	// blocks themselves. The Commits tab keeps one of its own.
 	diff diffBody
@@ -342,6 +346,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.S
 		// The pull request's own diff is the one review threads were written
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
+		commit:      commits{diff: diffBody{headings: true}},
 		compose:     newComposer(th),
 		inline:      newInline(th),
 		mention:     mention{dismissed: -1},
@@ -373,7 +378,14 @@ func (m *Model) SetFiles(f store.Files) tea.Cmd {
 	return m.finishJump()
 }
 
+// firstFile is the row the tab opens on: a file with something to read, since a
+// binary or an omitted body opens the reader on an empty pane.
 func (m Model) firstFile() int {
+	for i, r := range m.rows {
+		if r.file != nil && len(r.file.Hunks) > 0 {
+			return i
+		}
+	}
 	for i, r := range m.rows {
 		if r.file != nil {
 			return i
@@ -584,13 +596,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.inlineKey(keyMsg)
 	}
 
-	before := m.view.YOffset()
-
-	// A key that placed the cursor itself must not then have the diff place it
-	// again: a short file scrolled to the top of a tall window is not the file
-	// filling most of it.
-	follow := true
-
 	switch {
 	case key.Matches(keyMsg, k.Back):
 		// Letting go of a card and leaving the screen are two intentions on one
@@ -668,20 +673,16 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, m.changeTab(-1)
 
 	// A block is whatever this tab is made of. On a diff it is a file, and the
-	// tab is what decides: the spans outlive a tab switch, so without the guard
-	// the conversation scrolls to wherever the diff last had one.
+	// tab is what decides: the rows outlive a tab switch, so without the guard
+	// the conversation walks whatever the diff last had.
 	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabFiles:
 		m.jumpFile(1)
-		follow = false
 	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabFiles:
 		m.jumpFile(-1)
-		follow = false
 	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
-		follow = false
 	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
-		follow = false
 
 	// The rail is a list of controls rather than blocks of anything, and it
 	// answers to the movement keys instead. Leaving the braces on it as well
@@ -754,12 +755,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 
-	// Whatever the key did to the diff, the file column follows it. Gated on
-	// the diff having actually moved: a key that only changes focus must not
-	// pull the cursor off the row the reader left it on.
-	if follow && m.view.YOffset() != before {
-		m.trackDiff()
-	}
 	return m, m.armCommit()
 }
 
@@ -1201,9 +1196,11 @@ func (m *Model) layout() {
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, paneHeight)
+	m.main = m.main.Size(mainWidth, paneHeight).Header(m.fileHeading())
 	m.view.SetWidth(m.main.InnerWidth())
-	m.view.SetHeight(m.main.InnerHeight())
+	// The pinned heading is drawn by the pane, above the window rather than in
+	// it, so the viewport is short by whatever the pane spends on it.
+	m.view.SetHeight(max(0, m.main.InnerHeight()-(m.main.Above()-1)))
 	m.syncContent()
 }
 
@@ -1389,6 +1386,7 @@ func (m Model) View() string {
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
+		Header(m.fileHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
 		Render(m.view.View())}

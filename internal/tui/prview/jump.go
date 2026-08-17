@@ -105,8 +105,7 @@ func (m *Model) finishJump() tea.Cmd {
 	}
 
 	// The file is here and the thread is not drawn in it, which is a file whose
-	// body GitHub omitted. The file is still the right place to be.
-	m.showCursorFile()
+	// body GitHub omitted. Naming it was the whole of the move.
 	return nil
 }
 
@@ -152,6 +151,7 @@ func (m *Model) pointAt(path string) {
 		return
 	}
 	m.cursor = at
+	m.nameShownFile()
 }
 
 // hasPath is whether the diff carries a file. The tree and the thread key by

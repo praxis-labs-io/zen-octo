@@ -4,11 +4,9 @@
   Open · Opened 2 days ago by @druci… ✗ failing · changes requested 
                                                                      
 ╭─Conversation - Commits - Checks - Files───────────────────────────╮
+│ internal/gh/client.go                                        +2 −1│
+├───────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│▾ docs/screenshot.png                                         +0 −0│
-│ binary, or too large for GitHub to return a diff                  │
-│                                                                   │
-│▾ internal/gh/client.go                                       +2 −1│
 │         @@ -40,4 +40,5 @@ func New() (*Client, error) {           │
 │ 40 40       for {                                                 │
 │ 41    −         time.Sleep(delay)                                 │
@@ -21,4 +19,6 @@
 │   │                                                              ││
 │   │ This backs off forever.                                      ││
 │   ╰──────────────────────────────────────────────────────────────╯│
-╰─────────────────────────────────────────────────────────────17/40─╯
+│   │ ╭────────────────────────────────────────────────────────────╮│
+│   ╰─│ octobot · said · 1h                                        ││
+╰─────────────────────────────────────────────────────────────15/20─╯

@@ -4,15 +4,15 @@
   Open · Opened 2 days ago by @drucial                               ✗ failing · changes requested 
                                                                                                     
 ╭─[1]─4 files──────────╮╭─[2]─Conversation - Commits - Checks - Files──────────────────────────────╮
-│▾ docs/               ││                                                                          │
-│    screenshot.png    ││▾ docs/screenshot.png                                                +0 −0│
-│▸ internal/           ││ binary, or too large for GitHub to return a diff                         │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
+│▾ docs/               ││ docs/screenshot.png                                                 +0 −0│
+│    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
+│▾ internal/           ││                                                                          │
+│  ▾ gh/               ││ binary, or too large for GitHub to return a diff                         │
+│      client.go       ││                                                                          │
+│  ▾ store/            ││                                                                          │
+│      store.go        ││                                                                          │
+│  ▾ tui/prview/       ││                                                                          │
+│      files.go        ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

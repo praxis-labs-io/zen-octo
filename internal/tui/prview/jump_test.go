@@ -181,8 +181,8 @@ func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "docs/screenshot.png") {
-		t.Errorf("the diff did not open at its top, so a dead jump landed late:\n%s", out)
+	if !strings.Contains(out, "internal/gh/client.go") {
+		t.Errorf("the diff did not open where it normally does, so a dead jump landed late:\n%s", out)
 	}
 }
 
@@ -202,16 +202,15 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	}
 }
 
-// The offsets ride in the block cache, so a fold that changes what a block is
-// changes them with it. A stale one puts the jump on a line the file no longer
-// has.
-func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
+// Folding a directory takes the file being read off the tree, and the pane has
+// to find another. The jump has to reach back into it, unfolding on the way.
+func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 	landed(t, m.View())
 
-	folded := press(m, "1", "o")
+	folded := press(m, "1", "k", "o")
 	if strings.Contains(stripANSI(folded.View()), "This backs off forever.") {
-		t.Fatal("setup: the folded file is still showing its thread")
+		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
 	// The ring is still on the thread, so the conversation needs no walking.

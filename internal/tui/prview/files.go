@@ -35,8 +35,9 @@ type fileSpan struct {
 // blockKey identifies a rendered file block. Folding changes what a block is,
 // so the same file has one under each state.
 type blockKey struct {
-	key    string
-	folded bool
+	key     string
+	folded  bool
+	heading bool
 }
 
 // threadSpan is where a review thread landed inside a block, counted from the
@@ -94,6 +95,10 @@ type diffBody struct {
 	// threads, which is every commit's.
 	threadAt map[string]int
 
+	// headings is whether each file draws its own heading row. The Files tab
+	// draws one file and puts its heading in the pane, where it cannot scroll.
+	headings bool
+
 	// threads is whether review threads hang off these lines. They are written
 	// against the pull request's head, and the same line number in an older
 	// commit is different code, so a commit's diff carries none.
@@ -109,7 +114,7 @@ type diffBody struct {
 func (m *Model) filesBody() string {
 	switch {
 	case m.files.Loaded:
-		return m.renderDiff(m.rows, m.files, &m.diff)
+		return m.renderDiff(m.shownRows(), m.files, &m.diff)
 	case m.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.files.Err.Error())
 	}
@@ -148,10 +153,10 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			continue
 		}
 
-		bk := blockKey{key: r.key, folded: r.folded}
+		bk := blockKey{key: r.key, folded: r.folded, heading: d.headings}
 		b, ok := d.blocks[bk]
 		if !ok {
-			b = m.fileBlock(*r.file, r.folded, width, d.threads)
+			b = m.fileBlock(*r.file, r.folded, width, d.threads, d.headings)
 			d.blocks[bk] = b
 		}
 		blocks = append(blocks, b.text)
@@ -188,22 +193,23 @@ func overflow(res store.Files) string {
 
 // fileBlock is one file: the heading, then its hunks and the review threads
 // anchored inside them. No box, or a thread sits three borders deep.
-func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool) block {
-	head := m.fileHead(f, folded, width)
+func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads, heading bool) block {
 	if folded {
 		// Nothing inside it is on the page, so nothing inside it has a line.
-		return block{text: head}
+		return block{text: m.fileHead(f, "▸ ", width)}
 	}
 
 	body, spans := m.fileBody(f, width, threads)
+	if !heading {
+		return block{text: body, threads: spans}
+	}
 
 	// The spans were counted from the body's own first line, which sits one
 	// under the heading.
 	for i := range spans {
 		spans[i].start++
 	}
-
-	return block{text: head + "\n" + body, threads: spans}
+	return block{text: m.fileHead(f, "▾ ", width) + "\n" + body, threads: spans}
 }
 
 // fileBody is everything under a file's heading, already the full inner width
@@ -259,12 +265,7 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []t
 
 // fileHead is the path and the churn, with a marker saying whether the diff
 // under it is folded away.
-func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
-	marker := "▾ "
-	if folded {
-		marker = "▸ "
-	}
-
+func (m Model) fileHead(f gh.ChangedFile, marker string, width int) string {
 	path := f.Path
 	if f.PreviousPath != "" {
 		path = f.PreviousPath + " → " + f.Path
@@ -480,6 +481,16 @@ func (m *Model) treeBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// fileHeading is the path and the churn of the file in the pane, pinned in the
+// pane's own header so it never scrolls off the code it names.
+func (m Model) fileHeading() string {
+	f := m.shownFile()
+	if m.tab != tabFiles || f == nil || !m.files.Loaded {
+		return ""
+	}
+	return " " + m.fileHead(*f, "", max(0, m.main.InnerWidth()-1))
+}
+
 // treeTitle names the file column by what it holds.
 func (m Model) treeTitle() string {
 	if !m.files.Loaded {
@@ -497,134 +508,77 @@ func (m *Model) moveCursor(delta int) {
 	}
 	m.cursor = min(max(m.cursor+delta, 0), len(m.rows)-1)
 
+	m.nameShownFile()
 	m.showCursorRow()
 	m.syncContent()
-	m.showCursorFile()
 }
 
 // showCursorRow keeps the cursor inside the tree's own window. The column opens
 // with no blank line, so a row is its own offset.
 func (m *Model) showCursorRow() { showRow(&m.sideView, m.cursor) }
 
-// trackDiff points the file column at whatever the diff has scrolled to. The
-// column answers "which file am I in", and a diff scrolled three files past its
-// cursor answers it wrongly rather than not at all.
-//
-// The answer is the file filling most of the window rather than the one under
-// its top line. One long file with a review thread hanging off it otherwise
-// keeps the cursor for a whole screen of the files after it.
-func (m *Model) trackDiff() {
-	if m.tab != tabFiles || m.focus != paneMain || len(m.diff.spans) == 0 {
-		return
-	}
-
-	top := max(0, m.view.YOffset()-contentLead)
-	bottom := top + m.view.Height()
-
-	best, seen := "", 0
-	for _, s := range m.diff.spans {
-		if covered := min(s.end, bottom) - max(s.start, top); covered > seen {
-			best, seen = s.key, covered
+// shownRows is the one row the diff draws: the file the cursor last named.
+// Empty until a file has been named, which SetFiles does as the diff lands.
+func (m Model) shownRows() []row {
+	for _, r := range m.rows {
+		if r.file != nil && r.file.Path == m.shownPath {
+			return []row{r}
 		}
 	}
-
-	// The two ends are exact rather than proportional. Scrolled to the bottom
-	// the answer is the last file, whatever share of the window it got.
-	switch {
-	case m.view.AtTop():
-		best = m.diff.spans[0].key
-	case m.view.AtBottom():
-		best = m.diff.spans[len(m.diff.spans)-1].key
-	}
-
-	at := m.cursor
-	for i, r := range m.rows {
-		if r.key == best {
-			at = i
-			break
-		}
-	}
-
-	if at == m.cursor {
-		return
-	}
-	m.cursor = at
-	m.showCursorRow()
-	m.syncContent()
+	return nil
 }
 
-// cursorSpan is the file the column is pointing at, as an index into spans. A
-// directory has no block of its own, so it answers with the first file under
-// it. Minus one when there is no file left below the cursor at all.
-func (m Model) cursorSpan() int {
+// shownFile is the file in the pane, or nil before one has been named.
+func (m Model) shownFile() *gh.ChangedFile {
+	if rows := m.shownRows(); len(rows) == 1 {
+		return rows[0].file
+	}
+	return nil
+}
+
+// nameShownFile points the pane at the row under the cursor. A directory names
+// no file and leaves the pane on whatever it was reading.
+func (m *Model) nameShownFile() {
 	if m.cursor >= len(m.rows) {
-		return -1
+		return
 	}
-	for _, r := range m.rows[m.cursor:] {
-		for i, s := range m.diff.spans {
-			if s.key == r.key {
-				return i
-			}
-		}
+	f := m.rows[m.cursor].file
+	if f == nil || f.Path == m.shownPath {
+		return
 	}
-	return -1
-}
+	m.shownPath = f.Path
 
-// showCursorFile scrolls the diff to whatever the tree is pointing at.
-func (m *Model) showCursorFile() {
-	if at := m.cursorSpan(); at >= 0 {
-		m.view.SetYOffset(contentLead + m.diff.spans[at].start)
+	// The pane is shared with the other tabs, so a file named while one of them
+	// is up must not scroll the page the reader is actually on.
+	if m.tab == tabFiles {
+		m.view.SetYOffset(0)
 	}
 }
 
-// jumpFile moves a whole file at a time, whichever pane has focus. Reading a
-// diff is reading one file after another, and doing that by the line takes as
-// many keystrokes as the file is long.
-//
-// From a directory row, forward means the first file inside it rather than the
-// one after it: the reader has not seen that file yet.
+// jumpFile moves the cursor a whole file at a time, skipping the directory rows
+// between them. Reading a diff is reading one file after another.
 func (m *Model) jumpFile(delta int) {
-	at := m.cursorSpan()
-	if at < 0 {
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+
+	for at := m.cursor + step; at >= 0 && at < len(m.rows); at += step {
+		if m.rows[at].file == nil {
+			continue
+		}
+		m.cursor = at
+		m.nameShownFile()
+		m.showCursorRow()
+		m.syncContent()
 		return
 	}
-
-	next := at
-	switch {
-	// Back from inside a file is that file's own heading, the way it is in vim
-	// and the way the Commits tab reads it already. The key means the file
-	// before it only once that heading is on the top row.
-	case delta < 0:
-		if m.diff.spans[at].start >= bodyTop(&m.view) {
-			next = at - 1
-		}
-	// The last file is the end, the way the ring's last card is. Clamping onto
-	// it and showing it again scrolls back to its heading from inside it, which
-	// is the page moving against the key.
-	case at == len(m.diff.spans)-1 && m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
-		return
-	case m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
-		next = at + delta
-	}
-	next = min(max(next, 0), len(m.diff.spans)-1)
-
-	key := m.diff.spans[next].key
-	for i, r := range m.rows {
-		if r.key == key {
-			m.cursor = i
-			break
-		}
-	}
-
-	m.showCursorRow()
-	m.syncContent()
-	m.showCursorFile()
 }
 
-// toggleFold folds the row under the cursor: a directory out of the tree, a
-// file's diff out of the pane beside it.
+// toggleFold folds the directory under the cursor out of the tree. A file has
+// no fold of its own: the pane draws one file, and folding it leaves nothing.
 func (m *Model) toggleFold() {
-	if m.cursor >= len(m.rows) {
+	if m.cursor >= len(m.rows) || m.rows[m.cursor].file != nil {
 		return
 	}
 	key := m.rows[m.cursor].key
@@ -633,14 +587,17 @@ func (m *Model) toggleFold() {
 	m.syncRows()
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
 	m.syncContent()
-	// Folding takes lines out from under the offset. Scrolled into the file
-	// being folded, the pane would land in the middle of the next one and the
-	// heading that just collapsed would be off screen entirely.
-	m.showCursorFile()
 }
 
 // syncRows rebuilds what the tree has on screen. Folding changes it, and so
 // does a diff arriving.
 func (m *Model) syncRows() {
 	m.rows = flatten(buildTree(m.files.Files), m.collapsed, 0, nil)
+
+	// A fold can take the file being drawn off the tree, and the first render
+	// has none named at all. Either way the cursor is what says which.
+	if m.shownFile() == nil {
+		m.cursor = m.firstFile()
+		m.nameShownFile()
+	}
 }
