@@ -79,7 +79,7 @@ func onFiles(width, height int) prview.Model {
 // order have to reach the screen. The threads come from the detail and the
 // lines they hang off from the diff.
 func TestThreadsLandingAfterTheDiffStillRender(t *testing.T) {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetSize(200, 60)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 	m = press(m, "]", "]", "]")

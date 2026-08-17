@@ -10,6 +10,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
 
 // gutterMin is the narrowest a line-number column gets. A file under ten lines
@@ -318,7 +319,7 @@ func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
 // width. Every styled run ends in a reset that clears the background with it,
 // so a joined line wrapped in the background style afterwards would carry it
 // only as far as the first token.
-func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) string {
+func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int) string {
 	marker, c := " ", m.theme.Subtle
 	base := lipgloss.NewStyle()
 
@@ -367,7 +368,7 @@ func background(s lipgloss.Style, c color.Color) lipgloss.Style {
 // code renders one line's tokens over the style the row is painted in. Every
 // token takes only a foreground from it, so whatever the caller put behind the
 // line survives all the way across.
-func code(tokens []comp.Token, base lipgloss.Style) string {
+func code(tokens []syntax.Token, base lipgloss.Style) string {
 	var b strings.Builder
 	for _, t := range tokens {
 		text := strings.ReplaceAll(t.Text, "\t", strings.Repeat(" ", tabWidth))
@@ -387,7 +388,7 @@ func code(tokens []comp.Token, base lipgloss.Style) string {
 //
 // A context line goes into both sides so neither reads as source with its
 // unchanged lines missing, and takes its color from the new one.
-func (m *Model) lineTokens(f gh.ChangedFile) [][]comp.Token {
+func (m *Model) lineTokens(f gh.ChangedFile) [][]syntax.Token {
 	type at struct {
 		left bool
 		i    int
@@ -416,7 +417,7 @@ func (m *Model) lineTokens(f gh.ChangedFile) [][]comp.Token {
 	oldTok := m.syntax.Lines(f.Path, strings.Join(oldSrc, "\n"))
 	newTok := m.syntax.Lines(f.Path, strings.Join(newSrc, "\n"))
 
-	out := make([][]comp.Token, len(index))
+	out := make([][]syntax.Token, len(index))
 	for i, a := range index {
 		src := newTok
 		if a.left {

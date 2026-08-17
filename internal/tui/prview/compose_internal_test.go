@@ -18,7 +18,7 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -42,7 +42,7 @@ func editorFixture(t *testing.T) Model {
 		}},
 	}
 
-	syn, _ := comp.NewSyntax(theme.RosePineMoon.Syntax)
+	syn, _ := syntax.New(theme.RosePineMoon.Syntax)
 	m := New(theme.RosePineMoon, d.PullRequest, RailPreference{}, syn)
 	m.SetDetail(store.Detail{Detail: d, Status: store.StatusReady, Loaded: true})
 	m.SetSize(200, 60)

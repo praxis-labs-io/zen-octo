@@ -12,6 +12,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
 
 // treeGutter is the rail hanging one card off the card above it: a review's
@@ -1151,7 +1152,7 @@ func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
 	tokens := m.syntax.Lines(t.Path, hunkSource(lines))
 	out := make([]string, len(lines))
 	for i, l := range lines {
-		var row []comp.Token
+		var row []syntax.Token
 		if i < len(tokens) {
 			row = tokens[i]
 		}

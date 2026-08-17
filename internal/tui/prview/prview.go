@@ -17,6 +17,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -188,7 +189,7 @@ type Model struct {
 	railView viewport.Model
 
 	md      comp.Markdown
-	syntax  comp.Syntax
+	syntax  syntax.Syntax
 	spinner comp.Spinner
 
 	pr     gh.PullRequest
@@ -321,7 +322,7 @@ type Model struct {
 // New builds the screen over one pull request row, carrying forward whatever
 // the user last asked of the rail. The row is what the list already had, so the
 // header and the rail paint before the detail query answers.
-func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syntax) Model {
+func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.Syntax) Model {
 	return Model{
 		theme:    th,
 		side:     comp.NewPane(th),

@@ -26,6 +26,7 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
 	"github.com/zen-octo/zen-octo/internal/tui/list"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -206,7 +207,7 @@ const (
 type Model struct {
 	client GitHub
 	theme  theme.Theme
-	syntax comp.Syntax
+	syntax syntax.Syntax
 	limit  int
 
 	store store.Store
@@ -303,7 +304,7 @@ func New(cfg *config.Config, client GitHub) Model {
 	// names the Chroma style that matches it, and config overrides that for a
 	// theme with no counterpart.
 	syntaxName := cmp.Or(cfg.SyntaxTheme, th.Syntax)
-	syntax, syntaxOK := comp.NewSyntax(syntaxName)
+	syn, syntaxOK := syntax.New(syntaxName)
 
 	h := help.New()
 	h.Styles = helpStyles(th)
@@ -311,7 +312,7 @@ func New(cfg *config.Config, client GitHub) Model {
 	m := Model{
 		client: client,
 		theme:  th,
-		syntax: syntax,
+		syntax: syn,
 		limit:  cfg.Defaults.PRsLimit,
 		store:  store.New(cfg.PRSections),
 		list:   list.New(th),
@@ -331,7 +332,7 @@ func New(cfg *config.Config, client GitHub) Model {
 			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
 	case !syntaxOK:
 		m.notice = fmt.Sprintf("Unknown syntax theme %q, using Chroma's default. Known: %s",
-			syntaxName, strings.Join(comp.SyntaxNames(), ", "))
+			syntaxName, strings.Join(syntax.Names(), ", "))
 	}
 	return m
 }
