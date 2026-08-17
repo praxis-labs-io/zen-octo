@@ -1,4 +1,4 @@
-.PHONY: help test build lint lint-fix fmt fmt-fix mod-tidy all clean coverage install
+.PHONY: help test build lint lint-fix fmt fmt-fix mod-tidy all clean coverage install golden
 
 .DEFAULT_GOAL := help
 
@@ -16,6 +16,10 @@ help: ## Show this help message
 test: ## Run tests with race detection and coverage
 	@echo "Running tests..."
 	go test -race -coverprofile=$(COVERAGE_FILE) ./...
+
+golden: ## Regenerate the golden files
+	@echo "Regenerating golden files..."
+	go test ./internal/tui/prview/ -update
 
 coverage: test ## Show test coverage report
 	@echo "Generating coverage report..."
