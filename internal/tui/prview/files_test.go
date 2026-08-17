@@ -667,6 +667,24 @@ func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	}
 }
 
+// The tree belongs to the column and the blocks to the pane. Falling from one
+// to the other folds a directory the reader is not looking at.
+func TestTheFoldKeyInThePaneLeavesTheTreeAlone(t *testing.T) {
+	// The cursor left on the gh/ row, which is the only kind the tree folds.
+	m := press(onFiles(200, 50), "1", "k", "}")
+	if litHunk(m.View()) == "" {
+		t.Fatal("setup: no hunk is lit for the key to land on")
+	}
+	if !strings.Contains(stripANSI(m.View()), "▾ gh/") {
+		t.Fatal("setup: the directory the cursor is on is not open")
+	}
+
+	before := stripANSI(m.View())
+	if after := stripANSI(press(m, "space").View()); after != before {
+		t.Error("the fold key moved something with a hunk lit in the pane")
+	}
+}
+
 func TestFoldingADirectoryTakesItsFilesOutOfTheTree(t *testing.T) {
 	m := press(onFiles(200, 50), "1", "g", "j", "j", "space")
 

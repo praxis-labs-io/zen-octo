@@ -710,12 +710,10 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
-	// A card the ring holds is what the key most obviously means; failing that
-	// it folds the tree, from either pane, since a narrow frame shows no tree.
-	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles:
-		if !m.toggleExpanded() {
-			m.toggleFold()
-		}
+	// The tree is the column's, and the blocks are the pane's. Falling from one
+	// to the other folds a directory the reader is not looking at.
+	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles && m.focus != paneMain:
+		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
 		m.toggleExpanded()
 
