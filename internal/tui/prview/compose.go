@@ -371,6 +371,10 @@ func (m *Model) SetViewer(a gh.Actor) {
 // press.
 func (m Model) canCompose() bool { return m.railTab() && m.detail.Loaded }
 
+// canAct is what the keys reading the ring want: a page with a ring on it and a
+// detail behind it. Wider than canCompose, which is the compose card's own tab.
+func (m Model) canAct() bool { return m.ringTab() && m.detail.Loaded }
+
 // RestoreDraft puts a comment that failed to post back in the box. The words
 // are the reader's, and a network that dropped them is not a reason to lose
 // them.
@@ -386,7 +390,7 @@ func (m *Model) RestoreDraft(body string) tea.Cmd {
 		return nil
 	}
 
-	m.convRing.on = focusKey{kind: focusCompose}
+	m.pageRing.on = focusKey{kind: focusCompose}
 	cmd := m.compose.start()
 	m.focus = paneMain
 	m.showCompose()
@@ -410,7 +414,7 @@ func (m Model) openCompose(quote string) (Model, tea.Cmd) {
 
 	// Focus moves onto the box, so whichever card was lit is not any more.
 	m.conv.ok = false
-	m.convRing.on = focusKey{kind: focusCompose}
+	m.pageRing.on = focusKey{kind: focusCompose}
 
 	// The box is in the conversation, so the keys have to be going there. Left
 	// on the rail, the accent would name one pane while another took every
@@ -503,7 +507,7 @@ func (m Model) post() (Model, tea.Cmd) {
 	// that card is the placeholder, keyed by an id minted here, and the moment
 	// GitHub confirms it the id becomes a real one and the highlight would
 	// vanish on its own a few hundred milliseconds later.
-	m.convRing.clear()
+	m.pageRing.clear()
 	m.conv.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostCommentMsg{ID: id, Body: body} }

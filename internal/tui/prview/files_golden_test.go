@@ -30,6 +30,10 @@ func TestGoldenFilesTab(t *testing.T) {
 
 		// A file GitHub returned no body for, which is a heading and a reason.
 		{name: "files-omitted", width: 100, height: 30, keys: []string{"1", "g", "j"}},
+
+		// A card lit, so the frame holds the footer the ring gives it and the
+		// keys that footer names.
+		{name: "files-lit", width: 100, height: 30, keys: []string{"}", "}"}},
 	}
 
 	for _, tt := range tests {

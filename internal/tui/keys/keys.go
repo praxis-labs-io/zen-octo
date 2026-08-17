@@ -259,6 +259,10 @@ type DetailContext struct {
 	// Rail is whether there is a rail to toggle, which the tabs with a column
 	// have no room for.
 	Rail bool
+
+	// Files is whether there is another file to go to, which is the one tab
+	// showing one at a time.
+	Files bool
 }
 
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
@@ -267,6 +271,9 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	out := []key.Binding{hint(k.Down, "j/k", "move")}
 	if c.Blocks {
 		out = append(out, hint(k.NextBlock, "{/}", "block"))
+	}
+	if c.Files {
+		out = append(out, hint(k.NextFile, "⇥/⇧⇥", "file"))
 	}
 	if c.Expand {
 		out = append(out, k.Expand)

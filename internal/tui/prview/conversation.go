@@ -40,7 +40,7 @@ const threadHunkLines = 4
 func (m *Model) conversationBody() string {
 	// The ring is rebuilt from the blocks below. A tab that renders none of them
 	// leaves the ring nothing to land on.
-	m.convRing.reset()
+	m.pageRing.reset()
 
 	if note, ok := m.conversationNote(); ok {
 		return note
@@ -90,7 +90,7 @@ func (m *Model) entries() string {
 	// to a tail that gets them a second time from the rebuild.
 	split, splitAt, headItems, tailFrom := -1, 0, 0, 0
 	marking := false
-	mark := func() { split, splitAt, headItems, marking = len(blocks), at, len(m.convRing.items), true }
+	mark := func() { split, splitAt, headItems, marking = len(blocks), at, len(m.pageRing.items), true }
 
 	// pushStops records where a block landed before the join puts a blank line
 	// under it. The starts come in relative to the block and go out absolute.
@@ -100,10 +100,10 @@ func (m *Model) entries() string {
 			m.boxLine, m.boxCol = at+v.boxAt, v.boxCol
 		}
 		for _, s := range v.stops {
-			m.convRing.add(s.focusKey, at+s.start, s.lines)
+			m.pageRing.add(s.focusKey, at+s.start, s.lines)
 		}
 		if marking {
-			tailFrom, marking = len(m.convRing.items), false
+			tailFrom, marking = len(m.pageRing.items), false
 		}
 		at += strings.Count(v.block, "\n") + 2
 	}
@@ -203,8 +203,8 @@ func (m *Model) entries() string {
 	m.conv = convCache{
 		head:      strings.Join(blocks[:split], "\n\n"),
 		tail:      strings.Join(blocks[split+1:], "\n\n"),
-		items:     slices.Clone(m.convRing.items[:headItems]),
-		tailItems: shifted(m.convRing.items[tailFrom:], splitAt+strings.Count(blocks[split], "\n")+2),
+		items:     slices.Clone(m.pageRing.items[:headItems]),
+		tailItems: shifted(m.pageRing.items[tailFrom:], splitAt+strings.Count(blocks[split], "\n")+2),
 		at:        splitAt,
 		box:       m.inline.at,
 		ok:        true,
@@ -259,19 +259,19 @@ func shifted(items []focusItem, by int) []focusItem {
 // withBox joins a freshly rendered box between the two halves already built, and
 // rebuilds the ring around it.
 func (m *Model) withBox(width int) string {
-	m.convRing.items = append(m.convRing.items[:0], m.conv.items...)
+	m.pageRing.items = slices.Clone(m.conv.items)
 
 	middle := m.boxBlock(width)
 	if middle.boxAt > 0 {
 		m.boxLine, m.boxCol = m.conv.at+middle.boxAt, middle.boxCol
 	}
 	for _, s := range middle.stops {
-		m.convRing.add(s.focusKey, m.conv.at+s.start, s.lines)
+		m.pageRing.add(s.focusKey, m.conv.at+s.start, s.lines)
 	}
 
 	base := m.conv.at + strings.Count(middle.block, "\n") + 2
 	for _, it := range m.conv.tailItems {
-		m.convRing.add(it.focusKey, base+it.start, it.lines)
+		m.pageRing.add(it.focusKey, base+it.start, it.lines)
 	}
 
 	return joinBlocks(m.conv.head, middle.block, m.conv.tail)
@@ -710,7 +710,7 @@ func hintRoom(width int) int { return max(0, width-3) }
 // while the rail has focus. A card lit on a pane the key does nothing to is a
 // lie about the key, and two panes lit at once is the same lie twice.
 func (m Model) lit(key focusKey) bool {
-	return m.railTab() && m.focus == paneMain && m.convRing.focused(key)
+	return m.focus == paneMain && m.mainRing().focused(key)
 }
 
 // cardWidth is what is left for text once the box has taken its sides and its
@@ -1002,7 +1002,7 @@ func (m *Model) answers(t gh.ReviewThread, width int) []rendered {
 		}
 	}
 
-	if m.railTab() && m.inline.at == replyKey(t.ID) {
+	if m.inline.at == replyKey(t.ID) {
 		out = append(out, rendered{
 			block:  m.writingCard(width),
 			stops:  []focusItem{{focusKey: replyKey(t.ID)}},

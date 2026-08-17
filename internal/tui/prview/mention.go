@@ -258,7 +258,7 @@ func (m Model) mentionPeople() []gh.Mention {
 // is answering ends.
 func (m *Model) syncMention() tea.Cmd {
 	box := m.writing()
-	if box == nil || !m.railTab() {
+	if box == nil || !m.ringTab() {
 		m.clearMention()
 		return nil
 	}
@@ -354,7 +354,7 @@ func (m *Model) refillMentions() tea.Cmd {
 // showCaret has no use for: the pane the page sits in, and the column.
 func (m Model) mentionAnchor(lead int) (x, y int, ok bool) {
 	box := m.writing()
-	if box == nil || m.boxLine <= 0 || !m.railTab() || m.view.Height() <= 0 {
+	if box == nil || m.boxLine <= 0 || !m.ringTab() || m.view.Height() <= 0 {
 		return 0, 0, false
 	}
 

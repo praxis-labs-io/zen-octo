@@ -49,7 +49,9 @@ func (m Model) showInDiff() (Model, tea.Cmd) {
 // counted in: the file is probably in it, and hiding the key until the tab has
 // been opened once teaches the reader it is not there.
 func (m Model) jumpable(t gh.ReviewThread) bool {
-	if t.Line == 0 {
+	// Inside the diff there is nowhere left to go, so the key is inert and the
+	// footer that reads this stops naming it.
+	if t.Line == 0 || m.tab == tabFiles {
 		return false
 	}
 	return !m.files.Loaded || m.hasPath(t.Path)
@@ -112,8 +114,9 @@ func (m *Model) finishJump() tea.Cmd {
 // threadLine is where a thread's card landed in the rendered diff. The stops
 // are a handful per file, so they are walked rather than indexed.
 func (m Model) threadLine(id string) (int, bool) {
+	want := focusKey{kind: focusThread, id: id}
 	for _, s := range m.diff.stops {
-		if s.thread != stopNone && m.detail.Detail.Threads[s.thread].ID == id {
+		if s.focusKey == want {
 			return s.start, true
 		}
 	}

@@ -24,6 +24,10 @@ const (
 	focusThread
 	focusThreadComment
 
+	// focusHunk is one @@ block in a diff. It holds no prose and answers to no
+	// write; it is where the reader is standing, and where the next card is from.
+	focusHunk
+
 	focusState
 	focusReviewer
 	focusAssignee
@@ -89,6 +93,12 @@ func threadKey(t gh.ReviewThread) focusKey {
 	return focusKey{kind: focusThread, id: t.ID}
 }
 
+// hunkKey names one hunk by the header GitHub wrote for it, under its file.
+// Never its place in the slice: a push rewrites a file's hunks.
+func hunkKey(path string, h gh.Hunk) focusKey {
+	return focusKey{kind: focusHunk, id: path + "@" + h.Header}
+}
+
 // threadCommentKey is what one comment inside a thread answers to. Built from
 // the comment's own node id and nothing else, for the same reason as above: both
 // tabs render the same comments and a fold has to carry between them.
@@ -135,8 +145,9 @@ type ring struct {
 	on    focusKey
 }
 
-// reset empties the items for a fresh render, keeping the focus.
-func (r *ring) reset() { r.items = r.items[:0] }
+// reset drops the items for a fresh render, keeping the focus. The slice goes
+// rather than being reused: View runs on a copy, and two tabs share this one.
+func (r *ring) reset() { r.items = nil }
 
 // stops is how many things there are to land on, as of the last render.
 func (r ring) stops() int { return len(r.items) }

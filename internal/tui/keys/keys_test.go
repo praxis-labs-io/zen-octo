@@ -102,7 +102,7 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		// The form keys reach the overlay through the detail screen's help: they
 		// are the answer to what tab does inside a box, and the reader asking
 		// has only the one overlay to ask.
-		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Blocks: true, Expand: true, Rail: true}), full: keys.Detail.FullHelp()},
+		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Blocks: true, Expand: true, Rail: true, Files: true}), full: keys.Detail.FullHelp()},
 	}
 
 	for _, tt := range tests {

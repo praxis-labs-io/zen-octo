@@ -147,7 +147,7 @@ Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never s
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
 
-The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. The strip keeps `]` and `[`, where they do what they do on the list screen, and `tab` and `shift+tab` change the file on the tab that shows one at a time. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
+The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation, the hunks and the comments written against them on Files, and whole files on Commits, which has no ring. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. The strip keeps `]` and `[`, where they do what they do on the list screen, and `tab` and `shift+tab` change the file on the tab that shows one at a time. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
 
 `y` copies a pull request's link and `O` opens it in a browser, on both screens
 and on all four tabs. Neither reads the ring, because nothing under the pull
@@ -386,6 +386,46 @@ is what both it and the reviewer write go through, dropping the edit and marking
 the fetch in flight stale so an answer asked for before the failure cannot be
 believed. Every other write is all or nothing, and reverting one of those says
 the pull request never moved, which needs no request to confirm.
+
+The Files tab walks the same ring the conversation does, and it is the same
+ring. `pageRing` is whatever the main pane is drawing, because one tab draws
+into it at a time, where the rail is beside the page and needs a cursor of its
+own. `mainRing()` is the value twin `focusRing()` cannot be, since taking
+`&m.pageRing` off a value receiver addresses a copy, and `ringTab()` is what
+both of them ask. Its stops are hunks and comment cards, and there is no file
+stop: one file is in the pane and its heading is pinned above the scroll, so a
+stop on it would be a stop on the one thing that never moves. A hunk is named by
+its own `@@` header under its path and never by its place in the slice, so a
+push that rewrites the file leaves the key naming nothing, which is what
+re-entering from the window already answers. It lights as a fill across the
+heading rather than as a badge: the badge slot is for a state a hunk carries
+whether or not the cursor is on it, and filling the code rows instead would beat
+the added and removed tints and stop the diff reading as a diff. A brace pressed
+from the file column takes the pane with it, because the blocks it names are in
+the pane, and the column keeps `tab` and `shift+tab` for the coarser move.
+
+`canCompose` split in two for it. It still means the conversation, because the
+compose card is drawn on one tab only; `canAct` is the wider question the keys
+reading the ring ask, and `answerable` asks it. `replyBody` keeps `canCompose`
+on top of that, since what it opens is that card. `v` is the one key inert here:
+`jumpable` answers false on the tab, so `showInDiff` refuses and `threadActs`
+stops naming it on the same line, rather than a flag threaded through three
+renders to say the same thing twice. And a card in a diff answers the line above
+it, so `showFocus` sends it through `jumpTop` rather than to the top row, which
+is the rule the jump from the conversation already follows; a hunk heading is
+its own beginning and goes to the top row.
+
+A file's block caches the painted code and nothing else. Tokenising is what a
+block costs, so the runs of code are what is kept, and the hunk headings and the
+thread cards are drawn again every frame and spliced between them. Focus goes in
+neither `blockKey` nor `blockState`: in the state it retires the whole cache on
+every step of the ring, and in the key it leaves a full rendered file in the map
+for every stop the reader walked, with no rule for taking one out.
+
+`ring.reset` lets its slice go rather than reusing it. `View` is reached through
+value receivers all the way down, so a reused backing array is one the
+conversation and the diff write different stops into, and whichever copy is kept
+is holding the other's.
 
 A thread card holds the code, the anchor, and the comment that opened the
 thread. Everything answering that comment hangs off it on `branch`, the same

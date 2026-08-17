@@ -65,14 +65,6 @@ type block struct {
 	stops []blockStop
 }
 
-// placedStop is a stop with where it landed, in the lines of whatever the
-// caller was measuring.
-type placedStop struct {
-	blockStop
-	start int
-	lines int
-}
-
 // blockState is everything outside a single file that its block is rendered
 // against. A change to either retires the whole cache.
 //
@@ -99,8 +91,8 @@ type diffBody struct {
 	at     blockState
 
 	// stops is every hunk heading and thread card in the rendered body, in the
-	// same lines the file spans are counted in.
-	stops []placedStop
+	// same lines the file spans are counted in. The ring is built from them.
+	stops []focusItem
 
 	// headings is whether each file draws its own heading row. The Files tab
 	// draws one file and puts its heading in the pane, where it cannot scroll.
@@ -119,9 +111,17 @@ type diffBody struct {
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
 // failed refetch; the root raises a toast for that.
 func (m *Model) filesBody() string {
+	// Reset on every path, including the two with no diff to walk: a stop left
+	// over from before a refetch failed is a card the reader cannot see.
+	m.pageRing.reset()
+
 	switch {
 	case m.files.Loaded:
-		return m.renderDiff(m.shownRows(), m.files, &m.diff)
+		body := m.renderDiff(m.shownRows(), m.files, &m.diff)
+		for _, s := range m.diff.stops {
+			m.pageRing.add(s.focusKey, s.start, s.lines)
+		}
+		return body
 	case m.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.files.Err.Error())
 	}
@@ -301,6 +301,15 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
 }
 
+// hunkFill is the cursor on a hunk heading. It fills the row rather than taking
+// the badge slot, which is for a state a heading carries with or without focus.
+func (m Model) hunkFill(key focusKey) color.Color {
+	if !m.lit(key) {
+		return nil
+	}
+	return m.theme.SelectedBackground
+}
+
 // hunkHead is the @@ line, landing at the column the source under it starts in.
 // The badge slot stays empty: a hunk here carries no state of its own.
 func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color) string {
@@ -417,11 +426,11 @@ func (m *Model) diffThread(i, width int) string {
 
 // fileText joins a cached block back into a page, drawing every stop fresh, and
 // says where each one landed in the lines it wrote.
-func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []placedStop) {
+func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []focusItem) {
 	gutter := paint.Gutter(widest(f))
 
 	var sb strings.Builder
-	placed := make([]placedStop, 0, len(b.stops))
+	placed := make([]focusItem, 0, len(b.stops))
 	at, wrote := 0, false
 
 	write := func(text string, lines int) {
@@ -442,15 +451,19 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []placed
 		}
 
 		s := b.stops[i]
+		var key focusKey
 		var text string
 		if s.hunk != stopNone {
-			text = m.hunkHead(f.Hunks[s.hunk], gutter, width, nil)
+			h := f.Hunks[s.hunk]
+			key = hunkKey(f.Path, h)
+			text = m.hunkHead(h, gutter, width, m.hunkFill(key))
 		} else {
+			key = threadKey(m.detail.Detail.Threads[s.thread])
 			text = m.diffThread(s.thread, width)
 		}
 
 		lines := strings.Count(text, "\n") + 1
-		placed = append(placed, placedStop{blockStop: s, start: at, lines: lines})
+		placed = append(placed, focusItem{focusKey: key, start: at, lines: lines})
 		write(text, lines)
 	}
 	return sb.String(), placed

@@ -296,23 +296,123 @@ func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 	}
 }
 
-// The pane holds one file, so the reader needs a key that changes it without
-// leaving the pane. The strip keeps ] and [, which is what it answers to below.
-func TestTabMovesTheFileAndLeavesTheStrip(t *testing.T) {
+// litHunk is the @@ row the ring is on, read off the fill the cursor paints.
+func litHunk(frame string) string {
+	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.Contains(line, fill) && strings.Contains(stripANSI(line), "@@") {
+			return strings.TrimSpace(stripANSI(line))
+		}
+	}
+	return ""
+}
+
+// The diff draws the same cards the conversation does, and without a ring not
+// one of them can be replied to, resolved or reacted to.
+func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
+	m := onFiles(200, 50)
+	if got := litHunk(m.View()); got != "" {
+		t.Fatalf("the tab opened with %q already lit, want nothing", got)
+	}
+
+	m = press(m, "}")
+	if got := litHunk(m.View()); !strings.Contains(got, "@@ -40,4 +40,5 @@") {
+		t.Fatalf("the first brace lit %q, want the file's own hunk", got)
+	}
+
+	m = press(m, "}")
+	if got := focusedCard(t, m.View()); !strings.Contains(got, "internal/gh/client.go:42") {
+		t.Errorf("the second brace lit %q, want the thread written against the hunk", got)
+	}
+	if litHunk(m.View()) != "" {
+		t.Error("the hunk is still lit with the card lit as well")
+	}
+
+	if got := litHunk(press(m, "{").View()); !strings.Contains(got, "@@ -40,4 +40,5 @@") {
+		t.Errorf("the brace back landed on %q, want the hunk again", got)
+	}
+}
+
+// A card in a diff answers the line above it, so topping it scrolls away the
+// one thing the reader is reading the comment about.
+func TestACardInTheDiffOpensBelowTheCodeItAnswers(t *testing.T) {
+	// Short enough that the card cannot sit on screen whole, so the jump has to
+	// choose where to put it.
+	lines := strings.Split(stripANSI(press(onFiles(200, 14), "}", "}").View()), "\n")
+
+	card := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "╭─") && !strings.HasPrefix(l, "╭") })
+	if card < 0 {
+		t.Fatal("the card the braces landed on is not on the frame")
+	}
+
+	above := strings.Join(lines[:card], "\n")
+	if !strings.Contains(above, "time.Sleep(delay)") {
+		t.Errorf("the card was topped and the line it answers went with it:\n%s", above)
+	}
+}
+
+// v means take me to the diff, and inside one there is nowhere left to go. A
+// footer naming a key that does nothing is worse than a footer without it.
+func TestACardInTheDiffNamesItsKeysAndNotTheJump(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	footer := footerRow(t, lines, headingRow(t, lines, "internal/gh/client.go:42"))
+
+	for _, want := range []string{"r reply", "x resolve"} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("the card in the diff does not name %q: %q", want, footer)
+		}
+	}
+	if strings.Contains(footer, "in diff") {
+		t.Errorf("the card in the diff still offers the jump into it: %q", footer)
+	}
+}
+
+// Replying is the whole point of the ring, and the box belongs under the card
+// it answers rather than at the foot of a page the diff does not have.
+func TestReplyOpensABoxInTheDiff(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}", "r")
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Leave a reply") {
+		t.Fatal("r opened no reply box in the diff")
+	}
+	if !strings.Contains(out, "Post") {
+		t.Error("the box in the diff is missing the button that sends it")
+	}
+	if !strings.Contains(out, "This backs off forever.") {
+		t.Error("the box covered the comment it answers")
+	}
+}
+
+// esc lets go of a card before it leaves the screen, on this tab as on the
+// conversation.
+func TestEscLetsGoOfACardInTheDiff(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}")
+	if focusedCard(t, m.View()) == "" {
+		t.Fatal("setup: nothing is lit to let go of")
+	}
+
+	m, cmd := m.Update(escape())
+	if cmd != nil {
+		t.Error("esc left the screen while a card in the diff was lit")
+	}
+	if got := focusedCard(t, m.View()); got != "" {
+		t.Errorf("card %q is still lit after esc", got)
+	}
+}
+
+// tab is the file key here and the strip stays on ] and [, which is the half of
+// the swap that is easy to drop.
+func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	m := onFiles(200, 50)
 	active := fgSeq(theme.RosePineMoon.Accent)
 
-	m = press(m, "tab")
-	out := stripANSI(m.View())
-	if !strings.Contains(out, "// Begin marks one section in flight.") {
-		t.Error("tab did not move the pane to the next file")
-	}
-	if !strings.Contains(paneTop(m.View()), active+"mFiles") {
-		t.Error("tab moved the tab strip as well")
-	}
-
-	if back := stripANSI(press(m, "shift+tab").View()); !strings.Contains(back, "delay = min(delay*2, fetchTimeout)") {
-		t.Error("shift+tab did not move the pane back")
+	for _, k := range []string{"tab", "shift+tab"} {
+		if !strings.Contains(paneTop(press(m, k).View()), active+"mFiles") {
+			t.Errorf("%q moved the tab strip", k)
+		}
 	}
 }
 
@@ -786,7 +886,7 @@ func bgSeq(c color.Color) string {
 
 // Reading a diff is reading one file after another, and doing that by the line
 // takes as many keystrokes as the file is long.
-func TestBraceJumpsAWholeFileFromEitherPane(t *testing.T) {
+func TestTabJumpsAWholeFileFromEitherPane(t *testing.T) {
 	for _, focus := range []string{"1", "2"} {
 		// The column opens on the first file, so no jump to the top first: g on
 		// the tree would land on the directory above it.
@@ -802,31 +902,31 @@ func TestBraceJumpsAWholeFileFromEitherPane(t *testing.T) {
 			if heads := diffHeads(m.View()); !strings.Contains(heads, file) {
 				t.Errorf("pane %s: the diff does not show %q, only %q", focus, file, heads)
 			}
-			m = press(m, "}")
+			m = press(m, "tab")
 		}
 
 		// Past the last file it stays put rather than wrapping.
 		if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
-			t.Errorf("pane %s: } past the last file moved to %q", focus, got)
+			t.Errorf("pane %s: tab past the last file moved to %q", focus, got)
 		}
 	}
 }
 
-func TestBraceWalksBackUpTheFiles(t *testing.T) {
-	m := press(onFiles(200, 20), "2", "}", "}")
+func TestShiftTabWalksBackUpTheFiles(t *testing.T) {
+	m := press(onFiles(200, 20), "2", "tab", "tab")
 	if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
 		t.Fatalf("setup: cursor on %q, want the last file", got)
 	}
 
 	for _, want := range []string{"store.go", "client.go", "screenshot.png"} {
-		m = press(m, "{")
+		m = press(m, "shift+tab")
 		if got := cursorFile(m.View()); !strings.Contains(got, want) {
-			t.Fatalf("{ landed on %q, want %q", got, want)
+			t.Fatalf("shift+tab landed on %q, want %q", got, want)
 		}
 	}
 
-	if got := cursorFile(press(m, "{").View()); !strings.Contains(got, "screenshot.png") {
-		t.Errorf("{ past the first file moved to %q", got)
+	if got := cursorFile(press(m, "shift+tab").View()); !strings.Contains(got, "screenshot.png") {
+		t.Errorf("shift+tab past the first file moved to %q", got)
 	}
 }
 
@@ -843,15 +943,15 @@ func longFile(path string, lines int) gh.ChangedFile {
 	}
 }
 
-func TestBraceFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
+func TestTabFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
 	// docs/, screenshot.png, internal/, gh/, client.go
 	m := press(onFiles(200, 20), "1", "g", "j", "j")
 	if got := cursorFile(m.View()); !strings.Contains(got, "internal/") {
 		t.Fatalf("setup: cursor on %q, want the internal/ directory", got)
 	}
 
-	if got := cursorFile(press(m, "}").View()); !strings.Contains(got, "client.go") {
-		t.Errorf("} from internal/ landed on %q, want the first file inside it", got)
+	if got := cursorFile(press(m, "tab").View()); !strings.Contains(got, "client.go") {
+		t.Errorf("tab from internal/ landed on %q, want the first file inside it", got)
 	}
 }
 
