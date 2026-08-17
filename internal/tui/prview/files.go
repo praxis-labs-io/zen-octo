@@ -40,29 +40,37 @@ type blockKey struct {
 	heading bool
 }
 
-// threadSpan is where a review thread landed inside a block, counted from the
-// block's own first line. A block does not know where it was placed, and
-// everything that places one does.
-type threadSpan struct {
-	id    string
-	start int
+// blockStop is one segment of a file that something outside the painted code
+// can change. Exactly one of the two indexes is set; the other is stopNone.
+type blockStop struct {
+	hunk   int
+	thread int
 }
 
-// block is one file rendered, with the review threads inside it and where they
-// landed. The two are cached together because they are retired together: a
-// block reused from the cache was never re-measured, and offsets held anywhere
-// else would be describing a render that no longer happened.
+// stopNone is the index a blockStop does not carry.
+const stopNone = -1
+
+// run is a stretch of painted code between two stops. The count is kept because
+// one empty source line and no lines at all are the same string.
+type run struct {
+	text  string
+	lines int
+}
+
+// block is one file rendered. Tokenising is what it costs and that is all in
+// the runs, so a stop is drawn again every frame and never held lit.
 type block struct {
-	text    string
-	threads []threadSpan
+	// runs and stops interleave, runs first: one more run than stop, always.
+	runs  []run
+	stops []blockStop
 }
 
-// drawnThread is one thread rendered into a diff, still knowing which thread it
-// is. The Files tab throws the focus stops away, and the id is what a jump
-// needs back.
-type drawnThread struct {
-	id   string
-	text string
+// placedStop is a stop with where it landed, in the lines of whatever the
+// caller was measuring.
+type placedStop struct {
+	blockStop
+	start int
+	lines int
 }
 
 // blockState is everything outside a single file that its block is rendered
@@ -90,10 +98,9 @@ type diffBody struct {
 	blocks map[blockKey]block
 	at     blockState
 
-	// threadAt is where each review thread landed in the rendered body, in the
-	// same lines the file spans are counted in. Empty on a diff carrying no
-	// threads, which is every commit's.
-	threadAt map[string]int
+	// stops is every hunk heading and thread card in the rendered body, in the
+	// same lines the file spans are counted in.
+	stops []placedStop
 
 	// headings is whether each file draws its own heading row. The Files tab
 	// draws one file and puts its heading in the pane, where it cannot scroll.
@@ -129,11 +136,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	}
 
 	width := m.bodyWidth()
-	d.spans = d.spans[:0]
-	if d.threadAt == nil {
-		d.threadAt = make(map[string]int)
-	}
-	clear(d.threadAt)
+	d.spans, d.stops = d.spans[:0], d.stops[:0]
 
 	// A fold only reaches blocks with review threads in them. The Commits tab's
 	// diff carries none, so counting folds against it retires the whole cache
@@ -159,13 +162,16 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			b = m.fileBlock(*r.file, r.folded, width, d.threads, d.headings)
 			d.blocks[bk] = b
 		}
-		blocks = append(blocks, b.text)
 
-		for _, ts := range b.threads {
-			d.threadAt[ts.id] = at + ts.start
+		text, placed := m.fileText(*r.file, b, width)
+		blocks = append(blocks, text)
+
+		for _, p := range placed {
+			p.start += at
+			d.stops = append(d.stops, p)
 		}
 
-		lines := strings.Count(b.text, "\n") + 1
+		lines := strings.Count(text, "\n") + 1
 		d.spans = append(d.spans, fileSpan{key: r.key, start: at, end: at + lines})
 		// The join puts a blank line after every block but the last, and the
 		// next one starts on the line after that.
@@ -196,28 +202,30 @@ func overflow(res store.Files) string {
 func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads, heading bool) block {
 	if folded {
 		// Nothing inside it is on the page, so nothing inside it has a line.
-		return block{text: m.fileHead(f, "▸ ", width)}
+		return block{runs: []run{{text: m.fileHead(f, "▸ ", width), lines: 1}}}
 	}
 
-	body, spans := m.fileBody(f, width, threads)
+	b := m.fileBody(f, width, threads)
 	if !heading {
-		return block{text: body, threads: spans}
+		return b
 	}
 
-	// The spans were counted from the body's own first line, which sits one
-	// under the heading.
-	for i := range spans {
-		spans[i].start++
+	head := m.fileHead(f, "▾ ", width)
+	if b.runs[0].lines == 0 {
+		b.runs[0] = run{text: head, lines: 1}
+		return b
 	}
-	return block{text: m.fileHead(f, "▾ ", width) + "\n" + body, threads: spans}
+	b.runs[0] = run{text: head + "\n" + b.runs[0].text, lines: b.runs[0].lines + 1}
+	return b
 }
 
 // fileBody is everything under a file's heading, already the full inner width
 // so a changed line's background runs to the border. The pane pads with plain
 // spaces, which would leave a hole at the end of every one.
-func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []threadSpan) {
+func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 	if f.Omitted != "" {
-		return " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint()), nil
+		text := " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
+		return block{runs: []run{{text: text, lines: 1}}}
 	}
 
 	// A nil map answers nothing, so the lines below need no guard of their own.
@@ -230,37 +238,38 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []t
 	tokens := m.lineTokens(f)
 	gutter := paint.Gutter(widest(f))
 
-	// A thread card is many lines in one string, so the count is kept rather
-	// than read off the slice.
-	var lines []string
-	var spans []threadSpan
-	at := 0
+	var b block
+	var open []string
 
-	add := func(line string) {
-		lines = append(lines, line)
-		at += strings.Count(line, "\n") + 1
+	// close ends the run being gathered, so the stop after it starts a new one.
+	closeRun := func() {
+		b.runs = append(b.runs, run{text: strings.Join(open, "\n"), lines: len(open)})
+		open = nil
 	}
-	addThreads := func(drawn []drawnThread) {
-		for _, d := range drawn {
-			spans = append(spans, threadSpan{id: d.id, start: at})
-			add(d.text)
-		}
+	stop := func(s blockStop) {
+		closeRun()
+		b.stops = append(b.stops, s)
 	}
 
 	seen := 0
-	for _, h := range f.Hunks {
-		add(m.hunkHead(h, gutter, width, nil))
+	for i, h := range f.Hunks {
+		stop(blockStop{hunk: i, thread: stopNone})
 		for _, l := range h.Lines {
-			add(m.diffLine(l, tokens[seen], gutter, width, nil))
+			open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
 			seen++
-			addThreads(m.threadsAt(anchored, placed, l, width))
+			for _, at := range threadsAt(anchored, placed, l) {
+				stop(blockStop{hunk: stopNone, thread: at})
+			}
 		}
 	}
 
 	if threads {
-		addThreads(m.strayThreads(f.Path, placed, width))
+		for _, at := range m.strayThreads(f.Path, placed) {
+			stop(blockStop{hunk: stopNone, thread: at})
+		}
 	}
-	return strings.Join(lines, "\n"), spans
+	closeRun()
+	return b
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff
@@ -386,30 +395,65 @@ func (m Model) threadsIn(path string) map[anchor][]int {
 	return out
 }
 
-// threadsAt renders whatever hangs off a line. A context line sits on both
-// sides of the diff, so it answers to a comment written against either.
-func (m *Model) threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.DiffLine, width int) []drawnThread {
-	var out []drawnThread
+// threadsAt is whatever hangs off a line. A context line sits on both sides of
+// the diff, so it answers to a comment written against either.
+func threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.DiffLine) []int {
+	var out []int
 	for _, key := range anchorsOf(l) {
 		for _, i := range threads[key] {
 			placed[i] = true
-			out = append(out, m.diffThread(i, width))
+			out = append(out, i)
 		}
 	}
 	return out
 }
 
-// diffThread renders one thread inline in the diff, under the same keys the
-// conversation gives it, so a <details> block unfolded on one tab is unfolded
-// on the other. Focus is not shared: a card is only lit on the tab with a ring.
-//
-// The stops go nowhere for the same reason, and no reply box comes with it: the
-// box is a card the conversation puts under a thread, and there is no ring here
-// to open one from. The id comes back instead, which is what a jump from the
-// conversation needs to find its way here.
-func (m *Model) diffThread(i, width int) drawnThread {
+// diffThread draws one thread inline in the diff, under the keys the
+// conversation gives it, so a fold on one tab is a fold on the other.
+func (m *Model) diffThread(i, width int) string {
 	t := m.detail.Detail.Threads[i]
-	return drawnThread{id: t.ID, text: indent(m.thread(t, width-threadIndent, false).block, threadIndent)}
+	return indent(m.thread(t, width-threadIndent, false).block, threadIndent)
+}
+
+// fileText joins a cached block back into a page, drawing every stop fresh, and
+// says where each one landed in the lines it wrote.
+func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []placedStop) {
+	gutter := paint.Gutter(widest(f))
+
+	var sb strings.Builder
+	placed := make([]placedStop, 0, len(b.stops))
+	at, wrote := 0, false
+
+	write := func(text string, lines int) {
+		if lines == 0 {
+			return
+		}
+		if wrote {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(text)
+		at, wrote = at+lines, true
+	}
+
+	for i, r := range b.runs {
+		write(r.text, r.lines)
+		if i == len(b.stops) {
+			break
+		}
+
+		s := b.stops[i]
+		var text string
+		if s.hunk != stopNone {
+			text = m.hunkHead(f.Hunks[s.hunk], gutter, width, nil)
+		} else {
+			text = m.diffThread(s.thread, width)
+		}
+
+		lines := strings.Count(text, "\n") + 1
+		placed = append(placed, placedStop{blockStop: s, start: at, lines: lines})
+		write(text, lines)
+	}
+	return sb.String(), placed
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {
@@ -429,13 +473,13 @@ func anchorsOf(l gh.DiffLine) []anchor {
 // It walks the threads the query returned rather than the map they were
 // bucketed into: ranging a map is ordered at random, so the same comments came
 // out under the file in a different order every time it was rendered.
-func (m *Model) strayThreads(path string, placed map[int]bool, width int) []drawnThread {
-	var out []drawnThread
+func (m Model) strayThreads(path string, placed map[int]bool) []int {
+	var out []int
 	for i, t := range m.detail.Detail.Threads {
 		if t.Path != path || t.Line == 0 || placed[i] {
 			continue
 		}
-		out = append(out, m.diffThread(i, width))
+		out = append(out, i)
 	}
 	return out
 }

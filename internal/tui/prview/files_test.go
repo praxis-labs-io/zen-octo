@@ -266,6 +266,36 @@ func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 	}
 }
 
+// Two threads on one line put two stops side by side with no code between
+// them, which is the one join that has no line of its own to hang a break on.
+func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
+	d := sampleDetail()
+	d.Threads = append(d.Threads, gh.ReviewThread{
+		ID: "RT_9", Path: "internal/gh/client.go", Line: 42, Side: gh.SideRight,
+		Comments: []gh.Comment{{Author: gh.Actor{Login: "octobot"}, Body: "And it never logs."}},
+	})
+
+	m := detailed(held(d), 200, 60)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	m = press(m, "]", "]", "]")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	first := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "This backs off forever.") })
+	second := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "And it never logs.") })
+	if first < 0 || second < 0 {
+		t.Fatal("both threads on the line are not on the frame")
+	}
+
+	// The second card's own top border, and the row that has to sit against it.
+	top := second
+	for top > first && !strings.Contains(lines[top], "╭") {
+		top--
+	}
+	if !strings.Contains(lines[top-1], "╰") {
+		t.Errorf("the second thread does not sit against the first:\n%s", strings.Join(lines[top-1:top+1], "\n"))
+	}
+}
+
 // The pane holds one file, so the reader needs a key that changes it without
 // leaving the pane. The strip keeps ] and [, which is what it answers to below.
 func TestTabMovesTheFileAndLeavesTheStrip(t *testing.T) {

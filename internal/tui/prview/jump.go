@@ -99,7 +99,7 @@ func (m *Model) finishJump() tea.Cmd {
 	m.syncContent()
 	m.showCursorRow()
 
-	if line, ok := m.diff.threadAt[t.ID]; ok {
+	if line, ok := m.threadLine(t.ID); ok {
 		m.view.SetYOffset(contentLead + m.jumpTop(t.Path, line))
 		return nil
 	}
@@ -107,6 +107,17 @@ func (m *Model) finishJump() tea.Cmd {
 	// The file is here and the thread is not drawn in it, which is a file whose
 	// body GitHub omitted. Naming it was the whole of the move.
 	return nil
+}
+
+// threadLine is where a thread's card landed in the rendered diff. The stops
+// are a handful per file, so they are walked rather than indexed.
+func (m Model) threadLine(id string) (int, bool) {
+	for _, s := range m.diff.stops {
+		if s.thread != stopNone && m.detail.Detail.Threads[s.thread].ID == id {
+			return s.start, true
+		}
+	}
+	return 0, false
 }
 
 // jumpLead is the code kept above a thread when a jump lands: the line it
