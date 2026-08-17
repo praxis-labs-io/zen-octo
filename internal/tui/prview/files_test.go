@@ -333,12 +333,60 @@ func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
 	}
 }
 
+// twoHunks is a file whose diff jumps, which is the only shape a gap between
+// hunks shows up in. sampleFiles carries one hunk per file.
+func twoHunks() []gh.ChangedFile {
+	return []gh.ChangedFile{{
+		Path: "a.go", Status: gh.FileModified, Additions: 2,
+		Hunks: []gh.Hunk{
+			{Header: "@@ -1,2 +1,3 @@", Lines: []gh.DiffLine{
+				{Kind: gh.DiffContext, Old: 1, New: 1, Content: "package a"},
+				{Kind: gh.DiffAdded, New: 2, Content: "const x = 1"},
+			}},
+			{Header: "@@ -40,2 +41,3 @@ func New() {", Lines: []gh.DiffLine{
+				{Kind: gh.DiffContext, Old: 40, New: 41, Content: "\tfor {"},
+				{Kind: gh.DiffAdded, New: 42, Content: "\t\tbreak"},
+			}},
+		},
+	}}
+}
+
+// A hunk is a jump to somewhere else in the file, and run against the line
+// above it the two read as one stretch of code that never was.
+func TestHunksAreSeparatedByABlankLine(t *testing.T) {
+	m := detailed(held(sampleDetail()), 100, 24)
+	m.SetFiles(loadedFiles(twoHunks(), 0))
+	m = press(m, "]", "]", "]")
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	second := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "@@ -40,2 +41,3 @@") })
+	if second < 1 {
+		t.Fatal("the second hunk is not on the frame")
+	}
+
+	if body := diffRow(lines[second-1]); strings.TrimSpace(body) != "" {
+		t.Errorf("the second hunk sits straight under %q", strings.TrimSpace(body))
+	}
+	if body := diffRow(lines[second-2]); !strings.Contains(body, "const x = 1") {
+		t.Errorf("the gap is more than one row: %q", strings.TrimSpace(body))
+	}
+}
+
+// diffRow is what a frame row holds inside the diff pane's own borders.
+func diffRow(line string) string {
+	cells := strings.Split(line, "│")
+	if len(cells) < 4 {
+		return ""
+	}
+	return cells[len(cells)-2]
+}
+
 // One file is in the pane, so the stop after a file's last one is in the next
 // file. A key dying at each file boundary would send the reader to the column.
 func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
-	m := press(onFiles(200, 50), "}", "}")
+	m := press(onFiles(200, 50), "}", "}", "}")
 
-	// Past the thread, which is the last stop in the first file.
+	// Past the reply, which is the last stop in the first file.
 	m = press(m, "}")
 	if got := diffHeads(m.View()); !strings.Contains(got, "internal/store/store.go") {
 		t.Fatalf("the brace past the last stop left the pane on %q", got)
@@ -352,8 +400,30 @@ func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
 	if got := diffHeads(m.View()); !strings.Contains(got, "internal/gh/client.go") {
 		t.Fatalf("the brace back left the pane on %q", got)
 	}
-	if got := focusedCard(t, m.View()); !strings.Contains(got, "internal/gh/client.go:42") {
+	if got := focusedCard(t, m.View()); !strings.Contains(got, "octobot · said · 1h") {
 		t.Errorf("crossing back landed on %q, want the last stop of that file", got)
+	}
+}
+
+// A reply is a card of its own in the diff as it is in the conversation. One
+// the motion key walks past is one the reader can see and cannot answer.
+func TestTheBracesStopOnAReplyInTheDiff(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}", "}")
+
+	if got := focusedCard(t, m.View()); !strings.Contains(got, "octobot · said · 1h") {
+		t.Fatalf("the brace past the thread lit %q, want the reply hanging off it", got)
+	}
+
+	// x and v mean the thread and not an answer to it, so neither is named here.
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	footer := footerRow(t, lines, headingRow(t, lines, "octobot · said · 1h"))
+	if !strings.Contains(footer, "r reply") {
+		t.Errorf("the reply holding the keys names none of them: %q", footer)
+	}
+	for _, key := range []string{"x resolve", "x unresolve", "in diff"} {
+		if strings.Contains(footer, key) {
+			t.Errorf("the reply names %q, which acts on the thread and not on it: %q", key, footer)
+		}
 	}
 }
 
@@ -366,7 +436,7 @@ func TestTheBracesStopAtTheEndsOfTheDiff(t *testing.T) {
 		t.Errorf("the brace back off the first file moved to %q", got)
 	}
 
-	last := press(onFiles(200, 50), "}", "}", "}", "}", "}", "}", "}", "}")
+	last := press(onFiles(200, 50), "}", "}", "}", "}", "}", "}", "}", "}", "}")
 	if got := diffHeads(last.View()); !strings.Contains(got, "internal/tui/prview/files.go") {
 		t.Errorf("the brace past the last file moved to %q", got)
 	}
@@ -422,6 +492,18 @@ func TestReplyOpensABoxInTheDiff(t *testing.T) {
 	}
 	if !strings.Contains(out, "This backs off forever.") {
 		t.Error("the box covered the comment it answers")
+	}
+}
+
+// The popup is drawn at the caret, and the caret's line and column come from
+// the box's own offsets. A diff dropping those leaves the list nowhere to open.
+func TestAnAtInADiffBoxOpensTheMentionList(t *testing.T) {
+	m := press(onFiles(200, 60), "}", "}", "r")
+	m.SetRepo(loadedRepo())
+
+	m, _ = typing(m, "@")
+	if out := stripANSI(m.View()); !strings.Contains(out, "Nikita Rushmanov") {
+		t.Errorf("the mention list never opened over a box in the diff:\n%s", out)
 	}
 }
 

@@ -57,6 +57,15 @@ type run struct {
 	lines int
 }
 
+// drawnFile is one file assembled from its block: the page it wrote, the stops
+// in it, and where a box open inside one of them starts.
+type drawnFile struct {
+	text   string
+	stops  []focusItem
+	boxAt  int
+	boxCol int
+}
+
 // block is one file rendered. Tokenising is what it costs and that is all in
 // the runs, so a stop is drawn again every frame and never held lit.
 type block struct {
@@ -163,15 +172,18 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			d.blocks[bk] = b
 		}
 
-		text, placed := m.fileText(*r.file, b, width)
-		blocks = append(blocks, text)
+		drawn := m.fileText(*r.file, b, width)
+		blocks = append(blocks, drawn.text)
 
-		for _, p := range placed {
+		for _, p := range drawn.stops {
 			p.start += at
 			d.stops = append(d.stops, p)
 		}
+		if drawn.boxAt > 0 {
+			m.boxLine, m.boxCol = at+drawn.boxAt, drawn.boxCol
+		}
 
-		lines := strings.Count(text, "\n") + 1
+		lines := strings.Count(drawn.text, "\n") + 1
 		d.spans = append(d.spans, fileSpan{key: r.key, start: at, end: at + lines})
 		// The join puts a blank line after every block but the last, and the
 		// next one starts on the line after that.
@@ -253,6 +265,11 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 
 	seen := 0
 	for i, h := range f.Hunks {
+		// A hunk is a jump to somewhere else in the file, so it gets the blank
+		// line every other break on this screen gets.
+		if i > 0 {
+			open = append(open, "")
+		}
 		stop(blockStop{hunk: i, thread: stopNone})
 		for _, l := range h.Lines {
 			open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
@@ -417,20 +434,25 @@ func threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.DiffLine) []i
 	return out
 }
 
-// diffThread draws one thread inline in the diff, under the keys the
-// conversation gives it, so a fold on one tab is a fold on the other.
-func (m *Model) diffThread(i, width int) string {
+// diffThread draws one thread inline in the diff, with its stops and its box.
+// Replies are stops of their own, and only the column moves under the indent.
+func (m *Model) diffThread(i, width int) rendered {
 	t := m.detail.Detail.Threads[i]
-	return indent(m.thread(t, width-threadIndent, false).block, threadIndent)
+	v := m.thread(t, width-threadIndent, false)
+	v.block = indent(v.block, threadIndent)
+	if v.boxAt > 0 {
+		v.boxCol += threadIndent
+	}
+	return v
 }
 
-// fileText joins a cached block back into a page, drawing every stop fresh, and
-// says where each one landed in the lines it wrote.
-func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []focusItem) {
+// fileText joins a cached block back into a page, drawing every stop fresh. It
+// says where each one landed, and where a box open inside one of them sits.
+func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 	gutter := paint.Gutter(widest(f))
 
 	var sb strings.Builder
-	placed := make([]focusItem, 0, len(b.stops))
+	out := drawnFile{stops: make([]focusItem, 0, len(b.stops))}
 	at, wrote := 0, false
 
 	write := func(text string, lines int) {
@@ -451,22 +473,28 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) (string, []focusI
 		}
 
 		s := b.stops[i]
-		var key focusKey
 		var text string
 		if s.hunk != stopNone {
 			h := f.Hunks[s.hunk]
-			key = hunkKey(f.Path, h)
+			key := hunkKey(f.Path, h)
 			text = m.hunkHead(h, gutter, width, m.hunkFill(key))
+			out.stops = append(out.stops, focusItem{focusKey: key, start: at, lines: 1})
 		} else {
-			key = threadKey(m.detail.Detail.Threads[s.thread])
-			text = m.diffThread(s.thread, width)
+			v := m.diffThread(s.thread, width)
+			text = v.block
+			if v.boxAt > 0 {
+				out.boxAt, out.boxCol = at+v.boxAt, v.boxCol
+			}
+			for _, st := range v.stops {
+				out.stops = append(out.stops, focusItem{focusKey: st.focusKey, start: at + st.start, lines: st.lines})
+			}
 		}
 
-		lines := strings.Count(text, "\n") + 1
-		placed = append(placed, focusItem{focusKey: key, start: at, lines: lines})
-		write(text, lines)
+		write(text, strings.Count(text, "\n")+1)
 	}
-	return sb.String(), placed
+
+	out.text = sb.String()
+	return out
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {
