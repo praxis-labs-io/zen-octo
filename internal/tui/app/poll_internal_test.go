@@ -62,7 +62,7 @@ func (m Model) pulseSettledCmd(moved bool) tea.Cmd {
 func onTheCommitsTab(t *testing.T) Model {
 	t.Helper()
 
-	model, _ := onADetail(t).Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model, _ := onADetail(t).Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 	return model.(Model)
 }
 

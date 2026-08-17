@@ -26,7 +26,7 @@ func TestGoldenFilesTab(t *testing.T) {
 
 		// A folded directory, and the file being read gone with it, so the pane
 		// has had to find another.
-		{name: "files-folded", width: 100, height: 30, keys: []string{"1", "k", "o"}},
+		{name: "files-folded", width: 100, height: 30, keys: []string{"1", "k", "space"}},
 
 		// A file GitHub returned no body for, which is a heading and a reason.
 		{name: "files-omitted", width: 100, height: 30, keys: []string{"1", "g", "j"}},

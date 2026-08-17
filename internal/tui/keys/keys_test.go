@@ -28,6 +28,10 @@ func declared(km any) map[string]key.Binding {
 // cannot be compared directly.
 func id(b key.Binding) string { return strings.Join(b.Keys(), ",") }
 
+// label adds what the help says the key does, which is what tells two bindings
+// on one key apart: space is the fold on the screen and the toggle in a picker.
+func label(b key.Binding) string { return id(b) + " " + b.Help().Desc }
+
 func TestEveryBindingCarriesHelpAndKeys(t *testing.T) {
 	tests := []struct {
 		name string
@@ -103,19 +107,22 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isDeclared := map[string]bool{}
+			// The overlay is matched on the label and the bar on the keys alone,
+			// because hint rewrites a bar entry's words on purpose.
+			isDeclared, isLabelled := map[string]bool{}, map[string]bool{}
 			for _, km := range tt.live {
 				for _, b := range declared(km) {
 					isDeclared[id(b)] = true
+					isLabelled[label(b)] = true
 				}
 			}
 
 			inFullHelp := map[string]bool{}
 			for _, group := range tt.full {
 				for _, b := range group {
-					inFullHelp[id(b)] = true
-					if !isDeclared[id(b)] {
-						t.Errorf("FullHelp lists %q, which no keymap declares", id(b))
+					inFullHelp[label(b)] = true
+					if !isLabelled[label(b)] {
+						t.Errorf("FullHelp lists %q, which no keymap declares", label(b))
 					}
 				}
 			}
@@ -127,7 +134,7 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 
 			for _, km := range tt.live {
 				for field, b := range declared(km) {
-					if !inFullHelp[id(b)] {
+					if !inFullHelp[label(b)] {
 						t.Errorf("%s is declared but never shown in FullHelp", field)
 					}
 				}

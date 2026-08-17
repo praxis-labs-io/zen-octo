@@ -378,7 +378,7 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// Only where it means something. On a single-select picker space is a
 	// character, and swallowing it here would leave the filter unable to take
 	// one.
-	case key.Matches(keyMsg, k.Toggle) && m.picking.p.Multi():
+	case key.Matches(keyMsg, keys.Form.Toggle) && m.picking.p.Multi():
 		m.picking.p.Toggle()
 		return m, nil
 	}

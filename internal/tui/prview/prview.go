@@ -672,6 +672,13 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
+	// The strip is ] and [ on both screens. tab is the file, which only the tab
+	// showing one at a time has.
+	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
+		m.jumpFile(1)
+	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
+		m.jumpFile(-1)
+
 	// A block is whatever this tab is made of. On a diff it is a file, and the
 	// tab is what decides: the rows outlive a tab switch, so without the guard
 	// the conversation walks whatever the diff last had.

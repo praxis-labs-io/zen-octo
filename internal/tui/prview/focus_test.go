@@ -220,7 +220,7 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 
 	// Unfold it in the conversation: the fourth card is that thread, and K steps
 	// the sub-cursor off its last comment onto the one holding the fold.
-	m = press(m, "}", "}", "}", "}", "K", "o")
+	m = press(m, "}", "}", "}", "}", "K", "space")
 	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
 		t.Fatal("o did not unfold the thread in the conversation")
 	}
@@ -407,7 +407,7 @@ func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 	m := press(detailed(held(d), 200, 16), "}", "G")
 
 	before := stripANSI(m.View())
-	if before != stripANSI(press(m, "o").View()) {
+	if before != stripANSI(press(m, "space").View()) {
 		t.Error("o acted on a card off the screen")
 	}
 }
@@ -432,20 +432,19 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 	}
 }
 
-// tab moves the strip here the way it moves the sections on the list screen, so
-// the same key makes the same move on both. The braces walk blocks and leave
-// the strip alone, which is the half of the swap that is easy to drop.
-func TestTabSwitchesTabsAndTheBracesDoNot(t *testing.T) {
+// The strip is ] and [ here and on the list screen, and nothing else reaches
+// it: the braces walk blocks and tab is the file key on the tab with files.
+func TestOnlyTheBracketsMoveTheTabStrip(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 	active := fgSeq(theme.RosePineMoon.Accent)
 
-	if !strings.Contains(paneTop(press(m, "tab").View()), active+"mCommits") {
-		t.Error("tab did not move to the Commits tab")
+	if !strings.Contains(paneTop(press(m, "]").View()), active+"mCommits") {
+		t.Error("] did not move to the Commits tab")
 	}
-	if !strings.Contains(paneTop(press(m, "shift+tab").View()), active+"mFiles") {
-		t.Error("shift+tab did not wrap back to the Files tab")
+	if !strings.Contains(paneTop(press(m, "[").View()), active+"mFiles") {
+		t.Error("[ did not wrap back to the Files tab")
 	}
-	for _, k := range []string{"}", "{"} {
+	for _, k := range []string{"}", "{", "tab", "shift+tab"} {
 		if !strings.Contains(paneTop(press(m, k).View()), active+"mConversation") {
 			t.Errorf("%q moved off the Conversation tab", k)
 		}
@@ -641,7 +640,7 @@ func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
 		return d
 	}
 
-	m := press(detailed(held(folded()), 200, 60), "}", "}", "o")
+	m := press(detailed(held(folded()), 200, 60), "}", "}", "space")
 	if !strings.Contains(stripANSI(m.View()), "The secret.") {
 		t.Fatal("o did not unfold the comment")
 	}

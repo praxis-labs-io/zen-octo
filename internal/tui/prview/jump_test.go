@@ -96,7 +96,7 @@ func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 // nothing to point at and nothing to scroll to until every fold above it goes.
 func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 	// Down the column to the directory the file sits in, and fold it.
-	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "o")
+	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "space")
 	if strings.Contains(cursorFile(folded.View()), "client.go") {
 		t.Fatal("setup: the cursor is on the file rather than the directory above it")
 	}
@@ -208,7 +208,7 @@ func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testin
 	m := press(jumping(t, tabThread), "v")
 	landed(t, m.View())
 
-	folded := press(m, "1", "k", "o")
+	folded := press(m, "1", "k", "space")
 	if strings.Contains(stripANSI(folded.View()), "This backs off forever.") {
 		t.Fatal("setup: the folded directory is still showing the thread")
 	}
@@ -265,7 +265,7 @@ func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 
 	// Up to the one directory and fold it, which takes every file out of the
 	// tree. The cursor opens on the first file, one row under it.
-	folded := press(m, "]", "]", "]", "1", "k", "o")
+	folded := press(m, "]", "]", "]", "1", "k", "space")
 	if got := selectedRow(folded.View()); !strings.Contains(got, "internal/gh/") {
 		t.Fatalf("setup: the fold landed on %q rather than the directory", strings.TrimSpace(got))
 	}

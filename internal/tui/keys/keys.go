@@ -40,21 +40,6 @@ type ListMap struct {
 
 // DetailMap is live on the pull request detail screen. The same movement keys
 // serve every pane; focus decides what they move.
-//
-// FocusPane is one binding over the digits rather than one per pane, because
-// the Files tab puts a third pane on screen and the panes are numbered by where
-// they sit rather than by what they hold.
-//
-// NextBlock and PrevBlock take the braces, which are paragraph motion in vim
-// and mean the same thing here: go to the next block on this screen. What a
-// block is belongs to the tab. On the conversation it is a card or a thread and
-// the key walks the focus ring; on the two tabs showing a diff it is a file.
-// The two used to be separate keys for what a reader does with one intention,
-// and one of them then sat inert on the tab where the other worked.
-//
-// That gives tab and shift+tab back to the tab strip, which is what they do on
-// the list screen. A reader crossing the two screens presses the same key for
-// the same move.
 type DetailMap struct {
 	Up           key.Binding
 	Down         key.Binding
@@ -66,15 +51,28 @@ type DetailMap struct {
 	HalfPageDown key.Binding
 	NextTab      key.Binding
 	PrevTab      key.Binding
-	NextBlock    key.Binding
-	PrevBlock    key.Binding
-	PaneLeft     key.Binding
-	PaneRight    key.Binding
-	FocusPane    key.Binding
-	ToggleRail   key.Binding
-	Expand       key.Binding
-	Sync         key.Binding
-	Back         key.Binding
+
+	// NextFile and PrevFile are the coarser move, on the tab that shows one file
+	// at a time. The strip keeps ] and [, which is what the list screen uses.
+	NextFile key.Binding
+	PrevFile key.Binding
+
+	// The braces are paragraph motion in vim and mean the same here: go to the
+	// next block. What a block is belongs to the tab.
+	NextBlock key.Binding
+	PrevBlock key.Binding
+
+	PaneLeft  key.Binding
+	PaneRight key.Binding
+
+	// FocusPane is one binding over the digits rather than one per pane: the
+	// Files tab puts a third on screen, and they are numbered by where they sit.
+	FocusPane key.Binding
+
+	ToggleRail key.Binding
+	Expand     key.Binding
+	Sync       key.Binding
+	Back       key.Binding
 
 	// The compose pane's own. Comment opens it; Post and Editor are live only
 	// while it is open. Closing it is Back, and the button is reached with
@@ -120,23 +118,19 @@ type DetailMap struct {
 	// block the ring is on: nothing but the pull request carries a URL.
 	CopyLink key.Binding
 	Browse   key.Binding
-
-	// Toggle checks and unchecks a row in a picker that takes a set. It is live
-	// only while one is open, which is why it can take space: nothing else on
-	// this screen wants it, and a picker owns the keyboard whenever it is up.
-	Toggle key.Binding
 }
 
-// FormMap walks the fields of a compose box or the merge form, and is live only
-// while one of them holds the keyboard.
-//
-// It is its own map because tab means something else on the screen behind it,
-// and the two can never be live at once: a box takes every key until it is
-// closed. The braces the screen walks blocks with are text in a textarea, so
-// tab is the only key left that can move a caret out of one.
+// FormMap is live while a compose box, the merge form or a picker holds the
+// keyboard, which is never while the keys behind it mean anything else.
 type FormMap struct {
+	// tab is the only key that can move a caret out of a textarea: the braces
+	// the screen walks blocks with are text once a box is open.
 	Next key.Binding
 	Prev key.Binding
+
+	// Toggle checks and unchecks the row the cursor is on, in a picker that
+	// takes a set and on the merge form's delete row. Both are that one control.
+	Toggle key.Binding
 }
 
 // Global, List, and Detail are the declarations. Config-driven rebinding lands
@@ -174,15 +168,17 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextTab:      key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
-		PrevTab:      key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		NextTab:      key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		PrevTab:      key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
+		NextFile:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next file")),
+		PrevFile:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev file")),
 		NextBlock:    key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next block")),
 		PrevBlock:    key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev block")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
-		Expand:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "expand")),
+		Expand:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "expand")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
@@ -199,12 +195,12 @@ var (
 		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
 		CopyLink:   key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
 		Browse:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
-		Toggle:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
 	}
 
 	Form = FormMap{
-		Next: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
-		Prev: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev field")),
+		Next:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
+		Prev:   key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev field")),
+		Toggle: key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "check or uncheck")),
 	}
 )
 
@@ -289,13 +285,14 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
+		{k.NextFile, k.PrevFile},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
 		{k.CopyLink, k.Browse},
 		{k.Comment, k.Post, k.Activate, k.Editor},
-		{Form.Next, Form.Prev, k.Toggle},
+		{Form.Next, Form.Prev, Form.Toggle},
 		{k.Sync, k.Back, Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

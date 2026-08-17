@@ -308,21 +308,20 @@ func TestAReplyNamesOnlyTheKeysItAnswersTo(t *testing.T) {
 	}
 }
 
-// o closes a resolved thread whatever is folded inside it, so the footer names
-// it once. Named twice it says expand and close on the same key, and only one
-// of them is what the press does.
+// The fold key closes a resolved thread whatever is folded inside it. Named
+// twice the footer says expand and close on one key, and only one is the press.
 func TestAnOpenedResolvedThreadNamesTheFoldKeyOnce(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[1].Comments[0].Body = "<details><summary>The trace</summary>\n\nA line of it.\n</details>"
 
-	m := press(walked(detailed(held(d), 200, 60), tabResolved), "o")
+	m := press(walked(detailed(held(d), 200, 60), tabResolved), "space")
 	lines := strings.Split(stripANSI(m.View()), "\n")
 	footer := footerRow(t, lines, headingRow(t, lines, "internal/store/store.go:88"))
 
-	if strings.Contains(footer, "o expand") {
+	if strings.Contains(footer, "space expand") {
 		t.Errorf("the resolved thread names a fold o does not do: %q", footer)
 	}
-	if !strings.Contains(footer, "o close") {
+	if !strings.Contains(footer, "space close") {
 		t.Errorf("the resolved thread does not name what o does: %q", footer)
 	}
 }
@@ -573,7 +572,7 @@ func TestAResolvedThreadIsACardThatOpens(t *testing.T) {
 		t.Error("the resolved thread is showing its comments while closed")
 	}
 
-	open := press(closed, "o")
+	open := press(closed, "space")
 	if out := stripANSI(open.View()); !strings.Contains(out, "Typo.") {
 		t.Errorf("o did not open the resolved thread:\n%s", out)
 	}
@@ -583,7 +582,7 @@ func TestAResolvedThreadIsACardThatOpens(t *testing.T) {
 		t.Errorf("r did not open a box on an opened resolved thread:\n%s", out)
 	}
 
-	if out := stripANSI(press(open, "o").View()); strings.Contains(out, "Typo.") {
+	if out := stripANSI(press(open, "space").View()); strings.Contains(out, "Typo.") {
 		t.Error("o did not close it again")
 	}
 }
@@ -598,16 +597,16 @@ func TestTheExpandHintFollowsTheFolds(t *testing.T) {
 
 	// The description has a fold, so both keys are named and both work.
 	folded := stripANSI(walked(m, 1).View())
-	if !strings.Contains(folded, "R quote · o expand") {
+	if !strings.Contains(folded, "R quote · space expand") {
 		t.Errorf("the description has a fold and does not offer o:\n%s", folded)
 	}
-	if out := stripANSI(press(walked(m, 1), "o").View()); !strings.Contains(out, "It retries forever") {
+	if out := stripANSI(press(walked(m, 1), "space").View()); !strings.Contains(out, "It retries forever") {
 		t.Error("o is named on the description and does nothing")
 	}
 
 	// The comment below it has none, so o is not offered.
 	plain := stripANSI(walked(m, 2).View())
-	if strings.Contains(plain, "o expand") {
+	if strings.Contains(plain, "space expand") {
 		t.Errorf("a body with nothing to unfold still offers o:\n%s", plain)
 	}
 	if !strings.Contains(plain, "R quote") {
@@ -657,7 +656,7 @@ func TestAFocusedCardNamesItsKeysInTheBorder(t *testing.T) {
 	}
 
 	// A closed thread offers the one key that changes that.
-	if closed := stripANSI(onThread(t, tabResolved).View()); !strings.Contains(closed, "o open") {
+	if closed := stripANSI(onThread(t, tabResolved).View()); !strings.Contains(closed, "space open") {
 		t.Errorf("the closed thread does not name the key that opens it:\n%s", closed)
 	}
 
@@ -673,7 +672,7 @@ func TestAFocusedCardNamesItsKeysInTheBorder(t *testing.T) {
 func TestAnUnfocusedCardNamesNothing(t *testing.T) {
 	resting := stripANSI(detailed(held(sampleDetail()), 200, 60).View())
 
-	for _, hint := range []string{"R quote", "r reply", "J/K in thread", "o open"} {
+	for _, hint := range []string{"R quote", "r reply", "J/K in thread", "space open"} {
 		if strings.Contains(resting, hint) {
 			t.Errorf("%q is on a page with nothing focused", hint)
 		}

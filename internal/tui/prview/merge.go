@@ -499,7 +499,7 @@ func (m Model) mergeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, m.merging.step(1)
 		}
 
-	case key.Matches(keyMsg, k.Toggle) && m.merging.on() == mergeDeleteRow:
+	case key.Matches(keyMsg, keys.Form.Toggle) && m.merging.on() == mergeDeleteRow:
 		m.merging.del = !m.merging.del
 
 	case key.Matches(keyMsg, k.Up) && m.merging.on() == mergeMethodRow:

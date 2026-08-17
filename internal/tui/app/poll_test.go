@@ -299,7 +299,7 @@ func TestACommentArrivingBringsTheWholePage(t *testing.T) {
 // so the debt keeps until the reader is somewhere it would show.
 func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	m := press(opened(t, client), "tab")
+	m := press(opened(t, client), "]")
 
 	before := len(client.opened())
 	client.bumpUpdated("PR_412", time.Now())
@@ -310,7 +310,7 @@ func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 	}
 
 	// Back round to it, where every word of what changed would be on screen.
-	m = press(m, "tab", "tab", "tab")
+	m = press(m, "]", "]", "]")
 	beat(m, 12*time.Second)
 
 	if got := len(client.opened()) - before; got != 1 {

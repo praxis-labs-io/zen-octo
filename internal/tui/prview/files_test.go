@@ -266,8 +266,28 @@ func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 	}
 }
 
+// The pane holds one file, so the reader needs a key that changes it without
+// leaving the pane. The strip keeps ] and [, which is what it answers to below.
+func TestTabMovesTheFileAndLeavesTheStrip(t *testing.T) {
+	m := onFiles(200, 50)
+	active := fgSeq(theme.RosePineMoon.Accent)
+
+	m = press(m, "tab")
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "// Begin marks one section in flight.") {
+		t.Error("tab did not move the pane to the next file")
+	}
+	if !strings.Contains(paneTop(m.View()), active+"mFiles") {
+		t.Error("tab moved the tab strip as well")
+	}
+
+	if back := stripANSI(press(m, "shift+tab").View()); !strings.Contains(back, "delay = min(delay*2, fetchTimeout)") {
+		t.Error("shift+tab did not move the pane back")
+	}
+}
+
 func TestFoldingADirectoryTakesItsFilesOutOfTheTree(t *testing.T) {
-	m := press(onFiles(200, 50), "1", "g", "j", "j", "o")
+	m := press(onFiles(200, 50), "1", "g", "j", "j", "space")
 
 	out := stripANSI(m.View())
 	if strings.Contains(out, "▾ internal/ ") {
