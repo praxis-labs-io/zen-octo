@@ -14,15 +14,6 @@ import (
 	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
 
-// gutterMin is the narrowest a line-number column gets. A file under ten lines
-// still reads better with the two columns lined up against its neighbours.
-const gutterMin = 2
-
-// tabWidth is what a tab expands to. A raw tab is a variable number of cells,
-// and one anywhere in a line puts every column after it out of step with the
-// line above.
-const tabWidth = 4
-
 // threadIndent sets a review thread in from the code it hangs off, so a card
 // full of prose does not read as another hunk.
 const threadIndent = 3
@@ -237,7 +228,7 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []t
 	placed := make(map[int]bool, len(anchored))
 
 	tokens := m.lineTokens(f)
-	gutter := max(gutterMin, len(strconv.Itoa(widest(f))))
+	gutter := paint.Gutter(widest(f))
 
 	// A thread card is many lines in one string, so the count is kept rather
 	// than read off the slice.
@@ -258,9 +249,9 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []t
 
 	seen := 0
 	for _, h := range f.Hunks {
-		add(m.hunkHead(h, gutter, width))
+		add(m.hunkHead(h, gutter, width, nil))
 		for _, l := range h.Lines {
-			add(m.diffLine(l, tokens[seen], gutter, width))
+			add(m.diffLine(l, tokens[seen], gutter, width, nil))
 			seen++
 			addThreads(m.threadsAt(anchored, placed, l, width))
 		}
@@ -306,80 +297,33 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
 }
 
-// hunkHead is the @@ line, set in over the gutter the numbers below it use.
-func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
-	line := strings.Repeat(" ", gutter*2+4) +
-		lipgloss.NewStyle().Foreground(m.theme.Accent).Render(h.Header)
-	return clipTo(line, width, m.faint())
+// hunkHead is the @@ line, landing at the column the source under it starts in.
+// The badge slot stays empty: a hunk here carries no state of its own.
+func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color) string {
+	return m.painter.HunkHeader(paint.Header{Text: h.Header, Fill: fill}, gutter, width)
 }
 
-// diffLine is one line of code: the two line numbers, the marker, and the
-// highlighted source, on a tint of the color its change is in.
-//
-// The tint is painted cell by cell and the line is padded out to the full
-// width. Every styled run ends in a reset that clears the background with it,
-// so a joined line wrapped in the background style afterwards would carry it
-// only as far as the first token.
-func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int) string {
-	marker, c := " ", m.theme.Subtle
-	base := lipgloss.NewStyle()
+// diffLine is one line of code, handed to the painter with whatever fill the
+// caller's own state asks for. A nil fill leaves the change's own tint.
+func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int, fill color.Color) string {
+	return m.painter.Line(paint.Line{
+		Kind:   kindOf(l.Kind),
+		Old:    l.Old,
+		New:    l.New,
+		Tokens: tokens,
+		Fill:   fill,
+	}, gutter, width)
+}
 
-	switch l.Kind {
+// kindOf maps a fetched line onto the painter's own three.
+func kindOf(k gh.DiffKind) paint.Kind {
+	switch k {
 	case gh.DiffAdded:
-		marker, c = "+", m.theme.Success
-		base = background(base, m.theme.AddedBackground)
+		return paint.Added
 	case gh.DiffRemoved:
-		marker, c = "−", m.theme.Error
-		base = background(base, m.theme.RemovedBackground)
+		return paint.Removed
 	}
-
-	kind := base.Foreground(c)
-	faint := base.Foreground(m.theme.Subtle)
-	oldNum, newNum := faint, faint
-	switch l.Kind {
-	case gh.DiffAdded:
-		newNum = kind
-	case gh.DiffRemoved:
-		oldNum = kind
-	}
-
-	line := base.Render(" ") +
-		oldNum.Render(number(l.Old, gutter)) + base.Render(" ") +
-		newNum.Render(number(l.New, gutter)) + base.Render(" ") +
-		kind.Render(marker) + base.Render(" ") + code(tokens, base)
-
-	if w := lipgloss.Width(line); w > width {
-		return paint.Clip(line, width, faint)
-	} else if l.Kind != gh.DiffContext {
-		// A context line needs no fill: it has no background to run out.
-		line += base.Render(strings.Repeat(" ", width-w))
-	}
-	return line
-}
-
-// background applies a color the theme may not define. A nil one leaves the
-// terminal's own showing, which is what keeps a transparent one transparent.
-func background(s lipgloss.Style, c color.Color) lipgloss.Style {
-	if c == nil {
-		return s
-	}
-	return s.Background(c)
-}
-
-// code renders one line's tokens over the style the row is painted in. Every
-// token takes only a foreground from it, so whatever the caller put behind the
-// line survives all the way across.
-func code(tokens []syntax.Token, base lipgloss.Style) string {
-	var b strings.Builder
-	for _, t := range tokens {
-		text := strings.ReplaceAll(t.Text, "\t", strings.Repeat(" ", tabWidth))
-		if t.Color == nil {
-			b.WriteString(base.Render(text))
-			continue
-		}
-		b.WriteString(base.Foreground(t.Color).Render(text))
-	}
-	return b.String()
+	return paint.Context
 }
 
 // lineTokens colors a whole file at once, one pass per side. A lexer carries
@@ -511,16 +455,6 @@ func widest(f gh.ChangedFile) int {
 		}
 	}
 	return n
-}
-
-// number right-aligns a line number, or leaves the column blank on the side a
-// line does not belong to.
-func number(n, width int) string {
-	if n == 0 {
-		return strings.Repeat(" ", width)
-	}
-	s := strconv.Itoa(n)
-	return strings.Repeat(" ", max(0, width-len(s))) + s
 }
 
 // clipTo cuts a line to the pane rather than letting it wrap. A wrapped line of

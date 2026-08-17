@@ -191,6 +191,7 @@ type Model struct {
 
 	md      comp.Markdown
 	syntax  syntax.Syntax
+	painter paint.Painter
 	spinner comp.Spinner
 
 	pr     gh.PullRequest
@@ -334,6 +335,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.S
 		railView: newViewport(),
 		md:       comp.NewMarkdown(th),
 		syntax:   syntax,
+		painter:  paint.Painter{Theme: th},
 		spinner:  comp.NewSpinner(th),
 		pr:       pr,
 		focus:    paneMain,

@@ -1145,10 +1145,11 @@ func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
 		lines = lines[len(lines)-threadHunkLines:]
 	}
 
-	gutter := gutterMin
+	widestLine := 0
 	for _, l := range lines {
-		gutter = max(gutter, len(strconv.Itoa(max(l.Old, l.New))))
+		widestLine = max(widestLine, l.Old, l.New)
 	}
+	gutter := paint.Gutter(widestLine)
 
 	tokens := m.syntax.Lines(t.Path, hunkSource(lines))
 	out := make([]string, len(lines))
@@ -1157,7 +1158,7 @@ func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
 		if i < len(tokens) {
 			row = tokens[i]
 		}
-		out[i] = m.diffLine(l, row, gutter, width)
+		out[i] = m.diffLine(l, row, gutter, width, nil)
 	}
 	return strings.Join(out, "\n")
 }

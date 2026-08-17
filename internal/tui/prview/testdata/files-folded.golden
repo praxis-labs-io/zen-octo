@@ -9,7 +9,7 @@
 │▾ internal/           ││╭────────────────────────────────────────────────────────────────────────╮│
 │  ▾ gh/               │││ ▾ internal/gh/client.go                                           +2 −1││
 │      client.go       ││├────────────────────────────────────────────────────────────────────────┤│
-│  ▾ store/            │││        @@ -40,4 +40,5 @@ func New() (*Client, error) {                 ││
+│  ▾ store/            │││         @@ -40,4 +40,5 @@ func New() (*Client, error) {                ││
 │      store.go        │││ 40 40       for {                                                      ││
 │  ▾ tui/prview/       │││ 41    −         time.Sleep(delay)                                      ││
 │      files.go        │││    41 +         delay = min(delay*2, fetchTimeout)                     ││
