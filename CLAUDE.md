@@ -402,7 +402,11 @@ heading rather than as a badge: the badge slot is for a state a hunk carries
 whether or not the cursor is on it, and filling the code rows instead would beat
 the added and removed tints and stop the diff reading as a diff. A brace pressed
 from the file column takes the pane with it, because the blocks it names are in
-the pane, and the column keeps `tab` and `shift+tab` for the coarser move.
+the pane, and the column keeps `tab` and `shift+tab` for the coarser move. A
+brace at the end of a file's stops crosses into the next one, forward to its
+head and back to its foot, because the pane holds one file and the stop after
+the last is in a file nothing has drawn yet. Past the last file and before the
+first it stays put, which is what both ends of every ring here do.
 
 `canCompose` split in two for it. It still means the conversation, because the
 compose card is drawn on one tab only; `canAct` is the wider question the keys

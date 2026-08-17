@@ -613,8 +613,8 @@ func (m *Model) nameShownFile() {
 }
 
 // jumpFile moves the cursor a whole file at a time, skipping the directory rows
-// between them. Reading a diff is reading one file after another.
-func (m *Model) jumpFile(delta int) {
+// between them, and reports whether there was one to move to.
+func (m *Model) jumpFile(delta int) bool {
 	step := 1
 	if delta < 0 {
 		step = -1
@@ -628,8 +628,31 @@ func (m *Model) jumpFile(delta int) {
 		m.nameShownFile()
 		m.showCursorRow()
 		m.syncContent()
+		return true
+	}
+	return false
+}
+
+// crossFile is what a brace means at the end of a file's ring. The pane holds
+// one file, so the stop after the last one is in a file nothing has drawn yet.
+func (m *Model) crossFile(delta int) {
+	if !m.jumpFile(delta) {
 		return
 	}
+
+	// jumpFile has rebuilt the body, so the stops are the new file's. Forward
+	// arrives at its head and back at its foot, which is where the reader left.
+	if m.pageRing.stops() == 0 {
+		return
+	}
+	at := 0
+	if delta < 0 {
+		at = m.pageRing.stops() - 1
+	}
+	m.pageRing.on = m.pageRing.items[at].focusKey
+
+	m.syncContent()
+	m.showFocus(&m.pageRing, &m.view, bodyTop(&m.view))
 }
 
 // toggleFold folds the directory under the cursor out of the tree. A file has

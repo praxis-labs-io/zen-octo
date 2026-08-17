@@ -333,6 +333,45 @@ func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
 	}
 }
 
+// One file is in the pane, so the stop after a file's last one is in the next
+// file. A key dying at each file boundary would send the reader to the column.
+func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}")
+
+	// Past the thread, which is the last stop in the first file.
+	m = press(m, "}")
+	if got := diffHeads(m.View()); !strings.Contains(got, "internal/store/store.go") {
+		t.Fatalf("the brace past the last stop left the pane on %q", got)
+	}
+	if got := litHunk(m.View()); !strings.Contains(got, "@@ -87,3 +87,2 @@") {
+		t.Errorf("crossing landed on %q, want the new file's first hunk", got)
+	}
+
+	// And back, onto the last stop of the file it came from rather than its head.
+	m = press(m, "{")
+	if got := diffHeads(m.View()); !strings.Contains(got, "internal/gh/client.go") {
+		t.Fatalf("the brace back left the pane on %q", got)
+	}
+	if got := focusedCard(t, m.View()); !strings.Contains(got, "internal/gh/client.go:42") {
+		t.Errorf("crossing back landed on %q, want the last stop of that file", got)
+	}
+}
+
+// Past the last file it stays put. Both ends of every ring here are boundaries.
+func TestTheBracesStopAtTheEndsOfTheDiff(t *testing.T) {
+	// docs/screenshot.png sorts first and GitHub sent no body for it, so it is
+	// also the file with no stop to land on.
+	first := press(onFiles(200, 50), "}", "{", "{", "{")
+	if got := diffHeads(first.View()); !strings.Contains(got, "docs/screenshot.png") {
+		t.Errorf("the brace back off the first file moved to %q", got)
+	}
+
+	last := press(onFiles(200, 50), "}", "}", "}", "}", "}", "}", "}", "}")
+	if got := diffHeads(last.View()); !strings.Contains(got, "internal/tui/prview/files.go") {
+		t.Errorf("the brace past the last file moved to %q", got)
+	}
+}
+
 // A card in a diff answers the line above it, so topping it scrolls away the
 // one thing the reader is reading the comment about.
 func TestACardInTheDiffOpensBelowTheCodeItAnswers(t *testing.T) {

@@ -1005,7 +1005,9 @@ func (m *Model) walkDiff(delta int) {
 	if m.focus != paneMain {
 		m.focusPane(paneMain)
 	}
-	m.stepFocus(delta)
+	if !m.stepFocus(delta) {
+		m.crossFile(delta)
+	}
 }
 
 // showFocus brings the focused block into view. A comment in a diff hangs under
