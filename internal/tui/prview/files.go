@@ -32,11 +32,10 @@ type fileSpan struct {
 	end   int
 }
 
-// blockKey identifies a rendered file block. Folding changes what a block is,
-// so the same file has one under each state.
+// blockKey identifies a rendered file block. The heading is part of it because
+// only one of the two tabs draws one.
 type blockKey struct {
 	key     string
-	folded  bool
 	heading bool
 }
 
@@ -74,16 +73,10 @@ type block struct {
 	stops []blockStop
 }
 
-// blockState is everything outside a single file that its block is rendered
-// against. A change to either retires the whole cache.
-//
-// folds counts how many times a <details> block has been folded or unfolded.
-// Which ones are open is a map, and a count says the same thing to a cache key
-// without the cache having to hold the map: a toggle moves it by one either way,
-// so no two consecutive states share a number.
+// blockState is what a block is rendered against from outside its own file, and
+// a change to it retires the cache. A fold is not in it: it changes a card.
 type blockState struct {
 	width int
-	folds int
 }
 
 // diffBody is one rendered diff: where each file's block sits inside it, and
@@ -120,10 +113,6 @@ type diffBody struct {
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
 // failed refetch; the root raises a toast for that.
 func (m *Model) filesBody() string {
-	// Reset on every path, including the two with no diff to walk: a stop left
-	// over from before a refetch failed is a card the reader cannot see.
-	m.pageRing.reset()
-
 	switch {
 	case m.files.Loaded:
 		body := m.renderDiff(m.shownRows(), m.files, &m.diff)
@@ -140,20 +129,16 @@ func (m *Model) filesBody() string {
 // renderDiff renders every file in a set of rows, and records where each one
 // starts so a column beside it can scroll to it.
 func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
+	width := m.bodyWidth()
+	d.spans, d.stops = d.spans[:0], d.stops[:0]
+
+	// After the reset, or a refetch answering with nothing leaves the last
+	// render's stops on a body that is one line saying there are none.
 	if len(res.Files) == 0 {
 		return m.faint().Render("No files changed.")
 	}
 
-	width := m.bodyWidth()
-	d.spans, d.stops = d.spans[:0], d.stops[:0]
-
-	// A fold only reaches blocks with review threads in them. The Commits tab's
-	// diff carries none, so counting folds against it retires the whole cache
-	// and re-tokenises a commit for a keypress that changed nothing it renders.
 	state := blockState{width: width}
-	if d.threads {
-		state.folds = m.folds
-	}
 	if d.blocks == nil || d.at != state {
 		d.blocks, d.at = make(map[blockKey]block, len(rows)), state
 	}
@@ -165,10 +150,10 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			continue
 		}
 
-		bk := blockKey{key: r.key, folded: r.folded, heading: d.headings}
+		bk := blockKey{key: r.key, heading: d.headings}
 		b, ok := d.blocks[bk]
 		if !ok {
-			b = m.fileBlock(*r.file, r.folded, width, d.threads, d.headings)
+			b = m.fileBlock(*r.file, width, d.threads, d.headings)
 			d.blocks[bk] = b
 		}
 
@@ -211,12 +196,7 @@ func overflow(res store.Files) string {
 
 // fileBlock is one file: the heading, then its hunks and the review threads
 // anchored inside them. No box, or a thread sits three borders deep.
-func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads, heading bool) block {
-	if folded {
-		// Nothing inside it is on the page, so nothing inside it has a line.
-		return block{runs: []run{{text: m.fileHead(f, "▸ ", width), lines: 1}}}
-	}
-
+func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) block {
 	b := m.fileBody(f, width, threads)
 	if !heading {
 		return b
@@ -664,8 +644,13 @@ func (m *Model) jumpFile(delta int) bool {
 // crossFile is what a brace means at the end of a file's ring. The pane holds
 // one file, so the stop after the last one is in a file nothing has drawn yet.
 func (m *Model) crossFile(delta int) {
-	if !m.jumpFile(delta) {
-		return
+	// The cursor moving is not the pane moving: from a directory row the next
+	// file row is the one already drawn, and it is walked again rather than left.
+	was := m.shownPath
+	for m.shownPath == was {
+		if !m.jumpFile(delta) {
+			return
+		}
 	}
 
 	// jumpFile has rebuilt the body, so the stops are the new file's. Forward

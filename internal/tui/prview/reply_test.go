@@ -819,16 +819,19 @@ func TestEscGivesFocusBackToTheComment(t *testing.T) {
 	}
 }
 
-// The Files tab renders the same threads and has no ring to open a box from, so
-// no box belongs in one. It also caches its blocks, which is what makes a stray
-// box there permanent: it would stand in the code long after it closed.
-func TestTheReplyBoxNeverRendersOnTheFilesTab(t *testing.T) {
+// A box closed on the conversation leaves nothing behind in the diff, and a
+// reply that failed there opens its box where the reader wrote it.
+func TestTheReplyBoxFollowsTheWriterOntoTheFilesTab(t *testing.T) {
 	// esc first, because every key is a letter while the box has the keyboard.
-	// The words stay held against the thread, which is the state that could put
-	// a box in the diff if anything read it there.
-	onFiles := press(press(typed(replying(t, tabThread, "r"), "capped it"), "esc"), "]", "]", "]")
+	// The words stay held against the thread, which is what a closed box leaves.
+	closed := press(typed(replying(t, tabThread, "r"), "capped it"), "esc")
+	closed.SetFiles(loadedFiles(sampleFiles(), 0))
+	onFiles := press(closed, "]", "]", "]")
 
 	out := stripANSI(onFiles.View())
+	if !strings.Contains(out, "This backs off forever.") {
+		t.Fatal("setup: the thread is not on the Files tab at all")
+	}
 	if strings.Contains(out, "write a reply") {
 		t.Errorf("a reply box rendered in the diff:\n%s", out)
 	}
@@ -836,14 +839,16 @@ func TestTheReplyBoxNeverRendersOnTheFilesTab(t *testing.T) {
 		t.Errorf("a held draft leaked into the diff:\n%s", out)
 	}
 
-	// A reply that fails while the reader is on the Files tab is the one path
-	// that asks for a box where there is none to open.
+	// A reply failing here is handed back here. The thread is on the screen in
+	// front of the reader, so another tab is the worse place to see it again.
 	onFiles.RestoreReply("RT_1", "and again")
-	if out := stripANSI(onFiles.View()); strings.Contains(out, "write a reply") {
-		t.Errorf("a failed reply opened a box on the Files tab:\n%s", out)
+
+	out = stripANSI(onFiles.View())
+	if !strings.Contains(out, "and again") {
+		t.Errorf("a failed reply gave the words back nowhere on the Files tab:\n%s", out)
 	}
-	if onFiles.Composing() {
-		t.Error("the Files tab took the keyboard for a box it does not draw")
+	if !onFiles.Composing() {
+		t.Error("the box reopened in the diff without taking the keyboard")
 	}
 }
 

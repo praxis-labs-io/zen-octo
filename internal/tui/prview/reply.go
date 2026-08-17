@@ -295,7 +295,7 @@ func (m *Model) restore(at focusKey, body string, w words,
 		return nil
 	}
 
-	if m.writing() != nil || !m.canCompose() || !present() {
+	if m.writing() != nil || !m.canAct() || !present() {
 		m.syncContent()
 		return nil
 	}

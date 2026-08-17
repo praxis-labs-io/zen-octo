@@ -412,9 +412,11 @@ first it stays put, which is what both ends of every ring here do.
 compose card is drawn on one tab only; `canAct` is the wider question the keys
 reading the ring ask, and `answerable` asks it. `replyBody` keeps `canCompose`
 on top of that, since what it opens is that card. `v` is the one key inert here:
-`jumpable` answers false on the tab, so `showInDiff` refuses and `threadActs`
-stops naming it on the same line, rather than a flag threaded through three
-renders to say the same thing twice. And a card in a diff answers the line above
+`jumpable` answers false on the tab, which takes it off the footer, rather than
+a flag threaded through three renders to say the same thing twice. `showInDiff`
+refuses on the tab itself and not on `jumpable`, because that one is also false
+for a file the diff does not carry, and there the key owes a toast rather than
+silence. And a card in a diff answers the line above
 it, so `showFocus` sends it through `jumpTop` rather than to the top row, which
 is the rule the jump from the conversation already follows; a hunk heading is
 its own beginning and goes to the top row.
@@ -424,7 +426,10 @@ block costs, so the runs of code are what is kept, and the hunk headings and the
 thread cards are drawn again every frame and spliced between them. Focus goes in
 neither `blockKey` nor `blockState`: in the state it retires the whole cache on
 every step of the ring, and in the key it leaves a full rendered file in the map
-for every stop the reader walked, with no rule for taking one out.
+for every stop the reader walked, with no rule for taking one out. A fold is out
+of `blockState` for the same reason: what it changes is a thread card, and a
+card is drawn again anyway, so counting folds only threw the map away and
+re-tokenised the file for a keypress that could not reach it.
 
 `ring.reset` lets its slice go rather than reusing it. `View` is reached through
 value receivers all the way down, so a reused backing array is one the

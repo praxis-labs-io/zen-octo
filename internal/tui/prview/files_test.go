@@ -333,6 +333,98 @@ func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
 	}
 }
 
+// The pinned heading costs the pane two rows and arrives with the diff, which
+// is the real order: the tab asks for the diff as it opens.
+func TestADiffLandingOnTheOpenTabSizesThePane(t *testing.T) {
+	files := []gh.ChangedFile{longFile("a.go", 200)}
+
+	// Opened first, the diff arriving after.
+	late := press(detailed(held(sampleDetail()), 100, 24), "]", "]", "]")
+	late.SetFiles(loadedFiles(files, 0))
+
+	// And the other way round, which was always sized right.
+	early := detailed(held(sampleDetail()), 100, 24)
+	early.SetFiles(loadedFiles(files, 0))
+	early = press(early, "]", "]", "]")
+
+	if got, want := scrollReadout(late.View()), scrollReadout(early.View()); got != want {
+		t.Errorf("the diff landing on the open tab reads %q, want %q", got, want)
+	}
+
+	// And the end of it is reachable rather than clipped past the last row. The
+	// tab opens on the column, so the pane is taken before it is scrolled.
+	if out := stripANSI(press(late, "2", "G").View()); !strings.Contains(out, "case 199:") {
+		t.Error("the last line of the diff cannot be scrolled to")
+	}
+}
+
+// scrollReadout is the N/M a pane draws in its bottom border once its content
+// outruns it.
+func scrollReadout(frame string) string {
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if !strings.Contains(line, "╯") || !strings.Contains(line, "/") {
+			continue
+		}
+		cut := strings.LastIndex(line, "─")
+		return strings.Trim(line[strings.LastIndex(line[:cut], "─")+3:], "─╯ ")
+	}
+	return ""
+}
+
+// A refetch moves the cursor after the rows are rebuilt, and the pane draws
+// whatever was named before that.
+func TestARefetchLeavesTheCursorAndThePaneOnOneFile(t *testing.T) {
+	// Reading screenshot.png with the cursor parked on the docs/ row above it,
+	// which is row zero and so the one a refetch moves.
+	m := press(showFile(t, onFiles(200, 50), "docs/screenshot.png"), "1", "g")
+	if got := cursorFile(m.View()); !strings.Contains(got, "docs/") {
+		t.Fatalf("setup: the cursor is on %q, want the directory row", got)
+	}
+
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	if got, want := cursorFile(m.View()), diffHeads(m.View()); !strings.Contains(want, strings.TrimSpace(got)) {
+		t.Errorf("the column is on %q and the pane is drawing %q", got, want)
+	}
+}
+
+// A refetch answering with nothing leaves a body of one line, and the stops the
+// last render put in the ring have nowhere to be.
+func TestADiffThatComesBackEmptyDropsItsStops(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "}")
+	if focusedCard(t, m.View()) == "" {
+		t.Fatal("setup: nothing is lit to be left behind")
+	}
+
+	m.SetFiles(loadedFiles(nil, 0))
+
+	// A stop nothing drew still answers esc, so the reader presses it, the
+	// screen swallows it, and nothing on the frame says why.
+	_, cmd := m.Update(escape())
+	if cmd == nil {
+		t.Error("esc was swallowed by a stop left over from the diff that went")
+	}
+}
+
+// The stops are the last tab's until the next one writes its own, and a tab
+// that answers with a note instead of blocks never writes any.
+func TestATabShowingANoteDropsTheLastTabsStops(t *testing.T) {
+	m := detailed(store.Detail{}, 200, 50)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	// No detail, so the diff carries no threads and a hunk is the only stop.
+	onFiles := press(press(m, "]", "]", "]"), "}")
+	if litHunk(onFiles.View()) == "" {
+		t.Fatal("setup: nothing is lit on the Files tab to leave behind")
+	}
+
+	// Back to a conversation that has not landed, so the pane is one note.
+	back := press(onFiles, "]")
+	if _, cmd := back.Update(escape()); cmd == nil {
+		t.Error("esc was swallowed on a tab whose ring was never rebuilt")
+	}
+}
+
 // twoHunks is a file whose diff jumps, which is the only shape a gap between
 // hunks shows up in. sampleFiles carries one hunk per file.
 func twoHunks() []gh.ChangedFile {
@@ -427,6 +519,25 @@ func TestTheBracesStopOnAReplyInTheDiff(t *testing.T) {
 	}
 }
 
+// The cursor moving is not the pane moving: from a directory row the next file
+// row is the file already drawn, and crossing onto it walks it a second time.
+func TestCrossingFromADirectoryRowStillReachesTheNextFile(t *testing.T) {
+	// Up onto the gh/ row, which keeps the pane on the file under it.
+	m := press(onFiles(200, 50), "1", "k")
+	if got := cursorFile(m.View()); !strings.Contains(got, "gh/") {
+		t.Fatalf("setup: the cursor is on %q, want the directory above the file", got)
+	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "internal/gh/client.go") {
+		t.Fatalf("setup: the pane is drawing %q, want the first file", got)
+	}
+
+	// Off the end of client.go: its hunk, its thread, its reply, then across.
+	m = press(m, "}", "}", "}", "}")
+	if got := diffHeads(m.View()); !strings.Contains(got, "internal/store/store.go") {
+		t.Errorf("the brace off the last stop left the pane on %q", got)
+	}
+}
+
 // Past the last file it stays put. Both ends of every ring here are boundaries.
 func TestTheBracesStopAtTheEndsOfTheDiff(t *testing.T) {
 	// docs/screenshot.png sorts first and GitHub sent no body for it, so it is
@@ -475,6 +586,25 @@ func TestACardInTheDiffNamesItsKeysAndNotTheJump(t *testing.T) {
 	}
 	if strings.Contains(footer, "in diff") {
 		t.Errorf("the card in the diff still offers the jump into it: %q", footer)
+	}
+}
+
+// The key goes as quiet as the footer. Left live it re-enters the tab it is
+// already on, which drags the column's cursor to a file it is already showing.
+func TestVDoesNothingOnTheFilesTab(t *testing.T) {
+	// The cursor parked off the file being read, so a jump has somewhere to move
+	// it and doing nothing is visible.
+	m := press(onFiles(200, 50), "1", "k", "}", "}")
+	if got := cursorFile(m.View()); !strings.Contains(got, "gh/") {
+		t.Fatalf("setup: the cursor is on %q, want the directory row", got)
+	}
+
+	after, cmd := key(m, "v")
+	if cmd != nil {
+		t.Errorf("v produced %T on the tab it takes a thread to", cmd())
+	}
+	if got := cursorFile(after.View()); !strings.Contains(got, "gh/") {
+		t.Errorf("v moved the cursor to %q on the tab it is named nowhere on", got)
 	}
 }
 

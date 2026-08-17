@@ -249,11 +249,7 @@ type Model struct {
 	// expanded is which cards have their <details> blocks unfolded, keyed the
 	// same way the ring keys what it points at. A review thread renders on the
 	// Files tab as well as in the conversation, so both read this.
-	//
-	// folds counts the toggles, which is what tells the diff's block cache that
-	// a thread inside one of its files renders differently now.
 	expanded map[focusKey]bool
-	folds    int
 
 	// offsets parks the scroll position of each tab. One viewport serves all
 	// four, and without this switching to a short tab clamps the offset to zero
@@ -376,7 +372,11 @@ func (m *Model) SetFiles(f store.Files) tea.Cmd {
 	if m.cursor == 0 {
 		m.cursor = m.firstFile()
 	}
-	m.syncContent()
+
+	// Named again because the cursor moved after syncRows placed it, and laid
+	// out because the pinned heading lands with the diff and costs the pane rows.
+	m.nameShownFile()
+	m.layout()
 	return m.finishJump()
 }
 
@@ -1077,7 +1077,6 @@ func (m *Model) toggleExpanded() bool {
 
 	key := m.foldTarget()
 	m.expanded[key] = !m.expanded[key]
-	m.folds++
 	m.conv.ok = false
 
 	// Unfolding pushes everything under it down. Without this the card that
@@ -1497,6 +1496,10 @@ func scrollFooter(v viewport.Model) string {
 // tabBody renders whichever tab is current. The conversation is the
 // fallthrough: it is the tab a screen opens on.
 func (m *Model) tabBody() string {
+	// Here rather than in each body, because a tab that returns a note instead
+	// of its blocks still has to drop the stops the last one left.
+	m.pageRing.reset()
+
 	switch m.tab {
 	case tabCommits:
 		return m.commitBody()

@@ -38,10 +38,6 @@ const threadHunkLines = 4
 // root raises a toast for that; blanking the screen would be worse news than
 // the news.
 func (m *Model) conversationBody() string {
-	// The ring is rebuilt from the blocks below. A tab that renders none of them
-	// leaves the ring nothing to land on.
-	m.pageRing.reset()
-
 	if note, ok := m.conversationNote(); ok {
 		return note
 	}

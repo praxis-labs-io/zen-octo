@@ -16,8 +16,10 @@ import (
 // is standing. Switching to a tab that cannot show them what they asked for and
 // saying so from there is two moves to deliver one piece of bad news.
 func (m Model) showInDiff() (Model, tea.Cmd) {
+	// The tab rather than jumpable, which is false for a file the diff does not
+	// carry: that one is answered below with a toast rather than with silence.
 	t, ok := m.threadOnRing()
-	if !ok || t.Line == 0 {
+	if !ok || t.Line == 0 || m.tab == tabFiles {
 		return m, nil
 	}
 
