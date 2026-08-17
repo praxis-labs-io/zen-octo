@@ -5,11 +5,11 @@
                                                                                                     
 ╭─[1]─4 files──────────╮╭─[2]─Conversation - Commits - Checks - Files──────────────────────────────╮
 │▾ docs/               ││                                                                          │
-│    screenshot.png    ││╭────────────────────────────────────────────────────────────────────────╮│
-│▸ internal/           │││ ▾ docs/screenshot.png                                             +0 −0││
-│                      ││├────────────────────────────────────────────────────────────────────────┤│
-│                      │││ binary, or too large for GitHub to return a diff                       ││
-│                      ││╰────────────────────────────────────────────────────────────────────────╯│
+│    screenshot.png    ││▾ docs/screenshot.png                                                +0 −0│
+│▸ internal/           ││ binary, or too large for GitHub to return a diff                         │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

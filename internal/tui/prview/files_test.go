@@ -703,17 +703,15 @@ func TestAContextLineIsNotTinted(t *testing.T) {
 
 // A run of hunks with nothing between them reads as one file. The box is what
 // says where one ends.
-func TestEachFileSitsInABoxWithItsOwnHeader(t *testing.T) {
+// A file is not a thing to act on, so it gets a heading and no box. Boxing one
+// put a review thread in the diff three borders deep.
+func TestEachFileGetsAHeadingRowAndNoBox(t *testing.T) {
 	lines := strings.Split(stripANSI(onFiles(200, 50).View()), "\n")
 
-	head, rule := -1, -1
+	head := -1
 	for i, line := range lines {
-		if head < 0 && strings.Contains(line, "internal/gh/client.go") && strings.Contains(line, "+2") {
+		if strings.Contains(line, "internal/gh/client.go") && strings.Contains(line, "+2") {
 			head = i
-			continue
-		}
-		if head >= 0 && strings.Contains(line, "├─") {
-			rule = i
 			break
 		}
 	}
@@ -721,11 +719,11 @@ func TestEachFileSitsInABoxWithItsOwnHeader(t *testing.T) {
 	if head < 0 {
 		t.Fatal("no heading row carries the path and the churn")
 	}
-	if rule != head+1 {
-		t.Errorf("the rule is %d rows under the heading, want 1", rule-head)
+	if strings.Contains(lines[head-1], "╭") {
+		t.Error("the heading still has a box over it")
 	}
-	if !strings.Contains(lines[head-1], "╭") {
-		t.Error("the heading has no box around it")
+	if !strings.Contains(lines[head+1], "@@ -40,4 +40,5 @@") {
+		t.Errorf("the first hunk is not directly under the heading, got %q", lines[head+1])
 	}
 }
 
@@ -846,9 +844,9 @@ func TestBraceBackFromInsideAFileOpensOnItsHeading(t *testing.T) {
 	if got := cursorFile(m.View()); !strings.Contains(got, "store.go") {
 		t.Fatalf("{ from inside the file moved the cursor to %q", got)
 	}
-	// Row zero is the pane's own border and row one the file box's, so a file
-	// opened at the top of the window puts its heading on row two.
-	if at := lineOf(t, m.View(), "▾ internal/store/store.go") - paneTopAt(m.View()); at != 2 {
+	// Row zero is the pane's own border, and a file carries no box of its own,
+	// so a file opened at the top of the window puts its heading on row one.
+	if at := lineOf(t, m.View(), "▾ internal/store/store.go") - paneTopAt(m.View()); at != 1 {
 		t.Errorf("the heading landed on pane row %d, want the top of the window", at)
 	}
 
@@ -1006,7 +1004,7 @@ func TestFoldingWorksFromTheDiffPane(t *testing.T) {
 // folding it, the pane landed in the middle of the next one with the heading
 // that had just collapsed nowhere on screen.
 func TestFoldingTheFileBeingReadKeepsItOnScreen(t *testing.T) {
-	m := press(onFiles(120, 16), "2", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j")
+	m := press(onFiles(120, 16), "2", "j", "j", "j", "j", "j")
 	if !strings.Contains(stripANSI(m.View()), "@@ -40,4 +40,5 @@") {
 		t.Fatal("setup: the diff is not scrolled into the first file")
 	}

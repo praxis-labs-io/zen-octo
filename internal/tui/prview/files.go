@@ -186,30 +186,24 @@ func overflow(res store.Files) string {
 	return ""
 }
 
-// fileBlock is one file in a box of its own: the path and the churn in a
-// heading, ruled off from the hunks and the review threads anchored inside
-// them. A folded one collapses to the heading line without the box, the same
-// way a resolved thread does in the conversation.
+// fileBlock is one file: the heading, then its hunks and the review threads
+// anchored inside them. No box, or a thread sits three borders deep.
 func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool) block {
+	head := m.fileHead(f, folded, width)
 	if folded {
 		// Nothing inside it is on the page, so nothing inside it has a line.
-		return block{text: m.fileHead(f, true, width)}
+		return block{text: head}
 	}
 
-	inner := max(1, width-2)
-	body, spans := m.fileBody(f, inner, threads)
-	lines := strings.Count(body, "\n") + 1
+	body, spans := m.fileBody(f, width, threads)
 
-	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
-	pane = pane.Size(width, lines+pane.Chrome())
-
-	// The spans were counted from the body's first line, and the block they are
-	// recorded against starts at the pane's own top border.
+	// The spans were counted from the body's own first line, which sits one
+	// under the heading.
 	for i := range spans {
-		spans[i].start += pane.Above()
+		spans[i].start++
 	}
 
-	return block{text: pane.Render(body), threads: spans}
+	return block{text: head + "\n" + body, threads: spans}
 }
 
 // fileBody is everything under a file's heading, already the full inner width
