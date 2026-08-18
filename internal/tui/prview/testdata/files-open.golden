@@ -7,7 +7,7 @@
 │▾ docs/               ││ internal/gh/client.go                                               +2 −1│
 │    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
 │▾ internal/           ││                                                                          │
-│  ▾ gh/               ││         @@ -40,4 +40,5 @@ func New() (*Client, error) {                  │
+│  ▾ gh/               ││        @@ -40,4 +40,5 @@ func New() (*Client, error) {                  │
 │      client.go       ││ 40 40       for {                                                        │
 │  ▾ store/            ││ 41    −         time.Sleep(delay)                                        │
 │      store.go        ││    41 +         delay = min(delay*2, fetchTimeout)                       │

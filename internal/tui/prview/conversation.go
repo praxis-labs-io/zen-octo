@@ -718,7 +718,7 @@ func (m Model) cardWidth(width int) int { return max(1, width-2-2*cardGutter) }
 // bot review pastes a table of every file it looked at, and it is never the
 // thing you opened the pull request to read.
 func (m *Model) markdown(text string, width int, key focusKey) string {
-	if m.expanded[key] {
+	if m.open[key] {
 		return m.md.Render(text, width)
 	}
 
