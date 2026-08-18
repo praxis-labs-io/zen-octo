@@ -1168,6 +1168,7 @@ func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
 	hunk := threads[0].Hunk
 	if hunk == nil {
 		t.Fatal("the thread came back with no hunk")
+		return
 	}
 	if hunk.Header != "@@ -39,3 +39,4 @@" {
 		t.Errorf("header = %q", hunk.Header)
