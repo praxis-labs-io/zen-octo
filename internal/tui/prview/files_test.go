@@ -763,7 +763,7 @@ func TestTheFoldKeyCollapsesTheLitHunk(t *testing.T) {
 
 	folded := press(m, "space")
 	out := stripANSI(folded.View())
-	if !strings.Contains(out, "▸ @@ -40,4 +40,5 @@") {
+	if !strings.Contains(out, " @@ -40,4 +40,5 @@") {
 		t.Error("the folded hunk lost its closed heading")
 	}
 	for _, hidden := range []string{"time.Sleep(delay)", "This backs off forever."} {
@@ -776,7 +776,7 @@ func TestTheFoldKeyCollapsesTheLitHunk(t *testing.T) {
 	}
 
 	opened := stripANSI(press(folded, "space").View())
-	for _, restored := range []string{"▾ @@ -40,4 +40,5 @@", "time.Sleep(delay)", "This backs off forever."} {
+	for _, restored := range []string{" @@ -40,4 +40,5 @@", "time.Sleep(delay)", "This backs off forever."} {
 		if !strings.Contains(opened, restored) {
 			t.Errorf("opening the hunk did not restore %q", restored)
 		}
@@ -802,7 +802,7 @@ func TestFoldingOneHunkLeavesTheNextOneOpen(t *testing.T) {
 	if !strings.Contains(out, "const second = 2") {
 		t.Error("folding the first hunk hid the second")
 	}
-	if !strings.Contains(out, "▸ @@ -1 +1 @@") || !strings.Contains(out, "▾ @@ -10 +10 @@") {
+	if !strings.Contains(out, " @@ -1 +1 @@") || !strings.Contains(out, " @@ -10 +10 @@") {
 		t.Error("the two hunk headings do not report their own fold states")
 	}
 }
@@ -829,7 +829,7 @@ func TestAChangedHeadOpensFoldedHunks(t *testing.T) {
 
 	m.SetDetail(held(d))
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
-	if out := stripANSI(m.View()); !strings.Contains(out, "▸ @@ -40,4 +40,5 @@") {
+	if out := stripANSI(m.View()); !strings.Contains(out, " @@ -40,4 +40,5 @@") {
 		t.Error("a refresh on the same head opened the folded hunk")
 	}
 
@@ -837,7 +837,7 @@ func TestAChangedHeadOpensFoldedHunks(t *testing.T) {
 	m.SetDetail(held(d))
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "▾ @@ -40,4 +40,5 @@") {
+	if !strings.Contains(out, " @@ -40,4 +40,5 @@") {
 		t.Error("a changed head left the hunk folded")
 	}
 	for _, restored := range []string{"time.Sleep(delay)", "This backs off forever."} {

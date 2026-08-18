@@ -320,9 +320,9 @@ func (m Model) hunkFill(key focusKey) color.Color {
 // hunkHead is the @@ line, landing at the column the source under it starts in.
 // Its marker names whether the source below it is open.
 func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color, open bool) string {
-	marker := "▸"
+	marker := ""
 	if open {
-		marker = "▾"
+		marker = ""
 	}
 	return m.painter.HunkHeader(paint.Header{Text: h.Header, Marker: marker, Fill: fill}, gutter, width)
 }
