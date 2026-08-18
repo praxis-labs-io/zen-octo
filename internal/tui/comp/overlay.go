@@ -5,7 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // Over composites over on top of base, centered in a frame of the given size.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zen-octo/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
 )
 
 // writeConfig points config.Dir at a temp dir and writes body to config.yml.

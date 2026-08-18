@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // jumpHeight is short enough that the fixture's diff does not fit in the pane.

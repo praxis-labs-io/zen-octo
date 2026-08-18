@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // pollTickMsg is the heartbeat. It carries the instant it fired, so what is due

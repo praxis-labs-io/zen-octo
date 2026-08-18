@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
 // The diff was the odd leg out. Its first fetch is out for as long as a diff

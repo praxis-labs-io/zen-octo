@@ -7,8 +7,8 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func tick(t *testing.T, cmd tea.Cmd) spinner.TickMsg {

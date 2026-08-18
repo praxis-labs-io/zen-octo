@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // Edit is one metadata write in flight: a field of the pull request claimed

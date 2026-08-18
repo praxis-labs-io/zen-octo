@@ -3,7 +3,7 @@ package prview_test
 import (
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/golden"
+	"github.com/praxis-labs-io/zen-octo/internal/golden"
 )
 
 // TestGoldenFilesTab locks the Files tab where its width proves something. The

@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // ToastKind picks the color a toast carries.

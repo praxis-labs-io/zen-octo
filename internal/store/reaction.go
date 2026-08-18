@@ -3,7 +3,7 @@ package store
 import (
 	"slices"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // ReactionWrite is one reaction toggled here and not yet answered for.

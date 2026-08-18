@@ -11,7 +11,7 @@ import (
 	"charm.land/glamour/v2/styles"
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // Markdown renders GitHub markdown in the active theme. Rendering a long

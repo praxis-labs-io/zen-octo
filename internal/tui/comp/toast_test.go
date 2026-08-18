@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func TestToastShowsThenExpires(t *testing.T) {

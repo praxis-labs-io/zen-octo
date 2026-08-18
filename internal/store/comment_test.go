@@ -3,8 +3,8 @@ package store_test
 import (
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
 // An edit shows before GitHub has seen it, which is what optimistic means, and

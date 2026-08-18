@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // serveReactable stages a thread whose one comment GitHub will take a reaction

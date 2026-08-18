@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
 // Below the floor a control goes missing with nothing said. The frame says the

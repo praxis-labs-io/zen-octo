@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/app"
-	"github.com/zen-octo/zen-octo/internal/version"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/version"
 )
 
 func main() {

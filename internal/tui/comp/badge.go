@@ -3,8 +3,8 @@ package comp
 import (
 	"image/color"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // The badge helpers return a glyph and its color rather than a styled string,

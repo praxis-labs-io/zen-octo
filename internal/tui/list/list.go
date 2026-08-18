@@ -13,11 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
-	"github.com/zen-octo/zen-octo/internal/tui/keys"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // OpenMsg asks the root to open a pull request. The list does not know a detail

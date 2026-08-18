@@ -5,9 +5,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/link"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/link"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
 // The two side effects that leave the process, behind vars so a test can stand

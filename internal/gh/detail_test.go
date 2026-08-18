@@ -17,7 +17,7 @@ const detailBody = `{
   "rateLimit": {"limit": 5000, "cost": 3, "remaining": 4712, "resetAt": "2026-08-05T18:00:00Z"},
   "node": {
     "id": "PR_412", "number": 412, "title": "Fix auth retry",
-    "url": "https://github.com/zen-octo/zen-octo/pull/412",
+    "url": "https://github.com/praxis-labs-io/zen-octo/pull/412",
     "isDraft": false, "state": "OPEN",
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "viewerCanAssign": true,

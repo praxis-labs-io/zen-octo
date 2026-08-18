@@ -3,8 +3,8 @@ package prview
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
 // EditCommentMsg asks the root to rewrite a comment. It carries the kind

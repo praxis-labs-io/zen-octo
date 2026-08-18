@@ -7,7 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 
-	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
 )
 
 // declared pulls every key.Binding off a keymap struct, named by its field, so
