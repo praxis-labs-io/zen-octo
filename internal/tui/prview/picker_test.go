@@ -7,10 +7,10 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // repoLabels is the repository's whole set. The first is the one the fixture

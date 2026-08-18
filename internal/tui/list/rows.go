@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // Rendered heights. A header is one line and a pull request is two, which is

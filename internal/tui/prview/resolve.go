@@ -3,7 +3,7 @@ package prview
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // toggleResolved settles the thread the ring is on, or opens a settled one.

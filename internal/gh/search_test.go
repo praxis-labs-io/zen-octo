@@ -39,7 +39,7 @@ const twoPRsBody = `{
     "nodes": [
       {
         "id": "PR_1", "number": 412, "title": "Fix auth retry",
-        "url": "https://github.com/zen-octo/zen-octo/pull/412",
+        "url": "https://github.com/praxis-labs-io/zen-octo/pull/412",
         "isDraft": false, "state": "OPEN",
         "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-02T11:30:00Z",
         "additions": 42, "deletions": 7, "changedFiles": 3,
@@ -51,7 +51,7 @@ const twoPRsBody = `{
       },
       {
         "id": "PR_2", "number": 408, "title": "Bump deps",
-        "url": "https://github.com/zen-octo/zen-octo/pull/408",
+        "url": "https://github.com/praxis-labs-io/zen-octo/pull/408",
         "isDraft": true, "state": "OPEN",
         "createdAt": "2026-07-30T09:00:00Z", "updatedAt": "2026-07-31T09:00:00Z",
         "additions": 1, "deletions": 1, "changedFiles": 1,

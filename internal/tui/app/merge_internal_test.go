@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // The probe is a timer, and the harness outside this package drops one rather

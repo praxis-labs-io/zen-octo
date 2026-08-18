@@ -17,12 +17,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/app"
-	"github.com/zen-octo/zen-octo/internal/tui/list"
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // fakeSearcher answers every section with the same rows. Sections fetch
@@ -1004,7 +1004,7 @@ func samplePRs() []gh.PullRequest {
 	return []gh.PullRequest{
 		{
 			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "zen-octo/zen-octo",
-			URL:    "https://github.com/zen-octo/zen-octo/pull/412",
+			URL:    "https://github.com/praxis-labs-io/zen-octo/pull/412",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
 			HeadRefName: "fix-auth", Additions: 42, Deletions: 7, ChangedFiles: 3,
 			Checks: gh.CheckStateSuccess, UpdatedAt: time.Now().Add(-2 * time.Hour),

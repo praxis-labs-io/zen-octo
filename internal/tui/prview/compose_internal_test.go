@@ -16,10 +16,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/syntax"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // editorFixture is a detail screen with one answerable thread on it.

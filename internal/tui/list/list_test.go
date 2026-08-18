@@ -12,11 +12,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/list"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // ready is a store snapshot with everything loaded, which is what the list sees
@@ -63,7 +63,7 @@ var fixtureTime = time.Now().Add(-2 * time.Hour)
 func pr(title string) gh.PullRequest {
 	return gh.PullRequest{
 		ID: "PR_" + title, Number: 412, Title: title, Repository: "zen-octo/zen-octo",
-		URL:    "https://github.com/zen-octo/zen-octo/pull/412",
+		URL:    "https://github.com/praxis-labs-io/zen-octo/pull/412",
 		Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen,
 		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 6,
 		Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
@@ -79,7 +79,7 @@ func numbered(n int) []gh.PullRequest {
 		prs[i] = pr(fmt.Sprintf("Change %d", i))
 		prs[i].ID = fmt.Sprintf("PR_%d", i)
 		prs[i].Number = i
-		prs[i].URL = fmt.Sprintf("https://github.com/zen-octo/zen-octo/pull/%d", i)
+		prs[i].URL = fmt.Sprintf("https://github.com/praxis-labs-io/zen-octo/pull/%d", i)
 	}
 	return prs
 }

@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
 // A reviewer change is applied here before it is sent, so both outcomes name

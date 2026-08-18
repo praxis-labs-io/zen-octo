@@ -6,8 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/paint"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // budgetLow is where the remaining GraphQL pool starts being news. Below it a

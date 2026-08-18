@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // oneDiff is a diff with something in it, for a cache that only counts entries.

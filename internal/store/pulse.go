@@ -3,7 +3,7 @@ package store
 import (
 	"slices"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // BeginPulse marks a cheap recheck in flight and reports whether it started. It

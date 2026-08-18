@@ -3,7 +3,7 @@ package comp_test
 import (
 	"testing"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
 func TestSplitDetailsSeparatesProseFromFolds(t *testing.T) {

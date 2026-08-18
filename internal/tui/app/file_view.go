@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
 func (m Model) toggleFileViewed(msg prview.ToggleFileViewedMsg) (tea.Model, tea.Cmd) {

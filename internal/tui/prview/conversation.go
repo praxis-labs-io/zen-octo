@@ -8,12 +8,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
-	"github.com/zen-octo/zen-octo/internal/tui/keys"
-	"github.com/zen-octo/zen-octo/internal/tui/paint"
-	"github.com/zen-octo/zen-octo/internal/tui/syntax"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
 )
 
 // treeGutter is the rail hanging one card off the card above it: a review's

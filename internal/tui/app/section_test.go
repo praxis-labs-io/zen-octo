@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/tui/app"
-	"github.com/zen-octo/zen-octo/internal/tui/list"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 )
 
 // recentConfig is one section whose filter names a window rather than a date.

@@ -3,7 +3,7 @@ package store
 import (
 	"slices"
 
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // CommentWrite is a comment rewritten or removed here and not yet answered for.

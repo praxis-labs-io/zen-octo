@@ -1,6 +1,6 @@
 package prview
 
-import "github.com/zen-octo/zen-octo/internal/gh"
+import "github.com/praxis-labs-io/zen-octo/internal/gh"
 
 // focusKind is what a focusable thing is. An action key reads it to know what
 // it has been handed: a reply belongs on a thread and nowhere else.

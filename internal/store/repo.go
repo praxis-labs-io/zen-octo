@@ -1,6 +1,6 @@
 package store
 
-import "github.com/zen-octo/zen-octo/internal/gh"
+import "github.com/praxis-labs-io/zen-octo/internal/gh"
 
 // Repo is the choices a picker draws from, held per repository. The zero value
 // is one never fetched, which reads as idle and unloaded.

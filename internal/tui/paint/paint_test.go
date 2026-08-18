@@ -9,9 +9,9 @@ import (
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"github.com/zen-octo/zen-octo/internal/tui/paint"
-	"github.com/zen-octo/zen-octo/internal/tui/syntax"
-	"github.com/zen-octo/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func TestGutterHoldsTwoColumnsUntilThereAreMoreDigits(t *testing.T) {

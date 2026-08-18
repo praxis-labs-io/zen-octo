@@ -1,4 +1,4 @@
-module github.com/zen-octo/zen-octo
+module github.com/praxis-labs-io/zen-octo
 
 go 1.26.6
 

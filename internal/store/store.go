@@ -9,8 +9,8 @@ package store
 import (
 	"slices"
 
-	"github.com/zen-octo/zen-octo/internal/config"
-	"github.com/zen-octo/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/config"
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 // Status is where a section's last fetch got to.
