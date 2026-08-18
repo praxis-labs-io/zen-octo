@@ -49,6 +49,29 @@ func (f *fakeREST) DoWithContext(_ context.Context, method, path string, body io
 	return json.Unmarshal([]byte(f.body), response)
 }
 
+// RequestWithContext answers the undecoded seam with a 200 carrying f.body
+// verbatim, so a caller reading raw bytes sees exactly what it set.
+func (f *fakeREST) RequestWithContext(_ context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	f.gotMethod, f.gotPath = method, path
+
+	f.gotBody = ""
+	if body != nil {
+		sent, err := io.ReadAll(body)
+		if err != nil {
+			return nil, err
+		}
+		f.gotBody = string(sent)
+	}
+
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(f.body)),
+	}, nil
+}
+
 const filesBody = `[
   {
     "filename": "internal/gh/files.go",

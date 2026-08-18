@@ -175,15 +175,17 @@ const detailBody = `{
         {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "NEUTRAL",
          "checkSuite": {"workflowRun": {"workflow": {"name": "Rails Lint"}}}},
         {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "FAILURE",
-         "checkSuite": {"workflowRun": {"workflow": {"name": "Build"}}}},
+         "databaseId": 8700123456, "startedAt": "2026-08-05T09:00:00Z", "completedAt": "2026-08-05T09:05:00Z",
+         "detailsUrl": "https://github.com/praxis-labs-io/zen-octo/runs/8700123456",
+         "checkSuite": {"workflowRun": {"databaseId": 555200001, "workflow": {"name": "Build"}}}},
         {"__typename": "CheckRun", "name": "windows", "status": "COMPLETED", "conclusion": "SKIPPED",
          "checkSuite": {"workflowRun": null}},
         {"__typename": "CheckRun", "name": "e2e", "status": "IN_PROGRESS", "conclusion": "",
-         "startedAt": "2026-08-05T10:00:00Z",
-         "checkSuite": {"workflowRun": {"workflow": {"name": "E2E Tests"}}}},
+         "databaseId": 555111002, "startedAt": "2026-08-05T10:00:00Z",
+         "checkSuite": {"workflowRun": {"databaseId": 555200002, "workflow": {"name": "E2E Tests"}}}},
         {"__typename": "CheckRun", "name": "e2e", "status": "COMPLETED", "conclusion": "FAILURE",
-         "startedAt": "2026-08-05T09:00:00Z",
-         "checkSuite": {"workflowRun": {"workflow": {"name": "E2E Tests"}}}},
+         "databaseId": 555111001, "startedAt": "2026-08-05T09:00:00Z",
+         "checkSuite": {"workflowRun": {"databaseId": 555200002, "workflow": {"name": "E2E Tests"}}}},
         {"__typename": "StatusContext", "context": "codecov", "state": "SUCCESS"},
         {"__typename": "StatusContext", "context": "netlify", "state": "PENDING"},
         {"__typename": "StatusContext", "context": "sonar", "state": "ERROR"}
@@ -576,6 +578,21 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	if d.Checks != CheckStateFailure {
 		t.Errorf("Checks = %q, want the rollup state", d.Checks)
 	}
+
+	// These ride along on a check run's own arm of the fragment.
+	build := d.Rollup.Checks[2]
+	if build.JobID != 8700123456 {
+		t.Errorf("build.JobID = %d, want 8700123456", build.JobID)
+	}
+	if build.RunID != 555200001 {
+		t.Errorf("build.RunID = %d, want 555200001", build.RunID)
+	}
+	if build.DetailsURL != "https://github.com/praxis-labs-io/zen-octo/runs/8700123456" {
+		t.Errorf("build.DetailsURL = %q, want the run's own link", build.DetailsURL)
+	}
+	if want := 5 * time.Minute; build.Duration != want {
+		t.Errorf("build.Duration = %v, want %v", build.Duration, want)
+	}
 }
 
 // The rail builds its state menu from these, so a flag lost in decoding offers
@@ -854,6 +871,12 @@ func TestARerunCheckIsReportedOnce(t *testing.T) {
 			seen++
 			if check.State != CheckStatePending {
 				t.Errorf("e2e = %q, want the state of the run that started last", check.State)
+			}
+			if check.JobID != 555111002 {
+				t.Errorf("e2e.JobID = %d, want the id of the run that started last", check.JobID)
+			}
+			if check.Duration != 0 {
+				t.Errorf("e2e.Duration = %v, want zero: the surviving attempt is still running", check.Duration)
 			}
 		}
 	}

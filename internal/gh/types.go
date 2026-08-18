@@ -414,16 +414,19 @@ type Reviewer struct {
 	Team       bool
 }
 
-// Check is one entry behind the rollup, whether GitHub calls it a check run or
-// a status context.
-//
-// Name is the job, and Workflow the run it belongs to, empty on a status
-// context. Neither is unique on its own: a repository with five suites has five
-// jobs called "test".
+// Check is one entry behind the rollup. JobID and RunID are zero on a status
+// context; Duration is CompletedAt minus StartedAt, computed here.
 type Check struct {
 	Name     string
 	Workflow string
 	State    CheckState
+
+	JobID       int64
+	RunID       int64
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+	DetailsURL  string
 }
 
 // Key tells one check from another. A check run has a node id, but the rollup

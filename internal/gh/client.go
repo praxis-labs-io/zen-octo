@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -23,6 +24,8 @@ type graphQLDoer interface {
 // so the diff is the one thing this package cannot ask for in a query.
 type restDoer interface {
 	DoWithContext(ctx context.Context, method, path string, body io.Reader, response any) error
+	// RequestWithContext is the undecoded half, for a body that is not JSON.
+	RequestWithContext(ctx context.Context, method, path string, body io.Reader) (*http.Response, error)
 }
 
 // Client is a GitHub API client riding the token from the user's gh login.
