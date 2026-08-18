@@ -749,9 +749,9 @@ func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	}
 }
 
-// The tree belongs to the column and the blocks to the pane. Falling from one
-// to the other folds a directory the reader is not looking at.
-func TestTheFoldKeyInThePaneLeavesTheTreeAlone(t *testing.T) {
+// The tree belongs to the column and the blocks to the pane. A fold in the
+// pane leaves the tree alone and keeps the hunk heading as the way back in.
+func TestTheFoldKeyCollapsesTheLitHunk(t *testing.T) {
 	// The cursor left on the gh/ row, which is the only kind the tree folds.
 	m := press(onFiles(200, 50), "1", "k", "}")
 	if litHunk(m.View()) == "" {
@@ -761,9 +761,60 @@ func TestTheFoldKeyInThePaneLeavesTheTreeAlone(t *testing.T) {
 		t.Fatal("setup: the directory the cursor is on is not open")
 	}
 
-	before := stripANSI(m.View())
-	if after := stripANSI(press(m, "space").View()); after != before {
-		t.Error("the fold key moved something with a hunk lit in the pane")
+	folded := press(m, "space")
+	out := stripANSI(folded.View())
+	if !strings.Contains(out, "▸ @@ -40,4 +40,5 @@") {
+		t.Error("the folded hunk lost its closed heading")
+	}
+	for _, hidden := range []string{"time.Sleep(delay)", "This backs off forever."} {
+		if strings.Contains(out, hidden) {
+			t.Errorf("the folded hunk still shows %q", hidden)
+		}
+	}
+	if !strings.Contains(out, "▾ gh/") {
+		t.Error("folding the hunk changed the tree")
+	}
+
+	opened := stripANSI(press(folded, "space").View())
+	for _, restored := range []string{"▾ @@ -40,4 +40,5 @@", "time.Sleep(delay)", "This backs off forever."} {
+		if !strings.Contains(opened, restored) {
+			t.Errorf("opening the hunk did not restore %q", restored)
+		}
+	}
+}
+
+func TestFoldingOneHunkLeavesTheNextOneOpen(t *testing.T) {
+	files := []gh.ChangedFile{{
+		Path: "two.go", Status: gh.FileModified, Additions: 2,
+		Hunks: []gh.Hunk{
+			{Header: "@@ -1 +1 @@", Lines: []gh.DiffLine{{Kind: gh.DiffAdded, New: 1, Content: "const first = 1"}}},
+			{Header: "@@ -10 +10 @@", Lines: []gh.DiffLine{{Kind: gh.DiffAdded, New: 10, Content: "const second = 2"}}},
+		},
+	}}
+
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	out := stripANSI(press(m, "]", "]", "]", "}", "space").View())
+
+	if strings.Contains(out, "const first = 1") {
+		t.Error("the folded hunk still shows its code")
+	}
+	if !strings.Contains(out, "const second = 2") {
+		t.Error("folding the first hunk hid the second")
+	}
+	if !strings.Contains(out, "▸ @@ -1 +1 @@") || !strings.Contains(out, "▾ @@ -10 +10 @@") {
+		t.Error("the two hunk headings do not report their own fold states")
+	}
+}
+
+func TestTheRingSkipsThreadsInsideAFoldedHunk(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "space", "}")
+
+	if got := litHunk(m.View()); !strings.Contains(got, "@@ -87,3 +87,2 @@") {
+		t.Errorf("the ring landed on %q, want the next file's hunk", got)
+	}
+	if !strings.Contains(diffHeads(m.View()), "internal/store/store.go") {
+		t.Error("the ring did not cross to the next file")
 	}
 }
 

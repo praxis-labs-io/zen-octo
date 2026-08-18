@@ -88,7 +88,7 @@ func (m Model) within(t gh.ReviewThread) string {
 // is; a resolved one is closed until o opens it, and while it is closed there is
 // nothing inside it to step through, quote, or hang a box off.
 func (m Model) threadOpen(t gh.ReviewThread) bool {
-	return !t.IsResolved || m.expanded[threadKey(t)]
+	return !t.IsResolved || m.open[threadKey(t)]
 }
 
 // focusedThread is the open thread the ring is anywhere inside, on the screen.

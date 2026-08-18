@@ -253,10 +253,11 @@ type Model struct {
 	// than instead of it, so the two cursors are two.
 	railRing ring
 
-	// expanded is which cards have their <details> blocks unfolded, keyed the
-	// same way the ring keys what it points at. A review thread renders on the
-	// Files tab as well as in the conversation, so both read this.
-	expanded map[focusKey]bool
+	// open is the fold state of blocks the reader has moved from their default,
+	// keyed the same way the ring keys what it points at. Prose starts closed;
+	// hunks start open. A review thread renders on the Files tab as well as in
+	// the conversation, so both read this.
+	open map[focusKey]bool
 
 	// offsets parks the scroll position of each tab. One viewport serves all
 	// four, and without this switching to a short tab clamps the offset to zero
@@ -356,7 +357,7 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.S
 		inline:      newInline(th),
 		mention:     mention{dismissed: -1},
 		collapsed:   make(map[string]bool),
-		expanded:    make(map[focusKey]bool),
+		open:        make(map[focusKey]bool),
 		offsets:     make([]int, len(tabs)),
 		railOn:      rail.On,
 		railUserSet: rail.Set,
@@ -427,7 +428,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	// only acknowledgement.
 	for _, t := range d.Detail.Threads {
 		if !t.IsResolved {
-			delete(m.expanded, threadKey(t))
+			delete(m.open, threadKey(t))
 		}
 	}
 	m.syncCommits()
@@ -725,7 +726,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles && m.focus != paneMain:
 		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
-		m.toggleExpanded()
+		m.toggleBlockFold()
 
 	// Neither tab with a column has a rail to toggle. Reading railVisible here
 	// would take its hard false for the user's preference and turn a hidden rail
@@ -1065,16 +1066,16 @@ func (m *Model) clearFocus() bool {
 	return cleared
 }
 
-// toggleExpanded unfolds the <details> blocks in the focused card. There is
-// nothing to unfold with no card focused, which is what tab is one key away
-// for. Rail rows hold no prose and answer to it with nothing.
+// toggleBlockFold moves the focused prose or hunk from its resting fold state.
+// There is nothing to move with no block focused, and rail rows answer to it
+// with nothing.
 //
 // A card scrolled off the screen is not the one the reader means, any more than
 // it is the one tab lands on. Acting on it would unfold something out of sight
 // and drag the page back to it.
-func (m *Model) toggleExpanded() bool {
+func (m *Model) toggleBlockFold() bool {
 	r, vp := m.focusRing()
-	if r == nil || !r.on.kind.prose() {
+	if r == nil || (!r.on.kind.prose() && r.on.kind != focusHunk) {
 		return false
 	}
 
@@ -1084,8 +1085,12 @@ func (m *Model) toggleExpanded() bool {
 	}
 
 	key := m.foldTarget()
-	m.expanded[key] = !m.expanded[key]
-	m.conv.ok = false
+	if key.kind == focusHunk {
+		m.open[key] = !m.hunkOpen(key)
+	} else {
+		m.open[key] = !m.open[key]
+		m.conv.ok = false
+	}
 
 	// Unfolding pushes everything under it down. Without this the card that
 	// just grew opens below the window it was read in.
@@ -1094,13 +1099,16 @@ func (m *Model) toggleExpanded() bool {
 	return true
 }
 
-// foldTarget is what o unfolds.
+// foldTarget is what space folds.
 //
 // A resolved thread answers with the whole card: closed is its resting state and
-// opening it is the only thing o could usefully mean there. Anywhere else the
+// opening it is the only thing space could usefully mean there. Anywhere else the
 // focus already names one comment, its own or the one its card was opened with,
 // and the fold is per comment on both tabs that draw one.
 func (m Model) foldTarget() focusKey {
+	if m.mainRing().on.kind == focusHunk {
+		return m.mainRing().on
+	}
 	t, ok := m.threadOnRing()
 	if !ok {
 		return m.mainRing().on

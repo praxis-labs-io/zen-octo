@@ -68,15 +68,19 @@ type drawnFile struct {
 // block is one file rendered. Tokenising is what it costs and that is all in
 // the runs, so a stop is drawn again every frame and never held lit.
 type block struct {
+	at blockState
+
 	// runs and stops interleave, runs first: one more run than stop, always.
 	runs  []run
 	stops []blockStop
 }
 
-// blockState is what a block is rendered against from outside its own file, and
-// a change to it retires the cache. A fold is not in it: it changes a card.
+// blockState is what one file block is rendered against. The fold signature is
+// local to that file, so folding a hunk does not retire blocks already painted
+// for other files.
 type blockState struct {
 	width int
+	folds string
 }
 
 // diffBody is one rendered diff: where each file's block sits inside it, and
@@ -85,12 +89,11 @@ type blockState struct {
 //
 // The blocks are cached because moving a cursor one row repaints the diff, and
 // rendering a block tokenises the whole file: without this a single keystroke
-// costs the diff twice over. at is what the cache was built against; anything
-// else invalidates the lot.
+// costs the diff twice over. Each block carries the state it was built against,
+// so a change retires that file alone.
 type diffBody struct {
 	spans  []fileSpan
 	blocks map[blockKey]block
-	at     blockState
 
 	// stops is every hunk heading and thread card in the rendered body, in the
 	// same lines the file spans are counted in. The ring is built from them.
@@ -138,9 +141,8 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		return m.faint().Render("No files changed.")
 	}
 
-	state := blockState{width: width}
-	if d.blocks == nil || d.at != state {
-		d.blocks, d.at = make(map[blockKey]block, len(rows)), state
+	if d.blocks == nil {
+		d.blocks = make(map[blockKey]block, len(rows))
 	}
 
 	blocks := make([]string, 0, len(rows))
@@ -151,9 +153,11 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		}
 
 		bk := blockKey{key: r.key, heading: d.headings}
+		state := blockState{width: width, folds: m.hunkFoldState(*r.file)}
 		b, ok := d.blocks[bk]
-		if !ok {
+		if !ok || b.at != state {
 			b = m.fileBlock(*r.file, width, d.threads, d.headings)
+			b.at = state
 			d.blocks[bk] = b
 		}
 
@@ -245,6 +249,8 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 
 	seen := 0
 	for i, h := range f.Hunks {
+		hunkOpen := m.hunkOpen(hunkKey(f.Path, h))
+
 		// A hunk is a jump to somewhere else in the file, so it gets the blank
 		// line every other break on this screen gets.
 		if i > 0 {
@@ -252,10 +258,14 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 		}
 		stop(blockStop{hunk: i, thread: stopNone})
 		for _, l := range h.Lines {
-			open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
+			if hunkOpen {
+				open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
+			}
 			seen++
 			for _, at := range threadsAt(anchored, placed, l) {
-				stop(blockStop{hunk: stopNone, thread: at})
+				if hunkOpen {
+					stop(blockStop{hunk: stopNone, thread: at})
+				}
 			}
 		}
 	}
@@ -308,9 +318,13 @@ func (m Model) hunkFill(key focusKey) color.Color {
 }
 
 // hunkHead is the @@ line, landing at the column the source under it starts in.
-// The badge slot stays empty: a hunk here carries no state of its own.
-func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color) string {
-	return m.painter.HunkHeader(paint.Header{Text: h.Header, Fill: fill}, gutter, width)
+// Its marker names whether the source below it is open.
+func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color, open bool) string {
+	marker := "▸"
+	if open {
+		marker = "▾"
+	}
+	return m.painter.HunkHeader(paint.Header{Text: h.Header, Marker: marker, Fill: fill}, gutter, width)
 }
 
 // diffLine is one line of code, handed to the painter with whatever fill the
@@ -457,7 +471,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 		if s.hunk != stopNone {
 			h := f.Hunks[s.hunk]
 			key := hunkKey(f.Path, h)
-			text = m.hunkHead(h, gutter, width, m.hunkFill(key))
+			text = m.hunkHead(h, gutter, width, m.hunkFill(key), m.hunkOpen(key))
 			out.stops = append(out.stops, focusItem{focusKey: key, start: at, lines: 1})
 		} else {
 			v := m.diffThread(s.thread, width)
@@ -475,6 +489,26 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 
 	out.text = sb.String()
 	return out
+}
+
+// hunkOpen reads the default without writing it into the shared map. View runs
+// on model copies, so a missing entry has to remain a read.
+func (m Model) hunkOpen(key focusKey) bool {
+	open, set := m.open[key]
+	return !set || open
+}
+
+// hunkFoldState names the folded set in source order. The file path and hunk
+// headers are already in the keys, so equal signatures mean equal rendered
+// runs for this file.
+func (m Model) hunkFoldState(f gh.ChangedFile) string {
+	state := make([]byte, len(f.Hunks))
+	for i, h := range f.Hunks {
+		if !m.hunkOpen(hunkKey(f.Path, h)) {
+			state[i] = 1
+		}
+	}
+	return string(state)
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {

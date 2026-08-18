@@ -7,7 +7,7 @@
 │▾ docs/               ││ internal/store/store.go                                             +0 −1│
 │    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
 │▾ internal/           ││                                                                          │
-│  ▸ gh/               ││         @@ -87,3 +87,2 @@                                                │
+│  ▸ gh/               ││       ▾ @@ -87,3 +87,2 @@                                                │
 │  ▾ store/            ││ 87 87   // Begin marks one section in flight.                            │
 │      store.go        ││ 88    − // It refuces a duplicate.                                       │
 │  ▾ tui/prview/       ││   ╭─────────────────────────────────────────────────────────────────────╮│
