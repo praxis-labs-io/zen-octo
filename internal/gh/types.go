@@ -639,9 +639,9 @@ type ChangedFile struct {
 	Viewing      bool
 }
 
-// FilesResult is one files response. It carries no rate limit: the REST API
-// bills by request against a separate budget the GraphQL one knows nothing
-// about.
+// FilesResult is one files response. Pull request files carry the rate limit
+// from the GraphQL request that supplies their viewed state; commit files do
+// not need that second request and leave it empty.
 type FilesResult struct {
 	Files     []ChangedFile
 	RateLimit RateLimit

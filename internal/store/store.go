@@ -850,7 +850,16 @@ func diffPinned(held *cache[Files]) func(string) bool {
 }
 
 func (s Store) filesPinned(id string) bool {
+	// A pending viewed-state write needs the cached file it will settle into.
+	// Let the cache exceed its cap rather than evicting that rollback target.
 	return s.files.get(id).Status == StatusLoading || len(s.viewing[id]) > 0
+}
+
+func fileViewedState(viewed bool) gh.FileViewedState {
+	if viewed {
+		return gh.FileViewed
+	}
+	return gh.FileUnviewed
 }
 
 // Files is the diff held for a pull request. The zero value is one never
@@ -866,10 +875,7 @@ func (s Store) Files(id string) Files {
 		if at < 0 {
 			continue
 		}
-		held.Files[at].Viewed = gh.FileUnviewed
-		if write.Viewed {
-			held.Files[at].Viewed = gh.FileViewed
-		}
+		held.Files[at].Viewed = fileViewedState(write.Viewed)
 		held.Files[at].Viewing = true
 	}
 	return held
@@ -1006,10 +1012,7 @@ func (s *Store) FileViewApplied(id, key string) {
 		return
 	}
 	held.Files = slices.Clone(held.Files)
-	held.Files[at].Viewed = gh.FileUnviewed
-	if write.Viewed {
-		held.Files[at].Viewed = gh.FileViewed
-	}
+	held.Files[at].Viewed = fileViewedState(write.Viewed)
 	s.files.put(id, held)
 }
 

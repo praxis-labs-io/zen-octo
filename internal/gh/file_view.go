@@ -25,15 +25,15 @@ type fileViewedResponse struct {
 }
 
 func (c *Client) SetFileViewed(ctx context.Context, prID, path string, viewed bool) error {
-	doc, doing := unmarkFileViewedMutation, "marking a file unviewed"
+	doc, action := unmarkFileViewedMutation, "marking a file unviewed"
 	if viewed {
-		doc, doing = markFileViewedMutation, "marking a file viewed"
+		doc, action = markFileViewedMutation, "marking a file viewed"
 	}
 
 	var resp fileViewedResponse
 	vars := map[string]any{"pullRequestId": prID, "path": path}
 	if err := c.gql.DoWithContext(ctx, doc, vars, &resp); err != nil {
-		return fmt.Errorf("%s: %w", doing, classify(err))
+		return fmt.Errorf("%s: %w", action, classify(err))
 	}
 
 	id := resp.UnmarkFileAsViewed.PullRequest.ID
@@ -41,7 +41,7 @@ func (c *Client) SetFileViewed(ctx context.Context, prID, path string, viewed bo
 		id = resp.MarkFileAsViewed.PullRequest.ID
 	}
 	if id == "" {
-		return fmt.Errorf("%s: GitHub returned no pull request", doing)
+		return fmt.Errorf("%s: GitHub returned no pull request", action)
 	}
 	return nil
 }

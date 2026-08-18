@@ -138,11 +138,37 @@ func TestMarkViewedTargetsTheTreeSelectionAndTheShownDiff(t *testing.T) {
 	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "a.go", Viewed: true}) {
 		t.Errorf("diff toggle = %#v", got)
 	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "b.go") {
+		t.Errorf("marking from the diff advanced to %q, want b.go", got)
+	}
 
-	m = press(m, "1", "j")
+	m = press(m, "1")
 	_, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
 	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: false}) {
 		t.Errorf("tree toggle = %#v", got)
+	}
+}
+
+func TestMarkViewedAdvancesTheTreeAndStopsAtTheLastFile(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileDismissed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "1")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "a.go", Viewed: true}) {
+		t.Fatalf("first toggle = %#v", got)
+	}
+	m, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: true}) {
+		t.Errorf("toggle after advance = %#v", got)
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: true}) {
+		t.Errorf("toggle at the end = %#v", got)
 	}
 }
 

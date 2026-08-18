@@ -1375,6 +1375,9 @@ func (m Model) toggleFileViewed() (Model, tea.Cmd) {
 		Path:   file.Path,
 		Viewed: file.Viewed != gh.FileViewed,
 	}
+	if msg.Viewed {
+		m.jumpFile(1)
+	}
 	return m, func() tea.Msg { return msg }
 }
 
