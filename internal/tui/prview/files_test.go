@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -105,6 +106,43 @@ func TestTheFilesTabRendersTheDiff(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the Files tab does not show %q", want)
 		}
+	}
+}
+
+func TestTheFileTreeRendersViewedStateGlyphs(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileDismissed},
+		{Path: "c.go", Viewed: gh.FileViewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	out := stripANSI(press(m, "]", "]", "]").View())
+	for _, want := range []string{"○ a.go", "⊙ b.go", "● c.go"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tree does not contain %q", want)
+		}
+	}
+}
+
+func TestMarkViewedTargetsTheTreeSelectionAndTheShownDiff(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileViewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "a.go", Viewed: true}) {
+		t.Errorf("diff toggle = %#v", got)
+	}
+
+	m = press(m, "1", "j")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: false}) {
+		t.Errorf("tree toggle = %#v", got)
 	}
 }
 

@@ -544,6 +544,42 @@ func TestADiffIsHeldForTheNextVisitToTheTab(t *testing.T) {
 	}
 }
 
+func TestAFileViewedWriteFoldsAndSettlesAgainstTheLatestDiff(t *testing.T) {
+	s := store.New(configured())
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go", Viewed: gh.FileUnviewed}}})
+
+	key := s.PendingFileView("PR_412", "a.go", true)
+	held := s.Files("PR_412")
+	if held.Files[0].Viewed != gh.FileViewed || !held.Files[0].Viewing {
+		t.Fatalf("pending file = %+v, want viewed and in flight", held.Files[0])
+	}
+
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go", Viewed: gh.FileDismissed}}})
+	s.FileViewApplied("PR_412", key)
+	held = s.Files("PR_412")
+	if held.Files[0].Viewed != gh.FileViewed || held.Files[0].Viewing {
+		t.Fatalf("settled file = %+v, want the write promoted over the refetch", held.Files[0])
+	}
+}
+
+func TestAFailedFileViewedWriteRevealsTheLatestFetchedState(t *testing.T) {
+	s := store.New(configured())
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go", Viewed: gh.FileUnviewed}}})
+
+	key := s.PendingFileView("PR_412", "a.go", true)
+	s.BeginFiles("PR_412")
+	s.FilesApplied("PR_412", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go", Viewed: gh.FileDismissed}}})
+	s.FileViewReverted("PR_412", key)
+
+	held := s.Files("PR_412")
+	if held.Files[0].Viewed != gh.FileDismissed || held.Files[0].Viewing {
+		t.Fatalf("reverted file = %+v, want the refetched dismissed state", held.Files[0])
+	}
+}
+
 // Tabbing in and out of Files while the first request is out has to cost one
 // round trip, the same way opening a row twice does.
 func TestBeginFilesRefusesOneAlreadyInFlight(t *testing.T) {

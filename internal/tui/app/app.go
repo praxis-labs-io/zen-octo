@@ -37,8 +37,9 @@ type GitHub interface {
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
 	PullRequest(ctx context.Context, id, headRef string) (gh.DetailResult, error)
 	Pulse(ctx context.Context, id string) (gh.PulseResult, error)
-	PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (gh.FilesResult, error)
+	PullRequestFiles(ctx context.Context, prID, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
+	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
@@ -121,6 +122,18 @@ type filesFetchedMsg struct {
 type filesFailedMsg struct {
 	id  string
 	err error
+}
+
+type fileViewedMsg struct {
+	id  string
+	key string
+}
+
+type fileViewFailedMsg struct {
+	id   string
+	key  string
+	path string
+	err  error
 }
 
 // A commit's diff is a request of its own, made when someone selects the commit
@@ -817,7 +830,7 @@ func (m Model) fetchFiles(id, repo string, number, changedFiles int) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 
-		res, err := client.PullRequestFiles(ctx, repo, number, changedFiles)
+		res, err := client.PullRequestFiles(ctx, id, repo, number, changedFiles)
 		if err != nil {
 			return filesFailedMsg{id: id, err: err}
 		}
@@ -1093,6 +1106,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.store.FilesFailed(msg.id, msg.err)
 		return m.filesSettled(msg.id, msg.err)
 
+	case fileViewedMsg:
+		m.store.FileViewApplied(msg.id, msg.key)
+		if !m.showing(msg.id) {
+			return m, nil
+		}
+		return m, m.detail.SetFiles(m.store.Files(msg.id))
+
+	case fileViewFailedMsg:
+		m.store.FileViewReverted(msg.id, msg.key)
+		toast := m.toasts.Show(comp.ToastError, "Could not update "+msg.path+": "+msg.err.Error())
+		if !m.showing(msg.id) {
+			return m, toast
+		}
+		return m, tea.Batch(m.detail.SetFiles(m.store.Files(msg.id)), toast)
+
 	case commitFilesFetchedMsg:
 		m.store.CommitFilesApplied(msg.sha, msg.res)
 		return m.commitFilesSettled(msg.sha, nil)
@@ -1103,6 +1131,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prview.NeedFilesMsg:
 		return m.needFiles(msg.ID)
+
+	case prview.ToggleFileViewedMsg:
+		return m.toggleFileViewed(msg)
 
 	case prview.NeedCommitMsg:
 		return m.needCommit(msg.SHA)

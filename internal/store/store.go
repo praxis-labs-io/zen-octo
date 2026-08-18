@@ -113,6 +113,12 @@ type Resolution struct {
 	Resolved bool
 }
 
+type FileView struct {
+	Key    string
+	Path   string
+	Viewed bool
+}
+
 // Store holds every configured section, every detail opened this session, and
 // the point budget across all of them.
 type Store struct {
@@ -153,6 +159,7 @@ type Store struct {
 	edits     map[string][]Edit
 	rewrites  map[string][]CommentWrite
 	reacting  map[string][]ReactionWrite
+	viewing   map[string][]FileView
 	writes    int
 
 	// staleFetch marks a detail fetch that was asked for before a write on the
@@ -836,15 +843,37 @@ func (s Store) detailPinned(id string) bool {
 		len(s.rewrites[id]) > 0 || len(s.reacting[id]) > 0
 }
 
-// diffPinned is a diff whose own fetch is out, for either cache. Nothing writes
-// to a diff, so a fetch in flight is the whole of it.
+// diffPinned is a commit diff whose own fetch is out. Pull request diffs add
+// their viewed-state writes in filesPinned.
 func diffPinned(held *cache[Files]) func(string) bool {
 	return func(key string) bool { return held.get(key).Status == StatusLoading }
 }
 
+func (s Store) filesPinned(id string) bool {
+	return s.files.get(id).Status == StatusLoading || len(s.viewing[id]) > 0
+}
+
 // Files is the diff held for a pull request. The zero value is one never
 // fetched, which reads as idle and unloaded.
-func (s Store) Files(id string) Files { return s.files.get(id) }
+func (s Store) Files(id string) Files {
+	held := s.files.get(id)
+	if len(s.viewing[id]) == 0 {
+		return held
+	}
+	held.Files = slices.Clone(held.Files)
+	for _, write := range s.viewing[id] {
+		at := slices.IndexFunc(held.Files, func(f gh.ChangedFile) bool { return f.Path == write.Path })
+		if at < 0 {
+			continue
+		}
+		held.Files[at].Viewed = gh.FileUnviewed
+		if write.Viewed {
+			held.Files[at].Viewed = gh.FileViewed
+		}
+		held.Files[at].Viewing = true
+	}
+	return held
+}
 
 // BeginFiles marks a diff in flight and reports whether it started. It refuses
 // one already on its way, so tabbing in and out of Files costs one request.
@@ -853,7 +882,7 @@ func (s Store) Files(id string) Files { return s.files.get(id) }
 // refusal leaves it set, and the caller owes another once the request already
 // out has answered: that one was measured against the old base too.
 func (s *Store) BeginFiles(id string) bool {
-	dropped, ok := beginDiff(&s.files, id)
+	dropped, ok := beginDiff(&s.files, id, s.filesPinned)
 	if !ok {
 		return false
 	}
@@ -867,19 +896,20 @@ func (s *Store) BeginFiles(id string) bool {
 func (s *Store) dropFileDebts(dropped []string) {
 	for _, gone := range dropped {
 		delete(s.staleFiles, gone)
+		delete(s.viewing, gone)
 	}
 }
 
-// FilesApplied stores a pull request's diff. No budget to fold: the REST API
-// bills against a separate allowance the GraphQL response knows nothing about.
+// FilesApplied stores a pull request's diff and the GraphQL request's budget.
 func (s *Store) FilesApplied(id string, res gh.FilesResult) {
-	s.dropFileDebts(diffApplied(&s.files, id, res))
+	s.adopt(res.RateLimit)
+	s.dropFileDebts(diffApplied(&s.files, id, res, s.filesPinned))
 }
 
 // FilesFailed puts a diff into its error state, keeping whatever it already
 // held. A refetch that fails must not empty a diff that was reading fine.
 func (s *Store) FilesFailed(id string, err error) {
-	s.dropFileDebts(diffFailed(&s.files, id, err))
+	s.dropFileDebts(diffFailed(&s.files, id, err, s.filesPinned))
 }
 
 // UseFiles restamps a diff read from the cache rather than fetched. Without it
@@ -894,7 +924,7 @@ func (s Store) CommitFiles(sha string) Files { return s.commits.get(sha) }
 // BeginCommitFiles marks a commit's diff in flight and reports whether it
 // started.
 func (s *Store) BeginCommitFiles(sha string) bool {
-	_, ok := beginDiff(&s.commits, sha)
+	_, ok := beginDiff(&s.commits, sha, diffPinned(&s.commits))
 	return ok
 }
 
@@ -904,26 +934,28 @@ func (s *Store) UseCommitFiles(sha string) { s.commits.touch(sha) }
 
 // CommitFilesApplied stores a commit's diff.
 func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
-	diffApplied(&s.commits, sha, res)
+	diffApplied(&s.commits, sha, res, diffPinned(&s.commits))
 }
 
 // CommitFilesFailed puts a commit's diff into its error state, keeping whatever
 // it already held.
-func (s *Store) CommitFilesFailed(sha string, err error) { diffFailed(&s.commits, sha, err) }
+func (s *Store) CommitFilesFailed(sha string, err error) {
+	diffFailed(&s.commits, sha, err, diffPinned(&s.commits))
+}
 
 // The four below are the diff lifecycle, shared by the pull request's own and by
 // each commit's. Each answers with the keys its write evicted, for the debts.
 
-func beginDiff(held *cache[Files], key string) ([]string, bool) {
+func beginDiff(held *cache[Files], key string, pinned func(string) bool) ([]string, bool) {
 	at := held.get(key)
 	if key == "" || at.Status == StatusLoading {
 		return nil, false
 	}
 	at.Status = StatusLoading
-	return putDiff(held, key, at), true
+	return putDiff(held, key, at, pinned), true
 }
 
-func diffApplied(held *cache[Files], key string, res gh.FilesResult) []string {
+func diffApplied(held *cache[Files], key string, res gh.FilesResult, pinned func(string) bool) []string {
 	if key == "" {
 		return nil
 	}
@@ -933,22 +965,68 @@ func diffApplied(held *cache[Files], key string, res gh.FilesResult) []string {
 		Truncated: res.Truncated,
 		Status:    StatusReady,
 		Loaded:    true,
-	})
+	}, pinned)
 }
 
-func diffFailed(held *cache[Files], key string, err error) []string {
+func diffFailed(held *cache[Files], key string, err error, pinned func(string) bool) []string {
 	at, ok := held.look(key)
 	if key == "" || !ok {
 		return nil
 	}
 	at.Status = StatusFailed
 	at.Err = err
-	return putDiff(held, key, at)
+	return putDiff(held, key, at, pinned)
 }
 
-func putDiff(held *cache[Files], key string, f Files) []string {
+func putDiff(held *cache[Files], key string, f Files, pinned func(string) bool) []string {
 	held.put(key, f)
-	return held.evict(key, diffPinned(held))
+	return held.evict(key, pinned)
+}
+
+func (s *Store) PendingFileView(id, path string, viewed bool) string {
+	key := s.nextKey()
+	if s.viewing == nil {
+		s.viewing = make(map[string][]FileView)
+	}
+	s.viewing[id] = append(s.viewing[id], FileView{Key: key, Path: path, Viewed: viewed})
+	return key
+}
+
+func (s *Store) FileViewApplied(id, key string) {
+	write, ok := s.dropFileView(id, key)
+	if !ok {
+		return
+	}
+	held, ok := s.files.look(id)
+	if !ok {
+		return
+	}
+	at := slices.IndexFunc(held.Files, func(f gh.ChangedFile) bool { return f.Path == write.Path })
+	if at < 0 {
+		return
+	}
+	held.Files = slices.Clone(held.Files)
+	held.Files[at].Viewed = gh.FileUnviewed
+	if write.Viewed {
+		held.Files[at].Viewed = gh.FileViewed
+	}
+	s.files.put(id, held)
+}
+
+func (s *Store) FileViewReverted(id, key string) { s.dropFileView(id, key) }
+
+func (s *Store) dropFileView(id, key string) (FileView, bool) {
+	writes := s.viewing[id]
+	at := slices.IndexFunc(writes, func(w FileView) bool { return w.Key == key })
+	if at < 0 {
+		return FileView{}, false
+	}
+	write := writes[at]
+	s.viewing[id] = slices.Delete(writes, at, at+1)
+	if len(s.viewing[id]) == 0 {
+		delete(s.viewing, id)
+	}
+	return write, true
 }
 
 // adopt keeps the budget falling through a burst. Sections answer in whatever
