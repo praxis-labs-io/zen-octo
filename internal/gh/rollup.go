@@ -96,7 +96,7 @@ func rollup(r rollupNode) CheckRollup {
 			check.Workflow = run.Workflow.Name
 			check.RunID = run.DatabaseID
 		}
-		if !check.CompletedAt.IsZero() {
+		if !check.StartedAt.IsZero() && !check.CompletedAt.IsZero() {
 			check.Duration = check.CompletedAt.Sub(check.StartedAt)
 		}
 
