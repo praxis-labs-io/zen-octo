@@ -82,8 +82,8 @@ func pulseMoved(held gh.PullRequestDetail, p gh.Pulse) bool {
 		rollupMoved(held.Rollup, p.Rollup)
 }
 
-// rollupMoved compares the checks behind the summary. gh.Check is three strings,
-// so the slice compares by value and a re-run that changed nothing reads as such.
+// rollupMoved compares the checks behind the summary, Check by Check, so a
+// re-run that changed nothing reads as such.
 func rollupMoved(held, next gh.CheckRollup) bool {
 	return held.State != next.State ||
 		held.Passed != next.Passed || held.Failed != next.Failed ||

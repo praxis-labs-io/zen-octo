@@ -25,11 +25,11 @@ const pulseBody = `{
         "state": "PENDING",
         "contexts": {"nodes": [
           {"__typename": "CheckRun", "name": "test", "status": "COMPLETED",
-           "conclusion": "FAILURE", "startedAt": "2026-08-15T10:00:00Z",
-           "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}}},
+           "conclusion": "FAILURE", "databaseId": 900001, "startedAt": "2026-08-15T10:00:00Z",
+           "checkSuite": {"workflowRun": {"databaseId": 900100, "workflow": {"name": "CI"}}}},
           {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
-           "startedAt": "2026-08-15T10:30:00Z",
-           "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}}},
+           "databaseId": 900002, "startedAt": "2026-08-15T10:30:00Z",
+           "checkSuite": {"workflowRun": {"databaseId": 900100, "workflow": {"name": "CI"}}}},
           {"__typename": "StatusContext", "context": "vercel", "state": "SUCCESS"}
         ]}
       }}}]
@@ -86,6 +86,20 @@ func TestAPulseCountsTheChecksTheSameWay(t *testing.T) {
 	if r.Pending != 1 || r.Passed != 1 || r.Failed != 0 {
 		t.Errorf("tally = %d pending %d passed %d failed, want the later attempt to win",
 			r.Pending, r.Passed, r.Failed)
+	}
+
+	// Reached through the same rollup() the detail query uses, so the id fields
+	// only need proving they arrive here too, not that they decode correctly.
+	for _, c := range r.Checks {
+		if c.Workflow != "CI" {
+			continue
+		}
+		if c.JobID != 900002 {
+			t.Errorf("test.JobID = %d, want the id of the run that started last", c.JobID)
+		}
+		if c.RunID != 900100 {
+			t.Errorf("test.RunID = %d, want 900100", c.RunID)
+		}
 	}
 }
 
