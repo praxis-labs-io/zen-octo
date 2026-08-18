@@ -147,7 +147,7 @@ Every scrollable region owns its own `bubbles/v2/viewport`. Scroll state never s
 
 Key bindings live in `internal/tui/keys`, declared once with their help text. The help view renders from the same declarations, and tests hold that nothing declared goes unlisted and nothing listed is invented.
 
-The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation and the files in a diff. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. That gives tab and shift+tab back to the tab strip, where they do what they do on the list screen. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
+The braces are paragraph motion, the way they are in vim, and mean the same thing wherever the detail screen holds blocks: go to the next one. What a block is belongs to the tab, so the key walks the cards on the conversation, the hunks and the comments written against them on Files, and whole files on Commits, which has no ring. They were two separate keys once, for one intention, and whichever the reader pressed was inert on the tab the other worked on. The strip keeps `]` and `[`, where they do what they do on the list screen, and `tab` and `shift+tab` change the file on the tab that shows one at a time. `keys.Form` is where tab means something else, and it is its own map rather than part of `DetailMap`: a compose box or the merge form takes every key until it closes, so the two are never live together, and the braces a reader walks blocks with are text inside a textarea. It means one thing further in again under a mention list, where tab writes the handle rather than stepping to the button, which is the same intention one level down: go to the thing that finishes what is being written.
 
 `y` copies a pull request's link and `O` opens it in a browser, on both screens
 and on all four tabs. Neither reads the ring, because nothing under the pull
@@ -248,7 +248,7 @@ hang off a field the store cannot compute. It borrows no refresh leg doing it,
 or the sync's summary toast lands behind the one that already said what
 happened.
 
-Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left. A section is its picker: the rows already in it open the same modal as the add row under them, because the modal is where something comes off as well as goes on.
+Every control on the details rail answers to one key. Enter opens what the focused row holds, as a centred modal built from `comp.Over` and `comp.Modal`, and `comp.Picker` is the list inside it. The picker declares no bindings of its own: a widget package cannot reach sideways into `keys`, so it exposes verbs and `prview` decides which key means which. While one is up it owns the keyboard, which is what `Capturing` tells the root, and the order in `pickerKey` is load-bearing: the keys that can never be text go first, then the filter claims every printable one, then movement takes what is left. `space` is declared in `keys.Form` rather than in a map of its own, because the merge form's delete row reads it too and a row that checks and unchecks is one control whichever widget is holding it. A section is its picker: the rows already in it open the same modal as the add row under them, because the modal is where something comes off as well as goes on.
 
 A tick in the Reviewers picker means a review is requested, never that somebody
 is on the pull request. GitHub drops a reviewer from the requests the moment
@@ -386,6 +386,55 @@ is what both it and the reviewer write go through, dropping the edit and marking
 the fetch in flight stale so an answer asked for before the failure cannot be
 believed. Every other write is all or nothing, and reverting one of those says
 the pull request never moved, which needs no request to confirm.
+
+The Files tab walks the same ring the conversation does, and it is the same
+ring. `pageRing` is whatever the main pane is drawing, because one tab draws
+into it at a time, where the rail is beside the page and needs a cursor of its
+own. `mainRing()` is the value twin `focusRing()` cannot be, since taking
+`&m.pageRing` off a value receiver addresses a copy, and `ringTab()` is what
+both of them ask. Its stops are hunks and comment cards, and there is no file
+stop: one file is in the pane and its heading is pinned above the scroll, so a
+stop on it would be a stop on the one thing that never moves. A hunk is named by
+its own `@@` header under its path and never by its place in the slice, so a
+push that rewrites the file leaves the key naming nothing, which is what
+re-entering from the window already answers. It lights as a fill across the
+heading rather than as a badge: the badge slot is for a state a hunk carries
+whether or not the cursor is on it, and filling the code rows instead would beat
+the added and removed tints and stop the diff reading as a diff. A brace pressed
+from the file column takes the pane with it, because the blocks it names are in
+the pane, and the column keeps `tab` and `shift+tab` for the coarser move. A
+brace at the end of a file's stops crosses into the next one, forward to its
+head and back to its foot, because the pane holds one file and the stop after
+the last is in a file nothing has drawn yet. Past the last file and before the
+first it stays put, which is what both ends of every ring here do.
+
+`canCompose` split in two for it. It still means the conversation, because the
+compose card is drawn on one tab only; `canAct` is the wider question the keys
+reading the ring ask, and `answerable` asks it. `replyBody` keeps `canCompose`
+on top of that, since what it opens is that card. `v` is the one key inert here:
+`jumpable` answers false on the tab, which takes it off the footer, rather than
+a flag threaded through three renders to say the same thing twice. `showInDiff`
+refuses on the tab itself and not on `jumpable`, because that one is also false
+for a file the diff does not carry, and there the key owes a toast rather than
+silence. And a card in a diff answers the line above
+it, so `showFocus` sends it through `jumpTop` rather than to the top row, which
+is the rule the jump from the conversation already follows; a hunk heading is
+its own beginning and goes to the top row.
+
+A file's block caches the painted code and nothing else. Tokenising is what a
+block costs, so the runs of code are what is kept, and the hunk headings and the
+thread cards are drawn again every frame and spliced between them. Focus goes in
+neither `blockKey` nor `blockState`: in the state it retires the whole cache on
+every step of the ring, and in the key it leaves a full rendered file in the map
+for every stop the reader walked, with no rule for taking one out. A fold is out
+of `blockState` for the same reason: what it changes is a thread card, and a
+card is drawn again anyway, so counting folds only threw the map away and
+re-tokenised the file for a keypress that could not reach it.
+
+`ring.reset` lets its slice go rather than reusing it. `View` is reached through
+value receivers all the way down, so a reused backing array is one the
+conversation and the diff write different stops into, and whichever copy is kept
+is holding the other's.
 
 A thread card holds the code, the anchor, and the comment that opened the
 thread. Everything answering that comment hangs off it on `branch`, the same
@@ -751,7 +800,7 @@ Each of these looks like working code and produces a broken frame.
 - **A text input sized during a render is sized on a copy.** `View` is reached through value receivers all the way down, so a `SetWidth` there is thrown away with the copy, and the real widget keeps a width of zero: it renders from the first character, never scrolls, and every keystroke past the visible edge is invisible while the caret sits off the box. Size the fields when the thing opens and when the screen resizes, never while drawing.
 - **A text input recomputes its visible window only when the caret leaves it.** Writing a longer value and then putting the caret inside the window the old one had leaves that window exactly where it was, so the box goes on showing as many characters as the short value did. Ending first and coming back is what forces the recompute. A fixture whose two values are the same length proves none of this.
 - **A box that has just opened is a journey, and the caret is not where it ends.** The caret opens on the box's first row, so a scroll that follows it leaves the rest of the writing area, the button and the border below the fold, and the reader is writing into something with no visible end. Opening lands the foot; typing follows the caret. `showOpenedBox` beside `showCaret` is that split, and neither ever scrolls past the caret's own row, because a box taller than the window can only show one end.
-- **A write that changes a card's height has to put it back on the screen, and only where it was whole to begin with.** Unresolving opens a collapsed thread into its card, its code and every reply hanging off it, and that growth arrives through the store rather than under the key: `o` re-shows the focus itself and `x` has no equivalent, so the thread grew off the bottom and sat there. `SetDetail` asks before and after. Asking only after would haul a reader who had scrolled somewhere else back to the focus they left.
+- **A write that changes a card's height has to put it back on the screen, and only where it was whole to begin with.** Unresolving opens a collapsed thread into its card, its code and every reply hanging off it, and that growth arrives through the store rather than under the key: `space` re-shows the focus itself and `x` has no equivalent, so the thread grew off the bottom and sat there. `SetDetail` asks before and after. Asking only after would haul a reader who had scrolled somewhere else back to the focus they left.
 - **A block that answers the line above it cannot go to the top row either.** The rule holds past the compose box. A review thread in the diff hangs under the code it was written against, so a jump that tops the card scrolls that code away and lands the reader on a comment about something they cannot see. Open a few lines above it instead, and never above the file's own heading, which reads as the wrong file until the eye finds the border.
 - **A caret's column is two different numbers.** `Column()` counts runes into the logical line and `LineInfo().CharOffset` counts cells across the screen. Detection wants the first and placement wants the second, and swapping them is invisible until a comment holds an emoji or a line of CJK, at which point anything drawn at the caret sits somewhere else entirely.
 - **A block's own indent is not the indent it was drawn at.** `boxAt` is a line relative to its block and `boxCol` has to be a column relative to it, threaded through the same sites and gaining `treeGutter` at every rail it hangs off. A column measured once on the compose card is two cells wrong for a reply and four or six for a reply under a review's thread, and the page body carries a centring gutter on top of that which is tens of columns wide on a wide terminal.

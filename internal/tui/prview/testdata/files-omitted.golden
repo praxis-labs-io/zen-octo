@@ -1,0 +1,30 @@
+ #412 Fix the auth retry backoff loop                                                   3   +42 −7 
+ main ← fix-auth-retry                                                                              
+                                                                                                    
+  Open · Opened 2 days ago by @drucial                               ✗ failing · changes requested 
+                                                                                                    
+╭─[1]─4 files──────────╮╭─[2]─Conversation - Commits - Checks - Files──────────────────────────────╮
+│▾ docs/               ││ docs/screenshot.png                                                 +0 −0│
+│    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
+│▾ internal/           ││                                                                          │
+│  ▾ gh/               ││ binary, or too large for GitHub to return a diff                         │
+│      client.go       ││                                                                          │
+│  ▾ store/            ││                                                                          │
+│      store.go        ││                                                                          │
+│  ▾ tui/prview/       ││                                                                          │
+│      files.go        ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯

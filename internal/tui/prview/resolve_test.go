@@ -206,7 +206,7 @@ func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 	m := onThread(t, tabResolved)
 
 	// Open the settled thread, which is what leaves the flag behind.
-	m = press(m, "o")
+	m = press(m, "space")
 	if !strings.Contains(stripANSI(m.View()), "Typo.") {
 		t.Fatal("setup: o did not open the resolved thread")
 	}

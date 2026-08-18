@@ -1,4 +1,4 @@
-package comp_test
+package syntax_test
 
 import (
 	"fmt"
@@ -8,13 +8,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
-func syntax(t *testing.T) comp.Syntax {
+func colorizer(t *testing.T) syntax.Syntax {
 	t.Helper()
-	s, ok := comp.NewSyntax(theme.RosePineMoon.Syntax)
+	s, ok := syntax.New(theme.RosePineMoon.Syntax)
 	if !ok {
 		t.Fatalf("Chroma does not know %q", theme.RosePineMoon.Syntax)
 	}
@@ -22,11 +22,11 @@ func syntax(t *testing.T) comp.Syntax {
 }
 
 func TestTheDefaultThemeNamesAStyleChromaShips(t *testing.T) {
-	syntax(t)
+	colorizer(t)
 }
 
 func TestAnUnknownStyleStillColorizes(t *testing.T) {
-	s, ok := comp.NewSyntax("not-a-chroma-style")
+	s, ok := syntax.New("not-a-chroma-style")
 	if ok {
 		t.Error("an unknown style reported itself as known")
 	}
@@ -36,7 +36,7 @@ func TestAnUnknownStyleStillColorizes(t *testing.T) {
 }
 
 func TestCodeIsSplitIntoLinesOfColoredTokens(t *testing.T) {
-	s := syntax(t)
+	s := colorizer(t)
 	lines := s.Lines("a.go", "package main\n\nconst n = 4")
 
 	if len(lines) != 3 {
@@ -56,7 +56,7 @@ func TestCodeIsSplitIntoLinesOfColoredTokens(t *testing.T) {
 // A keyword and a number are different colors in every style worth using. If
 // the tokens come back all one color the lexer never ran.
 func TestTokensCarryDifferentColorsWithinALine(t *testing.T) {
-	s := syntax(t)
+	s := colorizer(t)
 	seen := make(map[string]bool)
 	for _, tok := range s.Lines("a.go", "const n = 4")[0] {
 		if tok.Color != nil {
@@ -71,7 +71,7 @@ func TestTokensCarryDifferentColorsWithinALine(t *testing.T) {
 // The lexer is chosen from the path, so the same text has to come back
 // differently coloured under a different extension.
 func TestTheLexerFollowsTheFileName(t *testing.T) {
-	s := syntax(t)
+	s := colorizer(t)
 	goLine := colors(s.Lines("a.go", "package main")[0])
 	txtLine := colors(s.Lines("a.txt", "package main")[0])
 
@@ -84,7 +84,7 @@ func TestTheLexerFollowsTheFileName(t *testing.T) {
 // mid-line clears whatever background the caller put behind the row. Tokens are
 // returned raw so the caller keeps that control.
 func TestTokensCarryNoEscapeSequencesOfTheirOwn(t *testing.T) {
-	s := syntax(t)
+	s := colorizer(t)
 	for _, tok := range s.Lines("a.go", "const n = 4")[0] {
 		if strings.Contains(tok.Text, "\x1b") {
 			t.Errorf("token %q carries its own escape sequence", tok.Text)
@@ -97,7 +97,7 @@ func TestTokensCarryNoEscapeSequencesOfTheirOwn(t *testing.T) {
 func TestABackgroundStaysWithTheCaller(t *testing.T) {
 	base := lipgloss.NewStyle().Background(theme.RosePineMoon.SelectedBackground)
 
-	s := syntax(t)
+	s := colorizer(t)
 	var b strings.Builder
 	for _, tok := range s.Lines("a.go", "const n = 4")[0] {
 		style := base
@@ -117,7 +117,7 @@ func TestABackgroundStaysWithTheCaller(t *testing.T) {
 // Highlighting is done on an Update path and a diff is re-rendered on every
 // resize and every scroll.
 func TestTheSameFileIsOnlyTokenisedOnce(t *testing.T) {
-	s := syntax(t)
+	s := colorizer(t)
 	first := s.Lines("a.go", "const n = 4")
 	second := s.Lines("a.go", "const n = 4")
 
@@ -126,7 +126,7 @@ func TestTheSameFileIsOnlyTokenisedOnce(t *testing.T) {
 	}
 }
 
-func text(tokens []comp.Token) string {
+func text(tokens []syntax.Token) string {
 	var b strings.Builder
 	for _, tok := range tokens {
 		b.WriteString(tok.Text)
@@ -134,7 +134,7 @@ func text(tokens []comp.Token) string {
 	return b.String()
 }
 
-func colors(tokens []comp.Token) string {
+func colors(tokens []syntax.Token) string {
 	out := make([]string, 0, len(tokens))
 	for _, tok := range tokens {
 		out = append(out, hex(tok.Color))

@@ -1,4 +1,4 @@
-package comp
+package syntax
 
 import (
 	"hash/fnv"
@@ -31,17 +31,17 @@ type Syntax struct {
 	cache map[uint64][][]Token
 }
 
-// NewSyntax builds a colorizer over a Chroma style, reporting whether the name
+// New builds a colorizer over a Chroma style, reporting whether the name
 // was one Chroma knows. An unknown name still yields a working colorizer, so a
 // typo in config degrades to different colors rather than no diff.
-func NewSyntax(name string) (Syntax, bool) {
+func New(name string) (Syntax, bool) {
 	_, ok := styles.Registry[name]
 	return Syntax{style: styles.Get(name), cache: make(map[uint64][][]Token)}, ok || name == ""
 }
 
-// SyntaxNames lists the styles Chroma ships, for the message that follows a
+// Names lists the styles Chroma ships, for the message that follows a
 // name it did not recognise.
-func SyntaxNames() []string { return styles.Names() }
+func Names() []string { return styles.Names() }
 
 // Lines splits code into lines of colored tokens. The lexer is chosen from the
 // path, and the whole body is tokenised at once: a lexer carries state across

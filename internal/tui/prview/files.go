@@ -10,16 +10,9 @@ import (
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 )
-
-// gutterMin is the narrowest a line-number column gets. A file under ten lines
-// still reads better with the two columns lined up against its neighbours.
-const gutterMin = 2
-
-// tabWidth is what a tab expands to. A raw tab is a variable number of cells,
-// and one anywhere in a line puts every column after it out of step with the
-// line above.
-const tabWidth = 4
 
 // threadIndent sets a review thread in from the code it hangs off, so a card
 // full of prose does not read as another hunk.
@@ -39,48 +32,51 @@ type fileSpan struct {
 	end   int
 }
 
-// blockKey identifies a rendered file block. Folding changes what a block is,
-// so the same file has one under each state.
+// blockKey identifies a rendered file block. The heading is part of it because
+// only one of the two tabs draws one.
 type blockKey struct {
-	key    string
-	folded bool
+	key     string
+	heading bool
 }
 
-// threadSpan is where a review thread landed inside a block, counted from the
-// block's own first line. A block does not know where it was placed, and
-// everything that places one does.
-type threadSpan struct {
-	id    string
-	start int
+// blockStop is one segment of a file that something outside the painted code
+// can change. Exactly one of the two indexes is set; the other is stopNone.
+type blockStop struct {
+	hunk   int
+	thread int
 }
 
-// block is one file rendered, with the review threads inside it and where they
-// landed. The two are cached together because they are retired together: a
-// block reused from the cache was never re-measured, and offsets held anywhere
-// else would be describing a render that no longer happened.
+// stopNone is the index a blockStop does not carry.
+const stopNone = -1
+
+// run is a stretch of painted code between two stops. The count is kept because
+// one empty source line and no lines at all are the same string.
+type run struct {
+	text  string
+	lines int
+}
+
+// drawnFile is one file assembled from its block: the page it wrote, the stops
+// in it, and where a box open inside one of them starts.
+type drawnFile struct {
+	text   string
+	stops  []focusItem
+	boxAt  int
+	boxCol int
+}
+
+// block is one file rendered. Tokenising is what it costs and that is all in
+// the runs, so a stop is drawn again every frame and never held lit.
 type block struct {
-	text    string
-	threads []threadSpan
+	// runs and stops interleave, runs first: one more run than stop, always.
+	runs  []run
+	stops []blockStop
 }
 
-// drawnThread is one thread rendered into a diff, still knowing which thread it
-// is. The Files tab throws the focus stops away, and the id is what a jump
-// needs back.
-type drawnThread struct {
-	id   string
-	text string
-}
-
-// blockState is everything outside a single file that its block is rendered
-// against. A change to either retires the whole cache.
-//
-// folds counts how many times a <details> block has been folded or unfolded.
-// Which ones are open is a map, and a count says the same thing to a cache key
-// without the cache having to hold the map: a toggle moves it by one either way,
-// so no two consecutive states share a number.
+// blockState is what a block is rendered against from outside its own file, and
+// a change to it retires the cache. A fold is not in it: it changes a card.
 type blockState struct {
 	width int
-	folds int
 }
 
 // diffBody is one rendered diff: where each file's block sits inside it, and
@@ -96,10 +92,13 @@ type diffBody struct {
 	blocks map[blockKey]block
 	at     blockState
 
-	// threadAt is where each review thread landed in the rendered body, in the
-	// same lines the file spans are counted in. Empty on a diff carrying no
-	// threads, which is every commit's.
-	threadAt map[string]int
+	// stops is every hunk heading and thread card in the rendered body, in the
+	// same lines the file spans are counted in. The ring is built from them.
+	stops []focusItem
+
+	// headings is whether each file draws its own heading row. The Files tab
+	// draws one file and puts its heading in the pane, where it cannot scroll.
+	headings bool
 
 	// threads is whether review threads hang off these lines. They are written
 	// against the pull request's head, and the same line number in an older
@@ -116,7 +115,11 @@ type diffBody struct {
 func (m *Model) filesBody() string {
 	switch {
 	case m.files.Loaded:
-		return m.renderDiff(m.rows, m.files, &m.diff)
+		body := m.renderDiff(m.shownRows(), m.files, &m.diff)
+		for _, s := range m.diff.stops {
+			m.pageRing.add(s.focusKey, s.start, s.lines)
+		}
+		return body
 	case m.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.files.Err.Error())
 	}
@@ -126,24 +129,16 @@ func (m *Model) filesBody() string {
 // renderDiff renders every file in a set of rows, and records where each one
 // starts so a column beside it can scroll to it.
 func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
+	width := m.bodyWidth()
+	d.spans, d.stops = d.spans[:0], d.stops[:0]
+
+	// After the reset, or a refetch answering with nothing leaves the last
+	// render's stops on a body that is one line saying there are none.
 	if len(res.Files) == 0 {
 		return m.faint().Render("No files changed.")
 	}
 
-	width := m.bodyWidth()
-	d.spans = d.spans[:0]
-	if d.threadAt == nil {
-		d.threadAt = make(map[string]int)
-	}
-	clear(d.threadAt)
-
-	// A fold only reaches blocks with review threads in them. The Commits tab's
-	// diff carries none, so counting folds against it retires the whole cache
-	// and re-tokenises a commit for a keypress that changed nothing it renders.
 	state := blockState{width: width}
-	if d.threads {
-		state.folds = m.folds
-	}
 	if d.blocks == nil || d.at != state {
 		d.blocks, d.at = make(map[blockKey]block, len(rows)), state
 	}
@@ -155,19 +150,25 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			continue
 		}
 
-		bk := blockKey{key: r.key, folded: r.folded}
+		bk := blockKey{key: r.key, heading: d.headings}
 		b, ok := d.blocks[bk]
 		if !ok {
-			b = m.fileBlock(*r.file, r.folded, width, d.threads)
+			b = m.fileBlock(*r.file, width, d.threads, d.headings)
 			d.blocks[bk] = b
 		}
-		blocks = append(blocks, b.text)
 
-		for _, ts := range b.threads {
-			d.threadAt[ts.id] = at + ts.start
+		drawn := m.fileText(*r.file, b, width)
+		blocks = append(blocks, drawn.text)
+
+		for _, p := range drawn.stops {
+			p.start += at
+			d.stops = append(d.stops, p)
+		}
+		if drawn.boxAt > 0 {
+			m.boxLine, m.boxCol = at+drawn.boxAt, drawn.boxCol
 		}
 
-		lines := strings.Count(b.text, "\n") + 1
+		lines := strings.Count(drawn.text, "\n") + 1
 		d.spans = append(d.spans, fileSpan{key: r.key, start: at, end: at + lines})
 		// The join puts a blank line after every block but the last, and the
 		// next one starts on the line after that.
@@ -193,38 +194,30 @@ func overflow(res store.Files) string {
 	return ""
 }
 
-// fileBlock is one file in a box of its own: the path and the churn in a
-// heading, ruled off from the hunks and the review threads anchored inside
-// them. A folded one collapses to the heading line without the box, the same
-// way a resolved thread does in the conversation.
-func (m *Model) fileBlock(f gh.ChangedFile, folded bool, width int, threads bool) block {
-	if folded {
-		// Nothing inside it is on the page, so nothing inside it has a line.
-		return block{text: m.fileHead(f, true, width)}
+// fileBlock is one file: the heading, then its hunks and the review threads
+// anchored inside them. No box, or a thread sits three borders deep.
+func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) block {
+	b := m.fileBody(f, width, threads)
+	if !heading {
+		return b
 	}
 
-	inner := max(1, width-2)
-	body, spans := m.fileBody(f, inner, threads)
-	lines := strings.Count(body, "\n") + 1
-
-	pane := comp.NewPane(m.theme).Header(" " + m.fileHead(f, false, inner-1))
-	pane = pane.Size(width, lines+pane.Chrome())
-
-	// The spans were counted from the body's first line, and the block they are
-	// recorded against starts at the pane's own top border.
-	for i := range spans {
-		spans[i].start += pane.Above()
+	head := m.fileHead(f, "▾ ", width)
+	if b.runs[0].lines == 0 {
+		b.runs[0] = run{text: head, lines: 1}
+		return b
 	}
-
-	return block{text: pane.Render(body), threads: spans}
+	b.runs[0] = run{text: head + "\n" + b.runs[0].text, lines: b.runs[0].lines + 1}
+	return b
 }
 
 // fileBody is everything under a file's heading, already the full inner width
 // so a changed line's background runs to the border. The pane pads with plain
 // spaces, which would leave a hole at the end of every one.
-func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []threadSpan) {
+func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 	if f.Omitted != "" {
-		return " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint()), nil
+		text := " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
+		return block{runs: []run{{text: text, lines: 1}}}
 	}
 
 	// A nil map answers nothing, so the lines below need no guard of their own.
@@ -235,49 +228,50 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) (string, []t
 	placed := make(map[int]bool, len(anchored))
 
 	tokens := m.lineTokens(f)
-	gutter := max(gutterMin, len(strconv.Itoa(widest(f))))
+	gutter := paint.Gutter(widest(f))
 
-	// A thread card is many lines in one string, so the count is kept rather
-	// than read off the slice.
-	var lines []string
-	var spans []threadSpan
-	at := 0
+	var b block
+	var open []string
 
-	add := func(line string) {
-		lines = append(lines, line)
-		at += strings.Count(line, "\n") + 1
+	// close ends the run being gathered, so the stop after it starts a new one.
+	closeRun := func() {
+		b.runs = append(b.runs, run{text: strings.Join(open, "\n"), lines: len(open)})
+		open = nil
 	}
-	addThreads := func(drawn []drawnThread) {
-		for _, d := range drawn {
-			spans = append(spans, threadSpan{id: d.id, start: at})
-			add(d.text)
-		}
+	stop := func(s blockStop) {
+		closeRun()
+		b.stops = append(b.stops, s)
 	}
 
 	seen := 0
-	for _, h := range f.Hunks {
-		add(m.hunkHead(h, gutter, width))
+	for i, h := range f.Hunks {
+		// A hunk is a jump to somewhere else in the file, so it gets the blank
+		// line every other break on this screen gets.
+		if i > 0 {
+			open = append(open, "")
+		}
+		stop(blockStop{hunk: i, thread: stopNone})
 		for _, l := range h.Lines {
-			add(m.diffLine(l, tokens[seen], gutter, width))
+			open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
 			seen++
-			addThreads(m.threadsAt(anchored, placed, l, width))
+			for _, at := range threadsAt(anchored, placed, l) {
+				stop(blockStop{hunk: stopNone, thread: at})
+			}
 		}
 	}
 
 	if threads {
-		addThreads(m.strayThreads(f.Path, placed, width))
+		for _, at := range m.strayThreads(f.Path, placed) {
+			stop(blockStop{hunk: stopNone, thread: at})
+		}
 	}
-	return strings.Join(lines, "\n"), spans
+	closeRun()
+	return b
 }
 
 // fileHead is the path and the churn, with a marker saying whether the diff
 // under it is folded away.
-func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
-	marker := "▾ "
-	if folded {
-		marker = "▸ "
-	}
-
+func (m Model) fileHead(f gh.ChangedFile, marker string, width int) string {
 	path := f.Path
 	if f.PreviousPath != "" {
 		path = f.PreviousPath + " → " + f.Path
@@ -289,7 +283,7 @@ func (m Model) fileHead(f gh.ChangedFile, folded bool, width int) string {
 	churn := m.fileChurn(f)
 	room := max(0, width-lipgloss.Width(churn)-1)
 	if lipgloss.Width(lead) > room {
-		lead = comp.Clip(lead, room, m.faint())
+		lead = paint.Clip(lead, room, m.faint())
 	}
 
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(churn))
@@ -304,80 +298,42 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
 }
 
-// hunkHead is the @@ line, set in over the gutter the numbers below it use.
-func (m Model) hunkHead(h gh.Hunk, gutter, width int) string {
-	line := strings.Repeat(" ", gutter*2+4) +
-		lipgloss.NewStyle().Foreground(m.theme.Accent).Render(h.Header)
-	return clipTo(line, width, m.faint())
+// hunkFill is the cursor on a hunk heading. It fills the row rather than taking
+// the badge slot, which is for a state a heading carries with or without focus.
+func (m Model) hunkFill(key focusKey) color.Color {
+	if !m.lit(key) {
+		return nil
+	}
+	return m.theme.SelectedBackground
 }
 
-// diffLine is one line of code: the two line numbers, the marker, and the
-// highlighted source, on a tint of the color its change is in.
-//
-// The tint is painted cell by cell and the line is padded out to the full
-// width. Every styled run ends in a reset that clears the background with it,
-// so a joined line wrapped in the background style afterwards would carry it
-// only as far as the first token.
-func (m Model) diffLine(l gh.DiffLine, tokens []comp.Token, gutter, width int) string {
-	marker, c := " ", m.theme.Subtle
-	base := lipgloss.NewStyle()
+// hunkHead is the @@ line, landing at the column the source under it starts in.
+// The badge slot stays empty: a hunk here carries no state of its own.
+func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color) string {
+	return m.painter.HunkHeader(paint.Header{Text: h.Header, Fill: fill}, gutter, width)
+}
 
-	switch l.Kind {
+// diffLine is one line of code, handed to the painter with whatever fill the
+// caller's own state asks for. A nil fill leaves the change's own tint.
+func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int, fill color.Color) string {
+	return m.painter.Line(paint.Line{
+		Kind:   kindOf(l.Kind),
+		Old:    l.Old,
+		New:    l.New,
+		Tokens: tokens,
+		Fill:   fill,
+	}, gutter, width)
+}
+
+// kindOf maps a fetched line onto the painter's own three.
+func kindOf(k gh.DiffKind) paint.Kind {
+	switch k {
 	case gh.DiffAdded:
-		marker, c = "+", m.theme.Success
-		base = background(base, m.theme.AddedBackground)
+		return paint.Added
 	case gh.DiffRemoved:
-		marker, c = "−", m.theme.Error
-		base = background(base, m.theme.RemovedBackground)
+		return paint.Removed
 	}
-
-	kind := base.Foreground(c)
-	faint := base.Foreground(m.theme.Subtle)
-	oldNum, newNum := faint, faint
-	switch l.Kind {
-	case gh.DiffAdded:
-		newNum = kind
-	case gh.DiffRemoved:
-		oldNum = kind
-	}
-
-	line := base.Render(" ") +
-		oldNum.Render(number(l.Old, gutter)) + base.Render(" ") +
-		newNum.Render(number(l.New, gutter)) + base.Render(" ") +
-		kind.Render(marker) + base.Render(" ") + code(tokens, base)
-
-	if w := lipgloss.Width(line); w > width {
-		return comp.Clip(line, width, faint)
-	} else if l.Kind != gh.DiffContext {
-		// A context line needs no fill: it has no background to run out.
-		line += base.Render(strings.Repeat(" ", width-w))
-	}
-	return line
-}
-
-// background applies a color the theme may not define. A nil one leaves the
-// terminal's own showing, which is what keeps a transparent one transparent.
-func background(s lipgloss.Style, c color.Color) lipgloss.Style {
-	if c == nil {
-		return s
-	}
-	return s.Background(c)
-}
-
-// code renders one line's tokens over the style the row is painted in. Every
-// token takes only a foreground from it, so whatever the caller put behind the
-// line survives all the way across.
-func code(tokens []comp.Token, base lipgloss.Style) string {
-	var b strings.Builder
-	for _, t := range tokens {
-		text := strings.ReplaceAll(t.Text, "\t", strings.Repeat(" ", tabWidth))
-		if t.Color == nil {
-			b.WriteString(base.Render(text))
-			continue
-		}
-		b.WriteString(base.Foreground(t.Color).Render(text))
-	}
-	return b.String()
+	return paint.Context
 }
 
 // lineTokens colors a whole file at once, one pass per side. A lexer carries
@@ -387,7 +343,7 @@ func code(tokens []comp.Token, base lipgloss.Style) string {
 //
 // A context line goes into both sides so neither reads as source with its
 // unchanged lines missing, and takes its color from the new one.
-func (m *Model) lineTokens(f gh.ChangedFile) [][]comp.Token {
+func (m *Model) lineTokens(f gh.ChangedFile) [][]syntax.Token {
 	type at struct {
 		left bool
 		i    int
@@ -416,7 +372,7 @@ func (m *Model) lineTokens(f gh.ChangedFile) [][]comp.Token {
 	oldTok := m.syntax.Lines(f.Path, strings.Join(oldSrc, "\n"))
 	newTok := m.syntax.Lines(f.Path, strings.Join(newSrc, "\n"))
 
-	out := make([][]comp.Token, len(index))
+	out := make([][]syntax.Token, len(index))
 	for i, a := range index {
 		src := newTok
 		if a.left {
@@ -445,30 +401,80 @@ func (m Model) threadsIn(path string) map[anchor][]int {
 	return out
 }
 
-// threadsAt renders whatever hangs off a line. A context line sits on both
-// sides of the diff, so it answers to a comment written against either.
-func (m *Model) threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.DiffLine, width int) []drawnThread {
-	var out []drawnThread
+// threadsAt is whatever hangs off a line. A context line sits on both sides of
+// the diff, so it answers to a comment written against either.
+func threadsAt(threads map[anchor][]int, placed map[int]bool, l gh.DiffLine) []int {
+	var out []int
 	for _, key := range anchorsOf(l) {
 		for _, i := range threads[key] {
 			placed[i] = true
-			out = append(out, m.diffThread(i, width))
+			out = append(out, i)
 		}
 	}
 	return out
 }
 
-// diffThread renders one thread inline in the diff, under the same keys the
-// conversation gives it, so a <details> block unfolded on one tab is unfolded
-// on the other. Focus is not shared: a card is only lit on the tab with a ring.
-//
-// The stops go nowhere for the same reason, and no reply box comes with it: the
-// box is a card the conversation puts under a thread, and there is no ring here
-// to open one from. The id comes back instead, which is what a jump from the
-// conversation needs to find its way here.
-func (m *Model) diffThread(i, width int) drawnThread {
+// diffThread draws one thread inline in the diff, with its stops and its box.
+// Replies are stops of their own, and only the column moves under the indent.
+func (m *Model) diffThread(i, width int) rendered {
 	t := m.detail.Detail.Threads[i]
-	return drawnThread{id: t.ID, text: indent(m.thread(t, width-threadIndent, false).block, threadIndent)}
+	v := m.thread(t, width-threadIndent, false)
+	v.block = indent(v.block, threadIndent)
+	if v.boxAt > 0 {
+		v.boxCol += threadIndent
+	}
+	return v
+}
+
+// fileText joins a cached block back into a page, drawing every stop fresh. It
+// says where each one landed, and where a box open inside one of them sits.
+func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
+	gutter := paint.Gutter(widest(f))
+
+	var sb strings.Builder
+	out := drawnFile{stops: make([]focusItem, 0, len(b.stops))}
+	at, wrote := 0, false
+
+	write := func(text string, lines int) {
+		if lines == 0 {
+			return
+		}
+		if wrote {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(text)
+		at, wrote = at+lines, true
+	}
+
+	for i, r := range b.runs {
+		write(r.text, r.lines)
+		if i == len(b.stops) {
+			break
+		}
+
+		s := b.stops[i]
+		var text string
+		if s.hunk != stopNone {
+			h := f.Hunks[s.hunk]
+			key := hunkKey(f.Path, h)
+			text = m.hunkHead(h, gutter, width, m.hunkFill(key))
+			out.stops = append(out.stops, focusItem{focusKey: key, start: at, lines: 1})
+		} else {
+			v := m.diffThread(s.thread, width)
+			text = v.block
+			if v.boxAt > 0 {
+				out.boxAt, out.boxCol = at+v.boxAt, v.boxCol
+			}
+			for _, st := range v.stops {
+				out.stops = append(out.stops, focusItem{focusKey: st.focusKey, start: at + st.start, lines: st.lines})
+			}
+		}
+
+		write(text, strings.Count(text, "\n")+1)
+	}
+
+	out.text = sb.String()
+	return out
 }
 
 func anchorsOf(l gh.DiffLine) []anchor {
@@ -488,13 +494,13 @@ func anchorsOf(l gh.DiffLine) []anchor {
 // It walks the threads the query returned rather than the map they were
 // bucketed into: ranging a map is ordered at random, so the same comments came
 // out under the file in a different order every time it was rendered.
-func (m *Model) strayThreads(path string, placed map[int]bool, width int) []drawnThread {
-	var out []drawnThread
+func (m Model) strayThreads(path string, placed map[int]bool) []int {
+	var out []int
 	for i, t := range m.detail.Detail.Threads {
 		if t.Path != path || t.Line == 0 || placed[i] {
 			continue
 		}
-		out = append(out, m.diffThread(i, width))
+		out = append(out, i)
 	}
 	return out
 }
@@ -511,23 +517,13 @@ func widest(f gh.ChangedFile) int {
 	return n
 }
 
-// number right-aligns a line number, or leaves the column blank on the side a
-// line does not belong to.
-func number(n, width int) string {
-	if n == 0 {
-		return strings.Repeat(" ", width)
-	}
-	s := strconv.Itoa(n)
-	return strings.Repeat(" ", max(0, width-len(s))) + s
-}
-
 // clipTo cuts a line to the pane rather than letting it wrap. A wrapped line of
 // code puts its tail under the gutter and every line below it out of step.
 func clipTo(line string, width int, mark lipgloss.Style) string {
 	if lipgloss.Width(line) <= width {
 		return line
 	}
-	return comp.Clip(line, width, mark)
+	return paint.Clip(line, width, mark)
 }
 
 // treeBody is the file column. It paints its own selection, so it hands the
@@ -550,6 +546,16 @@ func (m *Model) treeBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// fileHeading is the path and the churn of the file in the pane, pinned in the
+// pane's own header so it never scrolls off the code it names.
+func (m Model) fileHeading() string {
+	f := m.shownFile()
+	if m.tab != tabFiles || f == nil || !m.files.Loaded {
+		return ""
+	}
+	return " " + m.fileHead(*f, "", max(0, m.main.InnerWidth()-1))
+}
+
 // treeTitle names the file column by what it holds.
 func (m Model) treeTitle() string {
 	if !m.files.Loaded {
@@ -567,134 +573,105 @@ func (m *Model) moveCursor(delta int) {
 	}
 	m.cursor = min(max(m.cursor+delta, 0), len(m.rows)-1)
 
+	m.nameShownFile()
 	m.showCursorRow()
 	m.syncContent()
-	m.showCursorFile()
 }
 
 // showCursorRow keeps the cursor inside the tree's own window. The column opens
 // with no blank line, so a row is its own offset.
 func (m *Model) showCursorRow() { showRow(&m.sideView, m.cursor) }
 
-// trackDiff points the file column at whatever the diff has scrolled to. The
-// column answers "which file am I in", and a diff scrolled three files past its
-// cursor answers it wrongly rather than not at all.
-//
-// The answer is the file filling most of the window rather than the one under
-// its top line. One long file with a review thread hanging off it otherwise
-// keeps the cursor for a whole screen of the files after it.
-func (m *Model) trackDiff() {
-	if m.tab != tabFiles || m.focus != paneMain || len(m.diff.spans) == 0 {
-		return
-	}
-
-	top := max(0, m.view.YOffset()-contentLead)
-	bottom := top + m.view.Height()
-
-	best, seen := "", 0
-	for _, s := range m.diff.spans {
-		if covered := min(s.end, bottom) - max(s.start, top); covered > seen {
-			best, seen = s.key, covered
+// shownRows is the one row the diff draws: the file the cursor last named.
+// Empty until a file has been named, which SetFiles does as the diff lands.
+func (m Model) shownRows() []row {
+	for _, r := range m.rows {
+		if r.file != nil && r.file.Path == m.shownPath {
+			return []row{r}
 		}
 	}
-
-	// The two ends are exact rather than proportional. Scrolled to the bottom
-	// the answer is the last file, whatever share of the window it got.
-	switch {
-	case m.view.AtTop():
-		best = m.diff.spans[0].key
-	case m.view.AtBottom():
-		best = m.diff.spans[len(m.diff.spans)-1].key
-	}
-
-	at := m.cursor
-	for i, r := range m.rows {
-		if r.key == best {
-			at = i
-			break
-		}
-	}
-
-	if at == m.cursor {
-		return
-	}
-	m.cursor = at
-	m.showCursorRow()
-	m.syncContent()
+	return nil
 }
 
-// cursorSpan is the file the column is pointing at, as an index into spans. A
-// directory has no block of its own, so it answers with the first file under
-// it. Minus one when there is no file left below the cursor at all.
-func (m Model) cursorSpan() int {
+// shownFile is the file in the pane, or nil before one has been named.
+func (m Model) shownFile() *gh.ChangedFile {
+	if rows := m.shownRows(); len(rows) == 1 {
+		return rows[0].file
+	}
+	return nil
+}
+
+// nameShownFile points the pane at the row under the cursor. A directory names
+// no file and leaves the pane on whatever it was reading.
+func (m *Model) nameShownFile() {
 	if m.cursor >= len(m.rows) {
-		return -1
+		return
 	}
-	for _, r := range m.rows[m.cursor:] {
-		for i, s := range m.diff.spans {
-			if s.key == r.key {
-				return i
-			}
-		}
+	f := m.rows[m.cursor].file
+	if f == nil || f.Path == m.shownPath {
+		return
 	}
-	return -1
-}
+	m.shownPath = f.Path
 
-// showCursorFile scrolls the diff to whatever the tree is pointing at.
-func (m *Model) showCursorFile() {
-	if at := m.cursorSpan(); at >= 0 {
-		m.view.SetYOffset(contentLead + m.diff.spans[at].start)
+	// The pane is shared with the other tabs, so a file named while one of them
+	// is up must not scroll the page the reader is actually on.
+	if m.tab == tabFiles {
+		m.view.SetYOffset(0)
 	}
 }
 
-// jumpFile moves a whole file at a time, whichever pane has focus. Reading a
-// diff is reading one file after another, and doing that by the line takes as
-// many keystrokes as the file is long.
-//
-// From a directory row, forward means the first file inside it rather than the
-// one after it: the reader has not seen that file yet.
-func (m *Model) jumpFile(delta int) {
-	at := m.cursorSpan()
-	if at < 0 {
-		return
+// jumpFile moves the cursor a whole file at a time, skipping the directory rows
+// between them, and reports whether there was one to move to.
+func (m *Model) jumpFile(delta int) bool {
+	step := 1
+	if delta < 0 {
+		step = -1
 	}
 
-	next := at
-	switch {
-	// Back from inside a file is that file's own heading, the way it is in vim
-	// and the way the Commits tab reads it already. The key means the file
-	// before it only once that heading is on the top row.
-	case delta < 0:
-		if m.diff.spans[at].start >= bodyTop(&m.view) {
-			next = at - 1
+	for at := m.cursor + step; at >= 0 && at < len(m.rows); at += step {
+		if m.rows[at].file == nil {
+			continue
 		}
-	// The last file is the end, the way the ring's last card is. Clamping onto
-	// it and showing it again scrolls back to its heading from inside it, which
-	// is the page moving against the key.
-	case at == len(m.diff.spans)-1 && m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
-		return
-	case m.cursor < len(m.rows) && m.rows[m.cursor].file != nil:
-		next = at + delta
+		m.cursor = at
+		m.nameShownFile()
+		m.showCursorRow()
+		m.syncContent()
+		return true
 	}
-	next = min(max(next, 0), len(m.diff.spans)-1)
+	return false
+}
 
-	key := m.diff.spans[next].key
-	for i, r := range m.rows {
-		if r.key == key {
-			m.cursor = i
-			break
+// crossFile is what a brace means at the end of a file's ring. The pane holds
+// one file, so the stop after the last one is in a file nothing has drawn yet.
+func (m *Model) crossFile(delta int) {
+	// The cursor moving is not the pane moving: from a directory row the next
+	// file row is the one already drawn, and it is walked again rather than left.
+	was := m.shownPath
+	for m.shownPath == was {
+		if !m.jumpFile(delta) {
+			return
 		}
 	}
 
-	m.showCursorRow()
+	// jumpFile has rebuilt the body, so the stops are the new file's. Forward
+	// arrives at its head and back at its foot, which is where the reader left.
+	if m.pageRing.stops() == 0 {
+		return
+	}
+	at := 0
+	if delta < 0 {
+		at = m.pageRing.stops() - 1
+	}
+	m.pageRing.on = m.pageRing.items[at].focusKey
+
 	m.syncContent()
-	m.showCursorFile()
+	m.showFocus(&m.pageRing, &m.view, bodyTop(&m.view))
 }
 
-// toggleFold folds the row under the cursor: a directory out of the tree, a
-// file's diff out of the pane beside it.
+// toggleFold folds the directory under the cursor out of the tree. A file has
+// no fold of its own: the pane draws one file, and folding it leaves nothing.
 func (m *Model) toggleFold() {
-	if m.cursor >= len(m.rows) {
+	if m.cursor >= len(m.rows) || m.rows[m.cursor].file != nil {
 		return
 	}
 	key := m.rows[m.cursor].key
@@ -703,14 +680,17 @@ func (m *Model) toggleFold() {
 	m.syncRows()
 	m.cursor = min(m.cursor, max(0, len(m.rows)-1))
 	m.syncContent()
-	// Folding takes lines out from under the offset. Scrolled into the file
-	// being folded, the pane would land in the middle of the next one and the
-	// heading that just collapsed would be off screen entirely.
-	m.showCursorFile()
 }
 
 // syncRows rebuilds what the tree has on screen. Folding changes it, and so
 // does a diff arriving.
 func (m *Model) syncRows() {
 	m.rows = flatten(buildTree(m.files.Files), m.collapsed, 0, nil)
+
+	// A fold can take the file being drawn off the tree, and the first render
+	// has none named at all. Either way the cursor is what says which.
+	if m.shownFile() == nil {
+		m.cursor = m.firstFile()
+		m.nameShownFile()
+	}
 }

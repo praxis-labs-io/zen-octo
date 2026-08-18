@@ -115,7 +115,7 @@ func (m Model) onRing() (target, bool) {
 		return target{}, false
 	}
 
-	on := m.convRing.on
+	on := m.mainRing().on
 	switch on.kind {
 	case focusDescription:
 		return target{at: on, body: m.detail.Detail.Body}, true
@@ -186,8 +186,8 @@ func (m Model) startEdit() (Model, tea.Cmd) {
 	m.compose.stop()
 	m.clearMention()
 
-	cmd := m.inline.open(w.at, m.convRing.on, w.body, updateWords)
-	m.convRing.on = w.at
+	cmd := m.inline.open(w.at, m.pageRing.on, w.body, updateWords)
+	m.pageRing.on = w.at
 	m.conv.ok = false
 	m.focus = paneMain
 
@@ -225,7 +225,7 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 
 	m.inline.close()
 
-	m.convRing.on = from
+	m.pageRing.on = from
 	m.conv.ok = false
 	m.syncContent()
 
@@ -335,7 +335,7 @@ func (m Model) applyDelete(p picking) (Model, tea.Cmd) {
 	// Focus goes with the card. The block the ring was holding is about to
 	// vanish, and a highlight left on it would name something that is no longer
 	// on the page; the next brace re-anchors to whatever is on screen.
-	m.convRing.clear()
+	m.pageRing.clear()
 	m.conv.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return msg }

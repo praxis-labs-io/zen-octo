@@ -73,7 +73,7 @@ func (m *Model) writingCard(width int) string {
 // Every card is a ring stop, so the focus already names a comment and nothing
 // has to be remembered beside it. This is only the lookup.
 func (m Model) within(t gh.ReviewThread) string {
-	on := m.convRing.on
+	on := m.mainRing().on
 	if on.kind == focusThreadComment && slices.ContainsFunc(t.Comments,
 		func(c gh.Comment) bool { return c.ID == on.id }) {
 		return on.id
@@ -106,7 +106,7 @@ func (m Model) focusedThread() (gh.ReviewThread, bool) {
 // opened the thread is the thread; the cards hanging off it are answers to that
 // comment, and x and v mean the code, not the answer.
 func (m Model) threadOnRing() (gh.ReviewThread, bool) {
-	on := m.convRing.on
+	on := m.mainRing().on
 	if !m.answerable() || on.kind != focusThread {
 		return gh.ReviewThread{}, false
 	}
@@ -125,7 +125,7 @@ func (m Model) threadHolding() (gh.ReviewThread, bool) {
 	if t, ok := m.threadOnRing(); ok {
 		return t, ok
 	}
-	if on := m.convRing.on; m.answerable() && on.kind == focusThreadComment {
+	if on := m.mainRing().on; m.answerable() && on.kind == focusThreadComment {
 		for _, t := range m.detail.Detail.Threads {
 			if slices.ContainsFunc(t.Comments, func(c gh.Comment) bool { return c.ID == on.id }) {
 				return t, true
@@ -142,8 +142,8 @@ func (m Model) threadHolding() (gh.ReviewThread, bool) {
 // every key that reads the ring holds to. Opening a box on a comment the reader
 // has already scrolled past would haul them back to it.
 func (m Model) answerable() bool {
-	return m.canCompose() && m.focus == paneMain &&
-		m.convRing.live(bodyTop(&m.view), m.view.Height())
+	return m.canAct() && m.focus == paneMain &&
+		m.mainRing().live(bodyTop(&m.view), m.view.Height())
 }
 
 // replyThread is the thread the ring is on and the comment inside it a quote
@@ -173,8 +173,11 @@ func (m Model) replyThread() (gh.ReviewThread, gh.Comment, bool) {
 // narrower thing than answering a review thread, and it is not nothing: without
 // it r is a key that does nothing on most of the page.
 func (m Model) replyBody() (string, bool) {
-	on := m.convRing.on
-	if !m.answerable() {
+	on := m.mainRing().on
+
+	// canCompose as well: what it opens is the compose box, and only one tab
+	// draws one. A diff has no card at the foot of it to put the words in.
+	if !m.answerable() || !m.canCompose() {
 		return "", false
 	}
 
@@ -216,12 +219,12 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	m.clearMention()
 
 	at := replyKey(t.ID)
-	cmd := m.inline.open(at, m.convRing.on, "", replyWords)
+	cmd := m.inline.open(at, m.pageRing.on, "", replyWords)
 	if quote {
 		m.inline.quote(c.Body)
 	}
 
-	m.convRing.on = at
+	m.pageRing.on = at
 	m.conv.ok = false
 
 	// Opening scrolls the same shortest way typing does, and for a stronger
@@ -249,7 +252,7 @@ func (m Model) postReply() (Model, tea.Cmd) {
 	m.inline.area.Reset()
 	m.inline.close()
 
-	m.convRing.on = from
+	m.pageRing.on = from
 	m.conv.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostReplyMsg{ID: id, ThreadID: thread, Body: body} }
@@ -292,13 +295,13 @@ func (m *Model) restore(at focusKey, body string, w words,
 		return nil
 	}
 
-	if m.writing() != nil || !m.canCompose() || !present() {
+	if m.writing() != nil || !m.canAct() || !present() {
 		m.syncContent()
 		return nil
 	}
 
 	cmd := m.inline.open(at, from(), "", w)
-	m.convRing.on = at
+	m.pageRing.on = at
 	m.focus = paneMain
 	m.showOpenedBox()
 	return cmd

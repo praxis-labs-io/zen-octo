@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -410,7 +411,7 @@ func (p Picker) filterRow(th theme.Theme, width int) string {
 		return pad(plain.Foreground(th.Subtle).Render("Type to filter"), width, plain)
 	}
 	text := plain.Foreground(th.Text).Render(p.filter) + plain.Foreground(th.Accent).Render("▌")
-	return pad(Clip(text, width, plain.Foreground(th.Subtle)), width, plain)
+	return pad(paint.Clip(text, width, plain.Foreground(th.Subtle)), width, plain)
 }
 
 // list is the visible window of choices. Every cell in the cursor row sets the
@@ -444,7 +445,7 @@ func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 		name := base.Foreground(c).Render(it.Name)
 		room := width - lipgloss.Width(pickerMark)
 		if lipgloss.Width(it.Name) > room {
-			name = Clip(name, room, base.Foreground(th.Subtle))
+			name = paint.Clip(name, room, base.Foreground(th.Subtle))
 		}
 
 		out = append(out, pad(mark+name, width, base))
@@ -460,7 +461,7 @@ func (p Picker) hint(th theme.Theme, shown []PickerItem, width int) string {
 
 	text := faint.Render(p.hintText(len(shown)))
 	if lipgloss.Width(p.hintText(len(shown))) > width {
-		text = Clip(text, width, faint)
+		text = paint.Clip(text, width, faint)
 	}
 	return pad(text, width, plain)
 }

@@ -1642,23 +1642,23 @@ func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
 	}{
 		{
 			name: "conversation",
-			want: []string{"{/} block", "o expand", "d details"},
+			want: []string{"{/} block", "space expand", "d details"},
 		},
 		{
 			name: "commits",
 			to:   []string{"]"},
 			want: []string{"{/} block"},
-			gone: []string{"o expand", "d details"},
+			gone: []string{"space expand", "d details"},
 		},
 		{
 			name: "checks",
 			to:   []string{"]", "]"},
-			gone: []string{"{/} block", "o expand", "d details"},
+			gone: []string{"{/} block", "space expand", "d details"},
 		},
 		{
 			name: "files",
 			to:   []string{"]", "]", "]"},
-			want: []string{"{/} block", "o expand"},
+			want: []string{"{/} block", "space expand"},
 			gone: []string{"d details"},
 		},
 	}

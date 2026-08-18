@@ -17,6 +17,8 @@ import (
 	"github.com/zen-octo/zen-octo/internal/store"
 	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/keys"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -188,7 +190,8 @@ type Model struct {
 	railView viewport.Model
 
 	md      comp.Markdown
-	syntax  comp.Syntax
+	syntax  syntax.Syntax
+	painter paint.Painter
 	spinner comp.Spinner
 
 	pr     gh.PullRequest
@@ -202,6 +205,10 @@ type Model struct {
 	rows      []row
 	cursor    int
 	collapsed map[string]bool
+
+	// shownPath is the one file the diff pane draws. The cursor names it as it
+	// passes a file row, and a directory row leaves whatever was there.
+	shownPath string
 
 	// diff is the rendered Files tab: where each file's block sits, and the
 	// blocks themselves. The Commits tab keeps one of its own.
@@ -231,20 +238,18 @@ type Model struct {
 	// been asked for waits here and lands when the answer arrives.
 	jump string
 
-	// convRing and railRing are what tab walks: the conversation's cards and
-	// the rail's rows. The panes with a column of their own have a cursor
-	// instead, and no ring.
-	convRing ring
+	// pageRing is whatever the main pane is showing: the conversation's cards,
+	// or the hunks and comments of a diff. Only one tab draws into it at a time.
+	pageRing ring
+
+	// railRing is the rail's rows, which are on screen beside the page rather
+	// than instead of it, so the two cursors are two.
 	railRing ring
 
 	// expanded is which cards have their <details> blocks unfolded, keyed the
 	// same way the ring keys what it points at. A review thread renders on the
 	// Files tab as well as in the conversation, so both read this.
-	//
-	// folds counts the toggles, which is what tells the diff's block cache that
-	// a thread inside one of its files renders differently now.
 	expanded map[focusKey]bool
-	folds    int
 
 	// offsets parks the scroll position of each tab. One viewport serves all
 	// four, and without this switching to a short tab clamps the offset to zero
@@ -321,7 +326,7 @@ type Model struct {
 // New builds the screen over one pull request row, carrying forward whatever
 // the user last asked of the rail. The row is what the list already had, so the
 // header and the rail paint before the detail query answers.
-func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syntax) Model {
+func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.Syntax) Model {
 	return Model{
 		theme:    th,
 		side:     comp.NewPane(th),
@@ -332,12 +337,14 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax comp.Syn
 		railView: newViewport(),
 		md:       comp.NewMarkdown(th),
 		syntax:   syntax,
+		painter:  paint.Painter{Theme: th},
 		spinner:  comp.NewSpinner(th),
 		pr:       pr,
 		focus:    paneMain,
 		// The pull request's own diff is the one review threads were written
 		// against. The Commits tab keeps a diffBody of its own, which does not.
 		diff:        diffBody{threads: true},
+		commit:      commits{diff: diffBody{headings: true}},
 		compose:     newComposer(th),
 		inline:      newInline(th),
 		mention:     mention{dismissed: -1},
@@ -365,11 +372,22 @@ func (m *Model) SetFiles(f store.Files) tea.Cmd {
 	if m.cursor == 0 {
 		m.cursor = m.firstFile()
 	}
-	m.syncContent()
+
+	// Named again because the cursor moved after syncRows placed it, and laid
+	// out because the pinned heading lands with the diff and costs the pane rows.
+	m.nameShownFile()
+	m.layout()
 	return m.finishJump()
 }
 
+// firstFile is the row the tab opens on: a file with something to read, since a
+// binary or an omitted body opens the reader on an empty pane.
 func (m Model) firstFile() int {
+	for i, r := range m.rows {
+		if r.file != nil && len(r.file.Hunks) > 0 {
+			return i
+		}
+	}
 	for i, r := range m.rows {
 		if r.file != nil {
 			return i
@@ -426,7 +444,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 // reader is looking at part of a thing they were looking at all of.
 func (m Model) focusWhole() bool {
 	top := bodyTop(&m.view)
-	return m.convRing.show(top, m.view.Height()) == top
+	return m.mainRing().show(top, m.view.Height()) == top
 }
 
 // keepFocusWhole brings the focused card back into view after a write changed
@@ -446,7 +464,7 @@ func (m *Model) keepFocusWhole(was bool) {
 	if !was || m.focusWhole() {
 		return
 	}
-	m.view.SetYOffset(contentLead + m.convRing.show(bodyTop(&m.view), m.view.Height()))
+	m.showFocus(&m.pageRing, &m.view, bodyTop(&m.view))
 }
 
 func newViewport() viewport.Model {
@@ -580,13 +598,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.inlineKey(keyMsg)
 	}
 
-	before := m.view.YOffset()
-
-	// A key that placed the cursor itself must not then have the diff place it
-	// again: a short file scrolled to the top of a tall window is not the file
-	// filling most of it.
-	follow := true
-
 	switch {
 	case key.Matches(keyMsg, k.Back):
 		// Letting go of a card and leaving the screen are two intentions on one
@@ -624,7 +635,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	// The box is a card like any other, so the ring reaches it and enter is what
 	// steps into it, the same key that presses the button once inside.
-	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.convRing.on.kind == focusCompose:
+	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.pageRing.on.kind == focusCompose:
 		return m.writeComment()
 
 	// A reply answers the comment the ring is on, so both keys read the focus
@@ -663,21 +674,26 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	// A block is whatever this tab is made of. On a diff it is a file, and the
-	// tab is what decides: the spans outlive a tab switch, so without the guard
-	// the conversation scrolls to wherever the diff last had one.
-	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabFiles:
+	// The strip is ] and [ on both screens. tab is the file, which only the tab
+	// showing one at a time has.
+	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
 		m.jumpFile(1)
-		follow = false
-	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabFiles:
+	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
 		m.jumpFile(-1)
-		follow = false
+
+	// A block in a diff is a hunk or a comment written against one, and both are
+	// in the pane, so the key takes the pane along with the block.
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabFiles:
+		m.walkDiff(1)
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabFiles:
+		m.walkDiff(-1)
+
+	// The Commits tab has no ring, so there a block is still a whole file and
+	// the key moves the column's cursor to it.
 	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
-		follow = false
 	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
-		follow = false
 
 	// The rail is a list of controls rather than blocks of anything, and it
 	// answers to the movement keys instead. Leaving the braces on it as well
@@ -694,10 +710,9 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
-	// On the Files tab the key folds whichever pane has focus, because the
-	// cursor it folds at is the same one either pane is driving, and the tree
-	// it belongs to is not on screen at all on a narrow frame.
-	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles:
+	// The tree is the column's, and the blocks are the pane's. Falling from one
+	// to the other folds a directory the reader is not looking at.
+	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles && m.focus != paneMain:
 		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
 		m.toggleExpanded()
@@ -750,12 +765,6 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 
-	// Whatever the key did to the diff, the file column follows it. Gated on
-	// the diff having actually moved: a key that only changes focus must not
-	// pull the cursor off the row the reader left it on.
-	if follow && m.view.YOffset() != before {
-		m.trackDiff()
-	}
 	return m, m.armCommit()
 }
 
@@ -960,8 +969,8 @@ func (m *Model) focusRing() (*ring, *viewport.Model) {
 	switch {
 	case m.focus == paneRail && m.railVisible():
 		return &m.railRing, &m.railView
-	case m.focus == paneMain && m.railTab():
-		return &m.convRing, &m.view
+	case m.focus == paneMain && m.ringTab():
+		return &m.pageRing, &m.view
 	}
 	return nil, nil
 }
@@ -984,8 +993,30 @@ func (m *Model) stepFocus(delta int) bool {
 	}
 
 	m.syncContent()
-	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
+	m.showFocus(r, vp, top)
 	return true
+}
+
+// walkDiff steps the diff's ring, taking the main pane first. A reader asking
+// for the next block is asking for the pane the blocks are in.
+func (m *Model) walkDiff(delta int) {
+	if m.focus != paneMain {
+		m.focusPane(paneMain)
+	}
+	if !m.stepFocus(delta) {
+		m.crossFile(delta)
+	}
+}
+
+// showFocus brings the focused block into view. A comment in a diff hangs under
+// the line it answers, so it opens above that rather than on the top row.
+func (m *Model) showFocus(r *ring, vp *viewport.Model, top int) {
+	at := r.index()
+	if m.tab == tabFiles && at >= 0 && r.items[at].kind != focusHunk && !r.items[at].whole(top, vp.Height()) {
+		vp.SetYOffset(contentLead + m.jumpTop(m.shownPath, r.items[at].start))
+		return
+	}
+	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
 }
 
 // bodyTop is the viewport's offset in the lines the ring recorded, which sit
@@ -1004,7 +1035,7 @@ func bodyTop(vp *viewport.Model) int { return vp.YOffset() - contentLead }
 // a highlight nowhere on the frame reads as a key that does nothing, and the
 // tabs with a column show no ring at all.
 func (m *Model) clearFocus() bool {
-	if !m.railTab() {
+	if !m.ringTab() {
 		return false
 	}
 
@@ -1012,7 +1043,7 @@ func (m *Model) clearFocus() bool {
 	for _, r := range []struct {
 		ring *ring
 		vp   *viewport.Model
-	}{{&m.convRing, &m.view}, {&m.railRing, &m.railView}} {
+	}{{&m.pageRing, &m.view}, {&m.railRing, &m.railView}} {
 		if r.ring.live(bodyTop(r.vp), r.vp.Height()) && r.ring.clear() {
 			cleared = true
 		}
@@ -1031,26 +1062,26 @@ func (m *Model) clearFocus() bool {
 // A card scrolled off the screen is not the one the reader means, any more than
 // it is the one tab lands on. Acting on it would unfold something out of sight
 // and drag the page back to it.
-func (m *Model) toggleExpanded() {
+func (m *Model) toggleExpanded() bool {
 	r, vp := m.focusRing()
 	if r == nil || !r.on.kind.prose() {
-		return
+		return false
 	}
 
 	top := bodyTop(vp)
 	if !r.live(top, vp.Height()) {
-		return
+		return false
 	}
 
 	key := m.foldTarget()
 	m.expanded[key] = !m.expanded[key]
-	m.folds++
 	m.conv.ok = false
 
 	// Unfolding pushes everything under it down. Without this the card that
 	// just grew opens below the window it was read in.
 	m.syncContent()
-	vp.SetYOffset(contentLead + r.show(top, vp.Height()))
+	m.showFocus(r, vp, top)
+	return true
 }
 
 // foldTarget is what o unfolds.
@@ -1062,7 +1093,7 @@ func (m *Model) toggleExpanded() {
 func (m Model) foldTarget() focusKey {
 	t, ok := m.threadOnRing()
 	if !ok {
-		return m.convRing.on
+		return m.mainRing().on
 	}
 	if t.IsResolved {
 		return threadKey(t)
@@ -1070,7 +1101,7 @@ func (m Model) foldTarget() focusKey {
 	if within := m.within(t); within != "" {
 		return focusKey{kind: focusThreadComment, id: within}
 	}
-	return m.convRing.on
+	return m.mainRing().on
 }
 
 // focusPane moves focus to a pane, skipping whatever is not on screen. Focus
@@ -1197,9 +1228,11 @@ func (m *Model) layout() {
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, paneHeight)
+	m.main = m.main.Size(mainWidth, paneHeight).Header(m.fileHeading())
 	m.view.SetWidth(m.main.InnerWidth())
-	m.view.SetHeight(m.main.InnerHeight())
+	// The pinned heading is drawn by the pane, above the window rather than in
+	// it, so the viewport is short by whatever the pane spends on it.
+	m.view.SetHeight(max(0, m.main.InnerHeight()-(m.main.Above()-1)))
 	m.syncContent()
 }
 
@@ -1226,6 +1259,19 @@ func (m Model) railColumn() bool { return m.width >= railColumnFrom }
 
 // railTab is whether this tab has a rail at all, at any width.
 func (m Model) railTab() bool { return !m.sideVisibleTab() }
+
+// ringTab is whether this tab's main pane is made of blocks a ring can walk.
+// Commits and Checks are lists with a cursor of their own.
+func (m Model) ringTab() bool { return m.tab == tabFiles || m.railTab() }
+
+// mainRing is the page's ring by value, for the readers that cannot take a
+// pointer. Zero off a ring tab, or they walk what the last one left behind.
+func (m Model) mainRing() ring {
+	if !m.ringTab() {
+		return ring{}
+	}
+	return m.pageRing
+}
 
 // sideVisibleTab is whether this tab has a column, before width has a say.
 func (m Model) sideVisibleTab() bool {
@@ -1289,6 +1335,7 @@ func (m Model) ShortHelp() []key.Binding {
 		Blocks: m.tab != tabChecks,
 		Expand: m.tab == tabFiles || m.railTab(),
 		Rail:   m.railTab(),
+		Files:  m.tab == tabFiles,
 	})
 }
 
@@ -1385,6 +1432,7 @@ func (m Model) View() string {
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
+		Header(m.fileHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
 		Render(m.view.View())}
@@ -1446,6 +1494,10 @@ func scrollFooter(v viewport.Model) string {
 // tabBody renders whichever tab is current. The conversation is the
 // fallthrough: it is the tab a screen opens on.
 func (m *Model) tabBody() string {
+	// Here rather than in each body, because a tab that returns a note instead
+	// of its blocks still has to drop the stops the last one left.
+	m.pageRing.reset()
+
 	switch m.tab {
 	case tabCommits:
 		return m.commitBody()
@@ -1572,12 +1624,12 @@ func (m Model) spread(left, right string, width int) string {
 		// only where it overruns on its own: clipping it because the left could
 		// not fit beside it marks a cut that never happened.
 		if lipgloss.Width(right) > width {
-			return comp.Clip(right, width, faint)
+			return paint.Clip(right, width, faint)
 		}
 		return right
 	}
 	if lipgloss.Width(left) > room {
-		left = comp.Clip(left, room, faint)
+		left = paint.Clip(left, room, faint)
 	}
 
 	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(right))
@@ -1609,7 +1661,7 @@ func (m Model) branchLine(width int) string {
 	branches := faint.Render(m.pr.BaseRefName + " ← " + m.pr.HeadRefName)
 
 	if lipgloss.Width(branches) > width {
-		return comp.Clip(branches, width, faint)
+		return paint.Clip(branches, width, faint)
 	}
 	return branches
 }

@@ -16,8 +16,10 @@ import (
 // is standing. Switching to a tab that cannot show them what they asked for and
 // saying so from there is two moves to deliver one piece of bad news.
 func (m Model) showInDiff() (Model, tea.Cmd) {
+	// The tab rather than jumpable, which is false for a file the diff does not
+	// carry: that one is answered below with a toast rather than with silence.
 	t, ok := m.threadOnRing()
-	if !ok || t.Line == 0 {
+	if !ok || t.Line == 0 || m.tab == tabFiles {
 		return m, nil
 	}
 
@@ -49,7 +51,9 @@ func (m Model) showInDiff() (Model, tea.Cmd) {
 // counted in: the file is probably in it, and hiding the key until the tab has
 // been opened once teaches the reader it is not there.
 func (m Model) jumpable(t gh.ReviewThread) bool {
-	if t.Line == 0 {
+	// Inside the diff there is nowhere left to go, so the key is inert and the
+	// footer that reads this stops naming it.
+	if t.Line == 0 || m.tab == tabFiles {
 		return false
 	}
 	return !m.files.Loaded || m.hasPath(t.Path)
@@ -99,15 +103,26 @@ func (m *Model) finishJump() tea.Cmd {
 	m.syncContent()
 	m.showCursorRow()
 
-	if line, ok := m.diff.threadAt[t.ID]; ok {
+	if line, ok := m.threadLine(t.ID); ok {
 		m.view.SetYOffset(contentLead + m.jumpTop(t.Path, line))
 		return nil
 	}
 
 	// The file is here and the thread is not drawn in it, which is a file whose
-	// body GitHub omitted. The file is still the right place to be.
-	m.showCursorFile()
+	// body GitHub omitted. Naming it was the whole of the move.
 	return nil
+}
+
+// threadLine is where a thread's card landed in the rendered diff. The stops
+// are a handful per file, so they are walked rather than indexed.
+func (m Model) threadLine(id string) (int, bool) {
+	want := focusKey{kind: focusThread, id: id}
+	for _, s := range m.diff.stops {
+		if s.focusKey == want {
+			return s.start, true
+		}
+	}
+	return 0, false
 }
 
 // jumpLead is the code kept above a thread when a jump lands: the line it
@@ -152,6 +167,7 @@ func (m *Model) pointAt(path string) {
 		return
 	}
 	m.cursor = at
+	m.nameShownFile()
 }
 
 // hasPath is whether the diff carries a file. The tree and the thread key by

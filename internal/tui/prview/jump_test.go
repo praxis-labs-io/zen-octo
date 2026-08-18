@@ -96,7 +96,7 @@ func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 // nothing to point at and nothing to scroll to until every fold above it goes.
 func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 	// Down the column to the directory the file sits in, and fold it.
-	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "o")
+	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "space")
 	if strings.Contains(cursorFile(folded.View()), "client.go") {
 		t.Fatal("setup: the cursor is on the file rather than the directory above it")
 	}
@@ -181,8 +181,8 @@ func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "docs/screenshot.png") {
-		t.Errorf("the diff did not open at its top, so a dead jump landed late:\n%s", out)
+	if !strings.Contains(out, "internal/gh/client.go") {
+		t.Errorf("the diff did not open where it normally does, so a dead jump landed late:\n%s", out)
 	}
 }
 
@@ -202,16 +202,15 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	}
 }
 
-// The offsets ride in the block cache, so a fold that changes what a block is
-// changes them with it. A stale one puts the jump on a line the file no longer
-// has.
-func TestFoldingAFileTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
+// Folding a directory takes the file being read off the tree, and the pane has
+// to find another. The jump has to reach back into it, unfolding on the way.
+func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 	landed(t, m.View())
 
-	folded := press(m, "1", "o")
+	folded := press(m, "1", "k", "space")
 	if strings.Contains(stripANSI(folded.View()), "This backs off forever.") {
-		t.Fatal("setup: the folded file is still showing its thread")
+		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
 	// The ring is still on the thread, so the conversation needs no walking.
@@ -266,7 +265,7 @@ func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 
 	// Up to the one directory and fold it, which takes every file out of the
 	// tree. The cursor opens on the first file, one row under it.
-	folded := press(m, "]", "]", "]", "1", "k", "o")
+	folded := press(m, "]", "]", "]", "1", "k", "space")
 	if got := selectedRow(folded.View()); !strings.Contains(got, "internal/gh/") {
 		t.Fatalf("setup: the fold landed on %q rather than the directory", strings.TrimSpace(got))
 	}

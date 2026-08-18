@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
+	"github.com/zen-octo/zen-octo/internal/tui/paint"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -143,14 +143,14 @@ func renderRow(th theme.Theme, r row, width int, selected bool) string {
 	room := max(0, width-lipgloss.Width(lead))
 	label := name.Render(r.label)
 	if lipgloss.Width(label) > room {
-		label = comp.Clip(label, room, base.Foreground(th.Subtle))
+		label = paint.Clip(label, room, base.Foreground(th.Subtle))
 	}
 
 	line := lead + label
 	// A column too narrow for the indent alone overflows everything above it,
 	// and the pane would clip it mid-cell with nothing to say it had.
 	if lipgloss.Width(line) > width {
-		return comp.Clip(line, width, base.Foreground(th.Subtle))
+		return paint.Clip(line, width, base.Foreground(th.Subtle))
 	}
 	return line + base.Render(strings.Repeat(" ", width-lipgloss.Width(line)))
 }

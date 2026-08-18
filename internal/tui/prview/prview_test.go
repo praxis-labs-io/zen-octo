@@ -15,8 +15,8 @@ import (
 
 	"github.com/zen-octo/zen-octo/internal/gh"
 	"github.com/zen-octo/zen-octo/internal/store"
-	"github.com/zen-octo/zen-octo/internal/tui/comp"
 	"github.com/zen-octo/zen-octo/internal/tui/prview"
+	"github.com/zen-octo/zen-octo/internal/tui/syntax"
 	"github.com/zen-octo/zen-octo/internal/tui/theme"
 )
 
@@ -34,18 +34,18 @@ func samplePR() gh.PullRequest {
 	}
 }
 
-// syntax is the colorizer the screen highlights code with. Tests use the same
-// style the default theme names, so the colors a diff test asserts are the ones
-// a reader sees.
-func syntax() comp.Syntax {
-	s, _ := comp.NewSyntax(theme.RosePineMoon.Syntax)
+// colorizer is what the screen highlights code with. Tests use the style the
+// default theme names, so the colors a diff test asserts are the ones a reader
+// sees.
+func colorizer() syntax.Syntax {
+	s, _ := syntax.New(theme.RosePineMoon.Syntax)
 	return s
 }
 
 func screen(width, height int) prview.Model { return sized(samplePR(), width, height) }
 
 func sized(pr gh.PullRequest, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
 	m.SetSize(width, height)
 	return m
 }
@@ -314,7 +314,7 @@ func TestTheBranchLineClipsTheHeadRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 
 	// Narrow enough that this branch overruns the header. The header measures
@@ -584,7 +584,7 @@ func held(d gh.PullRequestDetail) store.Detail {
 }
 
 func detailed(d store.Detail, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetDetail(d)
 	m.SetSize(width, height)
 	return m
@@ -1112,7 +1112,7 @@ func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 	m.SetSize(150, 30)
 
@@ -1226,18 +1226,18 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 	}
 
 	// The key acts on the focused card, so tab has to pick one first.
-	if strings.Contains(stripANSI(press(m, "o").View()), "did a thing") {
-		t.Error("o opened a fold with no card focused")
+	if strings.Contains(stripANSI(press(m, "space").View()), "did a thing") {
+		t.Error("space opened a fold with no card focused")
 	}
 
 	// Pressed in sequence rather than from the same starting model each time.
 	// What is unfolded is a map, which every copy of the model shares.
-	m = press(m, "}", "o")
+	m = press(m, "}", "space")
 	if !strings.Contains(stripANSI(m.View()), "did a thing") {
 		t.Error("o did not open the fold")
 	}
 
-	m = press(m, "o")
+	m = press(m, "space")
 	if !strings.Contains(stripANSI(m.View()), "▸ ENG-9547 Marketing") {
 		t.Error("o a second time did not fold it back")
 	}
@@ -1362,7 +1362,7 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, syntax())
+	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 

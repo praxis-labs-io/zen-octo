@@ -214,7 +214,7 @@ func (m Model) closeInline() (Model, tea.Cmd) {
 	m.inline.close()
 	m.clearMention()
 
-	m.convRing.on = from
+	m.pageRing.on = from
 	m.conv.ok = false
 	m.syncContent()
 	return m, nil
