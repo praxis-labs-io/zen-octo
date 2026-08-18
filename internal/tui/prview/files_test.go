@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/zen-octo/zen-octo/internal/gh"
@@ -105,6 +106,87 @@ func TestTheFilesTabRendersTheDiff(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the Files tab does not show %q", want)
 		}
+	}
+}
+
+func TestTheFileTreeRendersViewedStateGlyphs(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileDismissed},
+		{Path: "c.go", Viewed: gh.FileViewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	out := stripANSI(press(m, "]", "]", "]").View())
+	for _, want := range []string{"○ a.go", "⊙ b.go", "● c.go"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tree does not contain %q", want)
+		}
+	}
+}
+
+func TestMarkViewedTargetsTheTreeSelectionAndTheShownDiff(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileViewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "a.go", Viewed: true}) {
+		t.Errorf("diff toggle = %#v", got)
+	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "b.go") {
+		t.Errorf("marking from the diff advanced to %q, want b.go", got)
+	}
+
+	m = press(m, "1")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: false}) {
+		t.Errorf("tree toggle = %#v", got)
+	}
+}
+
+func TestMarkViewedAdvancesTheTreeAndStopsAtTheLastFile(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "a.go", Viewed: gh.FileUnviewed},
+		{Path: "b.go", Viewed: gh.FileDismissed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "1")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "a.go", Viewed: true}) {
+		t.Fatalf("first toggle = %#v", got)
+	}
+	m, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: true}) {
+		t.Errorf("toggle after advance = %#v", got)
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "b.go", Viewed: true}) {
+		t.Errorf("toggle at the end = %#v", got)
+	}
+}
+
+func TestMarkViewedFromTheDiffAdvancesFromTheShownFile(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "dir/a.go", Viewed: gh.FileUnviewed},
+		{Path: "z.go", Viewed: gh.FileUnviewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "1", "k", "2")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "dir/a.go", Viewed: true}) {
+		t.Fatalf("toggle = %#v", got)
+	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "z.go") {
+		t.Errorf("marking from the diff advanced to %q, want z.go", got)
 	}
 }
 

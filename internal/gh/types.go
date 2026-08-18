@@ -613,6 +613,16 @@ type Hunk struct {
 	Lines  []DiffLine
 }
 
+// FileViewedState is how much of a changed file GitHub says this viewer has
+// acknowledged. Dismissed is a viewed file changed again since that mark.
+type FileViewedState string
+
+const (
+	FileUnviewed  FileViewedState = "UNVIEWED"
+	FileViewed    FileViewedState = "VIEWED"
+	FileDismissed FileViewedState = "DISMISSED"
+)
+
 // ChangedFile is one file's diff. Omitted says why there are no hunks, empty
 // when the hunks are the whole story: GitHub returns no patch for a binary file
 // or for a diff it considers too large, and a file that reads as unchanged is
@@ -625,13 +635,16 @@ type ChangedFile struct {
 	Deletions    int
 	Hunks        []Hunk
 	Omitted      string
+	Viewed       FileViewedState
+	Viewing      bool
 }
 
-// FilesResult is one files response. It carries no rate limit: the REST API
-// bills by request against a separate budget the GraphQL one knows nothing
-// about.
+// FilesResult is one files response. Pull request files carry the rate limit
+// from the GraphQL request that supplies their viewed state; commit files do
+// not need that second request and leave it empty.
 type FilesResult struct {
-	Files []ChangedFile
+	Files     []ChangedFile
+	RateLimit RateLimit
 
 	// MoreFiles is what the first page did not reach, the same way MoreComments
 	// and MoreThreads report their own overflow.

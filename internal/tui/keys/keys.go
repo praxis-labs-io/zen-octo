@@ -54,8 +54,9 @@ type DetailMap struct {
 
 	// NextFile and PrevFile are the coarser move, on the tab that shows one file
 	// at a time. The strip keeps ] and [, which is what the list screen uses.
-	NextFile key.Binding
-	PrevFile key.Binding
+	NextFile     key.Binding
+	PrevFile     key.Binding
+	ToggleViewed key.Binding
 
 	// The braces are paragraph motion in vim and mean the same here: go to the
 	// next block. What a block is belongs to the tab.
@@ -172,6 +173,7 @@ var (
 		PrevTab:      key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
 		NextFile:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next file")),
 		PrevFile:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev file")),
+		ToggleViewed: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mark viewed")),
 		NextBlock:    key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next block")),
 		PrevBlock:    key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev block")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
@@ -263,6 +265,11 @@ type DetailContext struct {
 	// Files is whether there is another file to go to, which is the one tab
 	// showing one at a time.
 	Files bool
+
+	// FileView is whether the current row or pane names a file. FileViewed
+	// chooses the action named beside it.
+	FileView   bool
+	FileViewed bool
 }
 
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
@@ -274,6 +281,13 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	}
 	if c.Files {
 		out = append(out, hint(k.NextFile, "⇥/⇧⇥", "file"))
+	}
+	if c.FileView {
+		action := "mark viewed"
+		if c.FileViewed {
+			action = "unmark viewed"
+		}
+		out = append(out, hint(k.ToggleViewed, "m", action))
 	}
 	if c.Expand {
 		out = append(out, k.Expand)
@@ -292,7 +306,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
-		{k.NextFile, k.PrevFile},
+		{k.NextFile, k.PrevFile, k.ToggleViewed},
 		{k.PaneLeft, k.PaneRight, k.FocusPane},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},

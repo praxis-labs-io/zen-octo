@@ -30,6 +30,13 @@ type BackMsg struct{}
 // request starts there.
 type NeedFilesMsg struct{ ID string }
 
+// ToggleFileViewedMsg asks the root to mark one file viewed or unviewed.
+type ToggleFileViewedMsg struct {
+	ID     string
+	Path   string
+	Viewed bool
+}
+
 // RefreshMsg asks the root to refetch this pull request. The detail feeds three
 // of the four tabs, so it is always wanted; the other two fields name the diff
 // the tab in front of the reader is showing, and are empty on the tabs that
@@ -609,6 +616,9 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Sync):
 		return m, m.refresh()
+
+	case key.Matches(keyMsg, k.ToggleViewed) && m.tab == tabFiles:
+		return m.toggleFileViewed()
 
 	// Both mean the pull request on every tab, whatever the ring is on: nothing
 	// below it carries a URL to reach.
@@ -1331,12 +1341,56 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 // Checks is the one with none of the three. Its column and its output are read
 // rather than opened, and it has no rail because it has a column.
 func (m Model) ShortHelp() []key.Binding {
+	file := m.fileViewTarget()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks: m.tab != tabChecks,
-		Expand: m.tab == tabFiles || m.railTab(),
-		Rail:   m.railTab(),
-		Files:  m.tab == tabFiles,
+		Blocks:     m.tab != tabChecks,
+		Expand:     m.tab == tabFiles || m.railTab(),
+		Rail:       m.railTab(),
+		Files:      m.tab == tabFiles,
+		FileView:   file != nil && !file.Viewing,
+		FileViewed: file != nil && file.Viewed == gh.FileViewed,
 	})
+}
+
+func (m Model) fileViewTarget() *gh.ChangedFile {
+	if m.tab != tabFiles {
+		return nil
+	}
+	if m.sideDriving() {
+		if m.cursor >= 0 && m.cursor < len(m.rows) {
+			return m.rows[m.cursor].file
+		}
+		return nil
+	}
+	return m.shownFile()
+}
+
+func (m Model) toggleFileViewed() (Model, tea.Cmd) {
+	file := m.fileViewTarget()
+	if file == nil || file.Viewing {
+		return m, nil
+	}
+	msg := ToggleFileViewedMsg{
+		ID:     m.pr.ID,
+		Path:   file.Path,
+		Viewed: file.Viewed != gh.FileViewed,
+	}
+	if msg.Viewed {
+		if !m.sideDriving() {
+			m.pointFileCursor(file.Path)
+		}
+		m.jumpFile(1)
+	}
+	return m, func() tea.Msg { return msg }
+}
+
+func (m *Model) pointFileCursor(path string) {
+	for i, row := range m.rows {
+		if row.file != nil && row.file.Path == path {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 func (m *Model) syncContent() {

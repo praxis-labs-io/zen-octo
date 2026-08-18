@@ -320,9 +320,11 @@ func (Mock) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
 // PullRequestFiles answers with one diff whatever is asked for. It covers what
 // the Files tab has to tell apart: nesting deep enough to fold, a rename, a
 // file with no patch, and lines two of the fixture's review threads anchor to.
-func (Mock) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+func (Mock) PullRequestFiles(_ context.Context, _, _ string, _, _ int) (gh.FilesResult, error) {
 	return gh.FilesResult{Files: mockFiles(), MoreFiles: 2}, nil
 }
+
+func (Mock) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
 
 // CommitFiles answers with the first file of the same diff whatever commit is
 // asked for. One file is enough to judge the Commits tab's two panes against

@@ -127,13 +127,22 @@ func renderRow(th theme.Theme, r row, width int, selected bool) string {
 	lead := base.Render(strings.Repeat(" ", r.depth*treeIndent))
 
 	marker := "  "
+	markerColor := th.Subtle
 	switch {
 	case r.dir && r.folded:
 		marker = "▸ "
 	case r.dir:
 		marker = "▾ "
+	case r.file != nil && r.file.Viewed == gh.FileUnviewed:
+		marker = "○ "
+	case r.file != nil && r.file.Viewed == gh.FileDismissed:
+		marker = "⊙ "
+		markerColor = th.Warning
+	case r.file != nil && r.file.Viewed == gh.FileViewed:
+		marker = "● "
+		markerColor = th.Accent
 	}
-	lead += base.Foreground(th.Subtle).Render(marker)
+	lead += base.Foreground(markerColor).Render(marker)
 
 	name := base.Foreground(th.Text)
 	if r.dir {

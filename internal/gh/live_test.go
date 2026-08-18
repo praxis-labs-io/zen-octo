@@ -124,7 +124,7 @@ func TestLiveDetailAndFiles(t *testing.T) {
 		}
 	}
 
-	files, err := client.PullRequestFiles(ctx, pr.Repository, pr.Number, pr.ChangedFiles)
+	files, err := client.PullRequestFiles(ctx, pr.ID, pr.Repository, pr.Number, pr.ChangedFiles)
 	if err != nil {
 		t.Fatalf("PullRequestFiles() error = %v", err)
 	}

@@ -290,7 +290,7 @@ func (f *fakeSearcher) opened() []string {
 // PullRequestFiles answers with whatever diff the test staged for that number.
 // It is keyed by number rather than id because the diff comes over REST, which
 // addresses a pull request by repository and number.
-func (f *fakeSearcher) PullRequestFiles(_ context.Context, repo string, number, changed int) (gh.FilesResult, error) {
+func (f *fakeSearcher) PullRequestFiles(_ context.Context, _, repo string, number, changed int) (gh.FilesResult, error) {
 	f.mu.Lock()
 	f.diffs = append(f.diffs, repo+"#"+strconv.Itoa(number))
 	// The count the caller measured overflow against, recorded apart from the
@@ -304,6 +304,8 @@ func (f *fakeSearcher) PullRequestFiles(_ context.Context, repo string, number, 
 	}
 	return gh.FilesResult{Files: files, MoreFiles: max(0, changed-len(files))}, nil
 }
+
+func (f *fakeSearcher) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
 
 // serveFiles stages one pull request's diff.
 func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
@@ -909,9 +911,11 @@ func (f *querySearcher) Pulse(_ context.Context, _ string) (gh.PulseResult, erro
 	return gh.PulseResult{}, nil
 }
 
-func (f *querySearcher) PullRequestFiles(_ context.Context, _ string, _, _ int) (gh.FilesResult, error) {
+func (f *querySearcher) PullRequestFiles(_ context.Context, _, _ string, _, _ int) (gh.FilesResult, error) {
 	return gh.FilesResult{}, nil
 }
+
+func (f *querySearcher) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
 
 func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
 	return gh.FilesResult{}, nil

@@ -7,10 +7,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
-// filesPage is how many files one request asks for, which is the most the REST
-// API will return.
+// filesPage is how many files each request asks for. It is the REST API's
+// maximum and keeps the GraphQL state page aligned with it.
 const filesPage = 100
 
 // fileNode is GitHub's REST shape for one changed file. Patch is absent on a
@@ -24,16 +25,53 @@ type fileNode struct {
 	Patch            string `json:"patch"`
 }
 
-// PullRequestFiles fetches the diff. GraphQL's files connection carries the
-// paths and the churn but no patch, so this is the one call in the package that
-// goes over REST.
+const fileViewsQuery = `
+query FileViews($pullRequestId: ID!) {
+  rateLimit { limit cost remaining resetAt }
+  node(id: $pullRequestId) {
+    ... on PullRequest {
+      files(first: 100) { nodes { path viewerViewedState } }
+    }
+  }
+}`
+
+type fileViewsResponse struct {
+	RateLimit struct {
+		Limit     int
+		Cost      int
+		Remaining int
+		ResetAt   time.Time
+	}
+	Node *struct {
+		Files struct {
+			Nodes []struct {
+				Path              string
+				ViewerViewedState FileViewedState
+			}
+		}
+	}
+}
+
+// PullRequestFiles fetches the diff over REST and its viewer state over
+// GraphQL. Neither transport carries both.
 //
 // changedFiles is what the pull request says it touched. The response is capped
 // at one page, and without the number the caller already holds there is no way
 // to say how many files went unfetched.
-func (c *Client) PullRequestFiles(ctx context.Context, repo string, number, changedFiles int) (FilesResult, error) {
+func (c *Client) PullRequestFiles(ctx context.Context, prID, repo string, number, changedFiles int) (FilesResult, error) {
 	if !strings.Contains(repo, "/") {
 		return FilesResult{}, fmt.Errorf("fetching files (%s#%d): %q is not owner/name", repo, number, repo)
+	}
+	if prID == "" {
+		return FilesResult{}, fmt.Errorf("fetching files (%s#%d): pull request id is empty", repo, number)
+	}
+
+	var views fileViewsResponse
+	if err := c.gql.DoWithContext(ctx, fileViewsQuery, map[string]any{"pullRequestId": prID}, &views); err != nil {
+		return FilesResult{}, fmt.Errorf("fetching file viewed states (%s#%d): %w", repo, number, classify(err))
+	}
+	if views.Node == nil {
+		return FilesResult{}, fmt.Errorf("fetching file viewed states (%s#%d): GitHub returned no pull request", repo, number)
 	}
 
 	path := fmt.Sprintf("repos/%s/pulls/%d/files?per_page=%d", repo, number, filesPage)
@@ -43,8 +81,25 @@ func (c *Client) PullRequestFiles(ctx context.Context, repo string, number, chan
 		return FilesResult{}, fmt.Errorf("fetching files (%s#%d): %w", repo, number, classify(err))
 	}
 
+	files := changed(nodes)
+	viewed := make(map[string]FileViewedState, len(views.Node.Files.Nodes))
+	for _, n := range views.Node.Files.Nodes {
+		viewed[n.Path] = n.ViewerViewedState
+	}
+	for i := range files {
+		state, ok := viewed[files[i].Path]
+		if !ok || state == "" {
+			return FilesResult{}, fmt.Errorf("fetching file viewed states (%s#%d): GitHub returned none for %q", repo, number, files[i].Path)
+		}
+		files[i].Viewed = state
+	}
+
 	return FilesResult{
-		Files:     changed(nodes),
+		Files: files,
+		RateLimit: RateLimit{
+			Limit: views.RateLimit.Limit, Cost: views.RateLimit.Cost,
+			Remaining: views.RateLimit.Remaining, ResetAt: views.RateLimit.ResetAt,
+		},
 		MoreFiles: max(0, changedFiles-len(nodes)),
 	}, nil
 }
