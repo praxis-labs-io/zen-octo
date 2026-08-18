@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -577,6 +578,24 @@ func TestAFailedFileViewedWriteRevealsTheLatestFetchedState(t *testing.T) {
 	held := s.Files("PR_412")
 	if held.Files[0].Viewed != gh.FileDismissed || held.Files[0].Viewing {
 		t.Fatalf("reverted file = %+v, want the refetched dismissed state", held.Files[0])
+	}
+}
+
+func TestSettlingAFileViewedWriteRestoresTheDiffCacheBound(t *testing.T) {
+	s := store.New(configured())
+	keys := make([]string, 25)
+	for i := range keys {
+		id := fmt.Sprintf("PR_%d", i)
+		s.BeginFiles(id)
+		s.FilesApplied(id, gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+		keys[i] = s.PendingFileView(id, "a.go", true)
+	}
+	s.BeginFiles("PR_25")
+	s.FilesApplied("PR_25", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
+
+	s.FileViewReverted("PR_0", keys[0])
+	if s.Files("PR_0").Loaded {
+		t.Error("the unpinned oldest diff remained above the cache bound")
 	}
 }
 

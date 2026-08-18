@@ -172,6 +172,24 @@ func TestMarkViewedAdvancesTheTreeAndStopsAtTheLastFile(t *testing.T) {
 	}
 }
 
+func TestMarkViewedFromTheDiffAdvancesFromTheShownFile(t *testing.T) {
+	files := []gh.ChangedFile{
+		{Path: "dir/a.go", Viewed: gh.FileUnviewed},
+		{Path: "z.go", Viewed: gh.FileUnviewed},
+	}
+	m := detailed(held(sampleDetail()), 120, 30)
+	m.SetFiles(loadedFiles(files, 0))
+	m = press(m, "]", "]", "]", "1", "k", "2")
+
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if got := cmd(); got != (prview.ToggleFileViewedMsg{ID: "PR_412", Path: "dir/a.go", Viewed: true}) {
+		t.Fatalf("toggle = %#v", got)
+	}
+	if got := diffHeads(m.View()); !strings.Contains(got, "z.go") {
+		t.Errorf("marking from the diff advanced to %q, want z.go", got)
+	}
+}
+
 // The tab opens on something to read. A binary file has no body, and opening on
 // one shows a reader an empty pane and a note.
 func TestTheFilesTabOpensOnAFileWithADiff(t *testing.T) {

@@ -1376,9 +1376,21 @@ func (m Model) toggleFileViewed() (Model, tea.Cmd) {
 		Viewed: file.Viewed != gh.FileViewed,
 	}
 	if msg.Viewed {
+		if !m.sideDriving() {
+			m.pointFileCursor(file.Path)
+		}
 		m.jumpFile(1)
 	}
 	return m, func() tea.Msg { return msg }
+}
+
+func (m *Model) pointFileCursor(path string) {
+	for i, row := range m.rows {
+		if row.file != nil && row.file.Path == path {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 func (m *Model) syncContent() {

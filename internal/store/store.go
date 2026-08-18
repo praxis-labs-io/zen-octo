@@ -1003,6 +1003,7 @@ func (s *Store) FileViewApplied(id, key string) {
 	if !ok {
 		return
 	}
+	defer func() { s.dropFileDebts(s.files.evict(id, s.filesPinned)) }()
 	held, ok := s.files.look(id)
 	if !ok {
 		return
@@ -1016,7 +1017,12 @@ func (s *Store) FileViewApplied(id, key string) {
 	s.files.put(id, held)
 }
 
-func (s *Store) FileViewReverted(id, key string) { s.dropFileView(id, key) }
+func (s *Store) FileViewReverted(id, key string) {
+	if _, ok := s.dropFileView(id, key); !ok {
+		return
+	}
+	s.dropFileDebts(s.files.evict("", s.filesPinned))
+}
 
 func (s *Store) dropFileView(id, key string) (FileView, bool) {
 	writes := s.viewing[id]
