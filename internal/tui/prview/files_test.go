@@ -818,6 +818,35 @@ func TestTheRingSkipsThreadsInsideAFoldedHunk(t *testing.T) {
 	}
 }
 
+// A push makes every hunk new reading, even where GitHub gives one the same
+// heading. A refresh on the same commit keeps the reader's place.
+func TestAChangedHeadOpensFoldedHunks(t *testing.T) {
+	d := sampleDetail()
+	d.HeadRefOid = "before"
+	m := detailed(held(d), 200, 50)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	m = press(m, "]", "]", "]", "}", "space")
+
+	m.SetDetail(held(d))
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	if out := stripANSI(m.View()); !strings.Contains(out, "▸ @@ -40,4 +40,5 @@") {
+		t.Error("a refresh on the same head opened the folded hunk")
+	}
+
+	d.HeadRefOid = "after"
+	m.SetDetail(held(d))
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "▾ @@ -40,4 +40,5 @@") {
+		t.Error("a changed head left the hunk folded")
+	}
+	for _, restored := range []string{"time.Sleep(delay)", "This backs off forever."} {
+		if !strings.Contains(out, restored) {
+			t.Errorf("the changed head did not reveal %q", restored)
+		}
+	}
+}
+
 func TestFoldingADirectoryTakesItsFilesOutOfTheTree(t *testing.T) {
 	m := press(onFiles(200, 50), "1", "g", "j", "j", "space")
 

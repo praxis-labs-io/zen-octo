@@ -415,11 +415,19 @@ func (m Model) firstFile() int {
 // a commit to point at. Opening the tab while the detail is still out arms
 // nothing, and without this the column would fill beside a pane that never did.
 func (m *Model) SetDetail(d store.Detail) tea.Cmd {
+	headMoved := m.detail.Loaded && d.Loaded && m.detail.Detail.HeadRefOid != d.Detail.HeadRefOid
 	m.detail = d
 	m.diff.blocks = nil
 	m.conv.ok = false
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
+	}
+	if headMoved {
+		for key := range m.open {
+			if key.kind == focusHunk {
+				delete(m.open, key)
+			}
+		}
 	}
 
 	// A thread that came back open keeps no fold of its own. The flag is read
