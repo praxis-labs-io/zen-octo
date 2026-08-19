@@ -304,6 +304,32 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 	}
 }
 
+func TestHalfPageKeysReadTheLogWhileTheChecksColumnHasFocus(t *testing.T) {
+	m := onChecks(160, 24)
+	job := loadedJob(101, true)
+	var log strings.Builder
+	log.WriteString("2026-08-19T14:00:00Z ##[group]Set up job\n")
+	log.WriteString("2026-08-19T14:00:02Z ##[endgroup]\n")
+	log.WriteString("2026-08-19T14:00:02Z ##[group]Run tests\n")
+	for i := range 60 {
+		fmt.Fprintf(&log, "2026-08-19T14:00:03Z line %02d\n", i)
+	}
+	log.WriteString("2026-08-19T14:00:08Z ##[endgroup]\n")
+	job.Log = log.String()
+	m.SetJob(101, job)
+
+	m = press(m, "ctrl+d")
+	down := stripANSI(m.View())
+	if strings.Contains(down, "No job log is available") || !strings.Contains(down, "line 10") {
+		t.Errorf("ctrl+d moved the job cursor instead of the log:\n%s", down)
+	}
+
+	m = press(m, "ctrl+u")
+	if up := stripANSI(m.View()); !strings.Contains(up, "failing ·") || !strings.Contains(up, "line 00") {
+		t.Errorf("ctrl+u did not return to the top of the selected job:\n%s", up)
+	}
+}
+
 func TestTheChecksTreeStaysAtEveryDrawableWidth(t *testing.T) {
 	for _, width := range []int{69, 60, 56} {
 		m := onChecks(width, 24)

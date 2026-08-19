@@ -802,11 +802,18 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.scroll().PageUp()
 		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		if !m.jumped(m.sidePage() / 2) {
+		// The Checks column selects the one log in the main pane. Half-page
+		// motion reads that log even while the column keeps the keys; moving
+		// half the tree instead skips jobs and leaves the log untouched.
+		if m.tab == tabChecks && m.focus == paneSide {
+			m.view.HalfPageDown()
+		} else if !m.jumped(m.sidePage() / 2) {
 			m.scroll().HalfPageDown()
 		}
 	case key.Matches(keyMsg, k.HalfPageUp):
-		if !m.jumped(-m.sidePage() / 2) {
+		if m.tab == tabChecks && m.focus == paneSide {
+			m.view.HalfPageUp()
+		} else if !m.jumped(-m.sidePage() / 2) {
 			m.scroll().HalfPageUp()
 		}
 	}
