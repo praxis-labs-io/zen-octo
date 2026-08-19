@@ -37,6 +37,79 @@ func TestABeatArmsTheNextEvenHavingAskedForNothing(t *testing.T) {
 	}
 }
 
+// The Checks timer has no startup chain of its own. Entering the tab is the one
+// edge that starts it, or every open session would carry an idle second timer.
+func TestTheChecksBeatStartsOnTheChecksTab(t *testing.T) {
+	m := onADetail(t)
+	model, _ := m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	_, cmd := model.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	if !carries[checksTickMsg](cmd, checksBeat+time.Second) {
+		t.Error("entering Checks did not arm its beat")
+	}
+}
+
+// A Tick cannot be cancelled, so leaving lets the one already armed land. It
+// must end there rather than carrying the chain onto another tab.
+func TestTheChecksBeatStopsAfterATabSwitch(t *testing.T) {
+	m := onTheChecksTab(t)
+	wasDue := m.poller.checksAt
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	m = model.(Model)
+	if m.poller.checksAt != wasDue {
+		t.Error("leaving Checks lost track of the tick still pending")
+	}
+
+	model, cmd := m.Update(checksTickMsg{at: wasDue})
+	m = model.(Model)
+	if cmd != nil {
+		t.Error("the Checks beat rearmed after the tab was left")
+	}
+	if !m.poller.checksAt.IsZero() {
+		t.Error("the stopped Checks chain still reads as armed")
+	}
+}
+
+// A pending Tick is the chain even while its tab is away. Re-entering before it
+// lands must reuse that wait rather than leave a timer and goroutine per visit.
+func TestReturningToChecksDoesNotArmASecondBeat(t *testing.T) {
+	m := onTheChecksTab(t)
+	wasDue := m.poller.checksAt
+
+	for range 3 {
+		model, _ := m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+		m = model.(Model)
+	}
+	model, cmd := m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	m = model.(Model)
+
+	if cmd != nil {
+		t.Error("returning to Checks armed a second beat over the one pending")
+	}
+	if m.poller.checksAt != wasDue {
+		t.Error("returning to Checks replaced the pending beat")
+	}
+}
+
+// If two chains ever arrive, only the first due tick may survive. This is the
+// backstop for leaving and returning before the old tab timer lands.
+func TestASecondChecksChainDiesInsideTheInterval(t *testing.T) {
+	m := onTheChecksTab(t)
+	at := time.Now()
+	m.poller.checksAt = at.Add(checksBeat)
+
+	model, first := m.Update(checksTickMsg{at: at.Add(checksBeat)})
+	m = model.(Model)
+	_, second := m.Update(checksTickMsg{at: at.Add(checksBeat + time.Second)})
+
+	if first == nil {
+		t.Fatal("the due Checks beat did not continue its chain")
+	}
+	if second != nil {
+		t.Error("a second Checks chain inside the interval survived")
+	}
+}
+
 // A needless relayout shows nowhere in the frame: with the same detail in hand
 // SetDetail draws the same page. Arming the commit debounce is where it shows.
 func TestARecheckThatMovedNothingDoesNotRebuildThePage(t *testing.T) {
@@ -63,6 +136,13 @@ func onTheCommitsTab(t *testing.T) Model {
 	t.Helper()
 
 	model, _ := onADetail(t).Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	return model.(Model)
+}
+
+func onTheChecksTab(t *testing.T) Model {
+	t.Helper()
+
+	model, _ := onTheCommitsTab(t).Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 	return model.(Model)
 }
 

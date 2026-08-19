@@ -38,6 +38,50 @@ func (f *fakeSearcher) bumpUpdated(id string, at time.Time) {
 	f.details[id] = held
 }
 
+// The ten-second beat belongs to one tab. A timer left behind by Checks must not
+// refresh the conversation, either diff, or the list after the reader moves on.
+func TestTheChecksBeatFiresOnlyOnTheChecksTab(t *testing.T) {
+	tests := []struct {
+		name   string
+		keys   []string
+		pulses int
+	}{
+		{"conversation", nil, 0},
+		{"commits", []string{"]"}, 0},
+		{"checks", []string{"]", "]"}, 1},
+		{"files", []string{"]", "]", "]"}, 0},
+		{"list", []string{"]", "]", "esc"}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeSearcher{prs: samplePRs()}
+			m := press(opened(t, client), tt.keys...)
+
+			_ = settle(m, app.ChecksTick(time.Now().Add(app.ChecksBeat+time.Second)))
+			if got := len(client.pulsed()); got != tt.pulses {
+				t.Errorf("the Checks beat made %d rechecks, want %d", got, tt.pulses)
+			}
+		})
+	}
+}
+
+// Both timers can land together at the ten-second boundary. BeginPulse is the
+// final guard: the Checks chain must join the five-second chain already out.
+func TestTheChecksBeatDoesNotDoubleTheBackgroundBeat(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := press(opened(t, client), "]", "]")
+	at := time.Now()
+
+	m, background := m.Update(app.PollTick(at.Add(6 * time.Second)))
+	m, checks := m.Update(app.ChecksTick(at.Add(app.ChecksBeat + time.Second)))
+	_ = settle(m, append(responses(background), responses(checks)...)...)
+
+	if got := len(client.pulsed()); got != 1 {
+		t.Errorf("the two beats made %d rechecks, want one", got)
+	}
+}
+
 // CI is what a reader sits and watches, and watching it is the whole complaint.
 func TestABeatRechecksAPullRequestStillMoving(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
