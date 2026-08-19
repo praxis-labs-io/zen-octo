@@ -81,6 +81,17 @@ type Files struct {
 	Loaded bool
 }
 
+// Job is one Actions job's step metadata and downloadable log. It is fetched
+// only when its row is selected, apart from the pull request detail that lists
+// every job.
+type Job struct {
+	Job    gh.Job
+	Log    string
+	Status Status
+	Err    error
+	Loaded bool
+}
+
 // Pending is a write applied here and not yet answered for. It renders as
 // though it had landed, which is what optimistic means.
 //
@@ -124,11 +135,12 @@ type FileView struct {
 type Store struct {
 	sections []Section
 
-	// The three that grow with use, each bounded and evicted least recently
-	// fetched first. repos and branches are one per repository and are not.
+	// The four that grow with use, each bounded and evicted least recently
+	// read first. repos and branches are one per repository and are not.
 	details cache[Detail]
 	files   cache[Files]
 	commits cache[Files]
+	jobs    cache[Job]
 
 	repos    map[string]Repo
 	branches map[string]Branches
@@ -204,6 +216,7 @@ func New(sections []config.Section) Store {
 		details:       newCache[Detail](detailCap),
 		files:         newCache[Files](filesCap),
 		commits:       newCache[Files](commitCap),
+		jobs:          newCache[Job](jobCap),
 		pulsing:       make(map[string]bool),
 		stalePulse:    make(map[string]bool),
 		staleTimeline: make(map[string]bool),

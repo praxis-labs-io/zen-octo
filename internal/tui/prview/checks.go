@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
@@ -12,72 +13,81 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 )
 
-// statusGroup names the bucket for checks with no workflow behind them. A
-// status context is posted straight against the commit, so there is no run to
-// file it under.
-const statusGroup = "Status checks"
+const (
+	checkParentPrefix = "workflow\x00"
+	checkJobPrefix    = "job\x00"
+)
 
-// checkGroup is one workflow and the jobs that ran under it.
+// checkGroup is one workflow and the jobs that ran under it. A group with no
+// workflow is the status contexts posted directly against the commit.
 type checkGroup struct {
 	name   string
 	checks []gh.Check
 	state  gh.CheckState
 }
 
-// checks is the Checks tab: the rollup grouped by workflow, which group the
-// column is pointing at, and the line each group's card opens on.
-//
-// starts is what lets the cursor scroll the pane instead of replacing what is
-// in it, the same way the file column scrolls the diff.
-type checks struct {
-	cursor int
-	groups []checkGroup
-	starts []int
+// checkTreeRow is one visible line in the Checks column. A parent folds a
+// multi-job workflow; every other row is the same logical check the details
+// rail lists.
+type checkTreeRow struct {
+	key      string
+	label    string
+	checkKey string
+	state    gh.CheckState
+	count    int
+	depth    int
+	parent   bool
+	folded   bool
 }
 
-// groupChecks buckets the rollup by the workflow behind each check, in the
-// order they first appear. The rail lists the same checks in the same order, so
-// the two columns read down together, and a rerun keeps the slot it had rather
-// than jumping the list under the cursor.
+// checks owns the stable logical selection and the concrete attempt loaded for
+// it. selected survives a rerun because Check.Key does; wanted and job use the
+// new JobID so an earlier attempt's log can never appear under it.
+type checks struct {
+	cursor   int
+	groups   []checkGroup
+	rows     []checkTreeRow
+	selected string
+	folded   map[string]bool
+
+	wanted int64
+	job    store.Job
+
+	step       int
+	stepStarts []int
+	stepOpen   map[int]bool
+	stepSeen   map[int]bool
+
+	searching  bool
+	search     comp.Search
+	matchLines []int
+}
+
+// groupChecks keeps workflow order from the rollup. Status contexts are flat
+// leaves in the tree, but collecting them here and moving them to the end keeps
+// the ordering rule in one place.
 func groupChecks(r gh.CheckRollup) []checkGroup {
 	at := make(map[string]int, len(r.Checks))
 	var out []checkGroup
-
-	// Keyed on the workflow rather than on the label, so a repository with a
-	// workflow actually called "Status checks" keeps its own group instead of
-	// swallowing every status context posted against the commit.
 	for _, c := range r.Checks {
 		i, ok := at[c.Workflow]
 		if !ok {
 			i = len(out)
 			at[c.Workflow] = i
-
-			name := c.Workflow
-			if name == "" {
-				name = statusGroup
-			}
-			out = append(out, checkGroup{name: name})
+			out = append(out, checkGroup{name: c.Workflow})
 		}
 		out[i].checks = append(out[i].checks, c)
 	}
-
-	// The status contexts go last whatever order they arrived in. They are what
-	// something outside the repository posted, and they read as a footnote to
-	// the workflows this repository runs rather than as one of them.
 	if i, ok := at[""]; ok && i != len(out)-1 {
 		g := out[i]
 		out = append(append(out[:i:i], out[i+1:]...), g)
 	}
-
 	for i := range out {
 		out[i].state = worst(out[i].checks)
 	}
 	return out
 }
 
-// worst is the one state a workflow reads as: whichever of its jobs most wants
-// looking at. One failure among nine passes is a failed run, and a marker that
-// said otherwise would be the reason to miss it.
 func worst(list []gh.Check) gh.CheckState {
 	out := gh.CheckStateNone
 	for _, c := range list {
@@ -88,9 +98,6 @@ func worst(list []gh.Check) gh.CheckState {
 	return out
 }
 
-// rank orders the states by how much attention they want. Skipped sits above
-// nothing-reported, so a workflow entirely skipped reads as skipped rather than
-// as the pass an empty rollup reads as.
 func rank(s gh.CheckState) int {
 	switch s {
 	case gh.CheckStateFailure, gh.CheckStateError:
@@ -105,58 +112,181 @@ func rank(s gh.CheckState) int {
 	return 0
 }
 
-// syncChecks rebuilds the groups from a rollup that has just landed or changed
-// under the cursor. The cursor holds its workflow by name rather than by index:
-// a refetch that adds a run would otherwise leave it pointing at a different
-// one.
+func checkParentKey(workflow string) string { return checkParentPrefix + workflow }
+func checkRowKey(c gh.Check) string         { return checkJobPrefix + c.Key() }
+
+// flattenChecks makes single-job workflows one row and gives only multi-job
+// workflows a parent. Status contexts are never a synthetic workflow.
+func flattenChecks(groups []checkGroup, folded map[string]bool) []checkTreeRow {
+	var out []checkTreeRow
+	for _, g := range groups {
+		switch {
+		case g.name == "":
+			for _, c := range g.checks {
+				out = append(out, checkTreeRow{
+					key: checkRowKey(c), label: c.Name, checkKey: c.Key(), state: c.State,
+				})
+			}
+		case len(g.checks) == 1:
+			c := g.checks[0]
+			out = append(out, checkTreeRow{
+				key: checkRowKey(c), label: g.name + " / " + c.Name, checkKey: c.Key(), state: c.State,
+			})
+		default:
+			key := checkParentKey(g.name)
+			closed := folded[key]
+			out = append(out, checkTreeRow{
+				key: key, label: g.name, state: g.state, count: len(g.checks), parent: true, folded: closed,
+			})
+			if closed {
+				continue
+			}
+			for _, c := range g.checks {
+				out = append(out, checkTreeRow{
+					key: checkRowKey(c), label: c.Name, checkKey: c.Key(), state: c.State, depth: 1,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// syncChecks rebuilds the visible tree after a detail or fold changes. Both
+// cursor and selected job are restored by stable keys, never by indexes that a
+// poll may have moved.
 func (m *Model) syncChecks() {
-	var was string
-	if m.check.cursor < len(m.check.groups) {
-		was = m.check.groups[m.check.cursor].name
+	var cursorKey string
+	if m.check.cursor < len(m.check.rows) {
+		cursorKey = m.check.rows[m.check.cursor].key
+	}
+	if m.check.folded == nil {
+		m.check.folded = make(map[string]bool)
 	}
 
 	m.check.groups = groupChecks(m.detail.Detail.Rollup)
-	m.check.cursor = min(m.check.cursor, max(0, len(m.check.groups)-1))
+	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
 
-	for i, g := range m.check.groups {
-		if g.name == was {
-			m.check.cursor = i
-			break
+	if m.checkForKey(m.check.selected) == nil {
+		m.check.selected = ""
+		for _, r := range m.check.rows {
+			if r.checkKey != "" {
+				m.check.selected = r.checkKey
+				break
+			}
 		}
 	}
 
-	// A run that starts while the tab is open lands above the cursor as often
-	// as below it. Holding the workflow moves the cursor's index, and a window
-	// left where it was is then a column with nothing marked in it.
+	m.check.cursor = 0
+	found := false
+	if cursorKey != "" {
+		for i, r := range m.check.rows {
+			if r.key == cursorKey {
+				m.check.cursor, found = i, true
+				break
+			}
+		}
+	}
+	if !found {
+		for i, r := range m.check.rows {
+			if r.checkKey == m.check.selected {
+				m.check.cursor = i
+				break
+			}
+		}
+	}
+	if c := m.selectedCheck(); c == nil || c.JobID != m.check.wanted {
+		m.resetCheckJob()
+	}
 	showRow(&m.sideView, m.check.cursor)
 }
 
-// moveCheck walks the column, and the pane beside it scrolls to the workflow
-// the cursor lands on. The pane holds every workflow either way: the jobs came
-// with the detail, so there is nothing to ask for and nothing to swap out.
+func (m *Model) checkForKey(key string) *gh.Check {
+	for i := range m.detail.Detail.Rollup.Checks {
+		if m.detail.Detail.Rollup.Checks[i].Key() == key {
+			return &m.detail.Detail.Rollup.Checks[i]
+		}
+	}
+	return nil
+}
+
+func (m *Model) selectedCheck() *gh.Check { return m.checkForKey(m.check.selected) }
+
+// moveCheck walks visible tree rows. A parent leaves the selected job in the
+// pane, the same way a directory row leaves the shown file alone.
 func (m *Model) moveCheck(delta int) {
-	if len(m.check.groups) == 0 {
+	if len(m.check.rows) == 0 {
 		return
 	}
-	m.check.cursor = min(max(m.check.cursor+delta, 0), len(m.check.groups)-1)
-
+	m.check.cursor = min(max(m.check.cursor+delta, 0), len(m.check.rows)-1)
+	if key := m.check.rows[m.check.cursor].checkKey; key != "" && key != m.check.selected {
+		m.check.selected = key
+		m.resetCheckJob()
+		m.view.SetYOffset(0)
+	}
 	showRow(&m.sideView, m.check.cursor)
 	m.syncContent()
-	m.showCursorCard()
 }
 
-// showCursorCard opens the pane on the selected workflow's heading. The starts
-// come from the last render, so this runs after the resync rather than before.
-func (m *Model) showCursorCard() {
-	if m.check.cursor >= len(m.check.starts) {
+func (m *Model) resetCheckJob() {
+	m.check.wanted = 0
+	m.check.job = store.Job{}
+	m.check.step = 0
+	m.check.stepStarts = nil
+	m.check.stepOpen = nil
+	m.check.stepSeen = nil
+	m.check.searching = false
+	m.check.search = comp.Search{}
+	m.check.matchLines = nil
+}
+
+func (m *Model) toggleCheckFold() {
+	if m.check.cursor >= len(m.check.rows) || !m.check.rows[m.check.cursor].parent {
 		return
 	}
-	m.view.SetYOffset(contentLead + m.check.starts[m.check.cursor])
+	key := m.check.rows[m.check.cursor].key
+	m.check.folded[key] = !m.check.folded[key]
+	m.syncChecks()
+	m.syncContent()
 }
 
-// checkTitle counts the jobs rather than the workflows. The status contexts are
-// in that count and are no one's workflow, so counting groups would name them
-// something they are not.
+func (m Model) checkFoldable() bool {
+	return m.tab == tabChecks && m.focus == paneSide && m.check.cursor < len(m.check.rows) &&
+		m.check.rows[m.check.cursor].parent
+}
+
+// armJob asks the root for the concrete attempt selected now. A status context
+// has no Actions job and deliberately asks for nothing.
+func (m *Model) armJob() tea.Cmd {
+	if m.tab != tabChecks {
+		return nil
+	}
+	c := m.selectedCheck()
+	if c == nil || c.JobID == 0 || c.JobID == m.check.wanted {
+		return nil
+	}
+	m.check.wanted = c.JobID
+	id := c.JobID
+	return func() tea.Msg { return NeedJobMsg{JobID: id} }
+}
+
+// SetJob takes the fetched state from the root. A response for a job the cursor
+// has left stays in the store and does not repaint this pane.
+func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
+	c := m.selectedCheck()
+	if c == nil || c.JobID != id {
+		return nil
+	}
+	if m.check.job.Job.ID != id && job.Loaded {
+		m.check.step = 0
+		m.check.stepOpen = make(map[int]bool)
+		m.check.stepSeen = make(map[int]bool)
+	}
+	m.check.wanted = id
+	m.check.job = job
+	m.syncContent()
+	return m.Init()
+}
+
 func (m Model) checkTitle() string {
 	if !m.detail.Loaded {
 		return "Checks"
@@ -164,66 +294,55 @@ func (m Model) checkTitle() string {
 	return comp.Plural(len(m.detail.Detail.Rollup.Checks), "check")
 }
 
-// checkColumn is the workflow list. It paints its own selection, so it hands
-// the viewport lines already the full inner width.
 func (m Model) checkColumn(width int) string {
 	if !m.detail.Loaded {
 		return ""
 	}
-	if len(m.check.groups) == 0 {
+	if len(m.check.rows) == 0 {
 		return m.faint().Render("No checks.")
 	}
-
-	lines := make([]string, len(m.check.groups))
-	for i, g := range m.check.groups {
-		lines[i] = m.checkRow(g, width, i == m.check.cursor)
+	lines := make([]string, len(m.check.rows))
+	for i, r := range m.check.rows {
+		lines[i] = m.checkTreeLine(r, width, i == m.check.cursor)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// checkRow is one workflow on one line: its state, its name, and how many jobs
-// ran under it. One line rather than the commit column's two, which is what
-// keeps the window arithmetic a clamp instead of a multiply.
-//
-// The marker is the dot the rail uses. Color carries the state, and a column of
-// one shape reads down faster than a column of four.
-//
-// Selection is painted cell by cell, the same way the other two columns paint
-// it. Every styled run ends in a reset that clears the background with it, so a
-// joined row wrapped in the background style afterwards paints only its first
-// cell.
-func (m Model) checkRow(g checkGroup, width int, selected bool) string {
+func (m Model) checkTreeLine(r checkTreeRow, width int, selected bool) string {
 	base := lipgloss.NewStyle()
 	if selected {
 		base = base.Background(m.theme.SelectedBackground)
 	}
-
-	_, c := comp.CheckStateIcon(m.theme, g.state)
-	lead := base.Foreground(c).Render(glyphCheck) + base.Render(" ") +
-		base.Foreground(m.theme.Text).Render(g.name)
-
-	count := base.Foreground(m.theme.Subtle).Render(strconv.Itoa(len(g.checks)))
-	return m.padTo(m.checkLine(lead, count, width, base), width, base)
+	_, c := comp.CheckStateIcon(m.theme, r.state)
+	fold := ""
+	if r.parent {
+		fold = "▾ "
+		if r.folded {
+			fold = "▸ "
+		}
+	}
+	indent := strings.Repeat("  ", r.depth)
+	lead := base.Render(indent+fold) + base.Foreground(c).Render(glyphCheck) + base.Render(" ") +
+		base.Foreground(m.theme.Text).Render(r.label)
+	right := ""
+	if r.parent {
+		right = base.Foreground(m.theme.Subtle).Render(strconv.Itoa(r.count))
+	}
+	return m.padTo(m.checkLine(lead, right, width, base), width, base)
 }
 
-// checkLine lays a row out as a lead on the left and a short word on the right,
-// the lead giving way when the two will not fit. Every row on this tab has that
-// shape, and the count and the state word are each a few cells: clipped, they
-// read as real ones.
 func (m Model) checkLine(lead, right string, width int, base lipgloss.Style) string {
 	room := max(0, width-lipgloss.Width(right)-1)
 	if lipgloss.Width(lead) > room {
 		lead = paint.Clip(lead, room, base.Foreground(m.theme.Subtle))
 	}
-
 	gap := max(1, width-lipgloss.Width(lead)-lipgloss.Width(right))
 	return lead + base.Render(strings.Repeat(" ", gap)) + right
 }
 
-// checkBody is every workflow's card, in the order the column lists them. The
-// pane holds the lot at every width and the cursor scrolls it, the way the file
-// column scrolls the diff. Rendering only the selected one would mean a resize
-// across the column's floor changed what was on screen without a keypress.
+// checkBody is the selected job, not another rollup of everything in the
+// column. On narrow frames the selected job remains named by its summary even
+// though the column is hidden; switching jobs there follows in a later slice.
 func (m *Model) checkBody() string {
 	if !m.detail.Loaded {
 		if m.detail.Status == store.StatusFailed {
@@ -231,87 +350,9 @@ func (m *Model) checkBody() string {
 		}
 		return m.spinner.Render("Loading the checks")
 	}
-	if len(m.check.groups) == 0 {
+	c := m.selectedCheck()
+	if c == nil {
 		return m.faint().Render("No checks have reported.")
 	}
-
-	width := m.bodyWidth()
-	cards := make([]string, len(m.check.groups))
-	m.check.starts = make([]int, len(m.check.groups))
-
-	at := 0
-	for i, g := range m.check.groups {
-		cards[i] = m.checkCard(g, width)
-		m.check.starts[i] = at
-		// The card's own lines, plus the blank that separates it from the next.
-		at += strings.Count(cards[i], "\n") + 2
-	}
-	return strings.Join(cards, "\n\n")
-}
-
-// checkCard is one workflow's jobs in a box of its own, headed by the workflow
-// and what its jobs came to.
-func (m Model) checkCard(g checkGroup, width int) string {
-	inner := max(1, width-2)
-
-	rows := make([]string, len(g.checks))
-	for i, c := range g.checks {
-		rows[i] = m.jobRow(c, inner)
-	}
-
-	pane := comp.NewPane(m.theme).Header(" " + m.checkHead(g, inner-1))
-	return pane.Size(width, len(rows)+pane.Chrome()).Render(strings.Join(rows, "\n"))
-}
-
-// checkHead is the workflow and its tally, the tally pushed to the far edge.
-func (m Model) checkHead(g checkGroup, width int) string {
-	icon, c := comp.CheckStateIcon(m.theme, g.state)
-	lead := lipgloss.NewStyle().Foreground(c).Render(icon) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(g.name)
-
-	line := m.checkLine(lead, m.checkTally(g), width, lipgloss.NewStyle())
-	return clipTo(line, width, m.faint())
-}
-
-// checkTally counts the jobs by what they came to, in the words the rest of the
-// screen uses for them. Only the states with something in them, worst first: a
-// run of four counts where three are zero buries the one that matters.
-func (m Model) checkTally(g checkGroup) string {
-	order := []gh.CheckState{
-		gh.CheckStateFailure,
-		gh.CheckStateError,
-		gh.CheckStatePending,
-		gh.CheckStateExpected,
-		gh.CheckStateSuccess,
-		gh.CheckStateSkipped,
-	}
-
-	var parts []string
-	for _, s := range order {
-		n := 0
-		for _, c := range g.checks {
-			if c.State == s {
-				n++
-			}
-		}
-		if n == 0 {
-			continue
-		}
-		label, c := comp.CheckStateLabel(m.theme, s)
-		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(strconv.Itoa(n)+" "+label))
-	}
-	return strings.Join(parts, m.faint().Render(" · "))
-}
-
-// jobRow is one job: its state and name on the left, what it came to on the
-// right.
-func (m Model) jobRow(c gh.Check, width int) string {
-	icon, ic := comp.CheckStateIcon(m.theme, c.State)
-	lead := " " + lipgloss.NewStyle().Foreground(ic).Render(icon) + " " +
-		lipgloss.NewStyle().Foreground(m.theme.Text).Render(c.Name)
-
-	label, lc := comp.CheckStateLabel(m.theme, c.State)
-	word := lipgloss.NewStyle().Foreground(lc).Render(label)
-
-	return clipTo(m.checkLine(lead, word, width, lipgloss.NewStyle()), width, m.faint())
+	return m.jobBody(*c, m.bodyWidth())
 }

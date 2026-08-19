@@ -10,6 +10,61 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
+func TestJobFetchesTheStepsBesideTheLog(t *testing.T) {
+	rest := &fakeREST{body: `{
+		"id": 9001,
+		"name": "test",
+		"status": "completed",
+		"conclusion": "failure",
+		"started_at": "2026-08-19T14:00:00Z",
+		"completed_at": "2026-08-19T14:02:03Z",
+		"steps": [
+			{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success", "started_at": "2026-08-19T14:00:00Z", "completed_at": "2026-08-19T14:00:04Z"},
+			{"number": 2, "name": "Run tests", "status": "completed", "conclusion": "failure", "started_at": "2026-08-19T14:00:04Z", "completed_at": "2026-08-19T14:02:03Z"},
+			{"number": 3, "name": "Publish", "status": "completed", "conclusion": "skipped", "started_at": null, "completed_at": null}
+		]
+	}`}
+
+	got, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo/zen-octo", 9001)
+	if err != nil {
+		t.Fatalf("Job: %v", err)
+	}
+	if rest.gotMethod != http.MethodGet {
+		t.Errorf("method = %q, want GET", rest.gotMethod)
+	}
+	if want := "repos/zen-octo/zen-octo/actions/jobs/9001"; rest.gotPath != want {
+		t.Errorf("path = %q, want %q", rest.gotPath, want)
+	}
+	if got.ID != 9001 || got.Name != "test" || got.State != CheckStateFailure {
+		t.Errorf("job = %+v, want the failed test job", got)
+	}
+	if got.Duration.String() != "2m3s" {
+		t.Errorf("duration = %s, want 2m3s", got.Duration)
+	}
+	if len(got.Steps) != 3 {
+		t.Fatalf("steps = %+v, want three", got.Steps)
+	}
+	if got.Steps[0].State != CheckStateSuccess || got.Steps[0].Duration.String() != "4s" {
+		t.Errorf("setup = %+v, want a four-second pass", got.Steps[0])
+	}
+	if got.Steps[1].State != CheckStateFailure || got.Steps[1].Duration.String() != "1m59s" {
+		t.Errorf("tests = %+v, want a 1m59s failure", got.Steps[1])
+	}
+	if got.Steps[2].State != CheckStateSkipped || got.Steps[2].Duration != 0 {
+		t.Errorf("publish = %+v, want a skipped step with no duration", got.Steps[2])
+	}
+}
+
+func TestJobForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
+	rest := &fakeREST{body: `{}`}
+	if _, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo", 9001); err == nil {
+		t.Fatal("want an error for a repo with no owner")
+	}
+	if rest.gotPath != "" {
+		t.Errorf("requested %q, want no request at all", rest.gotPath)
+	}
+}
+
 func TestJobLogsAsksTheJobsLogEndpoint(t *testing.T) {
 	rest := &fakeREST{body: "line one\nline two\n"}
 
@@ -90,6 +145,10 @@ func TestAForbiddenJobsCallNamesTheScopeToAdd(t *testing.T) {
 		name string
 		call func(rest *fakeREST) error
 	}{
+		{"Job", func(rest *fakeREST) error {
+			_, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo/zen-octo", 1)
+			return err
+		}},
 		{"JobLogs", func(rest *fakeREST) error {
 			_, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo/zen-octo", 1)
 			return err

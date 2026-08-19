@@ -41,9 +41,12 @@ type fakeSearcher struct {
 	pulses      []string
 	diffs       []string
 	commitDiffs []string
+	jobAsks     []int64
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
+	jobs        map[int64]gh.Job
+	jobLogs     map[int64][]byte
 	posted      []string
 	replied     []string
 	edited      []string
@@ -78,6 +81,7 @@ type fakeSearcher struct {
 	pulseErr        error
 	filesErr        error
 	commitErr       error
+	jobErr          error
 	postErr         error
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
@@ -306,6 +310,41 @@ func (f *fakeSearcher) PullRequestFiles(_ context.Context, _, repo string, numbe
 }
 
 func (f *fakeSearcher) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
+
+func (f *fakeSearcher) Job(_ context.Context, _ string, id int64) (gh.Job, error) {
+	f.mu.Lock()
+	f.jobAsks = append(f.jobAsks, id)
+	job, err := f.jobs[id], f.jobErr
+	f.mu.Unlock()
+	if job.ID == 0 {
+		job.ID = id
+	}
+	return job, err
+}
+
+func (f *fakeSearcher) JobLogs(_ context.Context, _ string, id int64) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.jobLogs[id]), f.jobErr
+}
+
+func (f *fakeSearcher) servedJob(id int64, job gh.Job, log string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.jobs == nil {
+		f.jobs = make(map[int64]gh.Job)
+	}
+	if f.jobLogs == nil {
+		f.jobLogs = make(map[int64][]byte)
+	}
+	f.jobs[id], f.jobLogs[id] = job, []byte(log)
+}
+
+func (f *fakeSearcher) askedJobs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.jobAsks)
+}
 
 // serveFiles stages one pull request's diff.
 func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
@@ -919,6 +958,14 @@ func (f *querySearcher) SetFileViewed(_ context.Context, _, _ string, _ bool) er
 
 func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
 	return gh.FilesResult{}, nil
+}
+
+func (f *querySearcher) Job(_ context.Context, _ string, id int64) (gh.Job, error) {
+	return gh.Job{ID: id}, nil
+}
+
+func (f *querySearcher) JobLogs(_ context.Context, _ string, _ int64) ([]byte, error) {
+	return nil, nil
 }
 
 func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
@@ -3636,4 +3683,46 @@ func (f *fakeSearcher) deletes() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.deletedRefs)
+}
+
+func TestSelectingAJobFetchesItsMetadataAndLogOnce(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateSuccess, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateSuccess,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateSuccess}},
+	}, "2026-08-19T14:00:00Z ok\n")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Fatalf("job asks = %v, want [9001]", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Run tests") {
+		t.Errorf("the landed job did not reach the pane:\n%s", out)
+	}
+
+	press(m, "[", "]")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Errorf("reopening the cached job fetched again: %v", got)
+	}
+}
+
+func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), jobErr: errors.New("no such host")}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	if out := render(t, m); !strings.Contains(out, "Could not load the job log: no such host") {
+		t.Errorf("job failure did not reach the pane:\n%s", out)
+	}
 }

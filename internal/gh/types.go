@@ -438,6 +438,30 @@ type Check struct {
 // hold one.
 func (c Check) Key() string { return c.Workflow + "\x00" + c.Name }
 
+// Job is one Actions job and the steps GitHub ran inside it. The check rollup
+// carries enough to list a job, but not enough to draw its log: step state and
+// timing come from the job endpoint only.
+type Job struct {
+	ID          int64
+	Name        string
+	State       CheckState
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+	Steps       []JobStep
+}
+
+// JobStep is one expandable section of an Actions job log. Number is GitHub's
+// order within the job and remains stable when a skipped step has no log lines.
+type JobStep struct {
+	Number      int
+	Name        string
+	State       CheckState
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+}
+
 // CheckRollup is the head commit's checks as a whole. State is GitHub's own
 // summary; the list and the counts are this package's, from the contexts
 // behind it.

@@ -115,6 +115,13 @@ type DetailMap struct {
 	Resolve key.Binding
 	Jump    key.Binding
 
+	// Search stays inside a job log. NextMatch and PrevMatch repeat it, and
+	// FirstFailure lands on the first failed step without changing its folds.
+	Search       key.Binding
+	NextMatch    key.Binding
+	PrevMatch    key.Binding
+	FirstFailure key.Binding
+
 	// CopyLink and Browse mean the pull request on all four tabs and never the
 	// block the ring is on: nothing but the pull request carries a URL.
 	CopyLink key.Binding
@@ -184,19 +191,23 @@ var (
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
-		Comment:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
-		Post:       key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
-		Activate:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
-		Editor:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
-		Reply:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
-		QuoteReply: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
-		React:      key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
-		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
-		Delete:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
-		Resolve:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
-		Jump:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
-		CopyLink:   key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
-		Browse:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
+		Comment:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
+		Post:         key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
+		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
+		Editor:       key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
+		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		QuoteReply:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
+		React:        key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
+		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+		Delete:       key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
+		Resolve:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
+		Jump:         key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
+		Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search log")),
+		NextMatch:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
+		PrevMatch:    key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "previous match")),
+		FirstFailure: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "first failure")),
+		CopyLink:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
+		Browse:       key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
 	}
 
 	Form = FormMap{
@@ -270,6 +281,10 @@ type DetailContext struct {
 	// chooses the action named beside it.
 	FileView   bool
 	FileViewed bool
+
+	JobLog     bool
+	JobFailure bool
+	JobMatches bool
 }
 
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
@@ -292,6 +307,15 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	if c.Expand {
 		out = append(out, k.Expand)
 	}
+	if c.JobLog {
+		out = append(out, k.Search)
+	}
+	if c.JobFailure {
+		out = append(out, k.FirstFailure)
+	}
+	if c.JobMatches {
+		out = append(out, hint(k.NextMatch, "n/N", "match"))
+	}
 	if c.Rail {
 		out = append(out, k.ToggleRail)
 	}
@@ -311,6 +335,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
+		{k.Search, k.NextMatch, k.PrevMatch, k.FirstFailure},
 		{k.CopyLink, k.Browse},
 		{k.Comment, k.Post, k.Activate, k.Editor},
 		{Form.Next, Form.Prev, Form.Toggle},

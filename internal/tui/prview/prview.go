@@ -30,6 +30,10 @@ type BackMsg struct{}
 // request starts there.
 type NeedFilesMsg struct{ ID string }
 
+// NeedJobMsg asks the root for the metadata and log of one concrete Actions
+// job. A rerun gets a new id, even though it remains the same logical check.
+type NeedJobMsg struct{ JobID int64 }
+
 // ToggleFileViewedMsg asks the root to mark one file viewed or unviewed.
 type ToggleFileViewedMsg struct {
 	ID     string
@@ -452,7 +456,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	// be taken again before they are sized.
 	m.layout()
 	m.keepFocusWhole(held)
-	return m.armCommit()
+	return tea.Batch(m.armCommit(), m.armJob())
 }
 
 // focusWhole is whether the focused card is on the screen entire. A card that
@@ -578,7 +582,7 @@ func (m *Model) showBox() {
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank() ||
+		waitingFor(m.files) || waitingFor(m.commit.files) || waitingForJob(m.check.job) || m.commitBlank() ||
 		m.mentionWaiting()
 }
 
@@ -597,6 +601,10 @@ func waitingFor(f store.Files) bool {
 	return !f.Loaded && f.Status == store.StatusLoading
 }
 
+func waitingForJob(j store.Job) bool {
+	return !j.Loaded && j.Status == store.StatusLoading
+}
+
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
@@ -612,6 +620,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.composeKey(keyMsg)
 	case m.inline.typing:
 		return m.inlineKey(keyMsg)
+	case m.check.searching:
+		return m.checkSearchKey(keyMsg)
 	}
 
 	switch {
@@ -628,6 +638,19 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.ToggleViewed) && m.tab == tabFiles:
 		return m.toggleFileViewed()
+
+	case key.Matches(keyMsg, k.Search) && m.tab == tabChecks:
+		m.startCheckSearch()
+		return m, nil
+	case key.Matches(keyMsg, k.NextMatch) && m.tab == tabChecks:
+		m.moveCheckMatch(1)
+		return m, nil
+	case key.Matches(keyMsg, k.PrevMatch) && m.tab == tabChecks:
+		m.moveCheckMatch(-1)
+		return m, nil
+	case key.Matches(keyMsg, k.FirstFailure) && m.tab == tabChecks:
+		m.jumpFirstCheckFailure()
+		return m, nil
 
 	// Both mean the pull request on every tab, whatever the ring is on: nothing
 	// below it carries a URL to reach.
@@ -729,8 +752,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
-	// The tree is the column's, and the blocks are the pane's. Falling from one
-	// to the other folds a directory the reader is not looking at.
+	// The trees are the column's, and the blocks are the pane's. Falling from
+	// one to the other folds something the reader is not looking at.
+	case key.Matches(keyMsg, k.Expand) && m.checkFoldable():
+		m.toggleCheckFold()
+	case key.Matches(keyMsg, k.Expand) && m.checkStepFoldable():
+		m.toggleCheckStep()
 	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles && m.focus != paneMain:
 		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
@@ -784,7 +811,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 
-	return m, m.armCommit()
+	return m, tea.Batch(m.armCommit(), m.armJob())
 }
 
 // refresh names what is stale to the reader. The Conversation and Checks tabs
@@ -817,6 +844,8 @@ func (m Model) refresh() tea.Cmd {
 // anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
 	switch {
+	case m.tab == tabChecks && m.focus == paneMain && m.moveCheckStep(delta):
+		return
 	case m.sideDriving():
 		m.moveSide(delta)
 		return
@@ -880,7 +909,7 @@ func (m Model) sideRows() int {
 	case tabCommits:
 		return len(m.detail.Detail.Commits)
 	case tabChecks:
-		return len(m.check.groups)
+		return len(m.check.rows)
 	}
 	return len(m.rows)
 }
@@ -973,7 +1002,7 @@ func (m *Model) goToTab(at int) tea.Cmd {
 	// again instead of reading the one from before the push for the rest of the
 	// session, and revisiting the tab on this screen still costs nothing.
 	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
-		return m.armCommit()
+		return tea.Batch(m.armCommit(), m.armJob())
 	}
 	m.filesAsked = true
 
@@ -1308,16 +1337,13 @@ func (m Model) sideVisibleTab() bool {
 	return false
 }
 
-// sideVisible decides whether the left column is on screen. All three columns
-// share the floor: below it the main pane is too narrow for its own tab strip,
-// and the frame renders wider than the terminal it was given.
-//
-// Files falls back to the file headings inside the diff, and Checks to every
-// workflow's card at once. Commits has no fallback, so a frame that narrow
-// shows the diff it was last given and nothing to change it with. The card
-// above the diff still names the commit.
+// sideVisible decides whether the left column is on screen. Files and Commits
+// hide theirs below the shared floor so the diff keeps its measure. Checks is
+// different: its pane shows one selected job, so hiding the column would leave
+// every other job unreachable. Its compact one-line tree stays at every width
+// the shell draws.
 func (m Model) sideVisible() bool {
-	return m.sideVisibleTab() && m.width >= treeMinFrame
+	return m.sideVisibleTab() && (m.width >= treeMinFrame || m.tab == tabChecks)
 }
 
 // sideColumn is what the left column gets. It takes its full width where the
@@ -1358,17 +1384,20 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 // keymap is the same on all four, and the difference is which of them holds
 // blocks, folds and a rail.
 //
-// Checks is the one with none of the three. Its column and its output are read
-// rather than opened, and it has no rail because it has a column.
+// Checks has a fold only while its cursor is on a multi-job workflow parent.
+// It has no rail because it already has a column.
 func (m Model) ShortHelp() []key.Binding {
 	file := m.fileViewTarget()
 	return keys.Detail.ShortHelp(keys.DetailContext{
 		Blocks:     m.tab != tabChecks,
-		Expand:     m.tab == tabFiles || m.railTab(),
+		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
 		Rail:       m.railTab(),
 		Files:      m.tab == tabFiles,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
+		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
+		JobFailure: m.tab == tabChecks && m.checkHasFailure(),
+		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
 	})
 }
 
