@@ -12,6 +12,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func checkRollup() gh.CheckRollup {
@@ -193,6 +194,20 @@ func TestFailedStepsStartOpenAndPassingStepsStartClosed(t *testing.T) {
 	if !strings.Contains(out, "tests failed") || strings.Contains(out, "runner ready") {
 		t.Error("the wrong step output is expanded")
 	}
+}
+
+func TestGitHubLogAnnotationsUseTheThemeWhenTheToolSentNoColor(t *testing.T) {
+	m := press(onChecks(160, 24), "j", "j", "j")
+	m.SetJob(103, loadedJob(103, true))
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "tests failed") {
+			if !strings.Contains(line, fgSeq(theme.RosePineMoon.Error)) {
+				t.Errorf("error line has no error color: %q", line)
+			}
+			return
+		}
+	}
+	t.Fatal("the error annotation is not on screen")
 }
 
 func TestSpaceTogglesTheStepUnderTheMainPaneCursor(t *testing.T) {

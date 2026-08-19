@@ -232,7 +232,7 @@ func (m *Model) jobSteps(width int) string {
 
 func sectionMatches(search comp.Search, section jobSection) bool {
 	for _, line := range section.lines {
-		if search.Matches(line) {
+		if search.Matches(xansi.Strip(line)) {
 			return true
 		}
 	}
@@ -263,10 +263,11 @@ func (m Model) jobStepRow(section jobSection, width int, selected, open bool) (s
 	var matches []int
 	mark := lipgloss.NewStyle().Background(m.theme.SelectedBackground).Foreground(m.theme.Warning).Bold(true)
 	for _, line := range section.lines {
-		if m.check.search.Matches(line) {
+		if m.check.search.Matches(xansi.Strip(line)) {
 			matches = append(matches, len(lines))
 			line = m.check.search.Highlight(line, mark)
 		}
+		line = m.styleJobLogLine(line)
 		line = "    " + line
 		lines = append(lines, clipTo(line, width, m.faint()))
 	}
@@ -324,15 +325,76 @@ func jobLogLine(line string) (time.Time, string, bool) {
 	return at, rest, true
 }
 
-// Logs are untrusted terminal text. ANSI and control characters cannot be
-// handed to the alt screen, where they could move the cursor or rewrite chrome.
+// Logs are untrusted terminal text. SGR changes how their own text looks and
+// is safe to keep; every other escape and control could move the cursor,
+// rewrite chrome, or open a terminal command, so it is dropped.
 func cleanJobLogLine(line string) string {
-	line = xansi.Strip(strings.TrimSuffix(line, "\r"))
-	line = strings.ReplaceAll(line, "\t", "    ")
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
+	line = strings.ReplaceAll(strings.TrimSuffix(line, "\r"), "\t", "    ")
+
+	parser := xansi.NewParser()
+	state := byte(xansi.NormalState)
+	var out strings.Builder
+	styled := false
+	for len(line) > 0 {
+		seq, width, n, next := xansi.DecodeSequence(line, state, parser)
+		if n <= 0 {
+			break
 		}
-		return r
-	}, line)
+		state = next
+		switch {
+		case sgrSequence(seq, parser):
+			out.WriteString(seq)
+			styled = true
+		case width > 0 || printableSequence(seq):
+			out.WriteString(seq)
+		}
+		line = line[n:]
+	}
+	if styled {
+		out.WriteString(xansi.ResetStyle)
+	}
+	return out.String()
+}
+
+func sgrSequence(seq string, parser *xansi.Parser) bool {
+	if len(seq) < 3 || (!strings.HasPrefix(seq, "\x1b[") && seq[0] != xansi.CSI) {
+		return false
+	}
+	cmd := xansi.Cmd(parser.Command())
+	return cmd.Final() == 'm' && cmd.Prefix() == 0 && cmd.Intermediate() == 0
+}
+
+func printableSequence(seq string) bool {
+	for _, r := range seq {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return seq != ""
+}
+
+// styleJobLogLine is the fallback for GitHub's own annotations, which carry a
+// semantic marker even when the command that wrote them emitted no ANSI.
+func (m Model) styleJobLogLine(line string) string {
+	plain := strings.TrimSpace(xansi.Strip(line))
+	// A tool that chose its own colors keeps them. Wrapping ANSI in another
+	// style loses the outer color at the first inner reset.
+	if plain != strings.TrimSpace(line) {
+		return line
+	}
+
+	var style lipgloss.Style
+	switch {
+	case strings.HasPrefix(plain, "##[error]"), strings.HasPrefix(plain, "::error"):
+		style = lipgloss.NewStyle().Foreground(m.theme.Error)
+	case strings.HasPrefix(plain, "##[warning]"), strings.HasPrefix(plain, "::warning"):
+		style = lipgloss.NewStyle().Foreground(m.theme.Warning)
+	case strings.HasPrefix(plain, "##[notice]"), strings.HasPrefix(plain, "::notice"):
+		style = lipgloss.NewStyle().Foreground(m.theme.Accent)
+	case strings.HasPrefix(plain, "##[command]"), strings.HasPrefix(plain, "::debug"):
+		style = lipgloss.NewStyle().Foreground(m.theme.Subtle)
+	default:
+		return line
+	}
+	return style.Render(line)
 }
