@@ -199,7 +199,7 @@ func shortDuration(d time.Duration) string {
 }
 
 func (m *Model) jobSteps(width int) string {
-	sections := splitJobLog(m.check.job.Job, m.check.job.Log)
+	sections := m.check.sections
 	if len(sections) == 0 {
 		return m.faint().Render("No steps were reported for this job.")
 	}

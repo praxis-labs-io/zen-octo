@@ -50,8 +50,9 @@ type checks struct {
 	selected string
 	folded   map[string]bool
 
-	wanted int64
-	job    store.Job
+	wanted   int64
+	job      store.Job
+	sections []jobSection
 
 	step       int
 	stepStarts []int
@@ -231,6 +232,7 @@ func (m *Model) moveCheck(delta int) {
 func (m *Model) resetCheckJob() {
 	m.check.wanted = 0
 	m.check.job = store.Job{}
+	m.check.sections = nil
 	m.check.step = 0
 	m.check.stepStarts = nil
 	m.check.stepOpen = nil
@@ -284,6 +286,13 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	}
 	m.check.wanted = id
 	m.check.job = job
+	if job.Loaded {
+		// Parsing and sanitizing a real Actions log can mean walking megabytes.
+		// Do it when the response lands, not on every j or k over its steps.
+		m.check.sections = splitJobLog(job.Job, job.Log)
+	} else {
+		m.check.sections = nil
+	}
 	m.syncContent()
 	return m.Init()
 }
