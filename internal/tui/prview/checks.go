@@ -18,6 +18,16 @@ const (
 	checkJobPrefix    = "job\x00"
 )
 
+// RerunCheckMsg asks the root to rerun the selected failed Actions job. The
+// concrete job id makes the write precise; the logical key remains selected
+// when GitHub replaces it with the new attempt.
+type RerunCheckMsg struct {
+	ID    string
+	Repo  string
+	JobID int64
+	Name  string
+}
+
 // checkGroup is one workflow and the jobs that ran under it. A group with no
 // workflow is the status contexts posted directly against the commit.
 type checkGroup struct {
@@ -67,6 +77,7 @@ type checks struct {
 	searching  bool
 	search     comp.Search
 	matchLines []int
+	rerunning  bool
 }
 
 // groupChecks keeps workflow order from the rollup. Status contexts are flat
@@ -218,6 +229,42 @@ func (m *Model) checkForKey(key string) *gh.Check {
 
 func (m *Model) selectedCheck() *gh.Check { return m.checkForKey(m.check.selected) }
 
+func (m Model) canRerunCheck() bool {
+	if m.tab != tabChecks || m.check.rerunning {
+		return false
+	}
+	check := m.selectedCheck()
+	return check != nil && check.JobID != 0 &&
+		(check.State == gh.CheckStateFailure || check.State == gh.CheckStateError)
+}
+
+func (m *Model) rerunCheck() tea.Cmd {
+	if !m.canRerunCheck() {
+		return nil
+	}
+	check := *m.selectedCheck()
+	m.check.rerunning = true
+	m.syncContent()
+	name := check.Name
+	if check.Workflow != "" {
+		name = check.Workflow + " / " + check.Name
+	}
+	return func() tea.Msg {
+		return RerunCheckMsg{ID: m.pr.ID, Repo: m.pr.Repository, JobID: check.JobID, Name: name}
+	}
+}
+
+// RerunSettled releases the key only if the answer belongs to the attempt still
+// on screen. Polling replaces that attempt when GitHub publishes the rerun.
+func (m *Model) RerunSettled(jobID int64) {
+	check := m.selectedCheck()
+	if check == nil || check.JobID != jobID {
+		return
+	}
+	m.check.rerunning = false
+	m.syncContent()
+}
+
 // moveCheck walks visible tree rows. A parent leaves the selected job in the
 // pane, the same way a directory row leaves the shown file alone.
 func (m *Model) moveCheck(delta int) {
@@ -256,6 +303,7 @@ func (m *Model) resetCheckJob() {
 	m.check.searching = false
 	m.check.search = comp.Search{}
 	m.check.matchLines = nil
+	m.check.rerunning = false
 }
 
 func (m *Model) toggleCheckFold() {

@@ -41,6 +41,7 @@ type GitHub interface {
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 	Job(ctx context.Context, repo string, jobID int64) (gh.Job, error)
 	JobLogs(ctx context.Context, repo string, jobID int64) ([]byte, error)
+	RerunJob(ctx context.Context, repo string, jobID int64) error
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
@@ -1218,6 +1219,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prview.NeedJobMsg:
 		return m.needJob(msg.JobID)
+
+	case prview.RerunCheckMsg:
+		return m.rerunCheck(msg)
+
+	case checkRerunMsg:
+		return m.checkRerunLanded(msg)
+
+	case checkRerunFailedMsg:
+		return m.checkRerunFailed(msg)
 
 	case prview.RefreshMsg:
 		return m.refreshDetail(msg)

@@ -89,7 +89,8 @@ type DetailMap struct {
 
 	// Reply and QuoteReply answer a review thread, from the comment the ring is
 	// on. They take r and R, which is why syncing moved to s: replying is the
-	// key this screen exists for, and it was behind the one that refetches.
+	// key this screen exists for, and it was behind the one that refetches. On
+	// Checks, where there is no comment to answer, r reruns the failed job.
 	Reply      key.Binding
 	QuoteReply key.Binding
 
@@ -195,7 +196,7 @@ var (
 		Post:         key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
 		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
 		Editor:       key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
-		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply or rerun")),
 		QuoteReply:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
 		React:        key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
 		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
@@ -285,6 +286,7 @@ type DetailContext struct {
 	JobLog     bool
 	JobFailure bool
 	JobMatches bool
+	JobRerun   bool
 }
 
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
@@ -315,6 +317,9 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	}
 	if c.JobMatches {
 		out = append(out, hint(k.NextMatch, "n/N", "match"))
+	}
+	if c.JobRerun {
+		out = append(out, hint(k.Reply, "r", "rerun"))
 	}
 	if c.Rail {
 		out = append(out, k.ToggleRail)

@@ -95,6 +95,23 @@ func TestJobLogsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	}
 }
 
+func TestRerunJobPostsToTheSelectedJobsEndpoint(t *testing.T) {
+	rest := &fakeREST{}
+
+	if err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 9001); err != nil {
+		t.Fatalf("RerunJob: %v", err)
+	}
+	if rest.gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", rest.gotMethod)
+	}
+	if want := "repos/zen-octo/zen-octo/actions/jobs/9001/rerun"; rest.gotPath != want {
+		t.Errorf("path = %q, want %q", rest.gotPath, want)
+	}
+	if rest.gotBody != "" {
+		t.Errorf("body = %q, want no body sent", rest.gotBody)
+	}
+}
+
 func TestRerunFailedJobsPostsToTheRerunFailedEndpoint(t *testing.T) {
 	rest := &fakeREST{}
 
@@ -152,6 +169,9 @@ func TestAForbiddenJobsCallNamesTheScopeToAdd(t *testing.T) {
 		{"JobLogs", func(rest *fakeREST) error {
 			_, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo/zen-octo", 1)
 			return err
+		}},
+		{"RerunJob", func(rest *fakeREST) error {
+			return newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 1)
 		}},
 		{"RerunFailedJobs", func(rest *fakeREST) error {
 			return newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "zen-octo/zen-octo", 1)

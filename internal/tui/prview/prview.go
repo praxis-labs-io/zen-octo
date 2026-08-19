@@ -686,6 +686,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.pageRing.on.kind == focusCompose:
 		return m.writeComment()
 
+	// Checks has no comment to reply to, so r takes the failed job under the
+	// logical selection and keeps that selection through the new attempt.
+	case key.Matches(keyMsg, k.Reply) && m.canRerunCheck():
+		return m, m.rerunCheck()
+
 	// A reply answers the comment the ring is on, so both keys read the focus
 	// and do nothing without one. The gate is inside: whether GitHub will take
 	// a reply is the thread's answer, not this screen's.
@@ -1419,6 +1424,7 @@ func (m Model) ShortHelp() []key.Binding {
 		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
 		JobFailure: m.tab == tabChecks && m.checkHasFailure(),
 		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
+		JobRerun:   m.canRerunCheck(),
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
@@ -157,6 +158,55 @@ func TestFoldAndSelectionSurviveAPoll(t *testing.T) {
 		if strings.Contains(row, "lint") || strings.Contains(row, "test") {
 			t.Errorf("the poll reopened the folded workflow: %q", rows)
 		}
+	}
+}
+
+func TestRAsksToRerunTheSelectedFailedJob(t *testing.T) {
+	r := checkRollup()
+	r.Checks[2].RunID = 555200001
+	m := press(overRollup(r, 160, 24), "j", "j", "j")
+
+	var cmd tea.Cmd
+	m, cmd = key(m, "r")
+	if cmd == nil {
+		t.Fatal("r did not ask to rerun the failed job")
+	}
+	raw := cmd()
+	msg, ok := raw.(prview.RerunCheckMsg)
+	if !ok {
+		t.Fatalf("r sent %T, want a RerunCheckMsg", raw)
+	}
+	if msg.JobID != 103 || msg.Name != "Build / test" || msg.Repo == "" || msg.ID == "" {
+		t.Errorf("rerun = %+v", msg)
+	}
+	if out := stripANSI(m.View()); !strings.Contains(out, "rerunning") {
+		t.Errorf("the selected job did not show the write in flight:\n%s", out)
+	}
+	if _, again := key(m, "r"); again != nil {
+		t.Error("a second r started another rerun while the first was in flight")
+	}
+
+	m.RerunSettled(103)
+	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") {
+		t.Error("the rerun stayed in flight after it settled")
+	}
+}
+
+func TestRerunIsOfferedOnlyOnARerunnableJob(t *testing.T) {
+	r := checkRollup()
+	r.Checks[2].RunID = 555200001
+	failed := press(overRollup(r, 160, 24), "j", "j", "j")
+	found := false
+	for _, binding := range failed.ShortHelp() {
+		if binding.Help().Desc == "rerun" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the failed job did not offer rerun")
+	}
+	if msg := asked(t, onChecks(160, 24), "r"); msg != nil {
+		t.Errorf("a successful job sent %T on r", msg)
 	}
 }
 

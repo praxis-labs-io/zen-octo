@@ -271,6 +271,9 @@ func (m Model) jobSummary(check gh.Check, width int) string {
 		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(name)
 
 	label, lc := comp.CheckStateLabel(m.theme, state)
+	if m.check.rerunning {
+		label, lc = "rerunning", m.theme.Warning
+	}
 	parts := []string{lipgloss.NewStyle().Foreground(lc).Render(label)}
 	if age := comp.LongAgo(completed); age != "" {
 		parts = append(parts, age)
