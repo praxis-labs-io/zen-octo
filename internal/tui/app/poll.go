@@ -14,6 +14,10 @@ import (
 // is a comparison rather than a clock read inside Update.
 type pollTickMsg struct{ at time.Time }
 
+// checksTickMsg is the Checks tab's own heartbeat. It exists only while that
+// tab is up; the general heartbeat remains one chain of its own.
+type checksTickMsg struct{ at time.Time }
+
 // sectionPollFailedMsg is a background section fetch that did not answer. The
 // error rides along for the one reader waiting on it: a refresh that adopted it.
 type sectionPollFailedMsg struct {
@@ -33,17 +37,25 @@ const (
 	// CI is what a reader sits and watches.
 	pollBeat = 5 * time.Second
 
+	// checksBeat is how often the Checks tab re-asks even after CI has settled.
+	checksBeat = 10 * time.Second
+
 	// pollIdle is a pull request that has settled, and the list. Search indexing
 	// lags up to a minute, so asking faster than this returns the same rows.
 	pollIdle = 30 * time.Second
 )
 
-// poller is when each thing last answered, so a screen coming back into view
-// refreshes what has aged instead of waiting out a whole fresh interval.
+// poller is when each thing last answered, plus the live Checks chain. A screen
+// coming back into view refreshes what has aged instead of waiting out a fresh
+// interval.
 type poller struct {
 	sections []time.Time
 	detailID string
 	detailAt time.Time
+
+	// checksAt is when the live Checks chain is next due. It stays set while one
+	// tick is pending, including off-tab, so a quick return cannot arm a second.
+	checksAt time.Time
 
 	// pageID and pageAt are when a background page fetch last failed. Nothing
 	// else slows one down: DetailFailed leaves the debt it was for standing.
@@ -98,10 +110,50 @@ func (p poller) detailDue(id string, every time.Duration, at time.Time) bool {
 	return at.Sub(p.detailAt) >= every
 }
 
+// checksDue rejects a second chain firing ahead of the live one's next beat.
+// Zero means no tick is pending, so a message left behind by an old chain dies.
+func (p poller) checksDue(at time.Time) bool {
+	return !p.checksAt.IsZero() && !at.Before(p.checksAt)
+}
+
 // armPoll schedules the next beat. Called from Init and from the handler below
 // and nowhere else: one chain with one start is what stops two at double rate.
 func armPoll() tea.Cmd {
 	return tea.Tick(pollBeat, func(at time.Time) tea.Msg { return pollTickMsg{at: at} })
+}
+
+func armChecks() tea.Cmd {
+	return tea.Tick(checksBeat, func(at time.Time) tea.Msg { return checksTickMsg{at: at} })
+}
+
+// startChecks starts the tab's chain once. checksAt names the tick it expects,
+// so a command left behind by an earlier visit cannot become a second chain.
+func (m Model) startChecks() (Model, tea.Cmd) {
+	if m.screen != screenDetail || !m.detail.ShowsChecks() || !m.poller.checksAt.IsZero() {
+		return m, nil
+	}
+	m.poller.checksAt = time.Now().Add(checksBeat)
+	return m, armChecks()
+}
+
+// pollChecks re-asks the volatile detail fields while Checks is in front of the
+// reader. Leaving the tab ends the chain when its one outstanding tick lands.
+func (m Model) pollChecks(msg checksTickMsg) (tea.Model, tea.Cmd) {
+	if m.screen != screenDetail || !m.detail.ShowsChecks() {
+		m.poller.checksAt = time.Time{}
+		return m, nil
+	}
+	if !m.poller.checksDue(msg.at) {
+		return m, nil
+	}
+
+	m.poller.checksAt = msg.at.Add(checksBeat)
+	next := armChecks()
+	id := m.detail.PullRequest().ID
+	if id == "" || !m.poller.detailDue(id, checksBeat, msg.at) {
+		return m, next
+	}
+	return m, tea.Batch(next, m.pulse(id))
 }
 
 // poll asks for whatever the screen in front of the reader has let go stale.

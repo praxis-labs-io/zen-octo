@@ -18,9 +18,15 @@ const (
 // to fire by hand. It carries its instant, so a test names when it fired.
 func PollTick(at time.Time) tea.Msg { return pollTickMsg{at: at} }
 
+// ChecksTick fires one tick of the Checks tab's own chain by hand.
+func ChecksTick(at time.Time) tea.Msg { return checksTickMsg{at: at} }
+
 // PollIdle is the interval a settled pull request and the list are re-asked on,
 // so a test can step past it rather than restate the number.
 const PollIdle = pollIdle
+
+// ChecksBeat is the Checks tab's own interval.
+const ChecksBeat = checksBeat
 
 // MergeProbe is the wait the mergeability probe arms, for a test outside this
 // package to fire by hand.

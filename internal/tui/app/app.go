@@ -1098,6 +1098,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pollTickMsg:
 		return m.poll(msg)
 
+	case checksTickMsg:
+		return m.pollChecks(msg)
+
 	case filesFetchedMsg:
 		m.store.FilesApplied(msg.id, msg.res)
 		return m.filesSettled(msg.id, nil)
@@ -1389,7 +1392,14 @@ func (m Model) delegate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screenList:
 		m.list, cmd = m.list.Update(msg)
 	case screenDetail:
+		wasChecks := m.detail.ShowsChecks()
 		m.detail, cmd = m.detail.Update(msg)
+		nowChecks := m.detail.ShowsChecks()
+		if !wasChecks && nowChecks {
+			var checks tea.Cmd
+			m, checks = m.startChecks()
+			cmd = tea.Batch(cmd, checks)
+		}
 	}
 	return m, cmd
 }

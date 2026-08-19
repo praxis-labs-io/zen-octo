@@ -1346,6 +1346,10 @@ func (m Model) PullRequest() gh.PullRequest { return m.pr }
 // comment, a review or a label reaches, and the only one worth a refetch.
 func (m Model) ShowsTimeline() bool { return m.railTab() }
 
+// ShowsChecks is whether the Checks tab is up. The root owns the timer that
+// refreshes it, so the tab answers the question without exposing its indices.
+func (m Model) ShowsChecks() bool { return m.tab == tabChecks }
+
 // Keys is the keymap live while this screen is up.
 func (m Model) Keys() keys.DetailMap { return keys.Detail }
 
