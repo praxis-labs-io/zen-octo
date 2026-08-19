@@ -3730,7 +3730,10 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 	client.mu.Unlock()
 	client.servedJob(9001, gh.Job{
 		ID: 9001, Name: "test", State: gh.CheckStatePending,
-		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStatePending}},
+		Steps: []gh.JobStep{{
+			Number: 1, Name: "Run tests", State: gh.CheckStatePending,
+			StartedAt: time.Date(2026, 8, 19, 14, 0, 0, 0, time.UTC),
+		}},
 	}, "not available yet")
 
 	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
@@ -3740,11 +3743,15 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 	if got := client.askedJobLogs(); len(got) != 0 {
 		t.Errorf("running job asked for logs: %v", got)
 	}
-	m = press(m, "2", "space")
-	out := render(t, m)
-	if !strings.Contains(out, "Log output will be available when this job finishes") ||
-		!strings.Contains(out, "Log output is not available yet") || strings.Contains(out, "No log output") {
-		t.Errorf("running job pane:\n%s", out)
+	m = press(m, "2")
+	before := render(t, m)
+	if !strings.Contains(before, "Run tests") || !strings.Contains(before, "Log output is not available yet") ||
+		strings.Contains(before, "No log output") {
+		t.Errorf("running job pane:\n%s", before)
+	}
+	m = press(m, "space")
+	if after := render(t, m); after != before {
+		t.Error("a running step without available logs expanded")
 	}
 }
 

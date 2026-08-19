@@ -31,6 +31,7 @@ func (m Model) checkHasFailure() bool {
 func (m Model) checkStepFoldable() bool {
 	return m.tab == tabChecks && m.focus == paneMain && m.check.job.Loaded &&
 		m.check.step >= 0 && m.check.step < len(m.check.job.Job.Steps) &&
+		m.check.step < len(m.check.sections) && len(m.check.sections[m.check.step].lines) > 0 &&
 		m.check.step < len(m.check.stepStarts) && m.check.line == m.check.stepStarts[m.check.step]
 }
 
@@ -140,9 +141,6 @@ func (m Model) jobStepLead() int {
 	if m.check.searching || !m.check.search.Empty() {
 		lead += 2 // query and the blank below it
 	}
-	if m.check.job.Loaded && (m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected) {
-		lead += 2 // waiting note and the blank below it
-	}
 	return lead
 }
 
@@ -215,9 +213,6 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 	switch {
 	case m.check.job.Loaded:
 		body = m.jobSteps(width)
-		if m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected {
-			body = m.faint().Render("Log output will be available when this job finishes.") + "\n\n" + body
-		}
 	case m.check.job.Status == store.StatusFailed:
 		body = m.faint().Render("Could not load the job log: " + m.check.job.Err.Error())
 	default:
@@ -305,10 +300,11 @@ func (m *Model) jobSteps(width int) string {
 		if sectionMatches(m.check.search, section) {
 			open = true
 		}
+		open = open && len(section.lines) > 0
 		opens[i] = open
 		m.check.stepLines++
 		if open {
-			m.check.stepLines += max(1, len(section.lines))
+			m.check.stepLines += len(section.lines)
 		}
 	}
 	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
@@ -348,17 +344,24 @@ func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool
 	if selectedLine == 0 {
 		base = base.Background(m.theme.SelectedBackground)
 	}
-	fold := "▸"
-	if open {
-		fold = "▾"
+	fold := " "
+	if len(section.lines) > 0 {
+		fold = "▸"
+		if open {
+			fold = "▾"
+		}
 	}
 	icon, c := comp.CheckStateIcon(m.theme, section.step.State)
 	lead := base.Foreground(m.theme.Subtle).Render(fold) + base.Render(" ") +
 		base.Foreground(c).Render(icon) + base.Render(" ") +
 		base.Foreground(m.theme.Text).Render(section.step.Name)
-	right := base.Foreground(m.theme.Subtle).Render(shortDuration(section.step.Duration))
+	rightText := shortDuration(section.step.Duration)
+	if len(section.lines) == 0 && !section.step.StartedAt.IsZero() && section.step.CompletedAt.IsZero() {
+		rightText = "Log output is not available yet."
+	}
+	right := base.Foreground(m.theme.Subtle).Render(rightText)
 	head := m.padTo(m.checkLine(lead, right, width, base), width, base)
-	if !open {
+	if !open || len(section.lines) == 0 {
 		return head, nil
 	}
 
@@ -377,17 +380,6 @@ func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool
 			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
 		}
 		lines = append(lines, clipTo(prefix+line, width, m.faint()))
-	}
-	if len(section.lines) == 0 {
-		prefix := "    "
-		if selectedLine == 1 {
-			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
-		}
-		empty := "No log output."
-		if m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected {
-			empty = "Log output is not available yet."
-		}
-		lines = append(lines, m.faint().Render(prefix+empty))
 	}
 	return strings.Join(lines, "\n"), matches
 }

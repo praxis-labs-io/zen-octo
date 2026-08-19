@@ -219,6 +219,24 @@ func TestJobSummaryCarriesStateTimingAndDuration(t *testing.T) {
 	}
 }
 
+func TestCompletedStepsWithoutOutputArePlainRows(t *testing.T) {
+	m := onChecks(160, 24)
+	job := loadedJob(101, false)
+	job.Log = ""
+	m.SetJob(101, job)
+	m = press(m, "2")
+	before := m.View()
+	out := stripANSI(before)
+	if !strings.Contains(out, "✓ Set up job") || strings.Contains(out, "▸ ✓ Set up job") ||
+		strings.Contains(out, "No log output") || strings.Contains(out, "Log output is not available") {
+		t.Errorf("logless completed steps were rendered as folds:\n%s", out)
+	}
+	m = press(m, "space")
+	if after := m.View(); after != before {
+		t.Error("a completed step without output expanded")
+	}
+}
+
 func TestFailedStepsStartOpenAndPassingStepsStartClosed(t *testing.T) {
 	m := press(onChecks(160, 24), "j", "j", "j")
 	m.SetJob(103, loadedJob(103, true))
