@@ -55,6 +55,8 @@ type checks struct {
 	sections []jobSection
 
 	step       int
+	line       int
+	stepLines  int
 	stepStarts []int
 	stepOpen   map[int]bool
 	stepSeen   map[int]bool
@@ -234,6 +236,8 @@ func (m *Model) resetCheckJob() {
 	m.check.job = store.Job{}
 	m.check.sections = nil
 	m.check.step = 0
+	m.check.line = 0
+	m.check.stepLines = 0
 	m.check.stepStarts = nil
 	m.check.stepOpen = nil
 	m.check.stepSeen = nil
@@ -281,6 +285,8 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	}
 	if m.check.job.Job.ID != id && job.Loaded {
 		m.check.step = 0
+		m.check.line = 0
+		m.check.stepLines = 0
 		m.check.stepOpen = make(map[int]bool)
 		m.check.stepSeen = make(map[int]bool)
 	}

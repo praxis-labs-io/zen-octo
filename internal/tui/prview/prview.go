@@ -791,34 +791,36 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Up):
 		m.move(-1)
 	case key.Matches(keyMsg, k.Top):
-		if !m.jumped(-m.sideRows()) {
+		if !m.gotoCheckLine(false) && !m.jumped(-m.sideRows()) {
 			m.scroll().GotoTop()
 		}
 	case key.Matches(keyMsg, k.Bottom):
-		if !m.jumped(m.sideRows()) {
+		if !m.gotoCheckLine(true) && !m.jumped(m.sideRows()) {
 			m.scroll().GotoBottom()
 		}
 	case key.Matches(keyMsg, k.PageDown):
-		if !m.jumped(m.sidePage()) {
+		if !m.pageCheckLine(m.view.Height(), true) && !m.jumped(m.sidePage()) {
 			m.scroll().PageDown()
 		}
 	case key.Matches(keyMsg, k.PageUp):
-		if !m.jumped(-m.sidePage()) {
+		if !m.pageCheckLine(-m.view.Height(), true) && !m.jumped(-m.sidePage()) {
 			m.scroll().PageUp()
 		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		// The Checks column selects the one log in the main pane. Half-page
-		// motion reads that log even while the column keeps the keys; moving
-		// half the tree instead skips jobs and leaves the log untouched.
+		// A half-page key on the Checks column is deliberately inert. The
+		// column has its own cursor, and scrolling a pane that does not have the
+		// keys separates its viewport from the cursor inside it.
 		if m.tab == tabChecks && m.focus == paneSide {
-			m.view.HalfPageDown()
-		} else if !m.jumped(m.sidePage() / 2) {
+			break
+		}
+		if !m.pageCheckLine(max(1, m.view.Height()/2), false) && !m.jumped(m.sidePage()/2) {
 			m.scroll().HalfPageDown()
 		}
 	case key.Matches(keyMsg, k.HalfPageUp):
 		if m.tab == tabChecks && m.focus == paneSide {
-			m.view.HalfPageUp()
-		} else if !m.jumped(-m.sidePage() / 2) {
+			break
+		}
+		if !m.pageCheckLine(-max(1, m.view.Height()/2), false) && !m.jumped(-m.sidePage()/2) {
 			m.scroll().HalfPageUp()
 		}
 	}
@@ -844,8 +846,9 @@ func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// move is a row in the left column, a row on the rail, and a line everywhere
-// else. Both of those point at something; the panes holding prose do not.
+// move is a row in the left column, a row on the rail, a rendered line in a
+// job log, and a scrolled line everywhere else. The first three carry cursors;
+// panes holding prose do not.
 //
 // The rail's cursor stops at each end rather than coming back round, and hands
 // the key to the pane there. So does the conversation's ring: a cursor that
@@ -856,6 +859,8 @@ func (m Model) refresh() tea.Cmd {
 // anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
 	switch {
+	case m.moveCheckLine(delta):
+		return
 	case m.sideDriving():
 		m.moveSide(delta)
 		return

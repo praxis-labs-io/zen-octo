@@ -318,37 +318,54 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 	}
 }
 
-func TestLineAndHalfPageMotionReadTheLogWhileItHasFocus(t *testing.T) {
+func logCursorLine(frame string) string {
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if at := strings.Index(line, "›"); at >= 0 {
+			return strings.TrimSpace(line[at:])
+		}
+	}
+	return ""
+}
+
+func TestLineAndPageMotionCarryTheLogCursor(t *testing.T) {
 	m := onChecks(160, 24)
 	m.SetJob(101, longLoadedJob(101))
-	m = press(m, "2", "j")
-	if down := stripANSI(m.View()); !strings.Contains(down, "failing ·") {
-		t.Errorf("j skipped the expanded log instead of moving one line:\n%s", down)
+	m = press(m, "2", "}", "j")
+	if got := logCursorLine(m.View()); !strings.Contains(got, "line 00") {
+		t.Fatalf("first j cursor = %q, want line 00", got)
+	}
+	m = press(m, "j")
+	before := logCursorLine(m.View())
+	if !strings.Contains(before, "line 01") {
+		t.Fatalf("second j cursor = %q, want line 01", before)
 	}
 
 	m = press(m, "ctrl+d")
-	if down := stripANSI(m.View()); !strings.Contains(down, "line 10") {
-		t.Errorf("ctrl+d did not half-page the focused log:\n%s", down)
+	if after := logCursorLine(m.View()); after == before || !strings.Contains(after, "line") {
+		t.Fatalf("ctrl+d cursor = %q, want a later log line than %q", after, before)
 	}
 	m = press(m, "ctrl+u")
-	if up := stripANSI(m.View()); !strings.Contains(up, "failing ·") || !strings.Contains(up, "line 00") {
-		t.Errorf("ctrl+u did not return through the focused log:\n%s", up)
+	if got := logCursorLine(m.View()); got != before {
+		t.Errorf("ctrl+u cursor = %q, want %q", got, before)
+	}
+
+	m = press(m, "pgdown")
+	if after := logCursorLine(m.View()); after == before || !strings.Contains(after, "line") {
+		t.Fatalf("page down cursor = %q, want a later log line than %q", after, before)
+	}
+	m = press(m, "pgup")
+	if got := logCursorLine(m.View()); got != before {
+		t.Errorf("page up cursor = %q, want %q", got, before)
 	}
 }
 
-func TestHalfPageKeysReadTheLogWhileTheChecksColumnHasFocus(t *testing.T) {
+func TestHalfPageKeysAreInertWhileTheChecksColumnHasFocus(t *testing.T) {
 	m := onChecks(160, 24)
 	m.SetJob(101, longLoadedJob(101))
-
-	m = press(m, "ctrl+d")
-	down := stripANSI(m.View())
-	if strings.Contains(down, "No job log is available") || !strings.Contains(down, "line 10") {
-		t.Errorf("ctrl+d moved the job cursor instead of the log:\n%s", down)
-	}
-
-	m = press(m, "ctrl+u")
-	if up := stripANSI(m.View()); !strings.Contains(up, "failing ·") || !strings.Contains(up, "line 00") {
-		t.Errorf("ctrl+u did not return to the top of the selected job:\n%s", up)
+	before := m.View()
+	m = press(m, "ctrl+d", "ctrl+u")
+	if after := m.View(); after != before {
+		t.Error("half-page keys moved something while the Checks column had focus")
 	}
 }
 

@@ -30,17 +30,77 @@ func (m Model) checkHasFailure() bool {
 
 func (m Model) checkStepFoldable() bool {
 	return m.tab == tabChecks && m.focus == paneMain && m.check.job.Loaded &&
-		m.check.step >= 0 && m.check.step < len(m.check.job.Job.Steps)
+		m.check.step >= 0 && m.check.step < len(m.check.job.Job.Steps) &&
+		m.check.step < len(m.check.stepStarts) && m.check.line == m.check.stepStarts[m.check.step]
 }
 
+// moveCheckStep is block motion. Line motion is j and k; braces move between
+// headings and leave every expanded output line to those keys.
 func (m *Model) moveCheckStep(delta int) bool {
-	if !m.checkStepFoldable() {
+	if !m.check.job.Loaded || len(m.check.job.Job.Steps) == 0 {
 		return false
 	}
 	m.check.step = min(max(m.check.step+delta, 0), len(m.check.job.Job.Steps)-1)
+	if m.check.step < len(m.check.stepStarts) {
+		m.check.line = m.check.stepStarts[m.check.step]
+	}
 	m.syncContent()
 	m.showCheckStep()
 	return true
+}
+
+func (m *Model) moveCheckLine(delta int) bool {
+	if m.tab != tabChecks || m.focus != paneMain || !m.check.job.Loaded || m.check.stepLines == 0 {
+		return false
+	}
+	m.check.line = min(max(m.check.line+delta, 0), m.check.stepLines-1)
+	m.check.step = m.stepAtCheckLine(m.check.line)
+	m.syncContent()
+	m.showCheckLine()
+	return true
+}
+
+func (m *Model) pageCheckLine(delta int, full bool) bool {
+	if !m.moveCheckLine(delta) {
+		return false
+	}
+	switch {
+	case full && delta > 0:
+		m.view.PageDown()
+	case full:
+		m.view.PageUp()
+	case delta > 0:
+		m.view.HalfPageDown()
+	default:
+		m.view.HalfPageUp()
+	}
+	m.showCheckLine()
+	return true
+}
+
+func (m *Model) gotoCheckLine(bottom bool) bool {
+	if m.tab != tabChecks || m.focus != paneMain || !m.check.job.Loaded || m.check.stepLines == 0 {
+		return false
+	}
+	m.check.line = 0
+	if bottom {
+		m.check.line = m.check.stepLines - 1
+	}
+	m.check.step = m.stepAtCheckLine(m.check.line)
+	m.syncContent()
+	m.showCheckLine()
+	return true
+}
+
+func (m Model) stepAtCheckLine(line int) int {
+	at := 0
+	for i, start := range m.check.stepStarts {
+		if start > line {
+			break
+		}
+		at = i
+	}
+	return at
 }
 
 func (m *Model) toggleCheckStep() {
@@ -55,12 +115,23 @@ func (m *Model) toggleCheckStep() {
 	m.check.stepSeen[number] = true
 	m.check.stepOpen[number] = !open
 	m.syncContent()
-	m.showCheckStep()
+	m.showCheckLine()
 }
 
 func (m *Model) showCheckStep() {
 	if m.check.step < len(m.check.stepStarts) {
 		m.view.SetYOffset(contentLead + m.jobStepLead() + m.check.stepStarts[m.check.step])
+	}
+}
+
+func (m *Model) showCheckLine() {
+	line := contentLead + m.jobStepLead() + m.check.line
+	top, height := m.view.YOffset(), max(1, m.view.Height())
+	switch {
+	case line < top:
+		m.view.SetYOffset(line)
+	case line >= top+height:
+		m.view.SetYOffset(line - height + 1)
 	}
 }
 
@@ -106,9 +177,13 @@ func (m *Model) moveCheckMatch(delta int) {
 
 func (m *Model) showCheckMatch() {
 	at := m.check.search.Cursor()
-	if at >= 0 && at < len(m.check.matchLines) {
-		m.view.SetYOffset(contentLead + m.jobStepLead() + m.check.matchLines[at])
+	if at < 0 || at >= len(m.check.matchLines) {
+		return
 	}
+	m.check.line = m.check.matchLines[at]
+	m.check.step = m.stepAtCheckLine(m.check.line)
+	m.syncContent()
+	m.showCheckLine()
 }
 
 func (m *Model) jumpFirstCheckFailure() {
@@ -120,6 +195,9 @@ func (m *Model) jumpFirstCheckFailure() {
 			continue
 		}
 		m.check.step = i
+		if i < len(m.check.stepStarts) {
+			m.check.line = m.check.stepStarts[i]
+		}
 		m.focus = paneMain
 		m.syncContent()
 		m.showCheckStep()
@@ -201,6 +279,7 @@ func shortDuration(d time.Duration) string {
 func (m *Model) jobSteps(width int) string {
 	sections := m.check.sections
 	if len(sections) == 0 {
+		m.check.stepLines = 0
 		return m.faint().Render("No steps were reported for this job.")
 	}
 	if m.check.step >= len(sections) {
@@ -213,12 +292,12 @@ func (m *Model) jobSteps(width int) string {
 		m.check.stepSeen = make(map[int]bool)
 	}
 
-	rows := make([]string, 0, len(sections))
+	opens := make([]bool, len(sections))
 	m.check.stepStarts = make([]int, len(sections))
 	m.check.matchLines = nil
-	at := 0
+	m.check.stepLines = 0
 	for i, section := range sections {
-		m.check.stepStarts[i] = at
+		m.check.stepStarts[i] = m.check.stepLines
 		open := m.check.stepOpen[section.step.Number]
 		if !m.check.stepSeen[section.step.Number] && rank(section.step.State) >= rank(gh.CheckStateFailure) {
 			open = true
@@ -226,12 +305,31 @@ func (m *Model) jobSteps(width int) string {
 		if sectionMatches(m.check.search, section) {
 			open = true
 		}
-		row, matches := m.jobStepRow(section, width, i == m.check.step, open)
+		opens[i] = open
+		m.check.stepLines++
+		if open {
+			m.check.stepLines += max(1, len(section.lines))
+		}
+	}
+	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
+	m.check.step = m.stepAtCheckLine(m.check.line)
+
+	rows := make([]string, 0, len(sections))
+	for i, section := range sections {
+		selected := -1
+		start := m.check.stepStarts[i]
+		end := m.check.stepLines
+		if i+1 < len(m.check.stepStarts) {
+			end = m.check.stepStarts[i+1]
+		}
+		if m.check.line >= start && m.check.line < end {
+			selected = m.check.line - start
+		}
+		row, matches := m.jobStepRow(section, width, selected, opens[i])
 		for _, line := range matches {
-			m.check.matchLines = append(m.check.matchLines, at+line)
+			m.check.matchLines = append(m.check.matchLines, start+line)
 		}
 		rows = append(rows, row)
-		at += strings.Count(row, "\n") + 1
 	}
 	return strings.Join(rows, "\n")
 }
@@ -245,9 +343,9 @@ func sectionMatches(search comp.Search, section jobSection) bool {
 	return false
 }
 
-func (m Model) jobStepRow(section jobSection, width int, selected, open bool) (string, []int) {
+func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool) (string, []int) {
 	base := lipgloss.NewStyle()
-	if selected {
+	if selectedLine == 0 {
 		base = base.Background(m.theme.SelectedBackground)
 	}
 	fold := "▸"
@@ -274,11 +372,18 @@ func (m Model) jobStepRow(section jobSection, width int, selected, open bool) (s
 			line = m.check.search.Highlight(line, mark)
 		}
 		line = m.styleJobLogLine(line)
-		line = "    " + line
-		lines = append(lines, clipTo(line, width, m.faint()))
+		prefix := "    "
+		if selectedLine == len(lines) {
+			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
+		}
+		lines = append(lines, clipTo(prefix+line, width, m.faint()))
 	}
 	if len(section.lines) == 0 {
-		lines = append(lines, m.faint().Render("    No log output."))
+		prefix := "    "
+		if selectedLine == 1 {
+			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
+		}
+		lines = append(lines, m.faint().Render(prefix+"No log output."))
 	}
 	return strings.Join(lines, "\n"), matches
 }
