@@ -383,7 +383,11 @@ func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool
 		if selectedLine == 1 {
 			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
 		}
-		lines = append(lines, m.faint().Render(prefix+"No log output."))
+		empty := "No log output."
+		if m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected {
+			empty = "Log output is not available yet."
+		}
+		lines = append(lines, m.faint().Render(prefix+empty))
 	}
 	return strings.Join(lines, "\n"), matches
 }

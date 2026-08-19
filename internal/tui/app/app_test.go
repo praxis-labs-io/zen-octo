@@ -3740,7 +3740,10 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 	if got := client.askedJobLogs(); len(got) != 0 {
 		t.Errorf("running job asked for logs: %v", got)
 	}
-	if out := render(t, m); !strings.Contains(out, "Log output will be available when this job finishes") {
+	m = press(m, "2", "space")
+	out := render(t, m)
+	if !strings.Contains(out, "Log output will be available when this job finishes") ||
+		!strings.Contains(out, "Log output is not available yet") || strings.Contains(out, "No log output") {
 		t.Errorf("running job pane:\n%s", out)
 	}
 }
