@@ -118,6 +118,7 @@ func (m *Model) toggleCheckStep() {
 	m.check.stepSeen[number] = true
 	m.check.stepOpen[number] = !open
 	m.check.line = m.check.stepStarts[m.check.step]
+	m.check.rendered = nil
 	m.syncContent()
 	m.showCheckLine()
 }
@@ -140,11 +141,28 @@ func (m *Model) showCheckLine() {
 }
 
 func (m Model) jobStepLead() int {
-	lead := 6 // five summary-card rows and the blank below it
-	if m.check.searching || !m.check.search.Empty() {
-		lead += 2 // query and the blank below it
+	return 6 // five summary-card rows and the blank below it
+}
+
+func (m Model) mainHeading() string {
+	if m.tab != tabChecks || (!m.check.searching && m.check.search.Empty()) {
+		return m.fileHeading()
 	}
-	return lead
+
+	caret := ""
+	if m.check.searching {
+		caret = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▏")
+	}
+	left := " " + m.faint().Render("Search: ") + m.check.search.Query() + caret
+	right := ""
+	if !m.check.search.Empty() {
+		at, total := 0, len(m.check.matchLines)
+		if total > 0 {
+			at = m.check.search.Cursor() + 1
+		}
+		right = m.faint().Render(fmt.Sprintf("%d/%d", at, total))
+	}
+	return m.checkLine(left, right, max(1, m.main.InnerWidth()-1), lipgloss.NewStyle())
 }
 
 func (m *Model) startCheckSearch() {
@@ -153,14 +171,26 @@ func (m *Model) startCheckSearch() {
 	}
 	m.check.searching = true
 	m.focus = paneMain
-	m.syncContent()
+	m.layout()
+}
+
+func (m *Model) clearCheckSearch() {
+	m.check.searching = false
+	m.check.search = comp.Search{}
+	m.layout()
+	m.showCheckLine()
 }
 
 func (m *Model) checkSearchKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "enter":
+	case "esc":
+		m.clearCheckSearch()
+		return *m, nil
+	case "enter":
 		m.check.searching = false
-		m.syncContent()
+		if m.check.search.Empty() {
+			m.layout()
+		}
 		return *m, nil
 	}
 	if m.check.search.Insert(msg) {
@@ -220,14 +250,6 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 		body = m.faint().Render("Could not load the job log: " + m.check.job.Err.Error())
 	default:
 		body = m.spinner.Render("Loading the job log")
-	}
-	if m.check.searching || !m.check.search.Empty() {
-		query := m.check.search.Query()
-		caret := ""
-		if m.check.searching {
-			caret = "▏"
-		}
-		body = m.faint().Render("Search: ") + query + caret + "\n\n" + body
 	}
 	return summary + "\n\n" + body
 }
@@ -290,6 +312,31 @@ func (m *Model) jobSteps(width int) string {
 		m.check.stepSeen = make(map[int]bool)
 	}
 
+	query := m.check.search.Query()
+	if m.check.rendered == nil || m.check.renderWidth != width || m.check.renderQuery != query {
+		m.renderJobSteps(width)
+	}
+	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
+	m.check.step = m.stepAtCheckLine(m.check.line)
+
+	var out strings.Builder
+	for i, line := range m.check.rendered {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		if i == m.check.line {
+			line = selectedJobLogLine(line, width, m.theme.SelectedBackground, m.faint())
+		}
+		out.WriteString(line)
+	}
+	return out.String()
+}
+
+// renderJobSteps pays the highlighting and clipping cost only when the log's
+// shape changes. Cursor and match motion then repaint one row and join the
+// already-rendered lines instead of parsing the whole log again.
+func (m *Model) renderJobSteps(width int) {
+	sections := m.check.sections
 	opens := make([]bool, len(sections))
 	m.check.stepStarts = make([]int, len(sections))
 	m.check.matchLines = nil
@@ -310,27 +357,18 @@ func (m *Model) jobSteps(width int) string {
 			m.check.stepLines += len(section.lines)
 		}
 	}
-	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
-	m.check.step = m.stepAtCheckLine(m.check.line)
 
-	rows := make([]string, 0, len(sections))
+	m.check.rendered = make([]string, 0, m.check.stepLines)
 	for i, section := range sections {
-		selected := -1
-		start := m.check.stepStarts[i]
-		end := m.check.stepLines
-		if i+1 < len(m.check.stepStarts) {
-			end = m.check.stepStarts[i+1]
-		}
-		if m.check.line >= start && m.check.line < end {
-			selected = m.check.line - start
-		}
-		row, matches := m.jobStepRow(section, width, selected, opens[i])
+		start := len(m.check.rendered)
+		row, matches := m.jobStepRow(section, width, opens[i])
+		m.check.rendered = append(m.check.rendered, strings.Split(row, "\n")...)
 		for _, line := range matches {
 			m.check.matchLines = append(m.check.matchLines, start+line)
 		}
-		rows = append(rows, row)
 	}
-	return strings.Join(rows, "\n")
+	m.check.renderWidth = width
+	m.check.renderQuery = m.check.search.Query()
 }
 
 func sectionMatches(search comp.Search, section jobSection) bool {
@@ -342,11 +380,8 @@ func sectionMatches(search comp.Search, section jobSection) bool {
 	return false
 }
 
-func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool) (string, []int) {
+func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []int) {
 	base := lipgloss.NewStyle()
-	if selectedLine == 0 {
-		base = base.Background(m.theme.SelectedBackground)
-	}
 	fold := " "
 	if len(section.lines) > 0 {
 		fold = "▸"
@@ -378,10 +413,6 @@ func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool
 			line = m.check.search.Highlight(line, mark)
 		}
 		line = m.styleJobLogLine(line)
-		if selectedLine == len(lines) {
-			lines = append(lines, selectedJobLogLine("    "+line, width, m.theme.SelectedBackground, m.faint()))
-			continue
-		}
 		lines = append(lines, clipTo("    "+line, width, m.faint()))
 	}
 	return strings.Join(lines, "\n"), matches

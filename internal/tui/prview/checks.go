@@ -50,9 +50,12 @@ type checks struct {
 	selected string
 	folded   map[string]bool
 
-	wanted   int64
-	job      store.Job
-	sections []jobSection
+	wanted      int64
+	job         store.Job
+	sections    []jobSection
+	rendered    []string
+	renderWidth int
+	renderQuery string
 
 	step       int
 	line       int
@@ -222,19 +225,28 @@ func (m *Model) moveCheck(delta int) {
 		return
 	}
 	m.check.cursor = min(max(m.check.cursor+delta, 0), len(m.check.rows)-1)
+	droppedHeader := false
 	if key := m.check.rows[m.check.cursor].checkKey; key != "" && key != m.check.selected {
+		droppedHeader = m.check.searching || !m.check.search.Empty()
 		m.check.selected = key
 		m.resetCheckJob()
 		m.view.SetYOffset(0)
 	}
 	showRow(&m.sideView, m.check.cursor)
-	m.syncContent()
+	if droppedHeader {
+		m.layout()
+	} else {
+		m.syncContent()
+	}
 }
 
 func (m *Model) resetCheckJob() {
 	m.check.wanted = 0
 	m.check.job = store.Job{}
 	m.check.sections = nil
+	m.check.rendered = nil
+	m.check.renderWidth = 0
+	m.check.renderQuery = ""
 	m.check.step = 0
 	m.check.line = 0
 	m.check.stepLines = 0
@@ -292,6 +304,9 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	}
 	m.check.wanted = id
 	m.check.job = job
+	m.check.rendered = nil
+	m.check.renderWidth = 0
+	m.check.renderQuery = ""
 	if job.Loaded {
 		// Parsing and sanitizing a real Actions log can mean walking megabytes.
 		// Do it when the response lands, not on every j or k over its steps.

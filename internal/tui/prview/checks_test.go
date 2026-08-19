@@ -337,6 +337,35 @@ func TestSearchOwnsPrintableKeysUntilItCloses(t *testing.T) {
 	}
 }
 
+func TestEscapeCancelsTheLogSearch(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, loadedJob(101, false))
+	m = press(m, "/", "r", "u", "n", "n", "e", "r", "esc")
+	if out := stripANSI(m.View()); strings.Contains(out, "Search:") {
+		t.Errorf("escape left the search header open:\n%s", out)
+	}
+}
+
+func TestNextAndPreviousWalkMultiplePinnedSearchResults(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, longLoadedJob(101))
+	m = press(m, "/", "l", "i", "n", "e", "enter")
+	if out := stripANSI(m.View()); !strings.Contains(out, "Search: line") || !strings.Contains(out, "1/60") {
+		t.Fatalf("search heading did not report its results:\n%s", out)
+	}
+	if got := logCursorLine(m.View()); !strings.Contains(got, "line 00") {
+		t.Fatalf("initial result cursor = %q, want line 00", got)
+	}
+	m = press(m, "n")
+	if got := logCursorLine(m.View()); !strings.Contains(got, "line 01") {
+		t.Fatalf("next result cursor = %q, want line 01", got)
+	}
+	m = press(m, "N")
+	if got := logCursorLine(m.View()); !strings.Contains(got, "line 00") {
+		t.Fatalf("previous result cursor = %q, want line 00", got)
+	}
+}
+
 func TestFirstFailureJumpsToItsStep(t *testing.T) {
 	m := press(onChecks(160, 14), "j", "j", "j")
 	m.SetJob(103, loadedJob(103, true))
@@ -362,12 +391,47 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 func logCursorLine(frame string) string {
 	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
 	for _, line := range strings.Split(frame, "\n") {
-		plain := stripANSI(line)
-		if strings.Contains(line, fill) && strings.Contains(plain, "line ") {
-			return strings.TrimSpace(plain[strings.Index(plain, "line "):])
+		selected := textOnBackground(line, fill)
+		for at := 0; at+7 <= len(selected); at++ {
+			if strings.HasPrefix(selected[at:], "line ") && selected[at+5] >= '0' && selected[at+5] <= '9' &&
+				selected[at+6] >= '0' && selected[at+6] <= '9' {
+				return strings.TrimSpace(selected[at:])
+			}
 		}
 	}
 	return ""
+}
+
+func textOnBackground(line, fill string) string {
+	var out strings.Builder
+	on := false
+	separated := false
+	for len(line) > 0 {
+		if strings.HasPrefix(line, "\x1b[") {
+			end := strings.IndexByte(line, 'm')
+			if end < 0 {
+				break
+			}
+			seq := line[:end+1]
+			switch {
+			case strings.Contains(seq, fill):
+				on, separated = true, false
+			case seq == "\x1b[m" || seq == "\x1b[0m" || strings.Contains(seq, "[49m"):
+				on = false
+			}
+			line = line[end+1:]
+			continue
+		}
+		if on {
+			out.WriteByte(line[0])
+			separated = false
+		} else if out.Len() > 0 && !separated {
+			out.WriteByte(0)
+			separated = true
+		}
+		line = line[1:]
+	}
+	return out.String()
 }
 
 func TestLineAndPageMotionCarryTheLogCursor(t *testing.T) {

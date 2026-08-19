@@ -626,6 +626,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(keyMsg, k.Back):
+		// An accepted search remains active for n and N. Esc clears that before
+		// it is allowed to leave the detail screen.
+		if m.tab == tabChecks && !m.check.search.Empty() {
+			m.clearCheckSearch()
+			return m, nil
+		}
 		// Letting go of a card and leaving the screen are two intentions on one
 		// key. The narrower one goes first.
 		if m.clearFocus() {
@@ -1298,7 +1304,7 @@ func (m *Model) layout() {
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, paneHeight).Header(m.fileHeading())
+	m.main = m.main.Size(mainWidth, paneHeight).Header(m.mainHeading())
 	m.view.SetWidth(m.main.InnerWidth())
 	// The pinned heading is drawn by the pane, above the window rather than in
 	// it, so the viewport is short by whatever the pane spends on it.
@@ -1550,7 +1556,7 @@ func (m Model) View() string {
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
-		Header(m.fileHeading()).
+		Header(m.mainHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
 		Render(m.view.View())}
