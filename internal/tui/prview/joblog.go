@@ -1,6 +1,8 @@
 package prview
 
 import (
+	"fmt"
+	"image/color"
 	"strings"
 	"time"
 	"unicode"
@@ -32,7 +34,7 @@ func (m Model) checkStepFoldable() bool {
 	return m.tab == tabChecks && m.focus == paneMain && m.check.job.Loaded &&
 		m.check.step >= 0 && m.check.step < len(m.check.job.Job.Steps) &&
 		m.check.step < len(m.check.sections) && len(m.check.sections[m.check.step].lines) > 0 &&
-		m.check.step < len(m.check.stepStarts) && m.check.line == m.check.stepStarts[m.check.step]
+		m.check.step < len(m.check.stepStarts)
 }
 
 // moveCheckStep is block motion. Line motion is j and k; braces move between
@@ -115,6 +117,7 @@ func (m *Model) toggleCheckStep() {
 	}
 	m.check.stepSeen[number] = true
 	m.check.stepOpen[number] = !open
+	m.check.line = m.check.stepStarts[m.check.step]
 	m.syncContent()
 	m.showCheckLine()
 }
@@ -375,13 +378,48 @@ func (m Model) jobStepRow(section jobSection, width, selectedLine int, open bool
 			line = m.check.search.Highlight(line, mark)
 		}
 		line = m.styleJobLogLine(line)
-		prefix := "    "
 		if selectedLine == len(lines) {
-			prefix = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("  › ")
+			lines = append(lines, selectedJobLogLine("    "+line, width, m.theme.SelectedBackground, m.faint()))
+			continue
 		}
-		lines = append(lines, clipTo(prefix+line, width, m.faint()))
+		lines = append(lines, clipTo("    "+line, width, m.faint()))
 	}
 	return strings.Join(lines, "\n"), matches
+}
+
+// selectedJobLogLine reapplies the cursor background after every SGR run. A
+// log line may reset or set its own colours, so wrapping the finished string in
+// a background style would paint only as far as its first reset.
+func selectedJobLogLine(line string, width int, fill color.Color, faint lipgloss.Style) string {
+	line = clipTo(line, width, faint)
+	if pad := width - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	r, g, b, _ := fill.RGBA()
+	background := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+
+	var out strings.Builder
+	out.Grow(len(line) + len(background)*2)
+	out.WriteString(background)
+	for len(line) > 0 {
+		at := strings.Index(line, "\x1b[")
+		if at < 0 {
+			out.WriteString(line)
+			break
+		}
+		out.WriteString(line[:at])
+		line = line[at:]
+		end := strings.IndexByte(line, 'm')
+		if end < 0 {
+			out.WriteString(line)
+			break
+		}
+		out.WriteString(line[:end+1])
+		out.WriteString(background)
+		line = line[end+1:]
+	}
+	out.WriteString("\x1b[0m")
+	return out.String()
 }
 
 // splitJobLog uses the timestamps GitHub prefixes to every downloaded line to

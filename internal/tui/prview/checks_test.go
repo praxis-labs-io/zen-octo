@@ -263,12 +263,12 @@ func TestGitHubLogAnnotationsUseTheThemeWhenTheToolSentNoColor(t *testing.T) {
 	t.Fatal("the error annotation is not on screen")
 }
 
-func TestSpaceTogglesTheStepUnderTheMainPaneCursor(t *testing.T) {
+func TestSpaceTogglesTheStepHoldingTheMainPaneCursor(t *testing.T) {
 	m := press(onChecks(160, 24), "j", "j", "j")
 	m.SetJob(103, loadedJob(103, true))
-	m = press(m, "2", "}", "space")
+	m = press(m, "2", "}", "j", "space")
 	if out := stripANSI(m.View()); strings.Contains(out, "tests failed") {
-		t.Error("space did not close the failed step")
+		t.Error("space did not close the failed step from inside its output")
 	}
 	m = press(m, "space")
 	if out := stripANSI(m.View()); !strings.Contains(out, "tests failed") {
@@ -286,6 +286,29 @@ func TestDownloadedLogControlSequencesCannotReachTheTerminal(t *testing.T) {
 	if strings.Contains(out, "\x1b[2J") || !strings.Contains(stripANSI(out), "danger") {
 		t.Error("the log either kept its control sequence or lost its text")
 	}
+}
+
+func TestTheLogCursorBackgroundSurvivesLogColorResets(t *testing.T) {
+	m := onChecks(160, 24)
+	job := loadedJob(101, true)
+	job.Job.Steps = job.Job.Steps[:1]
+	job.Job.Steps[0].State = gh.CheckStateFailure
+	job.Log = "2026-08-19T14:00:00Z ##[group]Set up job\n" +
+		"2026-08-19T14:00:01Z \x1b[31mred\x1b[0m plain\n" +
+		"2026-08-19T14:00:02Z ##[endgroup]\n"
+	m.SetJob(101, job)
+	m = press(m, "2", "j")
+
+	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(stripANSI(line), "red plain") {
+			if got := strings.Count(line, fill); got < 3 {
+				t.Errorf("cursor background was not restored across SGR resets: %q", line)
+			}
+			return
+		}
+	}
+	t.Fatal("selected colored log line is not on screen")
 }
 
 func TestSlashSearchHighlightsInPlaceAndOpensAMatchingStep(t *testing.T) {
@@ -337,9 +360,11 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 }
 
 func logCursorLine(frame string) string {
-	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		if at := strings.Index(line, "›"); at >= 0 {
-			return strings.TrimSpace(line[at:])
+	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	for _, line := range strings.Split(frame, "\n") {
+		plain := stripANSI(line)
+		if strings.Contains(line, fill) && strings.Contains(plain, "line ") {
+			return strings.TrimSpace(plain[strings.Index(plain, "line "):])
 		}
 	}
 	return ""
