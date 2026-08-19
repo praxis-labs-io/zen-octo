@@ -39,6 +39,8 @@ type checkGroup struct {
 // checkTreeRow is one visible line in the Checks column. A parent folds a
 // multi-job workflow; every other row is the same logical check the details
 // rail lists.
+const jobSettleDelay = 150 * time.Millisecond
+
 type rerunPending struct {
 	jobID     int64
 	startedAt time.Time
@@ -65,13 +67,15 @@ type checks struct {
 	selected string
 	folded   map[string]bool
 
-	wanted      int64
-	refreshJob  bool
-	job         store.Job
-	sections    []jobSection
-	rendered    []string
-	renderWidth int
-	renderQuery string
+	wanted       int64
+	refreshJob   bool
+	job          store.Job
+	parsing      bool
+	sections     []jobSection
+	rendered     []string
+	renderedBody string
+	renderWidth  int
+	renderQuery  string
 
 	step       int
 	line       int
@@ -335,8 +339,10 @@ func (m *Model) resetCheckJob() {
 	m.check.wanted = 0
 	m.check.refreshJob = false
 	m.check.job = store.Job{}
+	m.check.parsing = false
 	m.check.sections = nil
 	m.check.rendered = nil
+	m.check.renderedBody = ""
 	m.check.renderWidth = 0
 	m.check.renderQuery = ""
 	m.check.step = 0
@@ -367,9 +373,9 @@ func (m Model) checkFoldable() bool {
 		m.check.rows[m.check.cursor].parent
 }
 
-// armJob asks the root for the concrete attempt selected now. A status context
-// has no Actions job and deliberately asks for nothing.
-func (m *Model) armJob() tea.Cmd {
+// armJob starts a short wait for the concrete attempt selected now. A status
+// context has no Actions job and deliberately asks for nothing.
+func (m Model) armJob() tea.Cmd {
 	if m.tab != tabChecks {
 		return nil
 	}
@@ -377,39 +383,80 @@ func (m *Model) armJob() tea.Cmd {
 	if c == nil || c.JobID == 0 || c.JobID == m.check.wanted {
 		return nil
 	}
-	m.check.wanted = c.JobID
-	id, refresh := c.JobID, m.check.refreshJob
-	m.check.refreshJob = false
-	return func() tea.Msg { return NeedJobMsg{JobID: id, Refresh: refresh} }
+	msg := JobSettleMsg{Key: c.Key(), JobID: c.JobID, Refresh: m.check.refreshJob}
+	return tea.Tick(jobSettleDelay, func(time.Time) tea.Msg { return msg })
 }
 
-// SetJob takes the fetched state from the root. A response for a job the cursor
-// has left stays in the store and does not repaint this pane.
+// settleJob spends only the wait that still names the selected job. Holding a
+// movement key can arm one timer per row without fetching any row passed over.
+func (m *Model) settleJob(msg JobSettleMsg) tea.Cmd {
+	c := m.selectedCheck()
+	if m.tab != tabChecks || c == nil || c.Key() != msg.Key || c.JobID != msg.JobID ||
+		c.JobID == m.check.wanted {
+		return nil
+	}
+	m.check.wanted = c.JobID
+	refresh := m.check.refreshJob || msg.Refresh
+	m.check.refreshJob = false
+	return func() tea.Msg { return NeedJobMsg{JobID: c.JobID, Refresh: refresh} }
+}
+
+type jobParsedMsg struct {
+	id       int64
+	sections []jobSection
+}
+
+// SetJobAsync keeps maximum-size log parsing off Bubble Tea's update loop.
+// Running jobs and fetch failures remain cheap enough to settle immediately.
+func (m *Model) SetJobAsync(id int64, job store.Job) tea.Cmd {
+	if !job.Loaded || job.Status == store.StatusFailed ||
+		job.Job.State == gh.CheckStatePending || job.Job.State == gh.CheckStateExpected {
+		return m.SetJob(id, job)
+	}
+	c := m.selectedCheck()
+	if c == nil || c.JobID != id {
+		return nil
+	}
+	m.takeJob(id, job)
+	m.check.parsing = true
+	m.check.sections = nil
+	m.check.stepLines = 0
+	m.check.stepStarts = nil
+	m.syncContent()
+	jobValue, log := job.Job, job.Log
+	return func() tea.Msg {
+		return jobParsedMsg{id: id, sections: splitJobLog(jobValue, log)}
+	}
+}
+
+func (m *Model) jobParsed(msg jobParsedMsg) tea.Cmd {
+	c := m.selectedCheck()
+	if c == nil || c.JobID != msg.id || m.check.wanted != msg.id {
+		return nil
+	}
+	m.check.parsing = false
+	m.check.sections = msg.sections
+	m.check.rendered = nil
+	m.check.renderedBody = ""
+	m.syncContent()
+	return m.Init()
+}
+
+// SetJob is the synchronous seam used by focused view tests. Production uses
+// SetJobAsync so parsing cannot block the application update loop.
 func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	c := m.selectedCheck()
 	if c == nil || c.JobID != id {
 		return nil
 	}
-	if m.check.job.Job.ID != id && job.Loaded {
-		m.check.step = 0
-		m.check.line = 0
-		m.check.stepLines = 0
-		m.check.stepOpen = make(map[int]bool)
-		m.check.stepSeen = make(map[int]bool)
-	}
-	m.check.wanted = id
-	m.check.job = job
+	m.takeJob(id, job)
+	m.check.parsing = false
 	if job.Status == store.StatusFailed {
 		// Keep the error on screen but release the request marker. The next
 		// explicit sync or poll may retry; returning Init here would loop now.
 		m.check.wanted = 0
 	}
-	m.check.rendered = nil
-	m.check.renderWidth = 0
-	m.check.renderQuery = ""
 	if job.Loaded {
-		// Parsing and sanitizing a real Actions log can mean walking megabytes.
-		// Do it when the response lands, not on every j or k over its steps.
 		m.check.sections = splitJobLog(job.Job, job.Log)
 	} else {
 		m.check.sections = nil
@@ -419,6 +466,22 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 		return nil
 	}
 	return m.Init()
+}
+
+func (m *Model) takeJob(id int64, job store.Job) {
+	if m.check.job.Job.ID != id && job.Loaded {
+		m.check.step = 0
+		m.check.line = 0
+		m.check.stepLines = 0
+		m.check.stepOpen = make(map[int]bool)
+		m.check.stepSeen = make(map[int]bool)
+	}
+	m.check.wanted = id
+	m.check.job = job
+	m.check.rendered = nil
+	m.check.renderedBody = ""
+	m.check.renderWidth = 0
+	m.check.renderQuery = ""
 }
 
 func (m Model) checkTitle() string {

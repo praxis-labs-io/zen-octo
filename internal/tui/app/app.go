@@ -950,13 +950,17 @@ func (m Model) needJob(id int64, refresh bool) (tea.Model, tea.Cmd) {
 	if held := m.store.Job(id); held.Status == store.StatusLoading ||
 		(held.Loaded && held.Status != store.StatusFailed && !refresh) {
 		m.store.UseJob(id)
-		return m, m.detail.SetJob(id, held)
+		return m, m.detail.SetJobAsync(id, held)
 	}
 	if !m.store.BeginJob(id) {
 		return m, nil
 	}
-	m.detail.SetJob(id, m.store.Job(id))
-	return m, tea.Batch(m.fetchJob(m.detail.PullRequest().Repository, id), m.detail.Init())
+	held := m.store.Job(id)
+	var loading tea.Cmd
+	if !held.Loaded {
+		loading = m.detail.SetJob(id, held)
+	}
+	return m, tea.Batch(m.fetchJob(m.detail.PullRequest().Repository, id), loading, m.detail.Init())
 }
 
 func (m Model) fetchJob(repo string, id int64) tea.Cmd {
@@ -988,7 +992,7 @@ func (m Model) jobSettled(id int64, err error) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	held := m.store.Job(id)
-	cmd := m.detail.SetJob(id, held)
+	cmd := m.detail.SetJobAsync(id, held)
 	if err != nil && held.Loaded {
 		return m, tea.Batch(cmd, m.toasts.Show(comp.ToastError, "Could not refresh the job log"))
 	}

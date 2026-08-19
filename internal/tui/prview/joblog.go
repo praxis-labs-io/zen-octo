@@ -16,9 +16,16 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
+const searchSettleDelay = 100 * time.Millisecond
+
+// SearchSettleMsg applies a query only after typing pauses. The heading still
+// echoes every key immediately; only the full-log scan waits.
+type SearchSettleMsg struct{ Query string }
+
 type jobSection struct {
 	step  gh.JobStep
 	lines []string
+	plain []string
 }
 
 func (m Model) checkHasFailure() bool {
@@ -47,7 +54,6 @@ func (m *Model) moveCheckStep(delta int) bool {
 	if m.check.step < len(m.check.stepStarts) {
 		m.check.line = m.check.stepStarts[m.check.step]
 	}
-	m.syncContent()
 	m.showCheckStep()
 	return true
 }
@@ -58,7 +64,6 @@ func (m *Model) moveCheckLine(delta int) bool {
 	}
 	m.check.line = min(max(m.check.line+delta, 0), m.check.stepLines-1)
 	m.check.step = m.stepAtCheckLine(m.check.line)
-	m.syncContent()
 	m.showCheckLine()
 	return true
 }
@@ -90,7 +95,6 @@ func (m *Model) gotoCheckLine(bottom bool) bool {
 		m.check.line = m.check.stepLines - 1
 	}
 	m.check.step = m.stepAtCheckLine(m.check.line)
-	m.syncContent()
 	m.showCheckLine()
 	return true
 }
@@ -119,6 +123,7 @@ func (m *Model) toggleCheckStep() {
 	m.check.stepOpen[number] = !open
 	m.check.line = m.check.stepStarts[m.check.step]
 	m.check.rendered = nil
+	m.check.renderedBody = ""
 	m.syncContent()
 	m.showCheckLine()
 }
@@ -155,7 +160,7 @@ func (m Model) mainHeading() string {
 	}
 	left := " " + m.faint().Render("Search: ") + m.check.search.Query() + caret
 	right := ""
-	if !m.check.search.Empty() {
+	if !m.check.search.Empty() && m.check.renderQuery == m.check.search.Query() {
 		at, total := 0, len(m.check.matchLines)
 		if total > 0 {
 			at = m.check.search.Cursor() + 1
@@ -206,14 +211,27 @@ func (m *Model) checkSearchKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.check.searching = false
 		if m.check.search.Empty() {
 			m.layout()
+		} else {
+			m.settleCheckSearch(SearchSettleMsg{Query: m.check.search.Query()})
 		}
 		return *m, nil
 	}
-	if m.check.search.Insert(msg) {
-		m.syncContent()
-		m.showCheckMatch()
+	if !m.check.search.Insert(msg) {
+		return *m, nil
 	}
-	return *m, nil
+	query := m.check.search.Query()
+	return *m, tea.Tick(searchSettleDelay, func(time.Time) tea.Msg {
+		return SearchSettleMsg{Query: query}
+	})
+}
+
+func (m *Model) settleCheckSearch(msg SearchSettleMsg) tea.Cmd {
+	if msg.Query != m.check.search.Query() {
+		return nil
+	}
+	m.syncContent()
+	m.showCheckMatch()
+	return nil
 }
 
 func (m *Model) moveCheckMatch(delta int) {
@@ -229,7 +247,6 @@ func (m *Model) showCheckMatch() {
 	}
 	m.check.line = m.check.matchLines[at]
 	m.check.step = m.stepAtCheckLine(m.check.line)
-	m.syncContent()
 	m.showCheckLine()
 }
 
@@ -246,7 +263,6 @@ func (m *Model) jumpFirstCheckFailure() {
 			m.check.line = m.check.stepStarts[i]
 		}
 		m.focus = paneMain
-		m.syncContent()
 		m.showCheckStep()
 		return
 	}
@@ -260,6 +276,8 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 
 	var body string
 	switch {
+	case m.check.parsing:
+		body = m.faint().Render("Processing the job log…")
 	case m.check.job.Loaded:
 		body = m.jobSteps(width)
 	case m.check.job.Status == store.StatusFailed:
@@ -338,17 +356,7 @@ func (m *Model) jobSteps(width int) string {
 	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
 	m.check.step = m.stepAtCheckLine(m.check.line)
 
-	var out strings.Builder
-	for i, line := range m.check.rendered {
-		if i > 0 {
-			out.WriteByte('\n')
-		}
-		if i == m.check.line {
-			line = selectedJobLogLine(line, width, m.theme.SelectedBackground, m.faint())
-		}
-		out.WriteString(line)
-	}
-	return out.String()
+	return m.check.renderedBody
 }
 
 // renderJobSteps pays the highlighting and clipping cost only when the log's
@@ -357,6 +365,7 @@ func (m *Model) jobSteps(width int) string {
 func (m *Model) renderJobSteps(width int) {
 	sections := m.check.sections
 	opens := make([]bool, len(sections))
+	matches := make([][]bool, len(sections))
 	m.check.stepStarts = make([]int, len(sections))
 	m.check.matchLines = nil
 	m.check.stepLines = 0
@@ -366,8 +375,10 @@ func (m *Model) renderJobSteps(width int) {
 		if !m.check.stepSeen[section.step.Number] && rank(section.step.State) >= rank(gh.CheckStateFailure) {
 			open = true
 		}
-		if sectionMatches(m.check.search, section) {
-			open = true
+		matches[i] = make([]bool, len(section.plain))
+		for line, plain := range section.plain {
+			matches[i][line] = m.check.search.Matches(plain)
+			open = open || matches[i][line]
 		}
 		open = open && len(section.lines) > 0
 		opens[i] = open
@@ -380,26 +391,18 @@ func (m *Model) renderJobSteps(width int) {
 	m.check.rendered = make([]string, 0, m.check.stepLines)
 	for i, section := range sections {
 		start := len(m.check.rendered)
-		row, matches := m.jobStepRow(section, width, opens[i])
+		row, matchedLines := m.jobStepRow(section, width, opens[i], matches[i])
 		m.check.rendered = append(m.check.rendered, strings.Split(row, "\n")...)
-		for _, line := range matches {
+		for _, line := range matchedLines {
 			m.check.matchLines = append(m.check.matchLines, start+line)
 		}
 	}
+	m.check.renderedBody = strings.Join(m.check.rendered, "\n")
 	m.check.renderWidth = width
 	m.check.renderQuery = m.check.search.Query()
 }
 
-func sectionMatches(search comp.Search, section jobSection) bool {
-	for _, line := range section.lines {
-		if search.Matches(xansi.Strip(line)) {
-			return true
-		}
-	}
-	return false
-}
-
-func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []int) {
+func (m Model) jobStepRow(section jobSection, width int, open bool, lineMatches []bool) (string, []int) {
 	base := lipgloss.NewStyle()
 	fold := " "
 	if len(section.lines) > 0 {
@@ -426,9 +429,9 @@ func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []i
 	lines = append(lines, head)
 	var matches []int
 	mark := lipgloss.NewStyle().Background(m.theme.SelectedBackground).Foreground(m.theme.Warning).Bold(true)
-	for _, line := range section.lines {
-		plain := xansi.Strip(line)
-		if m.check.search.Matches(plain) {
+	for i, line := range section.lines {
+		plain := section.plain[i]
+		if lineMatches[i] {
 			matches = append(matches, len(lines))
 			// Search spans are coordinates in printable text. Rendering the
 			// matching line from that text avoids slicing through an SGR sequence;
@@ -440,6 +443,27 @@ func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []i
 		lines = append(lines, clipTo("    "+line, width, m.faint()))
 	}
 	return strings.Join(lines, "\n"), matches
+}
+
+// paintCheckCursor keeps cursor motion out of the viewport content. The joined
+// unselected log stays cached; only the one visible row changes at render time.
+func (m Model) paintCheckCursor(view string) string {
+	if !m.check.job.Loaded || m.check.parsing || m.check.stepLines == 0 {
+		return view
+	}
+	at := contentLead + m.jobStepLead() + m.check.line - m.view.YOffset()
+	rows := strings.Split(view, "\n")
+	if at < 0 || at >= len(rows) {
+		return view
+	}
+	gutter := m.bodyGutter()
+	line := rows[at]
+	if gutter > len(line) {
+		return view
+	}
+	prefix, line := line[:gutter], line[gutter:]
+	rows[at] = prefix + selectedJobLogLine(line, m.bodyWidth(), m.theme.SelectedBackground, m.faint())
+	return strings.Join(rows, "\n")
 }
 
 // selectedJobLogLine reapplies the cursor background after every SGR run. A
@@ -490,7 +514,10 @@ func splitJobLog(job gh.Job, raw string) []jobSection {
 	}
 
 	at, next := 0, 1
-	for _, line := range strings.Split(strings.TrimSuffix(raw, "\n"), "\n") {
+	raw = strings.TrimSuffix(raw, "\n")
+	for raw != "" {
+		line, rest, found := strings.Cut(raw, "\n")
+		raw = rest
 		timestamp, text, ok := jobLogLine(line)
 		if ok {
 			for next < len(job.Steps) {
@@ -509,6 +536,10 @@ func splitJobLog(job gh.Job, raw string) []jobSection {
 			continue
 		}
 		out[at].lines = append(out[at].lines, text)
+		out[at].plain = append(out[at].plain, xansi.Strip(text))
+		if !found {
+			break
+		}
 	}
 	return out
 }

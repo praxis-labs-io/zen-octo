@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const maxJobLogBytes = 8 << 20
+const (
+	maxJobLogBytes         = 8 << 20
+	maxJobLogTransferBytes = 32 << 20
+)
 
 // Job fetches the step metadata beside a log. The downloadable text names
 // groups, but only this endpoint says which steps failed, which were skipped,
@@ -82,14 +85,33 @@ func (c *Client) JobLogs(ctx context.Context, repo string, jobID int64) ([]byte,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, truncated, err := readJobLog(resp.Body, maxJobLogBytes)
+	body, truncated, stopped, err := readJobLogDownload(
+		resp.Body, maxJobLogBytes, maxJobLogTransferBytes,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("fetching job logs (%s job %d): %w", repo, jobID, err)
 	}
 	if truncated {
 		body = append([]byte("[zen-octo: earlier log output truncated]\n"), body...)
 	}
+	if stopped {
+		body = append(body, []byte("\n[zen-octo: log download stopped after 32 MiB; later output unavailable]\n")...)
+	}
 	return body, nil
+}
+
+func readJobLogDownload(r io.Reader, keep, transfer int) ([]byte, bool, bool, error) {
+	limited := &io.LimitedReader{R: r, N: int64(transfer)}
+	body, truncated, err := readJobLog(limited, keep)
+	if err != nil || limited.N > 0 {
+		return body, truncated, false, err
+	}
+	var extra [1]byte
+	n, probeErr := io.ReadFull(r, extra[:])
+	if probeErr != nil && probeErr != io.EOF {
+		return nil, false, false, probeErr
+	}
+	return body, truncated, n > 0, nil
 }
 
 // readJobLog keeps the diagnostic end of a log while bounding memory. Failures
@@ -103,42 +125,71 @@ func readJobLog(r io.Reader, limit int) ([]byte, bool, error) {
 	if _, err := io.Copy(&writer, r); err != nil {
 		return nil, false, err
 	}
-	body := writer.buf
-	if writer.partial {
-		// The ring can begin in the middle of a UTF-8 rune or line. The next
-		// newline is the first complete record GitHub's timestamp parser can use.
-		if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
-			body = body[newline+1:]
+	window := writer.bytes()
+	truncated := writer.total > int64(limit)
+	body := window
+	if truncated {
+		// The ring keeps one byte before the retained tail, which says whether
+		// that tail starts on a line boundary without shifting the buffer on
+		// every network read.
+		partial := window[0] != '\n'
+		body = window[1:]
+		if partial {
+			if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
+				body = body[newline+1:]
+			}
 		}
 	}
-	return bytes.Clone(body), writer.total > int64(limit), nil
+	return bytes.Clone(body), truncated, nil
 }
 
 type tailWriter struct {
-	buf     []byte
-	limit   int
-	total   int64
-	partial bool
+	buf   []byte
+	start int
+	count int
+	limit int
+	total int64
 }
 
 func (w *tailWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	w.total += int64(n)
-	switch {
-	case n >= w.limit:
-		start := n - w.limit
-		w.partial = start > 0 && p[start-1] != '\n'
-		w.buf = append(w.buf[:0], p[start:]...)
-	case len(w.buf)+n <= w.limit:
-		w.buf = append(w.buf, p...)
-	default:
-		drop := len(w.buf) + n - w.limit
-		w.partial = drop > 0 && w.buf[drop-1] != '\n'
-		copy(w.buf, w.buf[drop:])
-		w.buf = w.buf[:len(w.buf)-drop]
-		w.buf = append(w.buf, p...)
+	capacity := w.limit + 1
+	if w.buf == nil {
+		w.buf = make([]byte, capacity)
+	}
+	if len(p) >= capacity {
+		copy(w.buf, p[len(p)-capacity:])
+		w.start, w.count = 0, capacity
+		return n, nil
+	}
+
+	if w.count < capacity {
+		fill := min(len(p), capacity-w.count)
+		w.copyAt((w.start+w.count)%capacity, p[:fill])
+		w.count += fill
+		p = p[fill:]
+	}
+	if len(p) > 0 {
+		w.copyAt(w.start, p)
+		w.start = (w.start + len(p)) % capacity
 	}
 	return n, nil
+}
+
+func (w *tailWriter) copyAt(at int, p []byte) {
+	n := copy(w.buf[at:], p)
+	copy(w.buf, p[n:])
+}
+
+func (w *tailWriter) bytes() []byte {
+	if w.count == 0 {
+		return nil
+	}
+	out := make([]byte, w.count)
+	n := copy(out, w.buf[w.start:min(len(w.buf), w.start+w.count)])
+	copy(out[n:], w.buf[:w.count-n])
+	return out
 }
 
 // RerunJob re-runs one Actions job and any jobs that depend on it.

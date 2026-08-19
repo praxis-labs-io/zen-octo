@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 )
@@ -86,7 +87,10 @@ func TestJobLogsAsksTheJobsLogEndpoint(t *testing.T) {
 }
 
 func TestJobLogLimitKeepsTheCompleteTailAndReportsTruncation(t *testing.T) {
-	got, truncated, err := readJobLog(strings.NewReader("first line\nsecond line\nfailure\n"), 20)
+	// One-byte reads exercise the full ring instead of the single oversized
+	// Write a strings.Reader can otherwise hand io.Copy.
+	got, truncated, err := readJobLog(iotest.OneByteReader(strings.NewReader(
+		"first line\nsecond line\nfailure\n")), 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +99,21 @@ func TestJobLogLimitKeepsTheCompleteTailAndReportsTruncation(t *testing.T) {
 	}
 	if string(got) != "second line\nfailure\n" {
 		t.Errorf("tail = %q", got)
+	}
+}
+
+func TestJobLogDownloadStopsAtItsTransferBudget(t *testing.T) {
+	body, _, stopped, err := readJobLogDownload(
+		strings.NewReader("first\nsecond\nthird\nfourth\n"), 8, 15,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stopped {
+		t.Fatal("oversized download was drained past its transfer budget")
+	}
+	if len(body) > 8 {
+		t.Errorf("retained %d bytes, want at most 8", len(body))
 	}
 }
 

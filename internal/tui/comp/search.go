@@ -43,7 +43,32 @@ func (s *Search) Insert(msg tea.KeyPressMsg) bool {
 	return true
 }
 
-func (s Search) Matches(text string) bool { return len(s.matchRanges(text)) > 0 }
+func (s Search) Matches(text string) bool {
+	if s.query == "" {
+		return false
+	}
+	for at := range text {
+		if foldPrefix(text[at:], s.query) {
+			return true
+		}
+	}
+	return false
+}
+
+func foldPrefix(text, query string) bool {
+	for query != "" {
+		if text == "" {
+			return false
+		}
+		got, gotSize := utf8.DecodeRuneInString(text)
+		want, wantSize := utf8.DecodeRuneInString(query)
+		if unicode.ToLower(got) != unicode.ToLower(want) {
+			return false
+		}
+		text, query = text[gotSize:], query[wantSize:]
+	}
+	return true
+}
 
 // Move advances through count matching lines and wraps at either end, the way
 // repeated n does in an editor.

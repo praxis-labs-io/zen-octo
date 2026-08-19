@@ -1217,6 +1217,12 @@ func settleOn(m tea.Model, sha string) tea.Model {
 	return settle(m, prview.CommitSettleMsg{SHA: sha})
 }
 
+func settleJob(m tea.Model, check gh.Check, refresh bool) tea.Model {
+	return settle(m, prview.JobSettleMsg{
+		Key: check.Key(), JobID: check.JobID, Refresh: refresh,
+	})
+}
+
 // settleSearch fires the waits a run of keystrokes armed, in the order they
 // were armed. immediate drops a tea.Tick rather than sleeping on it, so the
 // branch picker's debounce has to be driven by hand the way the commit
@@ -3724,6 +3730,7 @@ func TestSelectingAJobFetchesItsMetadataAndLogOnce(t *testing.T) {
 	}, "2026-08-19T14:00:00Z ok\n")
 
 	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
 	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
 		t.Fatalf("job asks = %v, want [9001]", got)
 	}
@@ -3754,6 +3761,7 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 	}, "not available yet")
 
 	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
 	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
 		t.Fatalf("metadata asks = %v, want [9001]", got)
 	}
@@ -3780,6 +3788,7 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateSuccess}},
 	}, "2026-08-19T14:00:00Z completed output\n")
 	m = press(m, "s")
+	m = settleJob(m, d.Rollup.Checks[0], true)
 	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
 		t.Errorf("completion metadata asks = %v, want the same job refetched", got)
 	}
@@ -3844,6 +3853,7 @@ func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
 	client.mu.Unlock()
 
 	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
 	if out := render(t, m); !strings.Contains(out, "Could not load the job log: no such host") {
 		t.Errorf("job failure did not reach the pane:\n%s", out)
 	}
@@ -3856,6 +3866,7 @@ func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
 		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateFailure}},
 	}, "2026-08-19T14:00:00Z retry reached GitHub\n")
 	m = press(m, "s")
+	m = settleJob(m, d.Rollup.Checks[0], false)
 	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
 		t.Errorf("retry asks = %v", got)
 	}

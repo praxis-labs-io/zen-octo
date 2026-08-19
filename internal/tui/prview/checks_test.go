@@ -77,6 +77,11 @@ func longLoadedJob(id int64) store.Job {
 	return job
 }
 
+func settleSearch(m prview.Model, query string) prview.Model {
+	m, _ = m.Update(prview.SearchSettleMsg{Query: query})
+	return m
+}
+
 func filledCheckRows(m prview.Model) []string {
 	var out []string
 	for _, row := range columnLines(m.View()) {
@@ -85,6 +90,29 @@ func filledCheckRows(m prview.Model) []string {
 		}
 	}
 	return out
+}
+
+func TestWalkingChecksFetchesOnlyTheJobWhereTheCursorSettles(t *testing.T) {
+	m := onChecks(160, 24)
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // workflow parent
+	m, lintWait := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m, testWait := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	stale, ok := armed(t, lintWait).(prview.JobSettleMsg)
+	if !ok {
+		t.Fatalf("first wait = %T", armed(t, lintWait))
+	}
+	if _, cmd := m.Update(stale); cmd != nil {
+		t.Error("a job passed over reached the network")
+	}
+	settled, ok := armed(t, testWait).(prview.JobSettleMsg)
+	if !ok {
+		t.Fatalf("last wait = %T", armed(t, testWait))
+	}
+	_, cmd := m.Update(settled)
+	if msg, ok := armed(t, cmd).(prview.NeedJobMsg); !ok || msg.JobID != 103 {
+		t.Errorf("settled request = %#v, want job 103", msg)
+	}
 }
 
 func TestTheChecksTreeFlattensSingleJobsAndNestsMultiJobWorkflows(t *testing.T) {
@@ -371,6 +399,18 @@ func TestDownloadedLogControlSequencesCannotReachTheTerminal(t *testing.T) {
 	}
 }
 
+func TestCompletedJobParsingRunsOutsideTheUpdateThatLandsIt(t *testing.T) {
+	m := onChecks(160, 24)
+	cmd := m.SetJobAsync(101, loadedJob(101, false))
+	if out := stripANSI(m.View()); !strings.Contains(out, "Processing the job log") {
+		t.Errorf("job did not expose its processing state:\n%s", out)
+	}
+	m, _ = m.Update(armed(t, cmd))
+	if out := stripANSI(m.View()); !strings.Contains(out, "Set up job") || strings.Contains(out, "Processing the job log") {
+		t.Errorf("parsed job did not replace the processing state:\n%s", out)
+	}
+}
+
 func TestTheLogCursorBackgroundSurvivesLogColorResets(t *testing.T) {
 	m := onChecks(160, 24)
 	job := loadedJob(101, true)
@@ -398,6 +438,7 @@ func TestSlashSearchHighlightsInPlaceAndOpensAMatchingStep(t *testing.T) {
 	m := onChecks(160, 24)
 	m.SetJob(101, loadedJob(101, false))
 	m = press(m, "/", "r", "u", "n", "n", "e", "r")
+	m = settleSearch(m, "runner")
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "Search: runner") || !strings.Contains(out, "runner ready") {
 		t.Errorf("search did not expose its matching line:\n%s", out)
@@ -410,7 +451,9 @@ func TestSlashSearchHighlightsInPlaceAndOpensAMatchingStep(t *testing.T) {
 func TestCancelingSearchRestoresTheStepItOpened(t *testing.T) {
 	m := onChecks(160, 24)
 	m.SetJob(101, loadedJob(101, false))
-	m = press(m, "/", "r", "u", "n", "n", "e", "r", "esc", "space")
+	m = press(m, "/", "r", "u", "n", "n", "e", "r")
+	m = settleSearch(m, "runner")
+	m = press(m, "esc", "space")
 	if out := stripANSI(m.View()); !strings.Contains(out, "runner ready") {
 		t.Errorf("escape moved the cursor off the step search opened:\n%s", out)
 	}
@@ -424,6 +467,7 @@ func TestSearchNeverSlicesAnANSISequence(t *testing.T) {
 		"2026-08-19T14:00:02Z ##[endgroup]\n"
 	m.SetJob(101, job)
 	m = press(m, "/", "3", "1")
+	m = settleSearch(m, "31")
 	if out := stripANSI(m.View()); !strings.Contains(out, "31 errors tail") {
 		t.Errorf("search corrupted the ANSI-bearing line:\n%s", out)
 	}

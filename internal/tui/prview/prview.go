@@ -37,6 +37,15 @@ type NeedJobMsg struct {
 	Refresh bool
 }
 
+// JobSettleMsg is a selected check that stayed under the cursor long enough to
+// be worth fetching. Walking the column arms many waits; only the one still
+// selected when it fires can reach the network.
+type JobSettleMsg struct {
+	Key     string
+	JobID   int64
+	Refresh bool
+}
+
 // ToggleFileViewedMsg asks the root to mark one file viewed or unviewed.
 type ToggleFileViewedMsg struct {
 	ID     string
@@ -508,6 +517,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case CommitSettleMsg:
 		return m, m.settleCommit(msg)
+	case JobSettleMsg:
+		return m, m.settleJob(msg)
+	case jobParsedMsg:
+		return m, m.jobParsed(msg)
+	case SearchSettleMsg:
+		return m, m.settleCheckSearch(msg)
 
 	case BranchSettleMsg:
 		return m, m.settleBranches(msg)
@@ -1482,7 +1497,10 @@ func (m *Model) syncContent() {
 	// to fold and spends half the cost of setting the content proving it: 12.7ms
 	// against 7.0ms on a hundred-and-forty-comment thread, which is paid on
 	// every keystroke once a comment is being written into it.
-	m.view.SoftWrap = m.tab == tabChecks
+	// Every tab hands the viewport rows already wrapped or clipped. Checks used
+	// to leave soft wrap on, making the viewport measure and fold megabytes of
+	// log text that cannot overflow its pre-clipped rows.
+	m.view.SoftWrap = false
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens
@@ -1562,13 +1580,17 @@ func (m Model) View() string {
 
 	// The tab strip goes on the main pane rather than on the column beside it:
 	// the strip is wider than the column and would clip to a fragment there.
+	mainView := m.view.View()
+	if m.tab == tabChecks {
+		mainView = m.paintCheckCursor(mainView)
+	}
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
 		Header(m.mainHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
-		Render(m.view.View())}
+		Render(mainView)}
 
 	if m.sideVisible() {
 		column := m.side.
