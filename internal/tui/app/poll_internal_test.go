@@ -68,6 +68,17 @@ func TestTheChecksBeatStopsAfterATabSwitch(t *testing.T) {
 	if !m.poller.checksAt.IsZero() {
 		t.Error("the stopped Checks chain still reads as armed")
 	}
+
+	// The old chain ended while Files was up. Coming round to Checks again
+	// starts a fresh one rather than leaving the tab permanently stopped.
+	for range 2 {
+		model, _ = m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+		m = model.(Model)
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	if !carries[checksTickMsg](cmd, checksBeat+time.Second) {
+		t.Error("returning to Checks after its old beat ended did not arm a new one")
+	}
 }
 
 // A pending Tick is the chain even while its tab is away. Re-entering before it
@@ -107,6 +118,20 @@ func TestASecondChecksChainDiesInsideTheInterval(t *testing.T) {
 	}
 	if second != nil {
 		t.Error("a second Checks chain inside the interval survived")
+	}
+}
+
+// The five-second beat may answer just before the Checks beat lands. The recent
+// detail stamp suppresses a second request after the in-flight guard is gone.
+func TestTheChecksBeatDefersToARecentlyAnsweredBackgroundBeat(t *testing.T) {
+	m := onTheChecksTab(t)
+	due := time.Now()
+	m.poller.checksAt = due
+	m.poller.stampDetail(m.detail.PullRequest().ID, due.Add(-pollBeat))
+
+	_, cmd := m.Update(checksTickMsg{at: due})
+	if carries[pulseFetchedMsg](cmd, 50*time.Millisecond) {
+		t.Error("the Checks beat rechecked a detail the background beat had just answered")
 	}
 }
 
