@@ -85,7 +85,6 @@ func rollup(r rollupNode) CheckRollup {
 		check := Check{
 			Name:        cmp.Or(c.Name, c.Context),
 			State:       checkState(c.Typename, c.Status, c.Conclusion, c.State),
-			JobID:       c.DatabaseID,
 			StartedAt:   c.StartedAt,
 			CompletedAt: c.CompletedAt,
 			DetailsURL:  c.DetailsURL,
@@ -95,6 +94,9 @@ func rollup(r rollupNode) CheckRollup {
 		if run := c.CheckSuite.WorkflowRun; run != nil {
 			check.Workflow = run.Workflow.Name
 			check.RunID = run.DatabaseID
+			// A third-party CheckRun has a database id too, but it is not an
+			// Actions job and the jobs endpoint will always answer 404 for it.
+			check.JobID = c.DatabaseID
 		}
 		if !check.StartedAt.IsZero() && !check.CompletedAt.IsZero() {
 			check.Duration = check.CompletedAt.Sub(check.StartedAt)

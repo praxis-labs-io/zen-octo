@@ -32,7 +32,10 @@ type NeedFilesMsg struct{ ID string }
 
 // NeedJobMsg asks the root for the metadata and log of one concrete Actions
 // job. A rerun gets a new id, even though it remains the same logical check.
-type NeedJobMsg struct{ JobID int64 }
+type NeedJobMsg struct {
+	JobID   int64
+	Refresh bool
+}
 
 // ToggleFileViewedMsg asks the root to mark one file viewed or unviewed.
 type ToggleFileViewedMsg struct {

@@ -28,6 +28,13 @@ func TestJobLogSanitizingKeepsSGRAndDropsTerminalControls(t *testing.T) {
 	}
 }
 
+func TestJobLabelsCannotCarryTerminalControlsOrNewRows(t *testing.T) {
+	got := cleanJobLabel("CI\nowned \x1b]52;c;secret\a\x1b[31mred")
+	if got != "CI owned red" {
+		t.Errorf("clean label = %q", got)
+	}
+}
+
 func TestMalformedAndPrivateEscapesAreDropped(t *testing.T) {
 	got := cleanJobLogLine("before\x1b[?25lmiddle\x1b[31after")
 	if strings.Contains(got, "\x1b") || got != "beforemiddlefter" {

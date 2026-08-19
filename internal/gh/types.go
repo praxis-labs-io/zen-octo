@@ -1,6 +1,9 @@
 package gh
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // PRState is where a pull request sits in its lifecycle.
 type PRState string
@@ -429,14 +432,17 @@ type Check struct {
 	DetailsURL  string
 }
 
-// Key tells one check from another. A check run has a node id, but the rollup
-// folds a re-run onto the attempt it replaces, so the id changes under a check
-// that is still the same row. This does not.
+// Key tells one logical check from another. A job id changes on a rerun, while
+// the workflow run id remains stable across its attempts. Including the run id
+// also keeps two workflow files with the same display name and job name from
+// collapsing into one row.
 //
-// The rollup keeps one check per workflow and name, which is what makes it
-// unique. The separator is a NUL rather than a slash because a workflow may
-// hold one.
-func (c Check) Key() string { return c.Workflow + "\x00" + c.Name }
+// A status context has no workflow run, so its provider context remains the
+// identity it has always exposed. NUL separators cannot collide with GitHub
+// names.
+func (c Check) Key() string {
+	return strconv.FormatInt(c.RunID, 10) + "\x00" + c.Workflow + "\x00" + c.Name
+}
 
 // Job is one Actions job and the steps GitHub ran inside it. The check rollup
 // carries enough to list a job, but not enough to draw its log: step state and

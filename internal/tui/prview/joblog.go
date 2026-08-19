@@ -169,15 +169,31 @@ func (m *Model) startCheckSearch() {
 	if m.tab != tabChecks || !m.check.job.Loaded {
 		return
 	}
+	m.check.searchStep = m.stepAtCheckLine(m.check.line)
+	if m.check.searchStep < len(m.check.stepStarts) {
+		m.check.searchWithin = m.check.line - m.check.stepStarts[m.check.searchStep]
+	}
 	m.check.searching = true
 	m.focus = paneMain
 	m.layout()
 }
 
 func (m *Model) clearCheckSearch() {
+	step, within := m.check.searchStep, m.check.searchWithin
 	m.check.searching = false
 	m.check.search = comp.Search{}
 	m.layout()
+	if len(m.check.stepStarts) == 0 {
+		return
+	}
+	step = min(max(step, 0), len(m.check.stepStarts)-1)
+	start, end := m.check.stepStarts[step], m.check.stepLines
+	if step+1 < len(m.check.stepStarts) {
+		end = m.check.stepStarts[step+1]
+	}
+	m.check.step = step
+	m.check.line = min(start+within, end-1)
+	m.syncContent()
 	m.showCheckLine()
 }
 
@@ -255,9 +271,9 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 }
 
 func (m Model) jobSummary(check gh.Check, width int) string {
-	name := check.Name
+	name := cleanJobLabel(check.Name)
 	if check.Workflow != "" {
-		name = check.Workflow + " / " + check.Name
+		name = cleanJobLabel(check.Workflow) + " / " + name
 	}
 	state, started, completed, duration := check.State, check.StartedAt, check.CompletedAt, check.Duration
 	if m.check.job.Loaded && m.check.job.Job.ID == check.JobID {
@@ -271,7 +287,7 @@ func (m Model) jobSummary(check gh.Check, width int) string {
 		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(name)
 
 	label, lc := comp.CheckStateLabel(m.theme, state)
-	if m.check.rerunning {
+	if m.checkRerunning(m.check.selected) {
 		label, lc = "rerunning", m.theme.Warning
 	}
 	parts := []string{lipgloss.NewStyle().Foreground(lc).Render(label)}
@@ -395,7 +411,7 @@ func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []i
 	icon, c := comp.CheckStateIcon(m.theme, section.step.State)
 	lead := base.Foreground(m.theme.Subtle).Render(fold) + base.Render(" ") +
 		base.Foreground(c).Render(icon) + base.Render(" ") +
-		base.Foreground(m.theme.Text).Render(section.step.Name)
+		base.Foreground(m.theme.Text).Render(cleanJobLabel(section.step.Name))
 	rightText := shortDuration(section.step.Duration)
 	if len(section.lines) == 0 && !section.step.StartedAt.IsZero() && section.step.CompletedAt.IsZero() {
 		rightText = "Log output is not available yet."
@@ -411,11 +427,16 @@ func (m Model) jobStepRow(section jobSection, width int, open bool) (string, []i
 	var matches []int
 	mark := lipgloss.NewStyle().Background(m.theme.SelectedBackground).Foreground(m.theme.Warning).Bold(true)
 	for _, line := range section.lines {
-		if m.check.search.Matches(xansi.Strip(line)) {
+		plain := xansi.Strip(line)
+		if m.check.search.Matches(plain) {
 			matches = append(matches, len(lines))
-			line = m.check.search.Highlight(line, mark)
+			// Search spans are coordinates in printable text. Rendering the
+			// matching line from that text avoids slicing through an SGR sequence;
+			// its original colors return when the search closes.
+			line = m.check.search.Highlight(plain, mark)
+		} else {
+			line = m.styleJobLogLine(line)
 		}
-		line = m.styleJobLogLine(line)
 		lines = append(lines, clipTo("    "+line, width, m.faint()))
 	}
 	return strings.Join(lines, "\n"), matches
@@ -507,6 +528,21 @@ func jobLogLine(line string) (time.Time, string, bool) {
 // Logs are untrusted terminal text. SGR changes how their own text looks and
 // is safe to keep; every other escape and control could move the cursor,
 // rewrite chrome, or open a terminal command, so it is dropped.
+func cleanJobLabel(label string) string {
+	label = xansi.Strip(label)
+	label = strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, label)
+	return strings.TrimSpace(label)
+}
+
 func cleanJobLogLine(line string) string {
 	line = strings.ReplaceAll(strings.TrimSuffix(line, "\r"), "\t", "    ")
 

@@ -2,6 +2,7 @@ package comp
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -42,9 +43,7 @@ func (s *Search) Insert(msg tea.KeyPressMsg) bool {
 	return true
 }
 
-func (s Search) Matches(text string) bool {
-	return s.query != "" && strings.Contains(strings.ToLower(text), strings.ToLower(s.query))
-}
+func (s Search) Matches(text string) bool { return len(s.matchRanges(text)) > 0 }
 
 // Move advances through count matching lines and wraps at either end, the way
 // repeated n does in an editor.
@@ -57,26 +56,50 @@ func (s *Search) Move(delta, count int) bool {
 }
 
 // Highlight paints every case-insensitive occurrence without changing any
-// text around it.
+// text around it. Matching and slicing both use rune indexes, so Unicode case
+// folding can never cut a UTF-8 sequence in half.
 func (s Search) Highlight(text string, mark lipgloss.Style) string {
-	if s.query == "" {
+	ranges := s.matchRanges(text)
+	if len(ranges) == 0 {
 		return text
 	}
-	lower, query := strings.ToLower(text), strings.ToLower(s.query)
+	runes := []rune(text)
 	var out strings.Builder
-	for {
-		at := strings.Index(lower, query)
-		if at < 0 {
-			out.WriteString(text)
-			return out.String()
-		}
-		end := at + len(query)
-		if end > len(text) {
-			out.WriteString(text)
-			return out.String()
-		}
-		out.WriteString(text[:at])
-		out.WriteString(mark.Render(text[at:end]))
-		text, lower = text[end:], lower[end:]
+	at := 0
+	for _, match := range ranges {
+		out.WriteString(string(runes[at:match.start]))
+		out.WriteString(mark.Render(string(runes[match.start:match.end])))
+		at = match.end
 	}
+	out.WriteString(string(runes[at:]))
+	return out.String()
+}
+
+type searchRange struct{ start, end int }
+
+func (s Search) matchRanges(text string) []searchRange {
+	if s.query == "" {
+		return nil
+	}
+	textRunes, queryRunes := []rune(text), []rune(s.query)
+	if len(queryRunes) == 0 || len(queryRunes) > len(textRunes) {
+		return nil
+	}
+	var out []searchRange
+	for at := 0; at+len(queryRunes) <= len(textRunes); {
+		matched := true
+		for i, want := range queryRunes {
+			if unicode.ToLower(textRunes[at+i]) != unicode.ToLower(want) {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			at++
+			continue
+		}
+		out = append(out, searchRange{start: at, end: at + len(queryRunes)})
+		at += len(queryRunes)
+	}
+	return out
 }

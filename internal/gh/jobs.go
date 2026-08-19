@@ -1,6 +1,7 @@
 package gh
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"time"
 )
+
+const maxJobLogBytes = 8 << 20
 
 // Job fetches the step metadata beside a log. The downloadable text names
 // groups, but only this endpoint says which steps failed, which were skipped,
@@ -79,11 +82,63 @@ func (c *Client) JobLogs(ctx context.Context, repo string, jobID int64) ([]byte,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	body, truncated, err := readJobLog(resp.Body, maxJobLogBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetching job logs (%s job %d): %w", repo, jobID, err)
 	}
+	if truncated {
+		body = append([]byte("[zen-octo: earlier log output truncated]\n"), body...)
+	}
 	return body, nil
+}
+
+// readJobLog keeps the diagnostic end of a log while bounding memory. Failures
+// are normally at the end; retaining the first bytes would preserve setup and
+// discard the reason the reader opened the job.
+func readJobLog(r io.Reader, limit int) ([]byte, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	writer := tailWriter{limit: limit}
+	if _, err := io.Copy(&writer, r); err != nil {
+		return nil, false, err
+	}
+	body := writer.buf
+	if writer.partial {
+		// The ring can begin in the middle of a UTF-8 rune or line. The next
+		// newline is the first complete record GitHub's timestamp parser can use.
+		if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
+			body = body[newline+1:]
+		}
+	}
+	return bytes.Clone(body), writer.total > int64(limit), nil
+}
+
+type tailWriter struct {
+	buf     []byte
+	limit   int
+	total   int64
+	partial bool
+}
+
+func (w *tailWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.total += int64(n)
+	switch {
+	case n >= w.limit:
+		start := n - w.limit
+		w.partial = start > 0 && p[start-1] != '\n'
+		w.buf = append(w.buf[:0], p[start:]...)
+	case len(w.buf)+n <= w.limit:
+		w.buf = append(w.buf, p...)
+	default:
+		drop := len(w.buf) + n - w.limit
+		w.partial = drop > 0 && w.buf[drop-1] != '\n'
+		copy(w.buf, w.buf[drop:])
+		w.buf = w.buf[:len(w.buf)-drop]
+		w.buf = append(w.buf, p...)
+	}
+	return n, nil
 }
 
 // RerunJob re-runs one Actions job and any jobs that depend on it.

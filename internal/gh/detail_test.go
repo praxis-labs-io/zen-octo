@@ -587,6 +587,11 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	if build.RunID != 555200001 {
 		t.Errorf("build.RunID = %d, want 555200001", build.RunID)
 	}
+	for _, check := range d.Rollup.Checks {
+		if check.Workflow == "" && check.JobID != 0 {
+			t.Errorf("non-Actions check %q has job id %d", check.Name, check.JobID)
+		}
+	}
 	if build.DetailsURL != "https://github.com/praxis-labs-io/zen-octo/runs/8700123456" {
 		t.Errorf("build.DetailsURL = %q, want the run's own link", build.DetailsURL)
 	}
@@ -905,6 +910,14 @@ func TestAKeyTellsTheWorkflowFromTheJob(t *testing.T) {
 	b := Check{Workflow: "Lint", Name: "Format / go"}
 	if a.Key() == b.Key() {
 		t.Errorf("%+v and %+v both key to %q", a, b, a.Key())
+	}
+}
+
+func TestAKeyTellsIdenticallyNamedWorkflowRunsApart(t *testing.T) {
+	a := Check{RunID: 41, Workflow: "CI", Name: "test"}
+	b := Check{RunID: 42, Workflow: "CI", Name: "test"}
+	if a.Key() == b.Key() {
+		t.Errorf("runs %d and %d both key to %q", a.RunID, b.RunID, a.Key())
 	}
 }
 

@@ -85,6 +85,19 @@ func TestJobLogsAsksTheJobsLogEndpoint(t *testing.T) {
 	}
 }
 
+func TestJobLogLimitKeepsTheCompleteTailAndReportsTruncation(t *testing.T) {
+	got, truncated, err := readJobLog(strings.NewReader("first line\nsecond line\nfailure\n"), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated {
+		t.Fatal("oversized log was not marked truncated")
+	}
+	if string(got) != "second line\nfailure\n" {
+		t.Errorf("tail = %q", got)
+	}
+}
+
 func TestJobLogsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: "irrelevant"}
 	if _, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo", 9001); err == nil {

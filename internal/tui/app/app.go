@@ -943,11 +943,12 @@ func (m Model) commitFilesSettled(sha string, err error) (tea.Model, tea.Cmd) {
 // needJob answers the Checks screen asking for the selected concrete attempt.
 // A cached log is pushed immediately; a cold one gets the same loading-first
 // lifecycle as a commit diff.
-func (m Model) needJob(id int64) (tea.Model, tea.Cmd) {
+func (m Model) needJob(id int64, refresh bool) (tea.Model, tea.Cmd) {
 	if m.screen != screenDetail || id == 0 {
 		return m, nil
 	}
-	if held := m.store.Job(id); held.Loaded || held.Status == store.StatusLoading {
+	if held := m.store.Job(id); held.Status == store.StatusLoading ||
+		(held.Loaded && held.Status != store.StatusFailed && !refresh) {
 		m.store.UseJob(id)
 		return m, m.detail.SetJob(id, held)
 	}
@@ -1218,7 +1219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.needCommit(msg.SHA)
 
 	case prview.NeedJobMsg:
-		return m.needJob(msg.JobID)
+		return m.needJob(msg.JobID, msg.Refresh)
 
 	case prview.RerunCheckMsg:
 		return m.rerunCheck(msg)

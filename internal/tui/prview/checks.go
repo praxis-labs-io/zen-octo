@@ -39,6 +39,11 @@ type checkGroup struct {
 // checkTreeRow is one visible line in the Checks column. A parent folds a
 // multi-job workflow; every other row is the same logical check the details
 // rail lists.
+type rerunPending struct {
+	jobID     int64
+	startedAt time.Time
+}
+
 type checkTreeRow struct {
 	key      string
 	label    string
@@ -61,6 +66,7 @@ type checks struct {
 	folded   map[string]bool
 
 	wanted      int64
+	refreshJob  bool
 	job         store.Job
 	sections    []jobSection
 	rendered    []string
@@ -74,11 +80,13 @@ type checks struct {
 	stepOpen   map[int]bool
 	stepSeen   map[int]bool
 
-	searching  bool
-	search     comp.Search
-	matchLines []int
-	rerunning  bool
-	rerunAt    time.Time
+	searching    bool
+	search       comp.Search
+	matchLines   []int
+	searchStep   int
+	searchWithin int
+
+	reruns map[string]rerunPending
 }
 
 // groupChecks keeps workflow order from the rollup. Status contexts are flat
@@ -180,6 +188,9 @@ func (m *Model) syncChecks() {
 	if m.check.folded == nil {
 		m.check.folded = make(map[string]bool)
 	}
+	if m.check.reruns == nil {
+		m.check.reruns = make(map[string]rerunPending)
+	}
 
 	m.check.groups = groupChecks(m.detail.Detail.Rollup)
 	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
@@ -212,13 +223,22 @@ func (m *Model) syncChecks() {
 			}
 		}
 	}
+	for key, pending := range m.check.reruns {
+		check := m.checkForKey(key)
+		if check == nil || rerunReplacementVisible(pending, *check) {
+			delete(m.check.reruns, key)
+		}
+	}
+
 	if c := m.selectedCheck(); c == nil {
 		m.resetCheckJob()
 	} else {
-		changed := c.JobID != m.check.wanted ||
-			(m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State)
-		if changed && (!m.check.rerunning || m.rerunAttemptVisible(*c)) {
+		stateChanged := m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State
+		changed := c.JobID != m.check.wanted || stateChanged
+		_, rerunning := m.check.reruns[m.check.selected]
+		if changed && !rerunning {
 			m.resetCheckJob()
+			m.check.refreshJob = stateChanged
 		}
 	}
 	showRow(&m.sideView, m.check.cursor)
@@ -235,19 +255,23 @@ func (m *Model) checkForKey(key string) *gh.Check {
 
 func (m *Model) selectedCheck() *gh.Check { return m.checkForKey(m.check.selected) }
 
-func (m Model) rerunAttemptVisible(check gh.Check) bool {
+func rerunReplacementVisible(pending rerunPending, check gh.Check) bool {
 	if check.State == gh.CheckStatePending || check.State == gh.CheckStateExpected {
 		return true
 	}
-	// The rollup can briefly fold an older completed attempt over the failed
-	// one after GitHub accepts a rerun. A completed job is the replacement only
-	// when it started after this write, not merely because its id differs.
-	return check.JobID != m.check.wanted && !check.StartedAt.IsZero() &&
-		!check.StartedAt.Before(m.check.rerunAt.Add(-5*time.Second))
+	// Compare two server timestamps rather than GitHub's clock with the local
+	// one. An older passing attempt may briefly resurface after the write.
+	return check.JobID != pending.jobID && !pending.startedAt.IsZero() &&
+		!check.StartedAt.IsZero() && check.StartedAt.After(pending.startedAt)
+}
+
+func (m Model) checkRerunning(key string) bool {
+	_, ok := m.check.reruns[key]
+	return ok
 }
 
 func (m Model) canRerunCheck() bool {
-	if m.tab != tabChecks || m.check.rerunning {
+	if m.tab != tabChecks || m.checkRerunning(m.check.selected) {
 		return false
 	}
 	check := m.selectedCheck()
@@ -260,27 +284,28 @@ func (m *Model) rerunCheck() tea.Cmd {
 		return nil
 	}
 	check := *m.selectedCheck()
-	m.check.rerunning = true
-	m.check.rerunAt = time.Now()
+	if m.check.reruns == nil {
+		m.check.reruns = make(map[string]rerunPending)
+	}
+	m.check.reruns[m.check.selected] = rerunPending{jobID: check.JobID, startedAt: check.StartedAt}
 	m.syncContent()
-	name := check.Name
+	name := cleanJobLabel(check.Name)
 	if check.Workflow != "" {
-		name = check.Workflow + " / " + check.Name
+		name = cleanJobLabel(check.Workflow) + " / " + name
 	}
 	return func() tea.Msg {
 		return RerunCheckMsg{Repo: m.pr.Repository, JobID: check.JobID, Name: name}
 	}
 }
 
-// RerunSettled releases the key only if the answer belongs to the attempt still
-// on screen. Polling replaces that attempt when GitHub publishes the rerun.
+// RerunSettled releases a refused write wherever the reader has navigated.
+// Accepted writes stay marked until polling publishes their replacement.
 func (m *Model) RerunSettled(jobID int64) {
-	check := m.selectedCheck()
-	if check == nil || check.JobID != jobID {
-		return
+	for key, pending := range m.check.reruns {
+		if pending.jobID == jobID {
+			delete(m.check.reruns, key)
+		}
 	}
-	m.check.rerunning = false
-	m.check.rerunAt = time.Time{}
 	m.syncContent()
 }
 
@@ -308,6 +333,7 @@ func (m *Model) moveCheck(delta int) {
 
 func (m *Model) resetCheckJob() {
 	m.check.wanted = 0
+	m.check.refreshJob = false
 	m.check.job = store.Job{}
 	m.check.sections = nil
 	m.check.rendered = nil
@@ -322,8 +348,8 @@ func (m *Model) resetCheckJob() {
 	m.check.searching = false
 	m.check.search = comp.Search{}
 	m.check.matchLines = nil
-	m.check.rerunning = false
-	m.check.rerunAt = time.Time{}
+	m.check.searchStep = 0
+	m.check.searchWithin = 0
 }
 
 func (m *Model) toggleCheckFold() {
@@ -352,8 +378,9 @@ func (m *Model) armJob() tea.Cmd {
 		return nil
 	}
 	m.check.wanted = c.JobID
-	id := c.JobID
-	return func() tea.Msg { return NeedJobMsg{JobID: id} }
+	id, refresh := c.JobID, m.check.refreshJob
+	m.check.refreshJob = false
+	return func() tea.Msg { return NeedJobMsg{JobID: id, Refresh: refresh} }
 }
 
 // SetJob takes the fetched state from the root. A response for a job the cursor
@@ -372,6 +399,11 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	}
 	m.check.wanted = id
 	m.check.job = job
+	if job.Status == store.StatusFailed {
+		// Keep the error on screen but release the request marker. The next
+		// explicit sync or poll may retry; returning Init here would loop now.
+		m.check.wanted = 0
+	}
 	m.check.rendered = nil
 	m.check.renderWidth = 0
 	m.check.renderQuery = ""
@@ -383,6 +415,9 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 		m.check.sections = nil
 	}
 	m.syncContent()
+	if job.Status == store.StatusFailed {
+		return nil
+	}
 	return m.Init()
 }
 
@@ -402,7 +437,7 @@ func (m Model) checkColumn(width int) string {
 	}
 	lines := make([]string, len(m.check.rows))
 	for i, r := range m.check.rows {
-		if m.check.rerunning && r.checkKey == m.check.selected {
+		if m.checkRerunning(r.checkKey) {
 			r.state = gh.CheckStatePending
 		}
 		lines[i] = m.checkTreeLine(r, width, i == m.check.cursor)
@@ -425,7 +460,7 @@ func (m Model) checkTreeLine(r checkTreeRow, width int, selected bool) string {
 	}
 	indent := strings.Repeat("  ", r.depth)
 	lead := base.Render(indent+fold) + base.Foreground(c).Render(glyphCheck) + base.Render(" ") +
-		base.Foreground(m.theme.Text).Render(r.label)
+		base.Foreground(m.theme.Text).Render(cleanJobLabel(r.label))
 	right := ""
 	if r.parent {
 		right = base.Foreground(m.theme.Subtle).Render(strconv.Itoa(r.count))

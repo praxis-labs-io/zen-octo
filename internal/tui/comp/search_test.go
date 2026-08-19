@@ -46,6 +46,15 @@ func TestSearchHighlightsMatchesWithoutHidingTheLine(t *testing.T) {
 	}
 }
 
+func TestSearchHighlightsUnicodeWithoutSplittingRunes(t *testing.T) {
+	var s comp.Search
+	s.Insert(tea.KeyPressMsg{Code: 'σ', Text: "σ"})
+	got := s.Highlight("Σ failure", lipgloss.NewStyle().Bold(true))
+	if plain := xansi.Strip(got); plain != "Σ failure" {
+		t.Errorf("highlight changed the line to %q", plain)
+	}
+}
+
 func TestSearchMovesThroughMatchesAndWraps(t *testing.T) {
 	var s comp.Search
 	s.Insert(tea.KeyPressMsg{Code: 'x', Text: "x"})

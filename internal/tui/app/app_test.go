@@ -3770,6 +3770,26 @@ func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
 	if after := render(t, m); after != before {
 		t.Error("a running step without available logs expanded")
 	}
+
+	client.mu.Lock()
+	d.Rollup.Checks[0].State = gh.CheckStateSuccess
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateSuccess,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateSuccess}},
+	}, "2026-08-19T14:00:00Z completed output\n")
+	m = press(m, "s")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
+		t.Errorf("completion metadata asks = %v, want the same job refetched", got)
+	}
+	if got := client.askedJobLogs(); !slices.Equal(got, []int64{9001}) {
+		t.Errorf("completion log asks = %v, want [9001]", got)
+	}
+	m = press(m, "space")
+	if out := render(t, m); !strings.Contains(out, "completed output") {
+		t.Errorf("completed log did not replace running metadata:\n%s", out)
+	}
 }
 
 func TestRerunningASelectedFailedCheckCallsGitHubAndToasts(t *testing.T) {
@@ -3826,5 +3846,20 @@ func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
 	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
 	if out := render(t, m); !strings.Contains(out, "Could not load the job log: no such host") {
 		t.Errorf("job failure did not reach the pane:\n%s", out)
+	}
+
+	client.mu.Lock()
+	client.jobErr = nil
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateFailure,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateFailure}},
+	}, "2026-08-19T14:00:00Z retry reached GitHub\n")
+	m = press(m, "s")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
+		t.Errorf("retry asks = %v", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "retry reached GitHub") {
+		t.Errorf("sync did not retry the failed job fetch:\n%s", out)
 	}
 }

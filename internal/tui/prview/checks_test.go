@@ -186,6 +186,10 @@ func TestRAsksToRerunTheSelectedFailedJob(t *testing.T) {
 	if _, again := key(m, "r"); again != nil {
 		t.Error("a second r started another rerun while the first was in flight")
 	}
+	m = press(m, "j", "k")
+	if _, again := key(m, "r"); again != nil {
+		t.Error("navigating away released the pending rerun")
+	}
 
 	m.RerunSettled(103)
 	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") {
@@ -400,6 +404,28 @@ func TestSlashSearchHighlightsInPlaceAndOpensAMatchingStep(t *testing.T) {
 	}
 	if !strings.Contains(out, "▾ ✓ Set up job") {
 		t.Error("search did not temporarily open the matching step")
+	}
+}
+
+func TestCancelingSearchRestoresTheStepItOpened(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, loadedJob(101, false))
+	m = press(m, "/", "r", "u", "n", "n", "e", "r", "esc", "space")
+	if out := stripANSI(m.View()); !strings.Contains(out, "runner ready") {
+		t.Errorf("escape moved the cursor off the step search opened:\n%s", out)
+	}
+}
+
+func TestSearchNeverSlicesAnANSISequence(t *testing.T) {
+	m := onChecks(160, 24)
+	job := loadedJob(101, false)
+	job.Log = "2026-08-19T14:00:00Z ##[group]Set up job\n" +
+		"2026-08-19T14:00:01Z \x1b[31m31 errors tail\x1b[0m\n" +
+		"2026-08-19T14:00:02Z ##[endgroup]\n"
+	m.SetJob(101, job)
+	m = press(m, "/", "3", "1")
+	if out := stripANSI(m.View()); !strings.Contains(out, "31 errors tail") {
+		t.Errorf("search corrupted the ANSI-bearing line:\n%s", out)
 	}
 }
 
