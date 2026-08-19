@@ -165,6 +165,27 @@ func TestARerunKeepsLogicalSelectionButLoadsTheNewAttempt(t *testing.T) {
 	}
 }
 
+func TestAFinishedJobReplacesItsRunningMetadataAndAsksForTheLog(t *testing.T) {
+	r := checkRollup()
+	r.Checks[0].State = gh.CheckStatePending
+	m := overRollup(r, 160, 24)
+	m.SetJob(101, store.Job{
+		Job: gh.Job{ID: 101, Name: "unit", State: gh.CheckStatePending,
+			Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStatePending}}},
+		Status: store.StatusReady, Loaded: true,
+	})
+
+	r.Checks[0].State = gh.CheckStateSuccess
+	d := sampleDetail()
+	d.Rollup = r
+	if cmd := m.SetDetail(held(d)); cmd == nil {
+		t.Fatal("the completed job did not ask for its now-available log")
+	}
+	if out := stripANSI(m.View()); strings.Contains(out, "Log output will be available") {
+		t.Error("the running-job note remained after completion")
+	}
+}
+
 func TestAStatusContextHasAnExplicitNoLogState(t *testing.T) {
 	m := press(onChecks(160, 24), "G")
 	out := stripANSI(m.View())

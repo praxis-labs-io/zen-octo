@@ -194,7 +194,8 @@ func (m *Model) syncChecks() {
 			}
 		}
 	}
-	if c := m.selectedCheck(); c == nil || c.JobID != m.check.wanted {
+	if c := m.selectedCheck(); c == nil || c.JobID != m.check.wanted ||
+		(m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State) {
 		m.resetCheckJob()
 	}
 	showRow(&m.sideView, m.check.cursor)

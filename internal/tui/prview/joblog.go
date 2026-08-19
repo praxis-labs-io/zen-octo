@@ -69,6 +69,9 @@ func (m Model) jobStepLead() int {
 	if m.check.searching || !m.check.search.Empty() {
 		lead += 2 // query and the blank below it
 	}
+	if m.check.job.Loaded && (m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected) {
+		lead += 2 // waiting note and the blank below it
+	}
 	return lead
 }
 
@@ -134,6 +137,9 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 	switch {
 	case m.check.job.Loaded:
 		body = m.jobSteps(width)
+		if m.check.job.Job.State == gh.CheckStatePending || m.check.job.Job.State == gh.CheckStateExpected {
+			body = m.faint().Render("Log output will be available when this job finishes.") + "\n\n" + body
+		}
 	case m.check.job.Status == store.StatusFailed:
 		body = m.faint().Render("Could not load the job log: " + m.check.job.Err.Error())
 	default:

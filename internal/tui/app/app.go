@@ -967,6 +967,12 @@ func (m Model) fetchJob(repo string, id int64) tea.Cmd {
 		if err != nil {
 			return jobFailedMsg{id: id, err: err}
 		}
+		// GitHub does not publish the downloadable blob until the job has
+		// finished. Asking while it is running follows a signed redirect to a
+		// blob that does not exist yet and turns normal progress into a 404.
+		if job.State == gh.CheckStatePending || job.State == gh.CheckStateExpected {
+			return jobFetchedMsg{id: id, job: job}
+		}
 		log, err := client.JobLogs(ctx, repo, id)
 		if err != nil {
 			return jobFailedMsg{id: id, err: err}

@@ -42,6 +42,7 @@ type fakeSearcher struct {
 	diffs       []string
 	commitDiffs []string
 	jobAsks     []int64
+	jobLogAsks  []int64
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
@@ -325,6 +326,7 @@ func (f *fakeSearcher) Job(_ context.Context, _ string, id int64) (gh.Job, error
 func (f *fakeSearcher) JobLogs(_ context.Context, _ string, id int64) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.jobLogAsks = append(f.jobLogAsks, id)
 	return slices.Clone(f.jobLogs[id]), f.jobErr
 }
 
@@ -344,6 +346,12 @@ func (f *fakeSearcher) askedJobs() []int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.jobAsks)
+}
+
+func (f *fakeSearcher) askedJobLogs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.jobLogAsks)
 }
 
 // serveFiles stages one pull request's diff.
@@ -3709,6 +3717,31 @@ func TestSelectingAJobFetchesItsMetadataAndLogOnce(t *testing.T) {
 	press(m, "[", "]")
 	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
 		t.Errorf("reopening the cached job fetched again: %v", got)
+	}
+}
+
+func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStatePending, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStatePending,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStatePending}},
+	}, "not available yet")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Fatalf("metadata asks = %v, want [9001]", got)
+	}
+	if got := client.askedJobLogs(); len(got) != 0 {
+		t.Errorf("running job asked for logs: %v", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Log output will be available when this job finishes") {
+		t.Errorf("running job pane:\n%s", out)
 	}
 }
 
