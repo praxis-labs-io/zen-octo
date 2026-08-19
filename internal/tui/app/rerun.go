@@ -9,14 +9,9 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-type checkRerunMsg struct {
-	id    string
-	jobID int64
-	name  string
-}
+type checkRerunMsg struct{ name string }
 
 type checkRerunFailedMsg struct {
-	id    string
 	jobID int64
 	name  string
 	err   error
@@ -29,18 +24,19 @@ func (m Model) rerunCheck(msg prview.RerunCheckMsg) (tea.Model, tea.Cmd) {
 		defer cancel()
 
 		if err := client.RerunJob(ctx, msg.Repo, msg.JobID); err != nil {
-			return checkRerunFailedMsg{id: msg.ID, jobID: msg.JobID, name: msg.Name, err: err}
+			return checkRerunFailedMsg{jobID: msg.JobID, name: msg.Name, err: err}
 		}
-		return checkRerunMsg{id: msg.ID, jobID: msg.JobID, name: msg.Name}
+		return checkRerunMsg{name: msg.Name}
 	}
 }
 
 func (m Model) checkRerunLanded(msg checkRerunMsg) (tea.Model, tea.Cmd) {
-	m.detail.RerunSettled(msg.jobID)
-	return m, tea.Batch(
-		m.toasts.Show(comp.ToastSuccess, "Rerunning "+msg.name),
-		m.correctDetail(msg.id),
-	)
+	// GitHub accepts the write before the replacement attempt reaches the check
+	// rollup. Keep the optimistic state through that gap: an immediate detail
+	// fetch can still report the failed attempt, or briefly fold an older passing
+	// one over it. The Checks poll clears it when the new job id or pending state
+	// arrives.
+	return m, m.toasts.Show(comp.ToastSuccess, "Rerunning "+msg.name)
 }
 
 func (m Model) checkRerunFailed(msg checkRerunFailedMsg) (tea.Model, tea.Cmd) {

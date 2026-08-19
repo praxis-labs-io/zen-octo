@@ -3,6 +3,7 @@ package prview
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -22,7 +23,6 @@ const (
 // concrete job id makes the write precise; the logical key remains selected
 // when GitHub replaces it with the new attempt.
 type RerunCheckMsg struct {
-	ID    string
 	Repo  string
 	JobID int64
 	Name  string
@@ -78,6 +78,7 @@ type checks struct {
 	search     comp.Search
 	matchLines []int
 	rerunning  bool
+	rerunAt    time.Time
 }
 
 // groupChecks keeps workflow order from the rollup. Status contexts are flat
@@ -211,9 +212,14 @@ func (m *Model) syncChecks() {
 			}
 		}
 	}
-	if c := m.selectedCheck(); c == nil || c.JobID != m.check.wanted ||
-		(m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State) {
+	if c := m.selectedCheck(); c == nil {
 		m.resetCheckJob()
+	} else {
+		changed := c.JobID != m.check.wanted ||
+			(m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State)
+		if changed && (!m.check.rerunning || m.rerunAttemptVisible(*c)) {
+			m.resetCheckJob()
+		}
 	}
 	showRow(&m.sideView, m.check.cursor)
 }
@@ -228,6 +234,17 @@ func (m *Model) checkForKey(key string) *gh.Check {
 }
 
 func (m *Model) selectedCheck() *gh.Check { return m.checkForKey(m.check.selected) }
+
+func (m Model) rerunAttemptVisible(check gh.Check) bool {
+	if check.State == gh.CheckStatePending || check.State == gh.CheckStateExpected {
+		return true
+	}
+	// The rollup can briefly fold an older completed attempt over the failed
+	// one after GitHub accepts a rerun. A completed job is the replacement only
+	// when it started after this write, not merely because its id differs.
+	return check.JobID != m.check.wanted && !check.StartedAt.IsZero() &&
+		!check.StartedAt.Before(m.check.rerunAt.Add(-5*time.Second))
+}
 
 func (m Model) canRerunCheck() bool {
 	if m.tab != tabChecks || m.check.rerunning {
@@ -244,13 +261,14 @@ func (m *Model) rerunCheck() tea.Cmd {
 	}
 	check := *m.selectedCheck()
 	m.check.rerunning = true
+	m.check.rerunAt = time.Now()
 	m.syncContent()
 	name := check.Name
 	if check.Workflow != "" {
 		name = check.Workflow + " / " + check.Name
 	}
 	return func() tea.Msg {
-		return RerunCheckMsg{ID: m.pr.ID, Repo: m.pr.Repository, JobID: check.JobID, Name: name}
+		return RerunCheckMsg{Repo: m.pr.Repository, JobID: check.JobID, Name: name}
 	}
 }
 
@@ -262,6 +280,7 @@ func (m *Model) RerunSettled(jobID int64) {
 		return
 	}
 	m.check.rerunning = false
+	m.check.rerunAt = time.Time{}
 	m.syncContent()
 }
 
@@ -304,6 +323,7 @@ func (m *Model) resetCheckJob() {
 	m.check.search = comp.Search{}
 	m.check.matchLines = nil
 	m.check.rerunning = false
+	m.check.rerunAt = time.Time{}
 }
 
 func (m *Model) toggleCheckFold() {
@@ -382,6 +402,9 @@ func (m Model) checkColumn(width int) string {
 	}
 	lines := make([]string, len(m.check.rows))
 	for i, r := range m.check.rows {
+		if m.check.rerunning && r.checkKey == m.check.selected {
+			r.state = gh.CheckStatePending
+		}
 		lines[i] = m.checkTreeLine(r, width, i == m.check.cursor)
 	}
 	return strings.Join(lines, "\n")

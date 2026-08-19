@@ -3,6 +3,7 @@ package prview_test
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -176,7 +177,7 @@ func TestRAsksToRerunTheSelectedFailedJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("r sent %T, want a RerunCheckMsg", raw)
 	}
-	if msg.JobID != 103 || msg.Name != "Build / test" || msg.Repo == "" || msg.ID == "" {
+	if msg.JobID != 103 || msg.Name != "Build / test" || msg.Repo == "" {
 		t.Errorf("rerun = %+v", msg)
 	}
 	if out := stripANSI(m.View()); !strings.Contains(out, "rerunning") {
@@ -189,6 +190,34 @@ func TestRAsksToRerunTheSelectedFailedJob(t *testing.T) {
 	m.RerunSettled(103)
 	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") {
 		t.Error("the rerun stayed in flight after it settled")
+	}
+}
+
+func TestRerunningSurvivesAnOlderAttemptUntilTheNewOneAppears(t *testing.T) {
+	r := checkRollup()
+	m := press(overRollup(r, 160, 24), "j", "j", "j")
+	m, _ = key(m, "r")
+
+	stale := r
+	stale.Checks = slices.Clone(r.Checks)
+	stale.Checks[2].JobID = 93
+	stale.Checks[2].State = gh.CheckStateSuccess
+	stale.Checks[2].StartedAt = time.Now().Add(-time.Minute)
+	d := sampleDetail()
+	d.Rollup = stale
+	m.SetDetail(held(d))
+	if out := stripANSI(m.View()); !strings.Contains(out, "rerunning") {
+		t.Errorf("an older passing attempt replaced the optimistic rerun:\n%s", out)
+	}
+
+	landed := r
+	landed.Checks = slices.Clone(r.Checks)
+	landed.Checks[2].JobID = 104
+	landed.Checks[2].State = gh.CheckStatePending
+	d.Rollup = landed
+	m.SetDetail(held(d))
+	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") || !strings.Contains(out, "Loading the job log") {
+		t.Errorf("the new pending attempt did not take over:\n%s", out)
 	}
 }
 

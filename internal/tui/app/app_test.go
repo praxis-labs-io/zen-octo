@@ -3787,8 +3787,9 @@ func TestRerunningASelectedFailedCheckCallsGitHubAndToasts(t *testing.T) {
 	if got := client.askedReruns(); !slices.Equal(got, []int64{9001}) {
 		t.Fatalf("reruns = %v, want [9001]", got)
 	}
-	if out := render(t, m); !strings.Contains(out, "Rerunning CI / test") {
-		t.Errorf("success toast:\n%s", out)
+	out := render(t, m)
+	if !strings.Contains(out, "Rerunning CI / test") || !strings.Contains(out, "rerunning") {
+		t.Errorf("accepted rerun did not stay optimistic through GitHub's indexing gap:\n%s", out)
 	}
 }
 
