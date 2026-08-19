@@ -61,6 +61,20 @@ func loadedJob(id int64, failed bool) store.Job {
 	return store.Job{Job: job, Log: log, Status: store.StatusReady, Loaded: true}
 }
 
+func longLoadedJob(id int64) store.Job {
+	job := loadedJob(id, true)
+	var log strings.Builder
+	log.WriteString("2026-08-19T14:00:00Z ##[group]Set up job\n")
+	log.WriteString("2026-08-19T14:00:02Z ##[endgroup]\n")
+	log.WriteString("2026-08-19T14:00:02Z ##[group]Run tests\n")
+	for i := range 60 {
+		fmt.Fprintf(&log, "2026-08-19T14:00:03Z line %02d\n", i)
+	}
+	log.WriteString("2026-08-19T14:00:08Z ##[endgroup]\n")
+	job.Log = log.String()
+	return job
+}
+
 func filledCheckRows(m prview.Model) []string {
 	var out []string
 	for _, row := range columnLines(m.View()) {
@@ -234,7 +248,7 @@ func TestGitHubLogAnnotationsUseTheThemeWhenTheToolSentNoColor(t *testing.T) {
 func TestSpaceTogglesTheStepUnderTheMainPaneCursor(t *testing.T) {
 	m := press(onChecks(160, 24), "j", "j", "j")
 	m.SetJob(103, loadedJob(103, true))
-	m = press(m, "2", "j", "space")
+	m = press(m, "2", "}", "space")
 	if out := stripANSI(m.View()); strings.Contains(out, "tests failed") {
 		t.Error("space did not close the failed step")
 	}
@@ -304,19 +318,27 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 	}
 }
 
+func TestLineAndHalfPageMotionReadTheLogWhileItHasFocus(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, longLoadedJob(101))
+	m = press(m, "2", "j")
+	if down := stripANSI(m.View()); !strings.Contains(down, "failing ·") {
+		t.Errorf("j skipped the expanded log instead of moving one line:\n%s", down)
+	}
+
+	m = press(m, "ctrl+d")
+	if down := stripANSI(m.View()); !strings.Contains(down, "line 10") {
+		t.Errorf("ctrl+d did not half-page the focused log:\n%s", down)
+	}
+	m = press(m, "ctrl+u")
+	if up := stripANSI(m.View()); !strings.Contains(up, "failing ·") || !strings.Contains(up, "line 00") {
+		t.Errorf("ctrl+u did not return through the focused log:\n%s", up)
+	}
+}
+
 func TestHalfPageKeysReadTheLogWhileTheChecksColumnHasFocus(t *testing.T) {
 	m := onChecks(160, 24)
-	job := loadedJob(101, true)
-	var log strings.Builder
-	log.WriteString("2026-08-19T14:00:00Z ##[group]Set up job\n")
-	log.WriteString("2026-08-19T14:00:02Z ##[endgroup]\n")
-	log.WriteString("2026-08-19T14:00:02Z ##[group]Run tests\n")
-	for i := range 60 {
-		fmt.Fprintf(&log, "2026-08-19T14:00:03Z line %02d\n", i)
-	}
-	log.WriteString("2026-08-19T14:00:08Z ##[endgroup]\n")
-	job.Log = log.String()
-	m.SetJob(101, job)
+	m.SetJob(101, longLoadedJob(101))
 
 	m = press(m, "ctrl+d")
 	down := stripANSI(m.View())

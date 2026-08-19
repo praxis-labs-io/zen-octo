@@ -731,11 +731,16 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.walkDiff(-1)
 
 	// The Commits tab has no ring, so there a block is still a whole file and
-	// the key moves the column's cursor to it.
+	// the key moves the column's cursor to it. A block on Checks is one job
+	// step; j and k remain line motion through its output.
 	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
 	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabChecks:
+		m.moveCheckStep(1)
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabChecks:
+		m.moveCheckStep(-1)
 
 	// The rail is a list of controls rather than blocks of anything, and it
 	// answers to the movement keys instead. Leaving the braces on it as well
@@ -851,8 +856,6 @@ func (m Model) refresh() tea.Cmd {
 // anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
 	switch {
-	case m.tab == tabChecks && m.focus == paneMain && m.moveCheckStep(delta):
-		return
 	case m.sideDriving():
 		m.moveSide(delta)
 		return
@@ -1396,7 +1399,7 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 func (m Model) ShortHelp() []key.Binding {
 	file := m.fileViewTarget()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks:     m.tab != tabChecks,
+		Blocks:     m.tab != tabChecks || m.check.job.Loaded,
 		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
 		Rail:       m.railTab(),
 		Files:      m.tab == tabFiles,

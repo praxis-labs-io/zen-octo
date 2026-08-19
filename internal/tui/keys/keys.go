@@ -261,8 +261,8 @@ func (k ListMap) FullHelp() [][]key.Binding {
 // reader presses it, nothing happens, and the whole line stops being worth
 // reading.
 type DetailContext struct {
-	// Blocks is whether the braces have anything to walk. Every tab but Checks
-	// does: cards on the conversation, files in a diff.
+	// Blocks is whether the braces have anything to walk: cards on the
+	// conversation, files in a diff, or steps in a job log.
 	Blocks bool
 
 	// Expand is whether there is something to open. The conversation has folds
