@@ -548,7 +548,7 @@ func (m Model) jobStepRow(
 			line = m.styleJobLogLine(line)
 		}
 		gutter := lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).Render(
-			fmt.Sprintf("%*d │ ", lineNumberWidth, firstLine+i),
+			fmt.Sprintf("  %*d ", lineNumberWidth, firstLine+i),
 		)
 		lines = append(lines, clipTo(gutter+line, width, m.faint()))
 	}
