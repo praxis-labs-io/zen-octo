@@ -11,6 +11,7 @@ const (
 	detailCap = 25
 	filesCap  = 25
 	commitCap = 40
+	jobCap    = 5
 )
 
 // cache is a bounded map of fetched values, ordered by when each was last read.

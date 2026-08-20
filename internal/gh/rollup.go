@@ -77,15 +77,15 @@ func rollup(r rollupNode) CheckRollup {
 	src := r.Nodes[0].Commit.StatusCheckRollup
 	out := CheckRollup{State: CheckState(src.State)}
 
-	// A re-run leaves the previous attempt in the connection, so the same job
-	// arrives twice with two different answers. Only the latest one is true.
-	at := make(map[string]int, len(src.Contexts.Nodes))
-
+	// statusCheckRollup already chooses the attempts GitHub considers current.
+	// Preserve every node it returns: two distinct jobs may legally share a
+	// display name, and no field on CheckRun exposes the YAML job id needed to
+	// prove that such a collision is a rerun attempt.
+	ids := make([]int64, 0, len(src.Contexts.Nodes))
 	for _, c := range src.Contexts.Nodes {
 		check := Check{
 			Name:        cmp.Or(c.Name, c.Context),
 			State:       checkState(c.Typename, c.Status, c.Conclusion, c.State),
-			JobID:       c.DatabaseID,
 			StartedAt:   c.StartedAt,
 			CompletedAt: c.CompletedAt,
 			DetailsURL:  c.DetailsURL,
@@ -95,19 +95,29 @@ func rollup(r rollupNode) CheckRollup {
 		if run := c.CheckSuite.WorkflowRun; run != nil {
 			check.Workflow = run.Workflow.Name
 			check.RunID = run.DatabaseID
+			// A third-party CheckRun has a database id too, but it is not an
+			// Actions job and the jobs endpoint will always answer 404 for it.
+			check.JobID = c.DatabaseID
 		}
 		if !check.StartedAt.IsZero() && !check.CompletedAt.IsZero() {
 			check.Duration = check.CompletedAt.Sub(check.StartedAt)
 		}
 
-		key := check.Key()
-		i, seen := at[key]
-		switch {
-		case !seen:
-			at[key] = len(out.Checks)
-			out.Checks = append(out.Checks, check)
-		case c.StartedAt.After(out.Checks[i].StartedAt):
-			out.Checks[i] = check
+		out.Checks = append(out.Checks, check)
+		ids = append(ids, c.DatabaseID)
+	}
+
+	counts := make(map[string]int, len(out.Checks))
+	for _, check := range out.Checks {
+		counts[check.LogicalKey()]++
+	}
+	for i := range out.Checks {
+		if counts[out.Checks[i].LogicalKey()] < 2 {
+			continue
+		}
+		out.Checks[i].DistinctID = ids[i]
+		if out.Checks[i].DistinctID == 0 {
+			out.Checks[i].DistinctID = -int64(i + 1)
 		}
 	}
 

@@ -333,6 +333,45 @@ func (Mock) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) 
 	return gh.FilesResult{Files: mockFiles()[:1]}, nil
 }
 
+func (Mock) Job(_ context.Context, _ string, id int64) (gh.Job, error) {
+	started := time.Date(2026, 8, 19, 14, 0, 0, 0, time.UTC)
+	names := map[int64]string{1001: "test", 1002: "test", 1003: "build", 1004: "e2e", 1005: "windows"}
+	state := gh.CheckStateSuccess
+	switch id {
+	case 1003:
+		state = gh.CheckStateFailure
+	case 1004:
+		state = gh.CheckStatePending
+	case 1005:
+		state = gh.CheckStateSkipped
+	}
+	completed, duration := started.Add(37*time.Second), 37*time.Second
+	if state == gh.CheckStatePending {
+		completed, duration = time.Time{}, 0
+	}
+	return gh.Job{
+		ID: id, Name: names[id], State: state, StartedAt: started,
+		CompletedAt: completed, Duration: duration,
+		Steps: []gh.JobStep{
+			{Number: 1, Name: "Set up job", State: gh.CheckStateSuccess, StartedAt: started, CompletedAt: started.Add(4 * time.Second), Duration: 4 * time.Second},
+			{Number: 2, Name: "Run job", State: state, StartedAt: started.Add(4 * time.Second), CompletedAt: completed, Duration: max(0, duration-5*time.Second)},
+			{Number: 3, Name: "Complete job", State: gh.CheckStateSuccess, StartedAt: started.Add(36 * time.Second), CompletedAt: completed, Duration: time.Second},
+		},
+	}, nil
+}
+
+func (Mock) JobLogs(_ context.Context, _ string, id int64) ([]byte, error) {
+	result := "ok"
+	if id == 1003 {
+		result = "##[error]Process completed with exit code 1"
+	}
+	return []byte("2026-08-19T14:00:00Z ##[group]Set up job\n2026-08-19T14:00:01Z Runner ready\n2026-08-19T14:00:04Z ##[endgroup]\n2026-08-19T14:00:04Z ##[group]Run job\n2026-08-19T14:00:05Z make all\n2026-08-19T14:00:36Z " + result + "\n2026-08-19T14:00:36Z ##[endgroup]\n"), nil
+}
+
+func (Mock) RerunJob(context.Context, string, int64) (time.Time, error) {
+	return time.Now(), nil
+}
+
 func mockFiles() []gh.ChangedFile {
 	return []gh.ChangedFile{
 		{
@@ -488,11 +527,11 @@ func mockDetail() gh.PullRequestDetail {
 		Rollup: gh.CheckRollup{
 			State: gh.CheckStateFailure,
 			Checks: []gh.Check{
-				{Name: "test", Workflow: "Rails Unit Tests", State: gh.CheckStateSuccess},
-				{Name: "test", Workflow: "Rails Lint", State: gh.CheckStateSuccess},
-				{Name: "build", Workflow: "Build", State: gh.CheckStateFailure},
-				{Name: "e2e", Workflow: "E2E Tests", State: gh.CheckStatePending},
-				{Name: "windows", Workflow: "Build", State: gh.CheckStateSkipped},
+				{Name: "test", Workflow: "Rails Unit Tests", State: gh.CheckStateSuccess, JobID: 1001},
+				{Name: "test", Workflow: "Rails Lint", State: gh.CheckStateSuccess, JobID: 1002},
+				{Name: "build", Workflow: "Build", State: gh.CheckStateFailure, JobID: 1003},
+				{Name: "e2e", Workflow: "E2E Tests", State: gh.CheckStatePending, JobID: 1004},
+				{Name: "windows", Workflow: "Build", State: gh.CheckStateSkipped, JobID: 1005},
 				{Name: "codecov", State: gh.CheckStateSuccess},
 			},
 			Passed: 3, Failed: 1, Pending: 1, Skipped: 1,

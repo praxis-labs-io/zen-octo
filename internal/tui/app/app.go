@@ -39,6 +39,9 @@ type GitHub interface {
 	Pulse(ctx context.Context, id string) (gh.PulseResult, error)
 	PullRequestFiles(ctx context.Context, prID, repo string, number, changedFiles int) (gh.FilesResult, error)
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
+	Job(ctx context.Context, repo string, jobID int64) (gh.Job, error)
+	JobLogs(ctx context.Context, repo string, jobID int64) ([]byte, error)
+	RerunJob(ctx context.Context, repo string, jobID int64) (time.Time, error)
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
@@ -146,6 +149,18 @@ type commitFilesFetchedMsg struct {
 
 type commitFilesFailedMsg struct {
 	sha string
+	err error
+}
+
+type jobFetchedMsg struct {
+	id  int64
+	job gh.Job
+	log []byte
+}
+
+type jobFailedMsg struct {
+	id  int64
+	job gh.Job
 	err error
 }
 
@@ -735,6 +750,9 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	} else if msg.SHA != "" && m.store.CommitFiles(msg.SHA).Status == store.StatusLoading {
 		started.commit = leg{key: msg.SHA}
 	}
+	if m.detail.ShowsChecks() {
+		cmds = append(cmds, m.detail.RefreshJob())
+	}
 	// Everything this refresh would have asked for is already on its way.
 	if !started.running() {
 		return m, nil
@@ -926,6 +944,65 @@ func (m Model) commitFilesSettled(sha string, err error) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// needJob answers the Checks screen asking for the selected concrete attempt.
+// A cached log is pushed immediately; a cold one gets the same loading-first
+// lifecycle as a commit diff.
+func (m Model) needJob(id int64, refresh bool) (tea.Model, tea.Cmd) {
+	if m.screen != screenDetail || id == 0 {
+		return m, nil
+	}
+	if held := m.store.Job(id); held.Status == store.StatusLoading ||
+		(held.Loaded && held.Status != store.StatusFailed && !refresh) {
+		m.store.UseJob(id)
+		return m, m.detail.SetJobAsync(id, held)
+	}
+	if !m.store.BeginJob(id) {
+		return m, nil
+	}
+	held := m.store.Job(id)
+	var loading tea.Cmd
+	if !held.Loaded {
+		loading = m.detail.SetJob(id, held)
+	}
+	return m, tea.Batch(m.fetchJob(m.detail.PullRequest().Repository, id), loading, m.detail.Init())
+}
+
+func (m Model) fetchJob(repo string, id int64) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		job, err := client.Job(ctx, repo, id)
+		if err != nil {
+			return jobFailedMsg{id: id, err: err}
+		}
+		// GitHub does not publish the downloadable blob until the job has
+		// finished. Asking while it is running follows a signed redirect to a
+		// blob that does not exist yet and turns normal progress into a 404.
+		if job.State == gh.CheckStatePending || job.State == gh.CheckStateExpected {
+			return jobFetchedMsg{id: id, job: job}
+		}
+		log, err := client.JobLogs(ctx, repo, id)
+		if err != nil {
+			return jobFailedMsg{id: id, job: job, err: err}
+		}
+		return jobFetchedMsg{id: id, job: job, log: log}
+	}
+}
+
+func (m Model) jobSettled(id int64, err error, hadLoaded bool) (tea.Model, tea.Cmd) {
+	if m.screen != screenDetail {
+		return m, nil
+	}
+	held := m.store.Job(id)
+	cmd := m.detail.SetJobAsync(id, held)
+	if err != nil && hadLoaded {
+		return m, tea.Batch(cmd, m.toasts.Show(comp.ToastError, "Could not refresh the job log"))
+	}
+	return m, cmd
+}
+
 // short is a sha cut to what GitHub prints. A toast has no room for forty
 // characters and nobody reads them anyway.
 func short(sha string) string {
@@ -999,6 +1076,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
+		if m.screen == screenDetail {
+			return m, m.detail.Init()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -1132,6 +1212,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.store.CommitFilesFailed(msg.sha, msg.err)
 		return m.commitFilesSettled(msg.sha, msg.err)
 
+	case jobFetchedMsg:
+		m.store.JobApplied(msg.id, msg.job, msg.log)
+		return m.jobSettled(msg.id, nil, false)
+
+	case jobFailedMsg:
+		hadLoaded := m.store.Job(msg.id).Loaded
+		if msg.job.ID != 0 {
+			m.store.JobLogFailed(msg.id, msg.job, msg.err)
+		} else {
+			m.store.JobFailed(msg.id, msg.err)
+		}
+		return m.jobSettled(msg.id, msg.err, hadLoaded)
+
 	case prview.NeedFilesMsg:
 		return m.needFiles(msg.ID)
 
@@ -1140,6 +1233,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prview.NeedCommitMsg:
 		return m.needCommit(msg.SHA)
+
+	case prview.NeedJobMsg:
+		return m.needJob(msg.JobID, msg.Refresh)
+
+	case prview.RerunCheckMsg:
+		return m.rerunCheck(msg)
+
+	case checkRerunMsg:
+		return m.checkRerunLanded(msg)
+
+	case checkRerunFailedMsg:
+		return m.checkRerunFailed(msg)
 
 	case prview.RefreshMsg:
 		return m.refreshDetail(msg)

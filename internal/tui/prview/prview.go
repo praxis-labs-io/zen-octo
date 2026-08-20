@@ -30,6 +30,22 @@ type BackMsg struct{}
 // request starts there.
 type NeedFilesMsg struct{ ID string }
 
+// NeedJobMsg asks the root for the metadata and log of one concrete Actions
+// job. A rerun gets a new id, even though it remains the same logical check.
+type NeedJobMsg struct {
+	JobID   int64
+	Refresh bool
+}
+
+// JobSettleMsg is a selected check that stayed under the cursor long enough to
+// be worth fetching. Walking the column arms many waits; only the one still
+// selected when it fires can reach the network.
+type JobSettleMsg struct {
+	Key     string
+	JobID   int64
+	Refresh bool
+}
+
 // ToggleFileViewedMsg asks the root to mark one file viewed or unviewed.
 type ToggleFileViewedMsg struct {
 	ID     string
@@ -452,7 +468,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	// be taken again before they are sized.
 	m.layout()
 	m.keepFocusWhole(held)
-	return m.armCommit()
+	return tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 }
 
 // focusWhole is whether the focused card is on the screen entire. A card that
@@ -491,7 +507,7 @@ func newViewport() viewport.Model {
 }
 
 // Init starts the spinner, which runs until the conversation lands.
-func (m Model) Init() tea.Cmd { return m.spinner.Tick() }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.spinner.Tick(), m.armJobRender()) }
 
 // Update handles the keys that belong to this screen, and the spinner.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -501,6 +517,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case CommitSettleMsg:
 		return m, m.settleCommit(msg)
+	case JobSettleMsg:
+		return m, m.settleJob(msg)
+	case jobParsedMsg:
+		return m, m.jobParsed(msg)
+	case jobRenderMsg:
+		return m, m.jobRendered(msg)
+	case SearchSettleMsg:
+		return m, m.settleCheckSearch(msg)
 
 	case BranchSettleMsg:
 		return m, m.settleBranches(msg)
@@ -578,7 +602,7 @@ func (m *Model) showBox() {
 // mid-fetch, and coming back found a spinner that never moved again.
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
-		waitingFor(m.files) || waitingFor(m.commit.files) || m.commitBlank() ||
+		waitingFor(m.files) || waitingFor(m.commit.files) || waitingForJob(m.check.job) || m.commitBlank() ||
 		m.mentionWaiting()
 }
 
@@ -597,6 +621,10 @@ func waitingFor(f store.Files) bool {
 	return !f.Loaded && f.Status == store.StatusLoading
 }
 
+func waitingForJob(j store.Job) bool {
+	return !j.Loaded && j.Status == store.StatusLoading
+}
+
 func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
@@ -612,10 +640,18 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.composeKey(keyMsg)
 	case m.inline.typing:
 		return m.inlineKey(keyMsg)
+	case m.check.searching:
+		return m.checkSearchKey(keyMsg)
 	}
 
 	switch {
 	case key.Matches(keyMsg, k.Back):
+		// An accepted search remains active for n and N. Esc clears that before
+		// it is allowed to leave the detail screen.
+		if m.tab == tabChecks && !m.check.search.Empty() {
+			m.clearCheckSearch()
+			return m, nil
+		}
 		// Letting go of a card and leaving the screen are two intentions on one
 		// key. The narrower one goes first.
 		if m.clearFocus() {
@@ -628,6 +664,19 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.ToggleViewed) && m.tab == tabFiles:
 		return m.toggleFileViewed()
+
+	case key.Matches(keyMsg, k.Search) && m.tab == tabChecks:
+		m.startCheckSearch()
+		return m, nil
+	case key.Matches(keyMsg, k.NextMatch) && m.tab == tabChecks:
+		m.moveCheckMatch(1)
+		return m, nil
+	case key.Matches(keyMsg, k.PrevMatch) && m.tab == tabChecks:
+		m.moveCheckMatch(-1)
+		return m, nil
+	case key.Matches(keyMsg, k.FirstFailure) && m.tab == tabChecks:
+		m.jumpFirstCheckFailure()
+		return m, nil
 
 	// Both mean the pull request on every tab, whatever the ring is on: nothing
 	// below it carries a URL to reach.
@@ -656,6 +705,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// steps into it, the same key that presses the button once inside.
 	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.pageRing.on.kind == focusCompose:
 		return m.writeComment()
+
+	// Checks has no comment to reply to, so r takes the failed job under the
+	// logical selection and keeps that selection through the new attempt.
+	case key.Matches(keyMsg, k.Reply) && m.canRerunCheck():
+		return m, m.rerunCheck()
 
 	// A reply answers the comment the ring is on, so both keys read the focus
 	// and do nothing without one. The gate is inside: whether GitHub will take
@@ -708,11 +762,16 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.walkDiff(-1)
 
 	// The Commits tab has no ring, so there a block is still a whole file and
-	// the key moves the column's cursor to it.
+	// the key moves the column's cursor to it. A block on Checks is one job
+	// step; j and k remain line motion through its output.
 	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(1)
 	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabCommits:
 		m.jumpCommitFile(-1)
+	case key.Matches(keyMsg, k.NextBlock) && m.tab == tabChecks:
+		m.moveCheckStep(1)
+	case key.Matches(keyMsg, k.PrevBlock) && m.tab == tabChecks:
+		m.moveCheckStep(-1)
 
 	// The rail is a list of controls rather than blocks of anything, and it
 	// answers to the movement keys instead. Leaving the braces on it as well
@@ -729,8 +788,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
-	// The tree is the column's, and the blocks are the pane's. Falling from one
-	// to the other folds a directory the reader is not looking at.
+	// The trees are the column's, and the blocks are the pane's. Falling from
+	// one to the other folds something the reader is not looking at.
+	case key.Matches(keyMsg, k.Expand) && m.checkFoldable():
+		m.toggleCheckFold()
+	case key.Matches(keyMsg, k.Expand) && m.checkStepFoldable():
+		m.toggleCheckStep()
 	case key.Matches(keyMsg, k.Expand) && m.tab == tabFiles && m.focus != paneMain:
 		m.toggleFold()
 	case key.Matches(keyMsg, k.Expand):
@@ -759,32 +822,41 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Up):
 		m.move(-1)
 	case key.Matches(keyMsg, k.Top):
-		if !m.jumped(-m.sideRows()) {
+		if !m.gotoCheckLine(false) && !m.jumped(-m.sideRows()) {
 			m.scroll().GotoTop()
 		}
 	case key.Matches(keyMsg, k.Bottom):
-		if !m.jumped(m.sideRows()) {
+		if !m.gotoCheckLine(true) && !m.jumped(m.sideRows()) {
 			m.scroll().GotoBottom()
 		}
 	case key.Matches(keyMsg, k.PageDown):
-		if !m.jumped(m.sidePage()) {
+		if !m.pageCheckLine(m.view.Height(), true) && !m.jumped(m.sidePage()) {
 			m.scroll().PageDown()
 		}
 	case key.Matches(keyMsg, k.PageUp):
-		if !m.jumped(-m.sidePage()) {
+		if !m.pageCheckLine(-m.view.Height(), true) && !m.jumped(-m.sidePage()) {
 			m.scroll().PageUp()
 		}
 	case key.Matches(keyMsg, k.HalfPageDown):
-		if !m.jumped(m.sidePage() / 2) {
+		// A half-page key on the Checks column is deliberately inert. The
+		// column has its own cursor, and scrolling a pane that does not have the
+		// keys separates its viewport from the cursor inside it.
+		if m.tab == tabChecks && m.focus == paneSide {
+			break
+		}
+		if !m.pageCheckLine(max(1, m.view.Height()/2), false) && !m.jumped(m.sidePage()/2) {
 			m.scroll().HalfPageDown()
 		}
 	case key.Matches(keyMsg, k.HalfPageUp):
-		if !m.jumped(-m.sidePage() / 2) {
+		if m.tab == tabChecks && m.focus == paneSide {
+			break
+		}
+		if !m.pageCheckLine(-max(1, m.view.Height()/2), false) && !m.jumped(-m.sidePage()/2) {
 			m.scroll().HalfPageUp()
 		}
 	}
 
-	return m, m.armCommit()
+	return m, tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 }
 
 // refresh names what is stale to the reader. The Conversation and Checks tabs
@@ -805,8 +877,9 @@ func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// move is a row in the left column, a row on the rail, and a line everywhere
-// else. Both of those point at something; the panes holding prose do not.
+// move is a row in the left column, a row on the rail, a rendered line in a
+// job log, and a scrolled line everywhere else. The first three carry cursors;
+// panes holding prose do not.
 //
 // The rail's cursor stops at each end rather than coming back round, and hands
 // the key to the pane there. So does the conversation's ring: a cursor that
@@ -817,6 +890,8 @@ func (m Model) refresh() tea.Cmd {
 // anyway on every layout here, so it currently has nothing left to scroll.
 func (m *Model) move(delta int) {
 	switch {
+	case m.moveCheckLine(delta):
+		return
 	case m.sideDriving():
 		m.moveSide(delta)
 		return
@@ -880,7 +955,7 @@ func (m Model) sideRows() int {
 	case tabCommits:
 		return len(m.detail.Detail.Commits)
 	case tabChecks:
-		return len(m.check.groups)
+		return len(m.check.rows)
 	}
 	return len(m.rows)
 }
@@ -973,7 +1048,7 @@ func (m *Model) goToTab(at int) tea.Cmd {
 	// again instead of reading the one from before the push for the rest of the
 	// session, and revisiting the tab on this screen still costs nothing.
 	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
-		return m.armCommit()
+		return tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 	}
 	m.filesAsked = true
 
@@ -1254,7 +1329,7 @@ func (m *Model) layout() {
 		m.railView.SetHeight(m.rail.InnerHeight())
 	}
 
-	m.main = m.main.Size(mainWidth, paneHeight).Header(m.fileHeading())
+	m.main = m.main.Size(mainWidth, paneHeight).Header(m.mainHeading())
 	m.view.SetWidth(m.main.InnerWidth())
 	// The pinned heading is drawn by the pane, above the window rather than in
 	// it, so the viewport is short by whatever the pane spends on it.
@@ -1308,16 +1383,13 @@ func (m Model) sideVisibleTab() bool {
 	return false
 }
 
-// sideVisible decides whether the left column is on screen. All three columns
-// share the floor: below it the main pane is too narrow for its own tab strip,
-// and the frame renders wider than the terminal it was given.
-//
-// Files falls back to the file headings inside the diff, and Checks to every
-// workflow's card at once. Commits has no fallback, so a frame that narrow
-// shows the diff it was last given and nothing to change it with. The card
-// above the diff still names the commit.
+// sideVisible decides whether the left column is on screen. Files and Commits
+// hide theirs below the shared floor so the diff keeps its measure. Checks is
+// different: its pane shows one selected job, so hiding the column would leave
+// every other job unreachable. Its compact one-line tree stays at every width
+// the shell draws.
 func (m Model) sideVisible() bool {
-	return m.sideVisibleTab() && m.width >= treeMinFrame
+	return m.sideVisibleTab() && (m.width >= treeMinFrame || m.tab == tabChecks)
 }
 
 // sideColumn is what the left column gets. It takes its full width where the
@@ -1358,17 +1430,21 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 // keymap is the same on all four, and the difference is which of them holds
 // blocks, folds and a rail.
 //
-// Checks is the one with none of the three. Its column and its output are read
-// rather than opened, and it has no rail because it has a column.
+// Checks has a fold only while its cursor is on a multi-job workflow parent.
+// It has no rail because it already has a column.
 func (m Model) ShortHelp() []key.Binding {
 	file := m.fileViewTarget()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks:     m.tab != tabChecks,
-		Expand:     m.tab == tabFiles || m.railTab(),
+		Blocks:     m.tab != tabChecks || m.check.job.Loaded,
+		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
 		Rail:       m.railTab(),
 		Files:      m.tab == tabFiles,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
+		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
+		JobFailure: m.tab == tabChecks && m.checkHasFailure(),
+		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
+		JobRerun:   m.canRerunCheck(),
 	})
 }
 
@@ -1423,7 +1499,10 @@ func (m *Model) syncContent() {
 	// to fold and spends half the cost of setting the content proving it: 12.7ms
 	// against 7.0ms on a hundred-and-forty-comment thread, which is paid on
 	// every keystroke once a comment is being written into it.
-	m.view.SoftWrap = m.tab == tabChecks
+	// Every tab hands the viewport rows already wrapped or clipped. Checks used
+	// to leave soft wrap on, making the viewport measure and fold megabytes of
+	// log text that cannot overflow its pre-clipped rows.
+	m.view.SoftWrap = false
 
 	if inner := m.main.InnerWidth(); inner > 0 {
 		// The blank line above the first block is the same one the list opens
@@ -1503,13 +1582,17 @@ func (m Model) View() string {
 
 	// The tab strip goes on the main pane rather than on the column beside it:
 	// the strip is wider than the column and would clip to a fragment there.
+	mainView := m.view.View()
+	if m.tab == tabChecks {
+		mainView = m.paintCheckCursor(mainView)
+	}
 	panes := []string{m.main.
 		Index(index[paneMain]).
 		Tabs(tabs, m.tab).
-		Header(m.fileHeading()).
+		Header(m.mainHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
-		Render(m.view.View())}
+		Render(mainView)}
 
 	if m.sideVisible() {
 		column := m.side.

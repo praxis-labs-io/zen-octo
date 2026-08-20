@@ -536,7 +536,7 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 		t.Errorf("State = %q, want %q", d.Rollup.State, CheckStateFailure)
 	}
 	counts := [4]int{d.Rollup.Passed, d.Rollup.Failed, d.Rollup.Pending, d.Rollup.Skipped}
-	if want := [4]int{3, 2, 2, 1}; counts != want {
+	if want := [4]int{3, 3, 2, 1}; counts != want {
 		t.Errorf("passed/failed/pending/skipped = %v, want %v", counts, want)
 	}
 
@@ -547,8 +547,9 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 		{Name: "test", Workflow: "Rails Unit Tests"},
 		{Name: "test", Workflow: "Rails Lint"},
 		{Name: "build", Workflow: "Build"},
-		{Name: "windows"},                    // a suite with no workflow run behind it
-		{Name: "e2e", Workflow: "E2E Tests"}, // twice on the wire, once here
+		{Name: "windows"}, // a suite with no workflow run behind it
+		{Name: "e2e", Workflow: "E2E Tests"},
+		{Name: "e2e", Workflow: "E2E Tests"}, // a same-name check remains reachable
 		{Name: "codecov"},                    // status contexts have no workflow at all
 		{Name: "netlify"},
 		{Name: "sonar"},
@@ -566,7 +567,7 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	// the same thing, and they fold into one vocabulary.
 	states := []CheckState{
 		CheckStateSuccess, CheckStateSuccess, CheckStateFailure, CheckStateSkipped,
-		CheckStatePending, CheckStateSuccess, CheckStatePending, CheckStateFailure,
+		CheckStatePending, CheckStateFailure, CheckStateSuccess, CheckStatePending, CheckStateFailure,
 	}
 	for i, state := range states {
 		if got := d.Rollup.Checks[i].State; got != state {
@@ -586,6 +587,11 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	}
 	if build.RunID != 555200001 {
 		t.Errorf("build.RunID = %d, want 555200001", build.RunID)
+	}
+	for _, check := range d.Rollup.Checks {
+		if check.Workflow == "" && check.JobID != 0 {
+			t.Errorf("non-Actions check %q has job id %d", check.Name, check.JobID)
+		}
 	}
 	if build.DetailsURL != "https://github.com/praxis-labs-io/zen-octo/runs/8700123456" {
 		t.Errorf("build.DetailsURL = %q, want the run's own link", build.DetailsURL)
@@ -860,28 +866,23 @@ func TestAnIDBehindNoPullRequestIsAnError(t *testing.T) {
 	}
 }
 
-// A re-run leaves the previous attempt in the connection, so the same job comes
-// back twice saying two different things. Only the latest one is true.
-func TestARerunCheckIsReportedOnce(t *testing.T) {
-	d := fetchDetail(t)
-
-	seen := 0
-	for _, check := range d.Rollup.Checks {
+// Display names do not prove identity. Two workflow jobs may share one, and
+// dropping either silently removes its log and rerun control.
+func TestSameNamedChecksRemainDistinct(t *testing.T) {
+	var got []Check
+	for _, check := range fetchDetail(t).Rollup.Checks {
 		if check.Workflow == "E2E Tests" && check.Name == "e2e" {
-			seen++
-			if check.State != CheckStatePending {
-				t.Errorf("e2e = %q, want the state of the run that started last", check.State)
-			}
-			if check.JobID != 555111002 {
-				t.Errorf("e2e.JobID = %d, want the id of the run that started last", check.JobID)
-			}
-			if check.Duration != 0 {
-				t.Errorf("e2e.Duration = %v, want zero: the surviving attempt is still running", check.Duration)
-			}
+			got = append(got, check)
 		}
 	}
-	if seen != 1 {
-		t.Errorf("e2e appears %d times, want the latest run only", seen)
+	if len(got) != 2 {
+		t.Fatalf("e2e checks = %d, want both: %+v", len(got), got)
+	}
+	if got[0].Key() == got[1].Key() {
+		t.Errorf("same-name checks share key %q", got[0].Key())
+	}
+	if ids := []int64{got[0].JobID, got[1].JobID}; !slices.Equal(ids, []int64{555111002, 555111001}) {
+		t.Errorf("job ids = %v", ids)
 	}
 }
 
@@ -905,6 +906,14 @@ func TestAKeyTellsTheWorkflowFromTheJob(t *testing.T) {
 	b := Check{Workflow: "Lint", Name: "Format / go"}
 	if a.Key() == b.Key() {
 		t.Errorf("%+v and %+v both key to %q", a, b, a.Key())
+	}
+}
+
+func TestAKeyTellsIdenticallyNamedWorkflowRunsApart(t *testing.T) {
+	a := Check{RunID: 41, Workflow: "CI", Name: "test"}
+	b := Check{RunID: 42, Workflow: "CI", Name: "test"}
+	if a.Key() == b.Key() {
+		t.Errorf("runs %d and %d both key to %q", a.RunID, b.RunID, a.Key())
 	}
 }
 

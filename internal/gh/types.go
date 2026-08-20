@@ -1,6 +1,9 @@
 package gh
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // PRState is where a pull request sits in its lifecycle.
 type PRState string
@@ -423,20 +426,53 @@ type Check struct {
 
 	JobID       int64
 	RunID       int64
+	DistinctID  int64
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Duration    time.Duration
 	DetailsURL  string
 }
 
-// Key tells one check from another. A check run has a node id, but the rollup
-// folds a re-run onto the attempt it replaces, so the id changes under a check
-// that is still the same row. This does not.
-//
-// The rollup keeps one check per workflow and name, which is what makes it
-// unique. The separator is a NUL rather than a slash because a workflow may
-// hold one.
-func (c Check) Key() string { return c.Workflow + "\x00" + c.Name }
+// LogicalKey follows one logical check across a rerun. GitHub changes the job
+// id for each attempt but keeps the workflow run id.
+func (c Check) LogicalKey() string {
+	return strconv.FormatInt(c.RunID, 10) + "\x00" + c.Workflow + "\x00" + c.Name
+}
+
+// Key tells every row in one rollup apart. DistinctID is set only where GitHub
+// returned two checks with the same logical display identity; the common case
+// keeps the stable logical key so selection survives a rerun.
+func (c Check) Key() string {
+	key := c.LogicalKey()
+	if c.DistinctID != 0 {
+		key += "\x00" + strconv.FormatInt(c.DistinctID, 10)
+	}
+	return key
+}
+
+// Job is one Actions job and the steps GitHub ran inside it. The check rollup
+// carries enough to list a job, but not enough to draw its log: step state and
+// timing come from the job endpoint only.
+type Job struct {
+	ID          int64
+	Name        string
+	State       CheckState
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+	Steps       []JobStep
+}
+
+// JobStep is one expandable section of an Actions job log. Number is GitHub's
+// order within the job and remains stable when a skipped step has no log lines.
+type JobStep struct {
+	Number      int
+	Name        string
+	State       CheckState
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+}
 
 // CheckRollup is the head commit's checks as a whole. State is GitHub's own
 // summary; the list and the counts are this package's, from the contexts

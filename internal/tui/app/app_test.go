@@ -41,9 +41,14 @@ type fakeSearcher struct {
 	pulses      []string
 	diffs       []string
 	commitDiffs []string
+	jobAsks     []int64
+	jobLogAsks  []int64
+	reruns      []int64
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
+	jobs        map[int64]gh.Job
+	jobLogs     map[int64][]byte
 	posted      []string
 	replied     []string
 	edited      []string
@@ -78,6 +83,9 @@ type fakeSearcher struct {
 	pulseErr        error
 	filesErr        error
 	commitErr       error
+	jobErr          error
+	jobLogErr       error
+	rerunErr        error
 	postErr         error
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
@@ -306,6 +314,65 @@ func (f *fakeSearcher) PullRequestFiles(_ context.Context, _, repo string, numbe
 }
 
 func (f *fakeSearcher) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
+
+func (f *fakeSearcher) Job(_ context.Context, _ string, id int64) (gh.Job, error) {
+	f.mu.Lock()
+	f.jobAsks = append(f.jobAsks, id)
+	job, err := f.jobs[id], f.jobErr
+	f.mu.Unlock()
+	if job.ID == 0 {
+		job.ID = id
+	}
+	return job, err
+}
+
+func (f *fakeSearcher) JobLogs(_ context.Context, _ string, id int64) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.jobLogAsks = append(f.jobLogAsks, id)
+	err := f.jobLogErr
+	if err == nil {
+		err = f.jobErr
+	}
+	return slices.Clone(f.jobLogs[id]), err
+}
+
+func (f *fakeSearcher) RerunJob(_ context.Context, _ string, id int64) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reruns = append(f.reruns, id)
+	return time.Now(), f.rerunErr
+}
+
+func (f *fakeSearcher) servedJob(id int64, job gh.Job, log string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.jobs == nil {
+		f.jobs = make(map[int64]gh.Job)
+	}
+	if f.jobLogs == nil {
+		f.jobLogs = make(map[int64][]byte)
+	}
+	f.jobs[id], f.jobLogs[id] = job, []byte(log)
+}
+
+func (f *fakeSearcher) askedJobs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.jobAsks)
+}
+
+func (f *fakeSearcher) askedJobLogs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.jobLogAsks)
+}
+
+func (f *fakeSearcher) askedReruns() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.reruns)
+}
 
 // serveFiles stages one pull request's diff.
 func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
@@ -921,6 +988,18 @@ func (f *querySearcher) CommitFiles(_ context.Context, _, _ string) (gh.FilesRes
 	return gh.FilesResult{}, nil
 }
 
+func (f *querySearcher) Job(_ context.Context, _ string, id int64) (gh.Job, error) {
+	return gh.Job{ID: id}, nil
+}
+
+func (f *querySearcher) JobLogs(_ context.Context, _ string, _ int64) ([]byte, error) {
+	return nil, nil
+}
+
+func (f *querySearcher) RerunJob(context.Context, string, int64) (time.Time, error) {
+	return time.Now(), nil
+}
+
 func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
 }
@@ -1143,6 +1222,12 @@ func press(m tea.Model, keys ...string) tea.Model {
 // carried is delivered by hand.
 func settleOn(m tea.Model, sha string) tea.Model {
 	return settle(m, prview.CommitSettleMsg{SHA: sha})
+}
+
+func settleJob(m tea.Model, check gh.Check, refresh bool) tea.Model {
+	return settle(m, prview.JobSettleMsg{
+		Key: check.Key(), JobID: check.JobID, Refresh: refresh,
+	})
 }
 
 // settleSearch fires the waits a run of keystrokes armed, in the order they
@@ -3636,4 +3721,184 @@ func (f *fakeSearcher) deletes() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.deletedRefs)
+}
+
+func TestSelectingAJobFetchesItsMetadataAndLogOnce(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateSuccess, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateSuccess,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateSuccess}},
+	}, "2026-08-19T14:00:00Z ok\n")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Fatalf("job asks = %v, want [9001]", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Run tests") {
+		t.Errorf("the landed job did not reach the pane:\n%s", out)
+	}
+
+	press(m, "[", "]")
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Errorf("reopening the cached job fetched again: %v", got)
+	}
+}
+
+func TestARunningJobDoesNotAskForABlobThatDoesNotExistYet(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStatePending, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStatePending,
+		Steps: []gh.JobStep{{
+			Number: 1, Name: "Run tests", State: gh.CheckStatePending,
+			StartedAt: time.Date(2026, 8, 19, 14, 0, 0, 0, time.UTC),
+		}},
+	}, "not available yet")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001}) {
+		t.Fatalf("metadata asks = %v, want [9001]", got)
+	}
+	if got := client.askedJobLogs(); len(got) != 0 {
+		t.Errorf("running job asked for logs: %v", got)
+	}
+	m = press(m, "2")
+	before := render(t, m)
+	if !strings.Contains(before, "Run tests") || !strings.Contains(before, "Log output is not available yet") ||
+		strings.Contains(before, "No log output") {
+		t.Errorf("running job pane:\n%s", before)
+	}
+	m = press(m, "space")
+	if after := render(t, m); after != before {
+		t.Error("a running step without available logs expanded")
+	}
+
+	client.mu.Lock()
+	d.Rollup.Checks[0].State = gh.CheckStateSuccess
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateSuccess,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateSuccess}},
+	}, "2026-08-19T14:00:00Z completed output\n")
+	m = press(m, "s")
+	m = settleJob(m, d.Rollup.Checks[0], true)
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
+		t.Errorf("completion metadata asks = %v, want the same job refetched", got)
+	}
+	if got := client.askedJobLogs(); !slices.Equal(got, []int64{9001}) {
+		t.Errorf("completion log asks = %v, want [9001]", got)
+	}
+	m = press(m, "space")
+	if out := render(t, m); !strings.Contains(out, "completed output") {
+		t.Errorf("completed log did not replace running metadata:\n%s", out)
+	}
+}
+
+func TestRerunningASelectedFailedCheckCallsGitHubAndToasts(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{
+		Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001,
+	}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "r")
+	if got := client.askedReruns(); !slices.Equal(got, []int64{9001}) {
+		t.Fatalf("reruns = %v, want [9001]", got)
+	}
+	out := render(t, m)
+	if !strings.Contains(out, "Rerunning CI / test") || !strings.Contains(out, "rerunning") {
+		t.Errorf("accepted rerun did not stay optimistic through GitHub's indexing gap:\n%s", out)
+	}
+}
+
+func TestARefusedCheckRerunReleasesTheKeyAndReportsWhy(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), rerunErr: errors.New("actions write denied")}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{
+		Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001,
+	}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "r")
+	if out := render(t, m); !strings.Contains(out, "Could not rerun CI / test: actions write denied") {
+		t.Errorf("failure toast:\n%s", out)
+	}
+	_ = press(m, "r")
+	if got := client.askedReruns(); !slices.Equal(got, []int64{9001, 9001}) {
+		t.Errorf("r stayed locked after failure: %v", got)
+	}
+}
+
+func TestAJobLogFailureKeepsTheFetchedStepMetadata(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), jobLogErr: errors.New("log expired")}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateFailure,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateFailure}},
+	}, "")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	out := render(t, m)
+	if !strings.Contains(out, "Run tests") || !strings.Contains(out, "Log output is unavailable: log expired") {
+		t.Errorf("partial job did not keep its metadata:\n%s", out)
+	}
+}
+
+func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), jobErr: errors.New("no such host")}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	if out := render(t, m); !strings.Contains(out, "Could not load the job log: no such host") {
+		t.Errorf("job failure did not reach the pane:\n%s", out)
+	}
+
+	client.mu.Lock()
+	client.jobErr = nil
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateFailure,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateFailure}},
+	}, "2026-08-19T14:00:00Z retry reached GitHub\n")
+	m = press(m, "s")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	if got := client.askedJobs(); !slices.Equal(got, []int64{9001, 9001}) {
+		t.Errorf("retry asks = %v", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "retry reached GitHub") {
+		t.Errorf("sync did not retry the failed job fetch:\n%s", out)
+	}
 }
