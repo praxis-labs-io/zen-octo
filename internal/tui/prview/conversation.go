@@ -1154,7 +1154,7 @@ func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
 		if i < len(tokens) {
 			row = tokens[i]
 		}
-		out[i] = m.diffLine(l, row, gutter, width, nil)
+		out[i] = m.diffRow(l, row, gutter, width).text
 	}
 	return strings.Join(out, "\n")
 }

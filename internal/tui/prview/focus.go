@@ -241,6 +241,23 @@ func (r *ring) step(delta, top, height int) bool {
 	return true
 }
 
+// advance steps the focus by index and reports whether there was a block there.
+// It is what a row cursor steps by: the reader is on a row rather than at a
+// block, so the window has nothing to say about which one comes next.
+func (r *ring) advance(delta int) bool {
+	at := r.index()
+	if at < 0 {
+		return false
+	}
+
+	next := at + delta
+	if next < 0 || next >= len(r.items) {
+		return false
+	}
+	r.on = r.items[next].focusKey
+	return true
+}
+
 // seek is the block a brace moves to when the focus is not where the reader is.
 // Each key re-enters from its own end of the window and walks from there:
 // forward the first heading at or below the top row, back the last card whole
