@@ -446,6 +446,39 @@ the code below it, the way a hunk heading gives up its fill, since a lit card an
 a barred row are two claims about where the reader is standing. The hints ride
 inside the border either way, so nothing changes height as it passes.
 
+**`|` puts the two sides in two columns.** A run of removals pairs against the
+run of additions after it, one row each, and the shorter side draws a blank
+rather than shifting up, which would put the two columns out of step for the
+rest of the file. Context takes both. One gutter serves each half, so the rule
+between them sits centre, and `paint.Half` pads to exactly its width where
+`paint.Line` leaves that to the pane: a half a column short walks the other one
+in and out down the page.
+
+It is what the reader asked for and not always what they get. Under a minimum of
+source per column the two halves clip away more than they show, so the key
+refuses and the toast says how many columns short the pane is. `m.split` is the
+answer and `splitting()` is what is drawn, which is what lets a terminal
+shrinking under a split pane fall back to unified and come back on widening with
+no second press. The mode is on the block's own `blockState` rather than its
+key: it replaces the block it retires instead of keeping one painted per mode
+for the rest of the run.
+
+The cursor is in one column and only that column lights. Lit across both, a
+reader on a rewritten line has nothing saying which side the next key takes, and
+the rule stays dark or the lit block runs a cell past its column. A heading
+spans the pane and takes its bar at the pane edge, belonging to neither. `h` and
+`l` step into it, ahead of the pane they already move between: `h` from the head
+column goes to the base and again to the file column, and a pane drawing one
+column has nowhere to step and gives the focus up on the first press. The digits
+stay an absolute jump, because a badge drawn in a border names the frame it is
+drawn in and there are three frames whatever the mode.
+
+A row the focused column has no line on is not a row the cursor can sit on, so
+walking the head column of a deletion-only block steps over it: `run.rowAt`
+counts only the rows that column has, which is the same rule that keeps the walk
+inside its own block. The mode lasts the run and nothing stores it; a default
+belongs with the reader's other preferences.
+
 `canCompose` split in two for it. It still means the conversation, because the
 compose card is drawn on one tab only; `canAct` is the wider question the keys
 reading the ring ask, and `answerable` asks it. `replyBody` keeps `canCompose`

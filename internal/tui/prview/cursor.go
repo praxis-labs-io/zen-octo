@@ -1,5 +1,7 @@
 package prview
 
+import "github.com/praxis-labs-io/zen-octo/internal/gh"
+
 // diffDriving is whether the diff's row cursor has the movement keys, which is
 // the diff pane holding them over a diff that has loaded.
 func (m Model) diffDriving() bool {
@@ -7,8 +9,19 @@ func (m Model) diffDriving() bool {
 }
 
 // diffRows is how far the cursor can walk into a block, which is the code the
-// last render drew under it. A folded hunk and a comment card have none.
+// last render drew under it, in the column that render drew it for. A folded
+// hunk and a comment card have none, and so does a column the block has no line
+// in. Every key that changes the column re-renders before the next one lands.
 func (m Model) diffRows(key focusKey) int { return m.diff.rows[key] }
+
+// cursorColumn is the column the cursor is in, and empty is a unified row,
+// which names both. A comment and a fill are read on it.
+func (m Model) cursorColumn() gh.DiffSide {
+	if !m.splitting() {
+		return ""
+	}
+	return m.column
+}
 
 // diffAt is how far into the focused block the cursor has walked. A block it was
 // not counted against is unwalked, and a fold takes the rows it counted.

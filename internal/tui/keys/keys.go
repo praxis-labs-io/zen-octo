@@ -66,6 +66,10 @@ type DetailMap struct {
 	PaneLeft  key.Binding
 	PaneRight key.Binding
 
+	// SplitView is a rendering choice and nothing the store holds, so it answers
+	// from either pane and never waits on a fetch.
+	SplitView key.Binding
+
 	// FocusPane is one binding over the digits rather than one per pane: the
 	// Files tab puts a third on screen, and they are numbered by where they sit.
 	FocusPane key.Binding
@@ -186,6 +190,7 @@ var (
 		PrevBlock:    key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev block")),
 		PaneLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "pane left")),
 		PaneRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "pane right")),
+		SplitView:    key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "side by side")),
 		FocusPane:    key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1/2/3", "focus pane")),
 		ToggleRail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
 		Expand:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "expand")),
@@ -278,6 +283,10 @@ type DetailContext struct {
 	// showing one at a time.
 	Files bool
 
+	// Split is whether the pane draws a diff two columns can be asked of, which
+	// is the same tab. A hint for a key that is inert is worse than no hint.
+	Split bool
+
 	// FileView is whether the current row or pane names a file. FileViewed
 	// chooses the action named beside it.
 	FileView   bool
@@ -321,6 +330,9 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	if c.JobRerun {
 		out = append(out, hint(k.Reply, "r", "rerun"))
 	}
+	if c.Split {
+		out = append(out, k.SplitView)
+	}
 	if c.Rail {
 		out = append(out, k.ToggleRail)
 	}
@@ -336,7 +348,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
 		{k.NextFile, k.PrevFile, k.ToggleViewed},
-		{k.PaneLeft, k.PaneRight, k.FocusPane},
+		{k.PaneLeft, k.PaneRight, k.FocusPane, k.SplitView},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
 		{k.Edit, k.Delete, k.Resolve, k.Jump},
