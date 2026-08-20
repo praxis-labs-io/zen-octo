@@ -72,6 +72,19 @@ func TestGoldenLines(t *testing.T) {
 			40,
 		},
 		{"wide_gutter", paint.Line{Kind: paint.Context, Old: 1234, New: 1235, Tokens: tokens()}, 40},
+		// The bar takes the leading cell rather than a column of its own, so a
+		// barred row is exactly as wide as the one above it.
+		{
+			"line_barred",
+			paint.Line{
+				Kind:   paint.Added,
+				New:    12,
+				Tokens: tokens(),
+				Fill:   theme.RosePineMoon.SelectedBackground,
+				Bar:    theme.RosePineMoon.Accent,
+			},
+			40,
+		},
 	}
 
 	p := painter()
@@ -108,6 +121,17 @@ func TestGoldenHunkHeaderMarked(t *testing.T) {
 		Text:   "@@ -11,4 +12,6 @@ func Paint()",
 		Marker: "▸",
 		Fill:   theme.RosePineMoon.SelectedBackground,
+	}, paint.Gutter(1235), 40))
+}
+
+// A heading the cursor is on takes the bar at the pane edge, where the badge and
+// the marker keep the columns they line up with the source in.
+func TestGoldenHunkHeaderBarred(t *testing.T) {
+	compare(t, "hunk_header_barred", painter().HunkHeader(paint.Header{
+		Text:  "@@ -11,4 +12,6 @@ func Paint()",
+		Badge: "●",
+		Fill:  theme.RosePineMoon.SelectedBackground,
+		Bar:   theme.RosePineMoon.Accent,
 	}, paint.Gutter(1235), 40))
 }
 
