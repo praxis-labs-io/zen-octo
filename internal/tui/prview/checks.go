@@ -595,6 +595,13 @@ func (m *Model) takeJob(id int64, job store.Job) {
 	m.invalidateJobRender()
 }
 
+func (m *Model) staleJobRender() {
+	m.check.renderWidth = 0
+	m.check.renderQuery = ""
+	m.check.rendering = false
+	m.check.renderToken++
+}
+
 func (m *Model) invalidateJobRender() {
 	m.check.rendered = nil
 	m.check.renderedBody = ""

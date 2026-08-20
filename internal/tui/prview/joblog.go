@@ -127,7 +127,7 @@ func (m *Model) toggleCheckStep() {
 	m.check.stepSeen[number] = true
 	m.check.stepOpen[number] = !open
 	m.check.line = m.check.stepStarts[m.check.step]
-	m.invalidateJobRender()
+	m.staleJobRender()
 	m.syncContent()
 	m.showCheckLine()
 }
@@ -374,6 +374,9 @@ func (m *Model) jobSteps(width int) string {
 			m.renderJobSteps(width)
 		} else {
 			m.startJobRender(width, query)
+			if m.check.renderedBody != "" {
+				return m.check.renderedBody
+			}
 			return m.faint().Render("Processing the job log…")
 		}
 	}

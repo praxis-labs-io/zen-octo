@@ -430,9 +430,8 @@ func TestCompletedJobParsingRunsOutsideTheUpdateThatLandsIt(t *testing.T) {
 	}
 }
 
-func TestLargeJobRenderingRunsOutsideTheParsedMessageUpdate(t *testing.T) {
-	m := onChecks(160, 24)
-	job := loadedJob(101, true)
+func largeLoadedJob(id int64) store.Job {
+	job := loadedJob(id, true)
 	var log strings.Builder
 	log.WriteString("2026-08-19T14:00:00Z ##[group]Set up job\n")
 	for range 12000 {
@@ -440,8 +439,12 @@ func TestLargeJobRenderingRunsOutsideTheParsedMessageUpdate(t *testing.T) {
 	}
 	log.WriteString("2026-08-19T14:00:02Z ##[endgroup]\n")
 	job.Log = log.String()
+	return job
+}
 
-	m, render := m.Update(armed(t, m.SetJobAsync(101, job)))
+func TestLargeJobRenderingRunsOutsideTheParsedMessageUpdate(t *testing.T) {
+	m := onChecks(160, 24)
+	m, render := m.Update(armed(t, m.SetJobAsync(101, largeLoadedJob(101))))
 	if out := stripANSI(m.View()); !strings.Contains(out, "Processing the job log") {
 		t.Errorf("large log rendered synchronously:\n%s", out)
 	}
@@ -451,6 +454,26 @@ func TestLargeJobRenderingRunsOutsideTheParsedMessageUpdate(t *testing.T) {
 	m, _ = m.Update(armed(t, render))
 	if out := stripANSI(m.View()); !strings.Contains(out, "Set up job") || strings.Contains(out, "Processing the job log") {
 		t.Errorf("rendered log did not replace processing state:\n%s", out)
+	}
+}
+
+func TestLargeLogFoldKeepsTheLastCompleteFrameUntilRenderingSettles(t *testing.T) {
+	m := onChecks(160, 24)
+	m, render := m.Update(armed(t, m.SetJobAsync(101, largeLoadedJob(101))))
+	m, _ = m.Update(armed(t, render))
+	m = press(m, "2")
+	before := m.View()
+
+	m, render = key(m, "space")
+	if during := m.View(); during != before || strings.Contains(stripANSI(during), "Processing the job log") {
+		t.Errorf("fold replaced the complete frame while rendering:\n%s", stripANSI(during))
+	}
+	if render == nil {
+		t.Fatal("large fold armed no asynchronous render")
+	}
+	m, _ = m.Update(armed(t, render))
+	if after := stripANSI(m.View()); !strings.Contains(after, "a deliberately wide retained log line") {
+		t.Error("settled fold did not reveal the log")
 	}
 }
 
