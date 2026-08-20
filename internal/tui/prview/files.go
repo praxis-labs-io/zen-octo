@@ -49,15 +49,22 @@ type blockStop struct {
 const stopNone = -1
 
 // diffRow is a painted row and what it was painted from, so the row under the
-// cursor is drawn again lit while the rest stay cached.
+// cursor is drawn again lit while the rest stay cached. right is the head
+// column of a side-by-side row, and zero on a unified one.
 type diffRow struct {
-	line paint.Line
-	text string
+	line  paint.Line
+	right paint.Line
+	text  string
 }
 
-// code is whether the cursor can sit on a row. The blank between two hunks is
-// a zero line, and no real one has a number on neither side.
-func (r diffRow) code() bool { return r.line.Old != 0 || r.line.New != 0 }
+// code is whether the cursor can sit on a row in a column. A blank half and the
+// blank between two hunks carry no number, which no real line does.
+func (r diffRow) code(column gh.DiffSide) bool {
+	if column == gh.SideRight {
+		return r.right.Old != 0 || r.right.New != 0
+	}
+	return r.line.Old != 0 || r.line.New != 0
+}
 
 // run is a stretch of painted code between two stops, kept as rows rather than
 // joined so one of them can be repainted without re-tokenising the file, and
@@ -76,11 +83,11 @@ func newRun(rows []diffRow) run {
 	return run{rows: rows, text: strings.Join(out, "\n")}
 }
 
-// codeRows is how many rows of a run the cursor can stand on.
-func (r run) codeRows() int {
+// codeRows is how many rows of a run the cursor can stand on in a column.
+func (r run) codeRows(column gh.DiffSide) int {
 	n := 0
 	for _, row := range r.rows {
-		if row.code() {
+		if row.code(column) {
 			n++
 		}
 	}
@@ -89,12 +96,12 @@ func (r run) codeRows() int {
 
 // rowAt is where the nth code row of a run sits among all of them, counting
 // from one. 0 is the stop above the run, and past the end is -1.
-func (r run) rowAt(n int) int {
+func (r run) rowAt(n int, column gh.DiffSide) int {
 	if n <= 0 {
 		return -1
 	}
 	for i, row := range r.rows {
-		if !row.code() {
+		if !row.code(column) {
 			continue
 		}
 		if n--; n == 0 {
@@ -137,6 +144,10 @@ type block struct {
 type blockState struct {
 	width int
 	folds string
+
+	// split is a mode rather than an identity, so it retires the block it
+	// replaces instead of keeping one painted per mode for the rest of the run.
+	split bool
 }
 
 // diffBody is one rendered diff: where each file's block sits inside it, and
@@ -164,6 +175,10 @@ type diffBody struct {
 	// commit is different code, so a commit's diff carries none.
 	threads bool
 
+	// split is whether these blocks draw two columns. The Commits tab never
+	// does: it draws every file at once and each one is half as wide.
+	split bool
+
 	// lead is what sits above the first block. The spans are what a jump lands
 	// on, and they have to clear whatever the tab put in front of them.
 	lead int
@@ -181,6 +196,7 @@ type diffBody struct {
 func (m *Model) filesBody() string {
 	switch {
 	case m.files.Loaded:
+		m.diff.split = m.splitting()
 		body := m.renderDiff(m.shownRows(), m.files, &m.diff)
 		for _, s := range m.diff.stops {
 			m.pageRing.add(s.focusKey, s.start, s.lines)
@@ -217,10 +233,10 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		}
 
 		bk := blockKey{key: r.key, heading: d.headings}
-		state := blockState{width: width, folds: m.hunkFoldState(*r.file)}
+		state := blockState{width: width, folds: m.hunkFoldState(*r.file), split: d.split}
 		b, ok := d.blocks[bk]
 		if !ok || b.at != state {
-			b = m.fileBlock(*r.file, width, d.threads, d.headings)
+			b = m.fileBlock(*r.file, width, d.threads, d.headings, d.split)
 			b.at = state
 			d.blocks[bk] = b
 		}
@@ -270,8 +286,8 @@ func overflow(res store.Files) string {
 
 // fileBlock is one file: the heading, then its hunks and the review threads
 // anchored inside them. No box, or a thread sits three borders deep.
-func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) block {
-	b := m.fileBody(f, width, threads)
+func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading, split bool) block {
+	b := m.fileBody(f, width, threads, split)
 	if !heading {
 		return b
 	}
@@ -285,7 +301,7 @@ func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) bl
 // fileBody is everything under a file's heading, already the full inner width
 // so a changed line's background runs to the border. The pane pads with plain
 // spaces, which would leave a hole at the end of every one.
-func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
+func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block {
 	if f.Omitted != "" {
 		text := " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
 		return block{runs: []run{newRun([]diffRow{{text: text}})}}
@@ -324,17 +340,22 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 			open = append(open, diffRow{})
 		}
 		stop(blockStop{hunk: i, thread: stopNone})
-		for _, l := range h.Lines {
+
+		own := tokens[seen : seen+len(h.Lines)]
+		for _, p := range pairs(h.Lines, split) {
 			if hunkOpen {
-				open = append(open, m.diffRow(l, tokens[seen], gutter, width))
+				open = append(open, m.paintRow(h.Lines, p, own, gutter, width, split))
 			}
-			seen++
-			for _, at := range threadsAt(anchored, placed, l) {
-				if hunkOpen {
-					stop(blockStop{hunk: stopNone, thread: at})
+			// A row naming two lines answers a comment written against either.
+			for _, j := range sides(p) {
+				for _, at := range threadsAt(anchored, placed, h.Lines[j]) {
+					if hunkOpen {
+						stop(blockStop{hunk: stopNone, thread: at})
+					}
 				}
 			}
 		}
+		seen += len(h.Lines)
 	}
 
 	if threads {
@@ -386,8 +407,14 @@ func (m Model) litRun(r run, at, gutter, width int) run {
 	rows := make([]diffRow, len(r.rows))
 	copy(rows, r.rows)
 
+	fill, bar := m.theme.SelectedBackground, m.theme.Accent
+	if m.splitting() {
+		rows[at].text = m.halves(rows[at], gutter, width, fill, bar)
+		return newRun(rows)
+	}
+
 	l := rows[at].line
-	l.Fill, l.Bar = m.theme.SelectedBackground, m.theme.Accent
+	l.Fill, l.Bar = fill, bar
 	rows[at].text = m.painter.Line(l, gutter, width)
 	return newRun(rows)
 }
@@ -404,11 +431,25 @@ func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open bool) s
 	if m.cursorOn(key) {
 		head.Fill, head.Bar = m.theme.SelectedBackground, m.theme.Accent
 	}
+
+	// A heading spans the pane and belongs to neither column, so its bar sits at
+	// the pane edge. Only its indent follows the source under it.
+	if m.splitting() {
+		return m.painter.HalfHeader(head, gutter, width)
+	}
 	return m.painter.HunkHeader(head, gutter, width)
 }
 
-// diffRow is one line of code painted plain, kept beside what painted it so the
-// cursor can light it later without the file being tokenised again.
+// paintRow is one row of the diff painted plain, kept beside what painted it so
+// the cursor can light it later without the file being tokenised again.
+func (m Model) paintRow(lines []gh.DiffLine, p pair, tokens [][]syntax.Token, gutter, width int, split bool) diffRow {
+	if split {
+		return m.splitRow(lines, p, tokens, gutter, width)
+	}
+	return m.diffRow(lines[p.left], tokens[p.left], gutter, width)
+}
+
+// diffRow is one unified row, carrying both line numbers.
 func (m Model) diffRow(l gh.DiffLine, tokens []syntax.Token, gutter, width int) diffRow {
 	line := paint.Line{Kind: kindOf(l.Kind), Old: l.Old, New: l.New, Tokens: tokens}
 	return diffRow{line: line, text: m.painter.Line(line, gutter, width)}
@@ -546,10 +587,11 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 	var owner focusKey
 	for i, r := range b.runs {
 		if owner != (focusKey{}) {
-			rows := r.codeRows()
+			column := m.cursorColumn()
+			rows := r.codeRows(column)
 			out.rows[owner] = rows
 			if m.lit(owner) && m.walkedInto(owner) {
-				if lit := r.rowAt(min(m.diffCursor, rows)); lit >= 0 {
+				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
 					r = m.litRun(r, lit, gutter, width)
 				}

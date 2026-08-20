@@ -38,6 +38,14 @@ func TestGoldenFilesTab(t *testing.T) {
 		// The row cursor walked into a hunk: the bar takes the leading cell the
 		// rows above it hold open, and the heading it left is no longer filled.
 		{name: "files-cursor", width: 100, height: 30, keys: []string{"}", "j", "j"}},
+
+		// Side by side: a removal facing its replacement, the blank the shorter
+		// side draws, and the heading indented to the left column's own source.
+		{name: "files-split", width: 140, height: 30, keys: []string{"|"}},
+
+		// The same with the cursor in the base column, which is the one that
+		// lights: lit across both, a rewritten row names no side.
+		{name: "files-split-base", width: 140, height: 30, keys: []string{"|", "}", "j", "h"}},
 	}
 
 	for _, tt := range tests {
