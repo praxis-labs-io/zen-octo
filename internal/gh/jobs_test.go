@@ -130,7 +130,7 @@ func TestJobLogsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 func TestRerunJobPostsToTheSelectedJobsEndpoint(t *testing.T) {
 	rest := &fakeREST{}
 
-	if err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 9001); err != nil {
+	if _, err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 9001); err != nil {
 		t.Fatalf("RerunJob: %v", err)
 	}
 	if rest.gotMethod != http.MethodPost {
@@ -203,7 +203,8 @@ func TestAForbiddenJobsCallNamesTheScopeToAdd(t *testing.T) {
 			return err
 		}},
 		{"RerunJob", func(rest *fakeREST) error {
-			return newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 1)
+			_, err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 1)
+			return err
 		}},
 		{"RerunFailedJobs", func(rest *fakeREST) error {
 			return newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "zen-octo/zen-octo", 1)

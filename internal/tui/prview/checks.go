@@ -42,8 +42,10 @@ type checkGroup struct {
 const jobSettleDelay = 150 * time.Millisecond
 
 type rerunPending struct {
-	jobID     int64
-	startedAt time.Time
+	jobID       int64
+	startedAt   time.Time
+	completedAt time.Time
+	acceptedAt  time.Time
 }
 
 type checkTreeRow struct {
@@ -67,15 +69,20 @@ type checks struct {
 	selected string
 	folded   map[string]bool
 
-	wanted       int64
-	refreshJob   bool
-	job          store.Job
-	parsing      bool
-	sections     []jobSection
-	rendered     []string
-	renderedBody string
-	renderWidth  int
-	renderQuery  string
+	wanted          int64
+	refreshJob      bool
+	job             store.Job
+	jobStale        bool
+	parsing         bool
+	sections        []jobSection
+	rendered        []string
+	renderedBody    string
+	renderWidth     int
+	renderQuery     string
+	rendering       bool
+	renderToken     uint64
+	renderWantWidth int
+	renderWantQuery string
 
 	step       int
 	line       int
@@ -199,6 +206,21 @@ func (m *Model) syncChecks() {
 	m.check.groups = groupChecks(m.detail.Detail.Rollup)
 	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
 
+	for logical, pending := range m.check.reruns {
+		replacement, any := m.rerunReplacement(logical, pending)
+		if !any {
+			delete(m.check.reruns, logical)
+			continue
+		}
+		if replacement == nil {
+			continue
+		}
+		delete(m.check.reruns, logical)
+		if m.check.selected == logical || strings.HasPrefix(m.check.selected, logical+"\x00") {
+			m.check.selected = replacement.Key()
+		}
+	}
+
 	if m.checkForKey(m.check.selected) == nil {
 		m.check.selected = ""
 		for _, r := range m.check.rows {
@@ -227,19 +249,12 @@ func (m *Model) syncChecks() {
 			}
 		}
 	}
-	for key, pending := range m.check.reruns {
-		check := m.checkForKey(key)
-		if check == nil || rerunReplacementVisible(pending, *check) {
-			delete(m.check.reruns, key)
-		}
-	}
-
 	if c := m.selectedCheck(); c == nil {
 		m.resetCheckJob()
 	} else {
 		stateChanged := m.check.job.Loaded && m.check.job.Job.ID == c.JobID && m.check.job.Job.State != c.State
 		changed := c.JobID != m.check.wanted || stateChanged
-		_, rerunning := m.check.reruns[m.check.selected]
+		_, rerunning := m.check.reruns[c.LogicalKey()]
 		if changed && !rerunning {
 			m.resetCheckJob()
 			m.check.refreshJob = stateChanged
@@ -259,18 +274,67 @@ func (m *Model) checkForKey(key string) *gh.Check {
 
 func (m *Model) selectedCheck() *gh.Check { return m.checkForKey(m.check.selected) }
 
-func rerunReplacementVisible(pending rerunPending, check gh.Check) bool {
-	if check.State == gh.CheckStatePending || check.State == gh.CheckStateExpected {
-		return true
+func (m Model) rerunReplacement(logical string, pending rerunPending) (*gh.Check, bool) {
+	var newest *gh.Check
+	for i := range m.detail.Detail.Rollup.Checks {
+		check := &m.detail.Detail.Rollup.Checks[i]
+		if check.LogicalKey() != logical {
+			continue
+		}
+		if check.JobID == pending.jobID {
+			continue
+		}
+		if newest == nil || attemptTime(*check).After(attemptTime(*newest)) {
+			newest = check
+		}
 	}
-	// Compare two server timestamps rather than GitHub's clock with the local
-	// one. An older passing attempt may briefly resurface after the write.
-	return check.JobID != pending.jobID && !pending.startedAt.IsZero() &&
-		!check.StartedAt.IsZero() && check.StartedAt.After(pending.startedAt)
+	if newest == nil {
+		return nil, m.checkForLogical(logical) != nil
+	}
+	if newest.State == gh.CheckStatePending || newest.State == gh.CheckStateExpected {
+		return newest, true
+	}
+	if !pending.acceptedAt.IsZero() && !newest.StartedAt.IsZero() {
+		if newest.StartedAt.Before(pending.acceptedAt.Add(-5 * time.Second)) {
+			return nil, true
+		}
+		return newest, true
+	}
+	oldAt, newAt := pending.completedAt, attemptTime(*newest)
+	if oldAt.IsZero() {
+		oldAt = pending.startedAt
+	}
+	// statusCheckRollup reports the current attempts. Where either side lacks a
+	// timestamp, a changed concrete job id is the only ordering evidence GitHub
+	// exposes and must not leave the optimistic write locked forever.
+	if oldAt.IsZero() || newAt.IsZero() || newAt.After(oldAt) {
+		return newest, true
+	}
+	return nil, true
+}
+
+func attemptTime(check gh.Check) time.Time {
+	if !check.CompletedAt.IsZero() {
+		return check.CompletedAt
+	}
+	return check.StartedAt
+}
+
+func (m *Model) checkForLogical(logical string) *gh.Check {
+	for i := range m.detail.Detail.Rollup.Checks {
+		if m.detail.Detail.Rollup.Checks[i].LogicalKey() == logical {
+			return &m.detail.Detail.Rollup.Checks[i]
+		}
+	}
+	return nil
 }
 
 func (m Model) checkRerunning(key string) bool {
-	_, ok := m.check.reruns[key]
+	check := m.checkForKey(key)
+	if check == nil {
+		return false
+	}
+	_, ok := m.check.reruns[check.LogicalKey()]
 	return ok
 }
 
@@ -291,7 +355,9 @@ func (m *Model) rerunCheck() tea.Cmd {
 	if m.check.reruns == nil {
 		m.check.reruns = make(map[string]rerunPending)
 	}
-	m.check.reruns[m.check.selected] = rerunPending{jobID: check.JobID, startedAt: check.StartedAt}
+	m.check.reruns[check.LogicalKey()] = rerunPending{
+		jobID: check.JobID, startedAt: check.StartedAt, completedAt: check.CompletedAt,
+	}
 	m.syncContent()
 	name := cleanJobLabel(check.Name)
 	if check.Workflow != "" {
@@ -304,6 +370,15 @@ func (m *Model) rerunCheck() tea.Cmd {
 
 // RerunSettled releases a refused write wherever the reader has navigated.
 // Accepted writes stay marked until polling publishes their replacement.
+func (m *Model) RerunAccepted(jobID int64, acceptedAt time.Time) {
+	for key, pending := range m.check.reruns {
+		if pending.jobID == jobID {
+			pending.acceptedAt = acceptedAt
+			m.check.reruns[key] = pending
+		}
+	}
+}
+
 func (m *Model) RerunSettled(jobID int64) {
 	for key, pending := range m.check.reruns {
 		if pending.jobID == jobID {
@@ -339,12 +414,10 @@ func (m *Model) resetCheckJob() {
 	m.check.wanted = 0
 	m.check.refreshJob = false
 	m.check.job = store.Job{}
+	m.check.jobStale = false
 	m.check.parsing = false
 	m.check.sections = nil
-	m.check.rendered = nil
-	m.check.renderedBody = ""
-	m.check.renderWidth = 0
-	m.check.renderQuery = ""
+	m.invalidateJobRender()
 	m.check.step = 0
 	m.check.line = 0
 	m.check.stepLines = 0
@@ -401,6 +474,37 @@ func (m *Model) settleJob(msg JobSettleMsg) tea.Cmd {
 	return func() tea.Msg { return NeedJobMsg{JobID: c.JobID, Refresh: refresh} }
 }
 
+// PollJob refreshes volatile step metadata and retries a selected job whose
+// last answer failed or contradicted the terminal rollup. Logs remain deferred
+// until the metadata says the job is complete.
+func (m *Model) PollJob() tea.Cmd {
+	check := m.selectedCheck()
+	if m.tab != tabChecks || check == nil || check.JobID == 0 {
+		return nil
+	}
+	pending := check.State == gh.CheckStatePending || check.State == gh.CheckStateExpected
+	if !pending && m.check.job.Status != store.StatusFailed && !m.check.jobStale {
+		return nil
+	}
+	return m.refreshJob(check.JobID)
+}
+
+// RefreshJob is the explicit-sync form: the reader asked for the selected job
+// regardless of its current state.
+func (m *Model) RefreshJob() tea.Cmd {
+	check := m.selectedCheck()
+	if m.tab != tabChecks || check == nil || check.JobID == 0 {
+		return nil
+	}
+	return m.refreshJob(check.JobID)
+}
+
+func (m *Model) refreshJob(id int64) tea.Cmd {
+	m.check.wanted = id
+	m.check.refreshJob = false
+	return func() tea.Msg { return NeedJobMsg{JobID: id, Refresh: true} }
+}
+
 type jobParsedMsg struct {
 	id       int64
 	sections []jobSection
@@ -418,6 +522,7 @@ func (m *Model) SetJobAsync(id int64, job store.Job) tea.Cmd {
 		return nil
 	}
 	m.takeJob(id, job)
+	m.check.jobStale = false
 	m.check.parsing = true
 	m.check.sections = nil
 	m.check.stepLines = 0
@@ -436,10 +541,9 @@ func (m *Model) jobParsed(msg jobParsedMsg) tea.Cmd {
 	}
 	m.check.parsing = false
 	m.check.sections = msg.sections
-	m.check.rendered = nil
-	m.check.renderedBody = ""
+	m.invalidateJobRender()
 	m.syncContent()
-	return m.Init()
+	return m.armJobRender()
 }
 
 // SetJob is the synchronous seam used by focused view tests. Production uses
@@ -449,15 +553,25 @@ func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	if c == nil || c.JobID != id {
 		return nil
 	}
+	jobPending := job.Job.State == gh.CheckStatePending || job.Job.State == gh.CheckStateExpected
+	checkTerminal := c.State != gh.CheckStatePending && c.State != gh.CheckStateExpected
+	if job.Loaded && jobPending && checkTerminal {
+		// A pulse can overtake the REST request. Do not let that stale pending
+		// response overwrite the terminal rollup or suppress the now-ready log.
+		m.check.wanted = id
+		m.check.jobStale = true
+		return nil
+	}
 	m.takeJob(id, job)
 	m.check.parsing = false
-	if job.Status == store.StatusFailed {
-		// Keep the error on screen but release the request marker. The next
-		// explicit sync or poll may retry; returning Init here would loop now.
-		m.check.wanted = 0
+	if job.Status != store.StatusFailed {
+		m.check.jobStale = false
 	}
 	if job.Loaded {
 		m.check.sections = splitJobLog(job.Job, job.Log)
+		if width := m.bodyWidth(); width > 0 {
+			m.renderJobSteps(width)
+		}
 	} else {
 		m.check.sections = nil
 	}
@@ -478,10 +592,16 @@ func (m *Model) takeJob(id int64, job store.Job) {
 	}
 	m.check.wanted = id
 	m.check.job = job
+	m.invalidateJobRender()
+}
+
+func (m *Model) invalidateJobRender() {
 	m.check.rendered = nil
 	m.check.renderedBody = ""
 	m.check.renderWidth = 0
 	m.check.renderQuery = ""
+	m.check.rendering = false
+	m.check.renderToken++
 }
 
 func (m Model) checkTitle() string {

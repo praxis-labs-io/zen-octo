@@ -229,6 +229,7 @@ func TestRerunningSurvivesAnOlderAttemptUntilTheNewOneAppears(t *testing.T) {
 	r := checkRollup()
 	m := press(overRollup(r, 160, 24), "j", "j", "j")
 	m, _ = key(m, "r")
+	m.RerunAccepted(103, time.Now())
 
 	stale := r
 	stale.Checks = slices.Clone(r.Checks)
@@ -250,6 +251,24 @@ func TestRerunningSurvivesAnOlderAttemptUntilTheNewOneAppears(t *testing.T) {
 	m.SetDetail(held(d))
 	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") || !strings.Contains(out, "Loading the job log") {
 		t.Errorf("the new pending attempt did not take over:\n%s", out)
+	}
+}
+
+func TestTerminalRerunWithoutTimestampsReleasesTheOptimisticState(t *testing.T) {
+	r := checkRollup()
+	m := press(overRollup(r, 160, 24), "j", "j", "j")
+	m, _ = key(m, "r")
+	m.RerunAccepted(103, time.Now())
+
+	landed := r
+	landed.Checks = slices.Clone(r.Checks)
+	landed.Checks[2].JobID = 104
+	landed.Checks[2].State = gh.CheckStateSuccess
+	d := sampleDetail()
+	d.Rollup = landed
+	m.SetDetail(held(d))
+	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") {
+		t.Errorf("timestamp-less replacement stayed optimistic:\n%s", out)
 	}
 }
 
@@ -411,6 +430,30 @@ func TestCompletedJobParsingRunsOutsideTheUpdateThatLandsIt(t *testing.T) {
 	}
 }
 
+func TestLargeJobRenderingRunsOutsideTheParsedMessageUpdate(t *testing.T) {
+	m := onChecks(160, 24)
+	job := loadedJob(101, true)
+	var log strings.Builder
+	log.WriteString("2026-08-19T14:00:00Z ##[group]Set up job\n")
+	for range 12000 {
+		log.WriteString("2026-08-19T14:00:01Z a deliberately wide retained log line\n")
+	}
+	log.WriteString("2026-08-19T14:00:02Z ##[endgroup]\n")
+	job.Log = log.String()
+
+	m, render := m.Update(armed(t, m.SetJobAsync(101, job)))
+	if out := stripANSI(m.View()); !strings.Contains(out, "Processing the job log") {
+		t.Errorf("large log rendered synchronously:\n%s", out)
+	}
+	if render == nil {
+		t.Fatal("large log armed no asynchronous render")
+	}
+	m, _ = m.Update(armed(t, render))
+	if out := stripANSI(m.View()); !strings.Contains(out, "Set up job") || strings.Contains(out, "Processing the job log") {
+		t.Errorf("rendered log did not replace processing state:\n%s", out)
+	}
+}
+
 func TestTheLogCursorBackgroundSurvivesLogColorResets(t *testing.T) {
 	m := onChecks(160, 24)
 	job := loadedJob(101, true)
@@ -526,6 +569,53 @@ func TestFirstFailureJumpsToItsStep(t *testing.T) {
 	m = press(m, "space")
 	if out := stripANSI(m.View()); strings.Contains(out, "tests failed") {
 		t.Error("the failure jump did not move the step cursor")
+	}
+}
+
+func TestTerminalRollupRejectsAnOvertakenPendingJobResponse(t *testing.T) {
+	r := checkRollup()
+	r.Checks[0].State = gh.CheckStatePending
+	m := overRollup(r, 160, 24)
+	m.SetJob(101, store.Job{Status: store.StatusLoading})
+
+	r.Checks[0].State = gh.CheckStateSuccess
+	d := sampleDetail()
+	d.Rollup = r
+	m.SetDetail(held(d))
+	pending := loadedJob(101, false)
+	pending.Job.State = gh.CheckStatePending
+	m.SetJob(101, pending)
+	if out := stripANSI(m.View()); strings.Contains(out, "pending") {
+		t.Errorf("stale pending response replaced terminal state:\n%s", out)
+	}
+	msg, ok := armed(t, m.PollJob()).(prview.NeedJobMsg)
+	if !ok || !msg.Refresh || msg.JobID != 101 {
+		t.Errorf("poll retry = %#v", msg)
+	}
+}
+
+func TestPendingJobMetadataRefreshesOnTheChecksBeat(t *testing.T) {
+	r := checkRollup()
+	r.Checks[0].State = gh.CheckStatePending
+	m := overRollup(r, 160, 24)
+	job := loadedJob(101, false)
+	job.Job.State = gh.CheckStatePending
+	m.SetJob(101, job)
+	msg, ok := armed(t, m.PollJob()).(prview.NeedJobMsg)
+	if !ok || !msg.Refresh || msg.JobID != 101 {
+		t.Errorf("metadata refresh = %#v", msg)
+	}
+}
+
+func TestFailedJobRetriesOnPollRatherThanAnUnrelatedKey(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, store.Job{Status: store.StatusFailed, Err: errors.New("offline")})
+	if _, cmd := key(m, "g"); cmd != nil {
+		t.Error("an unrelated key armed a failed-job retry")
+	}
+	msg, ok := armed(t, m.PollJob()).(prview.NeedJobMsg)
+	if !ok || msg.JobID != 101 || !msg.Refresh {
+		t.Errorf("poll retry = %#v", msg)
 	}
 }
 

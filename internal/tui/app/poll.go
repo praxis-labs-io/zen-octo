@@ -148,12 +148,12 @@ func (m Model) pollChecks(msg checksTickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.poller.checksAt = msg.at.Add(checksBeat)
-	next := armChecks()
+	next, job := armChecks(), m.detail.PollJob()
 	id := m.detail.PullRequest().ID
 	if id == "" || !m.poller.detailDue(id, checksBeat, msg.at) {
-		return m, next
+		return m, tea.Batch(next, job)
 	}
-	return m, tea.Batch(next, m.pulse(id))
+	return m, tea.Batch(next, job, m.pulse(id))
 }
 
 // poll asks for whatever the screen in front of the reader has let go stale.

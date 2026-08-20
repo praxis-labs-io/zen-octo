@@ -35,6 +35,14 @@ func TestJobLabelsCannotCarryTerminalControlsOrNewRows(t *testing.T) {
 	}
 }
 
+func TestRawC1TerminalControlsAreDropped(t *testing.T) {
+	got := cleanJobLogLine("before\x9b2Jmiddle\x9d52;c;owned\x9cafter")
+	if strings.Contains(got, "\x9b") || strings.Contains(got, "\x9d") ||
+		strings.Contains(got, "\x9c") || got != "beforemiddleafter" {
+		t.Errorf("cleaned C1 log = %q", got)
+	}
+}
+
 func TestMalformedAndPrivateEscapesAreDropped(t *testing.T) {
 	got := cleanJobLogLine("before\x1b[?25lmiddle\x1b[31after")
 	if strings.Contains(got, "\x1b") || got != "beforemiddlefter" {

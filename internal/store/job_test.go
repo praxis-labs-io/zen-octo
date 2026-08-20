@@ -28,6 +28,18 @@ func TestAJobMovesFromLoadingToReady(t *testing.T) {
 	}
 }
 
+func TestAJobLogFailureKeepsTheFetchedMetadata(t *testing.T) {
+	s := store.New(nil)
+	job := gh.Job{ID: 9001, Name: "test", Steps: []gh.JobStep{{Number: 1, Name: "run"}}}
+	s.BeginJob(9001)
+	s.JobLogFailed(9001, job, errors.New("gone"))
+
+	got := s.Job(9001)
+	if !got.Loaded || got.Job.Name != "test" || len(got.Job.Steps) != 1 || got.Status != store.StatusFailed {
+		t.Errorf("job = %+v", got)
+	}
+}
+
 func TestAJobFailureKeepsTheLogThatWasAlreadyThere(t *testing.T) {
 	s := store.New(nil)
 	s.BeginJob(9001)

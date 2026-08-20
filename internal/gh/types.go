@@ -426,22 +426,28 @@ type Check struct {
 
 	JobID       int64
 	RunID       int64
+	DistinctID  int64
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Duration    time.Duration
 	DetailsURL  string
 }
 
-// Key tells one logical check from another. A job id changes on a rerun, while
-// the workflow run id remains stable across its attempts. Including the run id
-// also keeps two workflow files with the same display name and job name from
-// collapsing into one row.
-//
-// A status context has no workflow run, so its provider context remains the
-// identity it has always exposed. NUL separators cannot collide with GitHub
-// names.
-func (c Check) Key() string {
+// LogicalKey follows one logical check across a rerun. GitHub changes the job
+// id for each attempt but keeps the workflow run id.
+func (c Check) LogicalKey() string {
 	return strconv.FormatInt(c.RunID, 10) + "\x00" + c.Workflow + "\x00" + c.Name
+}
+
+// Key tells every row in one rollup apart. DistinctID is set only where GitHub
+// returned two checks with the same logical display identity; the common case
+// keeps the stable logical key so selection survives a rerun.
+func (c Check) Key() string {
+	key := c.LogicalKey()
+	if c.DistinctID != 0 {
+		key += "\x00" + strconv.FormatInt(c.DistinctID, 10)
+	}
+	return key
 }
 
 // Job is one Actions job and the steps GitHub ran inside it. The check rollup

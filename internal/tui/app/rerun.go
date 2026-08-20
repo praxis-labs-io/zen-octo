@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -9,7 +10,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-type checkRerunMsg struct{ name string }
+type checkRerunMsg struct {
+	jobID      int64
+	name       string
+	acceptedAt time.Time
+}
 
 type checkRerunFailedMsg struct {
 	jobID int64
@@ -23,14 +28,16 @@ func (m Model) rerunCheck(msg prview.RerunCheckMsg) (tea.Model, tea.Cmd) {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 
-		if err := client.RerunJob(ctx, msg.Repo, msg.JobID); err != nil {
+		acceptedAt, err := client.RerunJob(ctx, msg.Repo, msg.JobID)
+		if err != nil {
 			return checkRerunFailedMsg{jobID: msg.JobID, name: msg.Name, err: err}
 		}
-		return checkRerunMsg{name: msg.Name}
+		return checkRerunMsg{jobID: msg.JobID, name: msg.Name, acceptedAt: acceptedAt}
 	}
 }
 
 func (m Model) checkRerunLanded(msg checkRerunMsg) (tea.Model, tea.Cmd) {
+	m.detail.RerunAccepted(msg.jobID, msg.acceptedAt)
 	// GitHub accepts the write before the replacement attempt reaches the check
 	// rollup. Keep the optimistic state through that gap: an immediate detail
 	// fetch can still report the failed attempt, or briefly fold an older passing

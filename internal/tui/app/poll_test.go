@@ -68,6 +68,34 @@ func TestTheChecksBeatFiresOnlyOnTheChecksTab(t *testing.T) {
 
 // Both timers can land together at the ten-second boundary. BeginPulse is the
 // final guard: the Checks chain must join the five-second chain already out.
+func TestTheChecksBeatRefreshesSelectedRunningJobMetadata(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{
+		Name: "test", Workflow: "CI", State: gh.CheckStatePending, JobID: 9001,
+	}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{ID: 9001, State: gh.CheckStatePending,
+		Steps: []gh.JobStep{{Number: 1, Name: "Build", State: gh.CheckStatePending}}}, "")
+
+	m := press(loaded(t, client, 160, 44), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	client.servedJob(9001, gh.Job{ID: 9001, State: gh.CheckStatePending,
+		Steps: []gh.JobStep{{Number: 1, Name: "Build", State: gh.CheckStateSuccess},
+			{Number: 2, Name: "Test", State: gh.CheckStatePending}}}, "")
+	m = settle(m, app.ChecksTick(time.Now().Add(app.ChecksBeat+time.Second)))
+
+	if got := client.askedJobs(); len(got) != 2 {
+		t.Errorf("job asks = %v, want metadata refreshed on the beat", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Test") {
+		t.Errorf("refreshed running steps did not reach the pane:\n%s", out)
+	}
+}
+
 func TestTheChecksBeatDoesNotDoubleTheBackgroundBeat(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := press(opened(t, client), "]", "]")

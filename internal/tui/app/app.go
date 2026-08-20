@@ -41,7 +41,7 @@ type GitHub interface {
 	CommitFiles(ctx context.Context, repo, sha string) (gh.FilesResult, error)
 	Job(ctx context.Context, repo string, jobID int64) (gh.Job, error)
 	JobLogs(ctx context.Context, repo string, jobID int64) ([]byte, error)
-	RerunJob(ctx context.Context, repo string, jobID int64) error
+	RerunJob(ctx context.Context, repo string, jobID int64) (time.Time, error)
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
@@ -160,6 +160,7 @@ type jobFetchedMsg struct {
 
 type jobFailedMsg struct {
 	id  int64
+	job gh.Job
 	err error
 }
 
@@ -749,6 +750,9 @@ func (m Model) refreshDetail(msg prview.RefreshMsg) (tea.Model, tea.Cmd) {
 	} else if msg.SHA != "" && m.store.CommitFiles(msg.SHA).Status == store.StatusLoading {
 		started.commit = leg{key: msg.SHA}
 	}
+	if m.detail.ShowsChecks() {
+		cmds = append(cmds, m.detail.RefreshJob())
+	}
 	// Everything this refresh would have asked for is already on its way.
 	if !started.running() {
 		return m, nil
@@ -981,19 +985,19 @@ func (m Model) fetchJob(repo string, id int64) tea.Cmd {
 		}
 		log, err := client.JobLogs(ctx, repo, id)
 		if err != nil {
-			return jobFailedMsg{id: id, err: err}
+			return jobFailedMsg{id: id, job: job, err: err}
 		}
 		return jobFetchedMsg{id: id, job: job, log: log}
 	}
 }
 
-func (m Model) jobSettled(id int64, err error) (tea.Model, tea.Cmd) {
+func (m Model) jobSettled(id int64, err error, hadLoaded bool) (tea.Model, tea.Cmd) {
 	if m.screen != screenDetail {
 		return m, nil
 	}
 	held := m.store.Job(id)
 	cmd := m.detail.SetJobAsync(id, held)
-	if err != nil && held.Loaded {
+	if err != nil && hadLoaded {
 		return m, tea.Batch(cmd, m.toasts.Show(comp.ToastError, "Could not refresh the job log"))
 	}
 	return m, cmd
@@ -1072,6 +1076,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
+		if m.screen == screenDetail {
+			return m, m.detail.Init()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -1207,11 +1214,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case jobFetchedMsg:
 		m.store.JobApplied(msg.id, msg.job, msg.log)
-		return m.jobSettled(msg.id, nil)
+		return m.jobSettled(msg.id, nil, false)
 
 	case jobFailedMsg:
-		m.store.JobFailed(msg.id, msg.err)
-		return m.jobSettled(msg.id, msg.err)
+		hadLoaded := m.store.Job(msg.id).Loaded
+		if msg.job.ID != 0 {
+			m.store.JobLogFailed(msg.id, msg.job, msg.err)
+		} else {
+			m.store.JobFailed(msg.id, msg.err)
+		}
+		return m.jobSettled(msg.id, msg.err, hadLoaded)
 
 	case prview.NeedFilesMsg:
 		return m.needFiles(msg.ID)

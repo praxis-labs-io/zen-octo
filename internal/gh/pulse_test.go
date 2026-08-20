@@ -79,27 +79,30 @@ func TestAPulseCountsTheChecksTheSameWay(t *testing.T) {
 	if r.State != CheckStatePending {
 		t.Errorf("rollup state = %q, want PENDING", r.State)
 	}
-	// Two jobs, not three: the re-run of "test" replaces the attempt before it.
-	if len(r.Checks) != 2 {
-		t.Fatalf("checks = %v, want the re-run folded onto the job it repeats", r.Checks)
+	if len(r.Checks) != 3 {
+		t.Fatalf("checks = %v, want every ambiguous same-name check preserved", r.Checks)
 	}
-	if r.Pending != 1 || r.Passed != 1 || r.Failed != 0 {
-		t.Errorf("tally = %d pending %d passed %d failed, want the later attempt to win",
-			r.Pending, r.Passed, r.Failed)
+	if r.Pending != 1 || r.Passed != 1 || r.Failed != 1 {
+		t.Errorf("tally = %d pending %d passed %d failed", r.Pending, r.Passed, r.Failed)
 	}
 
 	// Reached through the same rollup() the detail query uses, so the id fields
 	// only need proving they arrive here too, not that they decode correctly.
+	var keys = make(map[string]bool)
 	for _, c := range r.Checks {
 		if c.Workflow != "CI" {
 			continue
 		}
-		if c.JobID != 900002 {
-			t.Errorf("test.JobID = %d, want the id of the run that started last", c.JobID)
+		if c.JobID != 900001 && c.JobID != 900002 {
+			t.Errorf("test.JobID = %d", c.JobID)
 		}
 		if c.RunID != 900100 {
 			t.Errorf("test.RunID = %d, want 900100", c.RunID)
 		}
+		if keys[c.Key()] {
+			t.Errorf("duplicate key %q", c.Key())
+		}
+		keys[c.Key()] = true
 	}
 }
 

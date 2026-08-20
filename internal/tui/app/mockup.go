@@ -368,7 +368,9 @@ func (Mock) JobLogs(_ context.Context, _ string, id int64) ([]byte, error) {
 	return []byte("2026-08-19T14:00:00Z ##[group]Set up job\n2026-08-19T14:00:01Z Runner ready\n2026-08-19T14:00:04Z ##[endgroup]\n2026-08-19T14:00:04Z ##[group]Run job\n2026-08-19T14:00:05Z make all\n2026-08-19T14:00:36Z " + result + "\n2026-08-19T14:00:36Z ##[endgroup]\n"), nil
 }
 
-func (Mock) RerunJob(context.Context, string, int64) error { return nil }
+func (Mock) RerunJob(context.Context, string, int64) (time.Time, error) {
+	return time.Now(), nil
+}
 
 func mockFiles() []gh.ChangedFile {
 	return []gh.ChangedFile{

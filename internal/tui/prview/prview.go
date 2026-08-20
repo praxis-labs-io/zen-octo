@@ -468,7 +468,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	// be taken again before they are sized.
 	m.layout()
 	m.keepFocusWhole(held)
-	return tea.Batch(m.armCommit(), m.armJob())
+	return tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 }
 
 // focusWhole is whether the focused card is on the screen entire. A card that
@@ -507,7 +507,7 @@ func newViewport() viewport.Model {
 }
 
 // Init starts the spinner, which runs until the conversation lands.
-func (m Model) Init() tea.Cmd { return m.spinner.Tick() }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.spinner.Tick(), m.armJobRender()) }
 
 // Update handles the keys that belong to this screen, and the spinner.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -521,6 +521,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.settleJob(msg)
 	case jobParsedMsg:
 		return m, m.jobParsed(msg)
+	case jobRenderMsg:
+		return m, m.jobRendered(msg)
 	case SearchSettleMsg:
 		return m, m.settleCheckSearch(msg)
 
@@ -854,7 +856,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 
-	return m, tea.Batch(m.armCommit(), m.armJob())
+	return m, tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 }
 
 // refresh names what is stale to the reader. The Conversation and Checks tabs
@@ -1046,7 +1048,7 @@ func (m *Model) goToTab(at int) tea.Cmd {
 	// again instead of reading the one from before the push for the rest of the
 	// session, and revisiting the tab on this screen still costs nothing.
 	if m.tab != tabFiles || m.filesAsked || m.files.Status == store.StatusLoading {
-		return tea.Batch(m.armCommit(), m.armJob())
+		return tea.Batch(m.armCommit(), m.armJob(), m.armJobRender())
 	}
 	m.filesAsked = true
 

@@ -193,19 +193,20 @@ func (w *tailWriter) bytes() []byte {
 }
 
 // RerunJob re-runs one Actions job and any jobs that depend on it.
-func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64) error {
+func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64) (time.Time, error) {
 	if !strings.Contains(repo, "/") {
-		return fmt.Errorf("rerunning job (%s job %d): %q is not owner/name", repo, jobID, repo)
+		return time.Time{}, fmt.Errorf("rerunning job (%s job %d): %q is not owner/name", repo, jobID, repo)
 	}
 
 	path := fmt.Sprintf("repos/%s/actions/jobs/%d/rerun", repo, jobID)
 	resp, err := c.rest.RequestWithContext(ctx, http.MethodPost, path, nil)
 	if err != nil {
-		return fmt.Errorf("rerunning job (%s job %d): %w", repo, jobID, classify(err))
+		return time.Time{}, fmt.Errorf("rerunning job (%s job %d): %w", repo, jobID, classify(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return nil
+	acceptedAt, _ := http.ParseTime(resp.Header.Get("Date"))
+	return acceptedAt, nil
 }
 
 // RerunFailedJobs re-runs only the failed jobs of a workflow run.

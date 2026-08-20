@@ -3,9 +3,11 @@ package prview
 import (
 	"fmt"
 	"image/color"
+	"maps"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -16,7 +18,10 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-const searchSettleDelay = 100 * time.Millisecond
+const (
+	searchSettleDelay  = 100 * time.Millisecond
+	asyncJobRenderFrom = 256 << 10
+)
 
 // SearchSettleMsg applies a query only after typing pauses. The heading still
 // echoes every key immediately; only the full-log scan waits.
@@ -122,8 +127,7 @@ func (m *Model) toggleCheckStep() {
 	m.check.stepSeen[number] = true
 	m.check.stepOpen[number] = !open
 	m.check.line = m.check.stepStarts[m.check.step]
-	m.check.rendered = nil
-	m.check.renderedBody = ""
+	m.invalidateJobRender()
 	m.syncContent()
 	m.showCheckLine()
 }
@@ -231,7 +235,7 @@ func (m *Model) settleCheckSearch(msg SearchSettleMsg) tea.Cmd {
 	}
 	m.syncContent()
 	m.showCheckMatch()
-	return nil
+	return m.armJobRender()
 }
 
 func (m *Model) moveCheckMatch(delta int) {
@@ -280,6 +284,9 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 		body = m.faint().Render("Processing the job log…")
 	case m.check.job.Loaded:
 		body = m.jobSteps(width)
+		if m.check.job.Status == store.StatusFailed {
+			body += "\n\n" + m.faint().Render("Log output is unavailable: "+m.check.job.Err.Error())
+		}
 	case m.check.job.Status == store.StatusFailed:
 		body = m.faint().Render("Could not load the job log: " + m.check.job.Err.Error())
 	default:
@@ -333,6 +340,18 @@ func shortDuration(d time.Duration) string {
 	return d.Round(time.Second).String()
 }
 
+type jobRenderMsg struct {
+	id           int64
+	token        uint64
+	rendered     []string
+	renderedBody string
+	stepStarts   []int
+	matchLines   []int
+	stepLines    int
+	width        int
+	query        string
+}
+
 func (m *Model) jobSteps(width int) string {
 	sections := m.check.sections
 	if len(sections) == 0 {
@@ -351,12 +370,80 @@ func (m *Model) jobSteps(width int) string {
 
 	query := m.check.search.Query()
 	if m.check.rendered == nil || m.check.renderWidth != width || m.check.renderQuery != query {
-		m.renderJobSteps(width)
+		if !m.largeJobLog() {
+			m.renderJobSteps(width)
+		} else {
+			m.startJobRender(width, query)
+			return m.faint().Render("Processing the job log…")
+		}
 	}
 	m.check.line = min(max(m.check.line, 0), m.check.stepLines-1)
 	m.check.step = m.stepAtCheckLine(m.check.line)
 
 	return m.check.renderedBody
+}
+
+func (m Model) largeJobLog() bool {
+	bytes := 0
+	for _, section := range m.check.sections {
+		for _, line := range section.lines {
+			bytes += len(line)
+			if bytes >= asyncJobRenderFrom {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m *Model) startJobRender(width int, query string) {
+	if m.check.rendering && m.check.renderWantWidth == width && m.check.renderWantQuery == query {
+		return
+	}
+	m.check.rendering = true
+	m.check.renderToken++
+	m.check.renderWantWidth = width
+	m.check.renderWantQuery = query
+}
+
+func (m Model) armJobRender() tea.Cmd {
+	if !m.check.rendering || m.check.job.Job.ID == 0 {
+		return nil
+	}
+	clone := m
+	clone.check.stepOpen = maps.Clone(m.check.stepOpen)
+	clone.check.stepSeen = maps.Clone(m.check.stepSeen)
+	clone.check.rendered = nil
+	clone.check.renderedBody = ""
+	id, token, width, query := m.check.job.Job.ID, m.check.renderToken,
+		m.check.renderWantWidth, m.check.renderWantQuery
+	return func() tea.Msg {
+		clone.renderJobSteps(width)
+		return jobRenderMsg{
+			id: id, token: token, rendered: clone.check.rendered,
+			renderedBody: clone.check.renderedBody, stepStarts: clone.check.stepStarts,
+			matchLines: clone.check.matchLines, stepLines: clone.check.stepLines,
+			width: width, query: query,
+		}
+	}
+}
+
+func (m *Model) jobRendered(msg jobRenderMsg) tea.Cmd {
+	if !m.check.rendering || msg.id != m.check.job.Job.ID || msg.token != m.check.renderToken ||
+		msg.width != m.check.renderWantWidth || msg.query != m.check.renderWantQuery {
+		return nil
+	}
+	m.check.rendered = msg.rendered
+	m.check.renderedBody = msg.renderedBody
+	m.check.stepStarts = msg.stepStarts
+	m.check.matchLines = msg.matchLines
+	m.check.stepLines = msg.stepLines
+	m.check.renderWidth = msg.width
+	m.check.renderQuery = msg.query
+	m.check.rendering = false
+	m.syncContent()
+	m.showCheckLine()
+	return nil
 }
 
 // renderJobSteps pays the highlighting and clipping cost only when the log's
@@ -611,6 +698,12 @@ func sgrSequence(seq string, parser *xansi.Parser) bool {
 }
 
 func printableSequence(seq string) bool {
+	// Raw C1 controls are invalid UTF-8 but terminals that accept their 8-bit
+	// form can still execute them. DecodeSequence preserves those bytes, so
+	// reject the sequence before RuneError makes them look printable.
+	if !utf8.ValidString(seq) {
+		return false
+	}
 	for _, r := range seq {
 		if unicode.IsControl(r) {
 			return false

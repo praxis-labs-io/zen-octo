@@ -84,6 +84,7 @@ type fakeSearcher struct {
 	filesErr        error
 	commitErr       error
 	jobErr          error
+	jobLogErr       error
 	rerunErr        error
 	postErr         error
 	// requestErr fails the second half of a reviewer write alone, which is the
@@ -329,14 +330,18 @@ func (f *fakeSearcher) JobLogs(_ context.Context, _ string, id int64) ([]byte, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.jobLogAsks = append(f.jobLogAsks, id)
-	return slices.Clone(f.jobLogs[id]), f.jobErr
+	err := f.jobLogErr
+	if err == nil {
+		err = f.jobErr
+	}
+	return slices.Clone(f.jobLogs[id]), err
 }
 
-func (f *fakeSearcher) RerunJob(_ context.Context, _ string, id int64) error {
+func (f *fakeSearcher) RerunJob(_ context.Context, _ string, id int64) (time.Time, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reruns = append(f.reruns, id)
-	return f.rerunErr
+	return time.Now(), f.rerunErr
 }
 
 func (f *fakeSearcher) servedJob(id int64, job gh.Job, log string) {
@@ -991,7 +996,9 @@ func (f *querySearcher) JobLogs(_ context.Context, _ string, _ int64) ([]byte, e
 	return nil, nil
 }
 
-func (f *querySearcher) RerunJob(context.Context, string, int64) error { return nil }
+func (f *querySearcher) RerunJob(context.Context, string, int64) (time.Time, error) {
+	return time.Now(), nil
+}
 
 func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
@@ -3840,6 +3847,27 @@ func TestARefusedCheckRerunReleasesTheKeyAndReportsWhy(t *testing.T) {
 	_ = press(m, "r")
 	if got := client.askedReruns(); !slices.Equal(got, []int64{9001, 9001}) {
 		t.Errorf("r stayed locked after failure: %v", got)
+	}
+}
+
+func TestAJobLogFailureKeepsTheFetchedStepMetadata(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs(), jobLogErr: errors.New("log expired")}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001}}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	client.servedJob(9001, gh.Job{
+		ID: 9001, Name: "test", State: gh.CheckStateFailure,
+		Steps: []gh.JobStep{{Number: 1, Name: "Run tests", State: gh.CheckStateFailure}},
+	}, "")
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]")
+	m = settleJob(m, d.Rollup.Checks[0], false)
+	out := render(t, m)
+	if !strings.Contains(out, "Run tests") || !strings.Contains(out, "Log output is unavailable: log expired") {
+		t.Errorf("partial job did not keep its metadata:\n%s", out)
 	}
 }
 

@@ -54,6 +54,20 @@ func (s *Store) JobApplied(id int64, job gh.Job, log []byte) {
 	})
 }
 
+// JobLogFailed keeps metadata that landed even when the separate log download
+// failed. A completed job can still show its steps and timings after retention
+// has removed the blob.
+func (s *Store) JobLogFailed(id int64, job gh.Job, err error) {
+	if id == 0 {
+		return
+	}
+	key := jobKey(id)
+	s.jobs.put(key, Job{Job: job, Status: StatusFailed, Err: err, Loaded: true})
+	s.jobs.evict(key, func(key string) bool {
+		return s.jobs.get(key).Status == StatusLoading
+	})
+}
+
 // JobFailed puts a job into its error state while preserving a log that had
 // already loaded. A failed refetch must not empty the pane.
 func (s *Store) JobFailed(id int64, err error) {
