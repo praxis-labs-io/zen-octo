@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -454,6 +455,11 @@ func (m *Model) jobRendered(msg jobRenderMsg) tea.Cmd {
 // already-rendered lines instead of parsing the whole log again.
 func (m *Model) renderJobSteps(width int) {
 	sections := m.check.sections
+	totalLogLines := 0
+	for _, section := range sections {
+		totalLogLines += len(section.lines)
+	}
+	lineNumberWidth := len(strconv.Itoa(max(1, totalLogLines)))
 	opens := make([]bool, len(sections))
 	matches := make([][]bool, len(sections))
 	m.check.stepStarts = make([]int, len(sections))
@@ -479,20 +485,31 @@ func (m *Model) renderJobSteps(width int) {
 	}
 
 	m.check.rendered = make([]string, 0, m.check.stepLines)
+	firstLine := 1
 	for i, section := range sections {
 		start := len(m.check.rendered)
-		row, matchedLines := m.jobStepRow(section, width, opens[i], matches[i])
+		row, matchedLines := m.jobStepRow(
+			section, width, opens[i], matches[i], firstLine, lineNumberWidth,
+		)
 		m.check.rendered = append(m.check.rendered, strings.Split(row, "\n")...)
 		for _, line := range matchedLines {
 			m.check.matchLines = append(m.check.matchLines, start+line)
 		}
+		firstLine += len(section.lines)
 	}
 	m.check.renderedBody = strings.Join(m.check.rendered, "\n")
 	m.check.renderWidth = width
 	m.check.renderQuery = m.check.search.Query()
 }
 
-func (m Model) jobStepRow(section jobSection, width int, open bool, lineMatches []bool) (string, []int) {
+func (m Model) jobStepRow(
+	section jobSection,
+	width int,
+	open bool,
+	lineMatches []bool,
+	firstLine int,
+	lineNumberWidth int,
+) (string, []int) {
 	base := lipgloss.NewStyle()
 	fold := " "
 	if len(section.lines) > 0 {
@@ -530,7 +547,10 @@ func (m Model) jobStepRow(section jobSection, width int, open bool, lineMatches 
 		} else {
 			line = m.styleJobLogLine(line)
 		}
-		lines = append(lines, clipTo("    "+line, width, m.faint()))
+		gutter := lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).Render(
+			fmt.Sprintf("%*d │ ", lineNumberWidth, firstLine+i),
+		)
+		lines = append(lines, clipTo(gutter+line, width, m.faint()))
 	}
 	return strings.Join(lines, "\n"), matches
 }

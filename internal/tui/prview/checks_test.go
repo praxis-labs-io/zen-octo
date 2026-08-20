@@ -406,6 +406,31 @@ func TestSpaceTogglesTheStepHoldingTheMainPaneCursor(t *testing.T) {
 	}
 }
 
+func TestExpandedLogLinesCarryStableMutedNumbers(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, loadedJob(101, false))
+	m = press(m, "2", "space", "}", "space")
+	frame := m.View()
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.Contains(stripANSI(line), "runner ready") &&
+			!strings.Contains(line, fgSeq(theme.RosePineMoon.MutedOrSubtle())) {
+			t.Errorf("line number is not muted: %q", line)
+		}
+	}
+	out := stripANSI(frame)
+	for _, want := range []string{"1 │ runner ready", "2 │ ok"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("numbered log is missing %q:\n%s", want, out)
+		}
+	}
+
+	m = press(m, "{", "space")
+	out = stripANSI(m.View())
+	if strings.Contains(out, "runner ready") || !strings.Contains(out, "2 │ ok") {
+		t.Errorf("fold changed the remaining line number:\n%s", out)
+	}
+}
+
 func TestDownloadedLogControlSequencesCannotReachTheTerminal(t *testing.T) {
 	m := onChecks(160, 24)
 	job := loadedJob(101, false)
