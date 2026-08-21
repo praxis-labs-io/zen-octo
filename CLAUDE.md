@@ -476,8 +476,11 @@ drawn in and there are three frames whatever the mode.
 A row the focused column has no line on is not a row the cursor can sit on, so
 walking the head column of a deletion-only block steps over it: `run.rowAt`
 counts only the rows that column has, which is the same rule that keeps the walk
-inside its own block. The mode lasts the run and nothing stores it; a default
-belongs with the reader's other preferences.
+inside its own block. So the count a block offers belongs to a column as well as
+to a block, and it is the render that measures it: `stepColumn` draws again
+before it returns, which is what keeps the number the next key reads a number
+about the column that key is in. The mode lasts the run and nothing stores it; a
+default belongs with the reader's other preferences.
 
 `canCompose` split in two for it. It still means the conversation, because the
 compose card is drawn on one tab only; `canAct` is the wider question the keys
