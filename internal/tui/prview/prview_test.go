@@ -1225,14 +1225,12 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 		t.Error("the folded table is on screen anyway")
 	}
 
-	// The key acts on the focused card, so tab has to pick one first.
-	if strings.Contains(stripANSI(press(m, "space").View()), "did a thing") {
-		t.Error("space opened a fold with no card focused")
-	}
-
+	// The key acts on the focused card, and the fold is in the description,
+	// which is the card the cursor opens on.
+	//
 	// Pressed in sequence rather than from the same starting model each time.
 	// What is unfolded is a map, which every copy of the model shares.
-	m = press(m, "}", "space")
+	m = press(m, "space")
 	if !strings.Contains(stripANSI(m.View()), "did a thing") {
 		t.Error("o did not open the fold")
 	}

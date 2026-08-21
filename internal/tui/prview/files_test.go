@@ -719,20 +719,19 @@ func TestAnAtInADiffBoxOpensTheMentionList(t *testing.T) {
 	}
 }
 
-// esc lets go of a card before it leaves the screen, on this tab as on the
-// conversation.
-func TestEscLetsGoOfACardInTheDiff(t *testing.T) {
+// esc leaves the screen with a card lit, on this tab as on the conversation.
+func TestEscBacksOutWithACardLitInTheDiff(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}")
 	if focusedCard(t, m.View()) == "" {
-		t.Fatal("setup: nothing is lit to let go of")
+		t.Fatal("setup: nothing is lit")
 	}
 
-	m, cmd := m.Update(escape())
-	if cmd != nil {
-		t.Error("esc left the screen while a card in the diff was lit")
+	_, cmd := m.Update(escape())
+	if cmd == nil {
+		t.Fatal("esc did not leave the screen with a card in the diff lit")
 	}
-	if got := focusedCard(t, m.View()); got != "" {
-		t.Errorf("card %q is still lit after esc", got)
+	if _, ok := cmd().(prview.BackMsg); !ok {
+		t.Errorf("esc sent %T, want a BackMsg", cmd())
 	}
 }
 
@@ -905,13 +904,35 @@ func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
 }
 
 // selectedRow is the whole frame line carrying the selection background.
+// The fill is looked for inside the column rather than anywhere on the line.
+// The diff beside it carries a fill of its own now that the tab opens with a
+// hunk lit, and it lands on whichever row of the tree it happens to sit beside:
+// taking the first painted line on the frame answered with the wrong pane.
 func selectedRow(frame string) string {
 	for _, line := range strings.Split(frame, "\n") {
-		if strings.Contains(line, selectionSeq()) {
+		at := strings.Index(line, selectionSeq())
+		if at < 0 {
+			continue
+		}
+		// The column's own right border, which the fill sits inside of.
+		if edge := nthIndex(line, "│", 2); edge >= 0 && at < edge {
 			return line
 		}
 	}
 	return ""
+}
+
+// nthIndex is where the nth occurrence of sep starts, or -1.
+func nthIndex(s, sep string, n int) int {
+	at := 0
+	for range n {
+		i := strings.Index(s[at:], sep)
+		if i < 0 {
+			return -1
+		}
+		at += i + len(sep)
+	}
+	return at - len(sep)
 }
 
 // cursorFile is the file column's share of that line. The frame spans two

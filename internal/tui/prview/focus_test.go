@@ -25,29 +25,38 @@ const (
 	cardCompose     = "write a comment"
 )
 
-// A screen opens with nothing focused. The reader came to read it.
-func TestNothingIsFocusedUntilTheRingIsWalked(t *testing.T) {
+// A screen opens with its cursor on the description, and the first press of a
+// motion key moves rather than arrives. What is lit is what says where the next
+// key acts, so a screen with nothing lit is one whose keys name nowhere.
+func TestAScreenOpensWithItsCursorOnTheDescription(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	if got := focusedCard(t, m.View()); got != "" {
-		t.Errorf("card %q is focused on open, want none", got)
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("card %q is focused on open, want the description", got)
 	}
-	if got := focusedCard(t, press(m, "}").View()); !strings.HasPrefix(got, cardDescription) {
-		t.Errorf("the ring focused %q, want the description", got)
+	if got := focusedCard(t, press(m, "}").View()); !strings.HasPrefix(got, cardComment) {
+		t.Errorf("the first brace focused %q, want it to have moved on", got)
 	}
 }
 
-// walked steps the ring n times. The counts every caller uses are from an
-// unfocused ring at the top of the page, so a model left somewhere else goes
+// walked steps the ring to the card a caller names. The counts every caller
+// uses are from the top of the page, so a model left somewhere else goes
 // through fromTop first: the ring stops at its ends and no longer laps round to
 // the description.
+// walked puts the ring on the nth card, counting from one. A screen opens with
+// its cursor already on the first, so the nth is n-1 steps away.
 func walked(m prview.Model, n int) prview.Model {
-	return press(m, strings.Fields(strings.Repeat("} ", n))...)
+	return press(m, strings.Fields(strings.Repeat("} ", max(0, n-1)))...)
 }
 
-// fromTop drops whatever the ring is holding and takes the page back to the
-// first card, which is where the step counts are measured from.
-func fromTop(m prview.Model) prview.Model { return press(m, "esc", "g") }
+// fromTop takes the page and the ring back to the first card, which is where
+// the step counts are measured from. Esc used to do the ring half of it by
+// dropping the focus; it leaves the screen now, so the way back is to walk it.
+// The ring stops at its ends, so more steps than there are cards land on the
+// first one and stay there.
+func fromTop(m prview.Model) prview.Model {
+	return press(press(m, "g"), strings.Fields(strings.Repeat("{ ", 40))...)
+}
 
 // The ring walks the cards in the order they were written, and stops at the
 // end. Every card is a stop, replies included: a card the motion key walks past
@@ -113,7 +122,7 @@ func TestTheRingStopsAtTheFirstCard(t *testing.T) {
 func TestTheRingWalksBack(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	back := focusedCard(t, press(m, "}", "}", "{").View())
+	back := focusedCard(t, press(m, "}", "{").View())
 	if !strings.HasPrefix(back, cardDescription) {
 		t.Errorf("the ring back focused %q, want the description", back)
 	}
@@ -123,7 +132,7 @@ func TestTheRingWalksBack(t *testing.T) {
 // scrolled away has moved on, and hauling them back to the card they left is
 // the one thing the ring must not do.
 func TestTheRingReanchorsToWhatIsOnScreen(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 16), "}", "}", "}", "}")
+	m := press(detailed(held(sampleDetail()), 200, 16), "}", "}", "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus started on %q, want the thread card", got)
 	}
@@ -149,8 +158,9 @@ func TestTheRingScrollsACardToTheTopOfTheWindow(t *testing.T) {
 		t.Fatal("the thread is already on screen, so this proves nothing")
 	}
 
-	// Four presses reach the thread card, which is well below the fold.
-	got, at := focusedCardAt(t, press(m, "}", "}", "}", "}").View())
+	// Three presses reach the thread card, which is well below the fold: the
+	// cursor opens on the description, so the first one moves off it.
+	got, at := focusedCardAt(t, press(m, "}", "}", "}").View())
 	if !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus landed on %q, want the thread card whole", got)
 	}
@@ -196,7 +206,7 @@ func TestTheRingPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
 
-	m := press(detailed(held(d), 200, 20), "}")
+	m := detailed(held(d), 200, 20)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("focus landed on %q, want the description with its heading on screen", got)
 	}
@@ -220,7 +230,7 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 
 	// Unfold it in the conversation: the fourth card is that thread, and K steps
 	// the sub-cursor off its last comment onto the one holding the fold.
-	m = press(m, "}", "}", "}", "}", "K", "space")
+	m = press(m, "}", "}", "}", "K", "space")
 	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
 		t.Fatal("o did not unfold the thread in the conversation")
 	}
@@ -353,7 +363,7 @@ func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
 // reader is standing, so the brace stops stepping from it. Stepping would land
 // a screen or more above the window, on a card they left.
 func TestAFocusScrolledOffItsBylineStopsBeingTheStep(t *testing.T) {
-	m := press(tall(), "}")
+	m := tall()
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("setup: focus landed on %q, want the description", got)
 	}
@@ -414,7 +424,7 @@ func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 
 // One pane answers the keys, so one pane paints. Two lit at once says both do.
 func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "}")
+	m := detailed(held(sampleDetail()), 200, 44)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("focus started on %q, want the description", got)
 	}
@@ -451,20 +461,19 @@ func TestOnlyTheBracketsMoveTheTabStrip(t *testing.T) {
 	}
 }
 
-// Letting go of a card and leaving the screen are two intentions on one key.
-func TestEscLetsGoBeforeItBacksOut(t *testing.T) {
+// Esc leaves, first press, with a card lit. Letting go used to come first, and
+// with a cursor landed on every screen that would be a key that never leaves:
+// there is always something to let go of now, so the reader wanting the list
+// would pay two presses every time.
+func TestEscBacksOutWithACardFocused(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "}")
-
-	m, cmd := m.Update(escape())
-	if cmd != nil {
-		t.Error("esc backed out of the screen while a card was focused")
-	}
-	if got := focusedCard(t, m.View()); got != "" {
-		t.Errorf("card %q is still focused after esc", got)
+	if got := focusedCard(t, m.View()); got == "" {
+		t.Fatal("setup: no card is focused")
 	}
 
-	if _, cmd = m.Update(escape()); cmd == nil {
-		t.Fatal("esc with nothing focused did not back out")
+	_, cmd := m.Update(escape())
+	if cmd == nil {
+		t.Fatal("esc did not back out while a card was focused")
 	}
 	if _, ok := cmd().(prview.BackMsg); !ok {
 		t.Errorf("esc sent %T, want a BackMsg", cmd())
@@ -619,9 +628,9 @@ func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 // Focus names the card, not the place it sat in. A rebase re-sorts commits into
 // the timeline by date, and the reader comes back to the comment they left.
 func TestFocusHoldsThroughAReorderedTimeline(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "}", "}")
+	m := press(detailed(held(sampleDetail()), 200, 60), "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
-		t.Fatalf("two tabs focused %q, want %q", got, cardComment)
+		t.Fatalf("one step focused %q, want %q", got, cardComment)
 	}
 
 	m.SetDetail(held(reordered(sampleDetail())))
@@ -640,7 +649,7 @@ func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
 		return d
 	}
 
-	m := press(detailed(held(folded()), 200, 60), "}", "}", "space")
+	m := press(detailed(held(folded()), 200, 60), "}", "space")
 	if !strings.Contains(stripANSI(m.View()), "The secret.") {
 		t.Fatal("o did not unfold the comment")
 	}

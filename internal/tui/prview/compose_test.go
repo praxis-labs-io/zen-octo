@@ -459,7 +459,7 @@ func TestARefetchWhileTypingStillReachesTheScreen(t *testing.T) {
 // Focus moving onto the box unlights whichever card had it. The kept page holds
 // the highlight, so it has to be dropped when the box takes the keyboard.
 func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 60), "}")
+	m := detailed(held(sampleDetail()), 200, 60)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("the ring focused %q, want the description", got)
 	}

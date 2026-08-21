@@ -670,11 +670,12 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.clearCheckSearch()
 			return m, nil
 		}
-		// Letting go of a card and leaving the screen are two intentions on one
-		// key. The narrower one goes first.
-		if m.clearFocus() {
-			return m, nil
-		}
+		// Esc leaves, and that is the whole of it. Letting go of a card used to
+		// come first, on the argument that the narrower intention wins the key.
+		// But a cursor is landed now wherever there is something to land it on,
+		// so there is always something to let go of, and the reader who wanted
+		// the list was paying two presses for it every time. A cursor that
+		// always exists is not a thing to be dismissed.
 		return m, func() tea.Msg { return BackMsg{} }
 
 	case key.Matches(keyMsg, k.Sync):
@@ -841,7 +842,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.focus = paneMain
 		}
 		m.layout()
-		m.railLand()
+		m.landCursor()
 
 	case key.Matches(keyMsg, k.Down):
 		m.move(1)
@@ -1122,8 +1123,12 @@ func (m *Model) stepFocus(delta int) bool {
 // walkDiff steps the diff's ring, taking the main pane first. A reader asking
 // for the next block is asking for the pane the blocks are in.
 func (m *Model) walkDiff(delta int) {
-	if m.focus != paneMain {
-		m.focusPane(paneMain)
+	// Taking the pane can land the cursor on a block, and that landing is the
+	// move the key asked for. Stepping again on top of it would skip the first
+	// block on the page, which is the one a reader pressing a brace from the
+	// column means.
+	if m.focus != paneMain && m.focusPane(paneMain) {
+		return
 	}
 
 	// A block is what the braces name, so they land on its own head rather than
@@ -1152,34 +1157,6 @@ func (m *Model) showFocus(r *ring, vp *viewport.Model, top int) {
 // on the way out moves the page a line at the top of a scrollable pane, on a
 // keypress that was meant to leave it alone.
 func bodyTop(vp *viewport.Model) int { return vp.YOffset() - contentLead }
-
-// clearFocus lets go of a focus the reader can see, and reports whether there
-// was one. Both rings, because focus survives a move to the other pane and esc
-// should not have to be pressed once per ring.
-//
-// A focus that is not on the screen is not one to let go of. Swallowing esc for
-// a highlight nowhere on the frame reads as a key that does nothing, and the
-// tabs with a column show no ring at all.
-func (m *Model) clearFocus() bool {
-	if !m.ringTab() {
-		return false
-	}
-
-	cleared := false
-	for _, r := range []struct {
-		ring *ring
-		vp   *viewport.Model
-	}{{&m.pageRing, &m.view}, {&m.railRing, &m.railView}} {
-		if r.ring.live(bodyTop(r.vp), r.vp.Height()) && r.ring.clear() {
-			cleared = true
-		}
-	}
-
-	if cleared {
-		m.syncContent()
-	}
-	return cleared
-}
 
 // toggleBlockFold moves the focused prose or hunk from its resting fold state.
 // There is nothing to move with no block focused, and rail rows answer to it
@@ -1239,29 +1216,41 @@ func (m Model) foldTarget() focusKey {
 
 // focusPane moves focus to a pane, skipping whatever is not on screen. Focus
 // walks left to right, which is the order the panes are numbered in.
-func (m *Model) focusPane(want pane) {
+//
+// It reports whether taking the pane also landed a cursor, so a caller that was
+// going to step can tell the arrival was the step.
+func (m *Model) focusPane(want pane) bool {
 	for _, p := range []pane{paneSide, paneMain, paneRail} {
 		if p == want && m.paneVisible(p) {
 			m.focus = p
 			m.syncContent()
-			m.railLand()
-			return
+			return m.landCursor()
 		}
 	}
+	return false
 }
 
-// railLand puts the cursor on the rail's first row when the pane takes the keys
-// with nothing on it. The line is what says where the keys are going, and a
+// landCursor puts the cursor on the first stop of whichever ring has the keys,
+// when it has none. What is lit is what says where the next key acts, and a
 // pane that has to be pressed once before it will say so is one the reader has
 // to guess at.
 //
-// A cursor already on the rail is left where it is. Coming back to a pane and
-// finding it at the top would throw away the row the reader walked to.
-func (m *Model) railLand() {
-	if m.focus != paneRail || !m.railVisible() || m.railRing.index() >= 0 {
-		return
+// The rail always did this. The conversation and the diff did not: both opened
+// with nothing lit at all, so the first press of a motion key was spent
+// arriving rather than moving.
+//
+// A cursor already placed is left where it is. Coming back to a pane and
+// finding it at the top would throw away the row the reader walked to, and a
+// refetch is not a reason to move anybody.
+//
+// It reports whether it placed one, because arriving somewhere is a move: a
+// caller that was about to step has already had what it asked for.
+func (m *Model) landCursor() bool {
+	r, _ := m.focusRing()
+	if r == nil || r.index() >= 0 {
+		return false
 	}
-	m.stepFocus(1)
+	return m.stepFocus(1)
 }
 
 // focusIndex answers a digit with the pane sitting in that position. The panes
@@ -1280,7 +1269,7 @@ func (m *Model) focusIndex(digit string) {
 		if at++; at == n {
 			m.focus = p
 			m.syncContent()
-			m.railLand()
+			m.landCursor()
 			return
 		}
 	}
@@ -1367,6 +1356,11 @@ func (m *Model) layout() {
 	// it, so the viewport is short by whatever the pane spends on it.
 	m.view.SetHeight(max(0, m.main.InnerHeight()-(m.main.Above()-1)))
 	m.syncContent()
+
+	// Last, because a ring has no stops until a body has been rendered into it.
+	// Every arrival runs through here: a resize, a detail, a diff, a tab switch.
+	// So this is the one place that has to remember.
+	m.landCursor()
 }
 
 // railVisible is whether the rail is on screen. Width decides until the reader
