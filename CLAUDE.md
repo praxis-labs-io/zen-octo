@@ -481,6 +481,26 @@ column has nowhere to step and gives the focus up on the first press. The digits
 stay an absolute jump, because a badge drawn in a border names the frame it is
 drawn in and there are three frames whatever the mode.
 
+**A column step is taken on three conditions and not one.** The tab has to be
+Files, because `splitting()` reads a remembered file and a pane width and both
+outlive a tab change: ungated, `h` on the Commits pane was swallowed as a column
+step, and the reader met the moved column on their next walk in the diff rather
+than on the key they pressed. The pane has to be the one the columns are in. And
+the cursor has to be down in the code, because on a block the two columns draw
+the same frame: the key was taken, nothing changed, and the file column sat one
+press further away than it looked. That is the rule `d` already answers to, one
+key over. Where the step does happen the walk clamps to what the render just
+measured, and a block the new column has no rows in clamps to 0, which is the
+cursor back on the block's own head. Left alone it named a row nothing draws:
+`rowAt` answers -1 so no bar is painted, `walkedInto` reads the raw cursor so
+the heading gives up its fill too, and `j` cannot recover it, since
+`cursorShown()` is false and the ring steps to a different block.
+
+`|` is offered only once the diff has loaded, which is the gate `ShortHelp`
+already puts on the hint. Taken early it latched with no toast and no change,
+because `shownFile()` is nil and `splitShort()` reads that as wide enough, and
+the answer it left behind then decided the mode when the diff landed.
+
 A row the focused column has no line on is not a row the cursor can sit on, so
 walking the head column of a deletion-only block steps over it: `run.rowAt`
 counts only the rows that column has, which is the same rule that keeps the walk

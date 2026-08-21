@@ -809,7 +809,7 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if !m.stepColumn(gh.SideRight) {
 			m.focusPane(m.focus + 1)
 		}
-	case key.Matches(keyMsg, k.SplitView) && m.tab == tabFiles:
+	case key.Matches(keyMsg, k.SplitView) && m.tab == tabFiles && m.files.Loaded:
 		return m, m.toggleSplit()
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())

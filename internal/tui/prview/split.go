@@ -160,15 +160,33 @@ func (m Model) halves(r diffRow, gutter, width int, fill, bar color.Color) strin
 	return m.painter.Half(l, gutter, left) + rule + m.painter.Half(rt, gutter, right)
 }
 
-// stepColumn lights the named column and brings the cursor onto a row that has
-// a line in it. Only a split diff not already there takes the key.
+// stepColumn lights the named column and keeps the cursor on a row that has a
+// line in it. Three things have to hold before the key is taken. The tab has to
+// be the one with columns, because splitting() reads a remembered file and a
+// width and both outlive a tab change. The pane has to be the one the columns
+// are in. And the cursor has to be in the code: on a block the two columns draw
+// the same frame, so claiming the key there is a press that shows the reader
+// nothing and leaves the file column two presses away.
 func (m *Model) stepColumn(to gh.DiffSide) bool {
-	if !m.splitting() || m.focus != paneMain || m.column == to {
+	if m.tab != tabFiles || !m.splitting() || m.focus != paneMain || m.column == to {
+		return false
+	}
+	if !m.walkedInto(m.pageRing.on) {
 		return false
 	}
 
 	m.column = to
 	m.syncContent()
+
+	// The two columns do not number their rows the same, and a block with none
+	// in this one has no row to stand on. The walk clamps to what that render
+	// measured, and 0 puts the cursor back on the block's own head rather than
+	// leaving it naming a row nothing draws.
+	if at := min(m.diffCursor, m.diffRows(m.pageRing.on)); at != m.diffCursor {
+		m.point(at)
+		m.syncContent()
+	}
+
 	m.showDiffCursor()
 	return true
 }

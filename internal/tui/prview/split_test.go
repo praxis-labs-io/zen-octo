@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
@@ -166,5 +168,95 @@ func TestHAndLStepTheColumnsBeforeTheyLeaveThePane(t *testing.T) {
 	}
 	if got := barredRow(press(base, "l").View()); got != head {
 		t.Errorf("l back landed on %q, want %q", got, head)
+	}
+}
+
+// insertOnly is a hunk the base column has no line in at all, which is the one
+// shape a column step has nowhere to land in.
+func insertOnly() []gh.ChangedFile {
+	return []gh.ChangedFile{{
+		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 3,
+		Hunks: []gh.Hunk{{
+			Header: "@@ -40,0 +41,3 @@ func New() (*Client, error) {",
+			Lines: []gh.DiffLine{
+				{Kind: gh.DiffAdded, New: 41, Content: "\t\tfirst := 1"},
+				{Kind: gh.DiffAdded, New: 42, Content: "\t\tsecond := 2"},
+				{Kind: gh.DiffAdded, New: 43, Content: "\t\tthird := 3"},
+			},
+		}},
+	}}
+}
+
+// The two columns do not number their rows the same, and the base has none of
+// this block's. Left unclamped the walk names a row nothing draws: rowAt answers
+// -1 so no bar is painted, and walkedInto still reads the raw cursor so the
+// heading gives up its fill as well. Nothing on the frame says where the next
+// key lands, and j does not recover it.
+func TestSteppingToAColumnWithNoRowsPutsTheCursorBackOnItsBlock(t *testing.T) {
+	m := detailed(held(sampleDetail()), 160, 40)
+	m.SetFiles(store.Files{Files: insertOnly(), Status: store.StatusReady, Loaded: true})
+	m = press(m, "]", "]", "]", "|", "}", "j")
+
+	if barredRow(m.View()) == "" {
+		t.Fatal("the walk into the head column painted no bar to begin with")
+	}
+
+	m = press(m, "h")
+	if litHunk(m.View()) == "" {
+		t.Error("nothing is lit: no row took the bar and the heading kept none of its fill")
+	}
+}
+
+// splitting() reads a remembered file and a width, and both outlive a tab
+// change. Ungated, h on another tab's main pane is swallowed as a column step
+// and moves the Files tab's column behind the reader's back, which they meet on
+// the next walk there rather than on the key they pressed.
+func TestTheColumnsAreTheFilesTabsAlone(t *testing.T) {
+	// The walk is made again after the trip, because a tab change gives the row
+	// cursor up on its own and the column is what this is asking about.
+	walk := func(keys ...string) string {
+		d := sampleDetail()
+		d.Commits = sampleCommits()
+		m := detailed(held(d), 160, 40)
+		m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+		m = press(m, "]", "]", "]", "|")
+		m = press(m, "[", "[")
+		m = press(m, keys...)
+		return barredRow(press(m, "]", "]", "}", "j").View())
+	}
+
+	pressed, untouched := walk("l", "h"), walk()
+	if untouched == "" {
+		t.Fatal("setup: the walk back on the Files tab painted no bar")
+	}
+	if pressed != untouched {
+		t.Errorf("h on the Commits tab moved the Files column:\n pressed   %q\n untouched %q", pressed, untouched)
+	}
+}
+
+// On a block the two columns draw the same frame, so a column step there is a
+// press that shows the reader nothing and leaves the file column one further
+// away than it looks.
+func TestHOnABlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
+	m := press(onFiles(140, 30), "|", "}")
+
+	before := stripANSI(m.View())
+	m = press(m, "h")
+	if after := stripANSI(m.View()); after == before {
+		t.Error("h changed nothing at all: the key was taken and the frame is identical")
+	}
+}
+
+// The key is offered only once there is a diff to draw two columns of. Taken
+// early it latches with no toast and no change, and the answer it left behind
+// decides the mode when the diff does land.
+func TestSplitIsRefusedBeforeTheDiffHasLoaded(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 160, 40), "]", "]", "]")
+	m = press(m, "|")
+
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	if rows := splitRows(m.View()); len(rows) > 0 {
+		t.Errorf("the diff drew %d split rows from a key pressed before it loaded", len(rows))
 	}
 }
