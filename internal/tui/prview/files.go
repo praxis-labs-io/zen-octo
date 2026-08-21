@@ -1,7 +1,6 @@
 package prview
 
 import (
-	"image/color"
 	"strconv"
 	"strings"
 
@@ -49,11 +48,60 @@ type blockStop struct {
 // stopNone is the index a blockStop does not carry.
 const stopNone = -1
 
-// run is a stretch of painted code between two stops. The count is kept because
-// one empty source line and no lines at all are the same string.
+// diffRow is a painted row and what it was painted from, so the row under the
+// cursor is drawn again lit while the rest stay cached.
+type diffRow struct {
+	line paint.Line
+	text string
+}
+
+// code is whether the cursor can sit on a row. The blank between two hunks is
+// a zero line, and no real one has a number on neither side.
+func (r diffRow) code() bool { return r.line.Old != 0 || r.line.New != 0 }
+
+// run is a stretch of painted code between two stops, kept as rows rather than
+// joined so one of them can be repainted without re-tokenising the file, and
+// joined once beside them so a frame that lights none of them pays nothing.
 type run struct {
-	text  string
-	lines int
+	rows []diffRow
+	text string
+}
+
+// newRun joins a run back into the page it was cut out of, once.
+func newRun(rows []diffRow) run {
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		out[i] = row.text
+	}
+	return run{rows: rows, text: strings.Join(out, "\n")}
+}
+
+// codeRows is how many rows of a run the cursor can stand on.
+func (r run) codeRows() int {
+	n := 0
+	for _, row := range r.rows {
+		if row.code() {
+			n++
+		}
+	}
+	return n
+}
+
+// rowAt is where the nth code row of a run sits among all of them, counting
+// from one. 0 is the stop above the run, and past the end is -1.
+func (r run) rowAt(n int) int {
+	if n <= 0 {
+		return -1
+	}
+	for i, row := range r.rows {
+		if !row.code() {
+			continue
+		}
+		if n--; n == 0 {
+			return i
+		}
+	}
+	return -1
 }
 
 // drawnFile is one file assembled from its block: the page it wrote, the stops
@@ -63,6 +111,14 @@ type drawnFile struct {
 	stops  []focusItem
 	boxAt  int
 	boxCol int
+
+	// cursorAt is the line the cursor landed on, and -1 is a file it is not in.
+	cursorAt int
+
+	// rows is how far the cursor can walk into each block drawn here. It is read
+	// by the next key rather than derived again: only the render knows which of
+	// a thread's cards the code below it hangs under.
+	rows map[focusKey]int
 }
 
 // block is one file rendered. Tokenising is what it costs and that is all in
@@ -111,6 +167,13 @@ type diffBody struct {
 	// lead is what sits above the first block. The spans are what a jump lands
 	// on, and they have to clear whatever the tab put in front of them.
 	lead int
+
+	// cursorLine is where the row cursor landed in this body, and -1 is a body
+	// with no cursor in it.
+	cursorLine int
+
+	// rows is every drawn block's walkable row count, from the last render.
+	rows map[focusKey]int
 }
 
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
@@ -134,6 +197,7 @@ func (m *Model) filesBody() string {
 func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	width := m.bodyWidth()
 	d.spans, d.stops = d.spans[:0], d.stops[:0]
+	d.cursorLine, d.rows = -1, make(map[focusKey]int)
 
 	// After the reset, or a refetch answering with nothing leaves the last
 	// render's stops on a body that is one line saying there are none.
@@ -171,6 +235,12 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		if drawn.boxAt > 0 {
 			m.boxLine, m.boxCol = at+drawn.boxAt, drawn.boxCol
 		}
+		if drawn.cursorAt >= 0 {
+			d.cursorLine = at + drawn.cursorAt
+		}
+		for k, n := range drawn.rows {
+			d.rows[k] = n
+		}
 
 		lines := strings.Count(drawn.text, "\n") + 1
 		d.spans = append(d.spans, fileSpan{key: r.key, start: at, end: at + lines})
@@ -206,12 +276,9 @@ func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) bl
 		return b
 	}
 
-	head := m.fileHead(f, "▾ ", width)
-	if b.runs[0].lines == 0 {
-		b.runs[0] = run{text: head, lines: 1}
-		return b
-	}
-	b.runs[0] = run{text: head + "\n" + b.runs[0].text, lines: b.runs[0].lines + 1}
+	// The heading is not code and takes no cursor, so it goes in as a zero row.
+	head := diffRow{text: m.fileHead(f, "▾ ", width)}
+	b.runs[0] = newRun(append([]diffRow{head}, b.runs[0].rows...))
 	return b
 }
 
@@ -221,7 +288,7 @@ func (m *Model) fileBlock(f gh.ChangedFile, width int, threads, heading bool) bl
 func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 	if f.Omitted != "" {
 		text := " " + clipTo(m.faint().Render(f.Omitted), width-1, m.faint())
-		return block{runs: []run{{text: text, lines: 1}}}
+		return block{runs: []run{newRun([]diffRow{{text: text}})}}
 	}
 
 	// A nil map answers nothing, so the lines below need no guard of their own.
@@ -235,11 +302,11 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 	gutter := paint.Gutter(widest(f))
 
 	var b block
-	var open []string
+	var open []diffRow
 
 	// close ends the run being gathered, so the stop after it starts a new one.
 	closeRun := func() {
-		b.runs = append(b.runs, run{text: strings.Join(open, "\n"), lines: len(open)})
+		b.runs = append(b.runs, newRun(open))
 		open = nil
 	}
 	stop := func(s blockStop) {
@@ -254,12 +321,12 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads bool) block {
 		// A hunk is a jump to somewhere else in the file, so it gets the blank
 		// line every other break on this screen gets.
 		if i > 0 {
-			open = append(open, "")
+			open = append(open, diffRow{})
 		}
 		stop(blockStop{hunk: i, thread: stopNone})
 		for _, l := range h.Lines {
 			if hunkOpen {
-				open = append(open, m.diffLine(l, tokens[seen], gutter, width, nil))
+				open = append(open, m.diffRow(l, tokens[seen], gutter, width))
 			}
 			seen++
 			for _, at := range threadsAt(anchored, placed, l) {
@@ -308,35 +375,43 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(f.Deletions))
 }
 
-// hunkFill is the cursor on a hunk heading. It fills the row rather than taking
-// the badge slot, which is for a state a heading carries with or without focus.
-func (m Model) hunkFill(key focusKey) color.Color {
-	if !m.lit(key) {
-		return nil
-	}
-	return m.theme.SelectedBackground
+// cursorOn is whether the cursor is on a block itself rather than in the code
+// under it. Two rows claiming to be where the reader stands is one too many, so
+// a heading gives up its fill and a card its border once the walk leaves them.
+func (m Model) cursorOn(key focusKey) bool { return m.lit(key) && !m.walkedInto(key) }
+
+// litRun draws one row of a run again with the cursor on it. The rest are the
+// strings already painted, so lighting a row costs no tokenising.
+func (m Model) litRun(r run, at, gutter, width int) run {
+	rows := make([]diffRow, len(r.rows))
+	copy(rows, r.rows)
+
+	l := rows[at].line
+	l.Fill, l.Bar = m.theme.SelectedBackground, m.theme.Accent
+	rows[at].text = m.painter.Line(l, gutter, width)
+	return newRun(rows)
 }
 
 // hunkHead is the @@ line, landing at the column the source under it starts in.
 // Its marker names whether the source below it is open.
-func (m Model) hunkHead(h gh.Hunk, gutter, width int, fill color.Color, open bool) string {
+func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open bool) string {
 	marker := ""
 	if open {
 		marker = ""
 	}
-	return m.painter.HunkHeader(paint.Header{Text: h.Header, Marker: marker, Fill: fill}, gutter, width)
+
+	head := paint.Header{Text: h.Header, Marker: marker}
+	if m.cursorOn(key) {
+		head.Fill, head.Bar = m.theme.SelectedBackground, m.theme.Accent
+	}
+	return m.painter.HunkHeader(head, gutter, width)
 }
 
-// diffLine is one line of code, handed to the painter with whatever fill the
-// caller's own state asks for. A nil fill leaves the change's own tint.
-func (m Model) diffLine(l gh.DiffLine, tokens []syntax.Token, gutter, width int, fill color.Color) string {
-	return m.painter.Line(paint.Line{
-		Kind:   kindOf(l.Kind),
-		Old:    l.Old,
-		New:    l.New,
-		Tokens: tokens,
-		Fill:   fill,
-	}, gutter, width)
+// diffRow is one line of code painted plain, kept beside what painted it so the
+// cursor can light it later without the file being tokenised again.
+func (m Model) diffRow(l gh.DiffLine, tokens []syntax.Token, gutter, width int) diffRow {
+	line := paint.Line{Kind: kindOf(l.Kind), Old: l.Old, New: l.New, Tokens: tokens}
+	return diffRow{line: line, text: m.painter.Line(line, gutter, width)}
 }
 
 // kindOf maps a fetched line onto the painter's own three.
@@ -446,7 +521,11 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 	gutter := paint.Gutter(widest(f))
 
 	var sb strings.Builder
-	out := drawnFile{stops: make([]focusItem, 0, len(b.stops))}
+	out := drawnFile{
+		stops:    make([]focusItem, 0, len(b.stops)),
+		rows:     make(map[focusKey]int, len(b.stops)),
+		cursorAt: -1,
+	}
 	at, wrote := 0, false
 
 	write := func(text string, lines int) {
@@ -460,8 +539,23 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 		at, wrote = at+lines, true
 	}
 
+	// owner is the block the next run belongs to: the last stop drawn, which for
+	// a review thread is its deepest reply rather than the card that opened it.
+	// One stop renders several, and crediting the run to the first of them walks
+	// the cursor straight past every reply.
+	var owner focusKey
 	for i, r := range b.runs {
-		write(r.text, r.lines)
+		if owner != (focusKey{}) {
+			rows := r.codeRows()
+			out.rows[owner] = rows
+			if m.lit(owner) && m.walkedInto(owner) {
+				if lit := r.rowAt(min(m.diffCursor, rows)); lit >= 0 {
+					out.cursorAt = at + lit
+					r = m.litRun(r, lit, gutter, width)
+				}
+			}
+		}
+		write(r.text, len(r.rows))
 		if i == len(b.stops) {
 			break
 		}
@@ -471,8 +565,12 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 		if s.hunk != stopNone {
 			h := f.Hunks[s.hunk]
 			key := hunkKey(f.Path, h)
-			text = m.hunkHead(h, gutter, width, m.hunkFill(key), m.hunkOpen(key))
+			text = m.hunkHead(h, gutter, width, key, m.hunkOpen(key))
+			if m.cursorOn(key) {
+				out.cursorAt = at
+			}
 			out.stops = append(out.stops, focusItem{focusKey: key, start: at, lines: 1})
+			owner = key
 		} else {
 			v := m.diffThread(s.thread, width)
 			text = v.block
@@ -480,7 +578,12 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 				out.boxAt, out.boxCol = at+v.boxAt, v.boxCol
 			}
 			for _, st := range v.stops {
+				if m.cursorOn(st.focusKey) {
+					out.cursorAt = at + st.start
+				}
 				out.stops = append(out.stops, focusItem{focusKey: st.focusKey, start: at + st.start, lines: st.lines})
+				out.rows[st.focusKey] = 0
+				owner = st.focusKey
 			}
 		}
 

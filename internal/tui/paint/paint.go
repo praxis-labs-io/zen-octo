@@ -35,10 +35,13 @@ type Line struct {
 	Old, New int
 	Tokens   []syntax.Token
 
-	// Fill beats the kind's tint. nil uses it. A cursor row, an active range
-	// selection and a reviewed-hunk tint all have to win against added and
-	// removed, and each of them is the caller's state, not this package's.
+	// Fill beats the kind's tint, nil uses it. A cursor and a lit card are the
+	// caller's state and both have to win.
 	Fill color.Color
+
+	// Bar paints the leading cell, and nil leaves it blank. A tint says a row is
+	// lit and a bar says where it starts, which is what an eye follows.
+	Bar color.Color
 }
 
 // Painter paints rows from one theme.
@@ -83,7 +86,7 @@ func (p Painter) Line(l Line, gutter, width int) string {
 		oldNum = kind
 	}
 
-	row := base.Render(" ") +
+	row := lead(l.Bar, base) +
 		oldNum.Render(number(l.Old, gutter)) + base.Render(" ") +
 		newNum.Render(number(l.New, gutter)) + base.Render(" ") +
 		kind.Render(marker) + base.Render(" ") + p.code(l.Tokens, base)
@@ -123,6 +126,9 @@ type Header struct {
 	// Fill is the row's background, and nil paints none. It is the caller's
 	// state the same way Line.Fill is.
 	Fill color.Color
+
+	// Bar is the leading cell the same way Line.Bar is.
+	Bar color.Color
 }
 
 // HunkHeader is the @@ line, indented to the code column so it sits over the
@@ -143,7 +149,8 @@ func (p Painter) HunkHeader(h Header, gutter, width int) string {
 		badge = base.Foreground(h.BadgeColor)
 	}
 
-	row := base.Render(strings.Repeat(" ", markerColumn(gutter)-markerSlot)) +
+	row := lead(h.Bar, base) +
+		base.Render(strings.Repeat(" ", markerColumn(gutter)-markerSlot-1)) +
 		slot(h.Badge, base, badge) + slot(h.Marker, base, text) +
 		text.Render(h.Text)
 
@@ -153,6 +160,18 @@ func (p Painter) HunkHeader(h Header, gutter, width int) string {
 		row += base.Render(strings.Repeat(" ", width-w))
 	}
 	return row
+}
+
+// barGlyph marks the row the cursor is on. It goes in the leading cell every row
+// already holds open, so a row gains no width by being the one under the cursor.
+const barGlyph = "▌"
+
+// lead is a row's first cell: the bar, or the blank every other row keeps there.
+func lead(bar color.Color, base lipgloss.Style) string {
+	if bar == nil {
+		return base.Render(" ")
+	}
+	return base.Foreground(bar).Render(barGlyph)
 }
 
 // slot renders one glyph in a fixed pair of columns, blank when there is none.

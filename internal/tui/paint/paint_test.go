@@ -482,3 +482,36 @@ func fgSeq(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
+
+// The bar takes the cell every row already holds open. A row that grew or
+// shifted under the cursor would move the source sideways as it passed.
+func TestTheBarCostsARowNoWidth(t *testing.T) {
+	p := paint.Painter{Theme: theme.RosePineMoon}
+	line := paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}
+
+	plain := xansi.Strip(p.Line(line, 2, 40))
+	line.Bar = theme.RosePineMoon.Accent
+	barred := xansi.Strip(p.Line(line, 2, 40))
+
+	if len([]rune(plain)) != len([]rune(barred)) {
+		t.Fatalf("barred row is %q, want the width of %q", barred, plain)
+	}
+	if want := "▌" + strings.TrimPrefix(plain, " "); barred != want {
+		t.Errorf("barred row = %q, want %q", barred, want)
+	}
+}
+
+// A heading takes the bar at the pane edge, and its marker stays in the column
+// the change marks under it use.
+func TestABarOnAHeadingLeavesTheMarkerColumnAlone(t *testing.T) {
+	p := paint.Painter{Theme: theme.RosePineMoon}
+	h := paint.Header{Text: "@@ -1,2 +1,3 @@", Marker: "▸"}
+
+	plain := xansi.Strip(p.HunkHeader(h, 2, 40))
+	h.Bar = theme.RosePineMoon.Accent
+	barred := xansi.Strip(p.HunkHeader(h, 2, 40))
+
+	if want := "▌" + strings.TrimPrefix(plain, " "); barred != want {
+		t.Errorf("barred heading = %q, want %q", barred, want)
+	}
+}

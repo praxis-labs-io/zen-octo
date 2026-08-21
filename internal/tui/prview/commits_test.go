@@ -879,3 +879,18 @@ func columnLines(frame string) []string {
 	}
 	return out
 }
+
+// The row cursor belongs to the Files tab. A commit's diff draws through the
+// same renderer, and a bar there would point at a row no key can act on.
+func TestTheCommitDiffTakesNoRowCursor(t *testing.T) {
+	m, _ := settled(onCommits(200, 24), "a3f91c2d5e")
+	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+	m = press(m, "j", "j", "j")
+
+	if !strings.Contains(stripANSI(m.View()), "delay = min(delay*2, fetchTimeout)") {
+		t.Fatal("setup: the commit's diff is not on the screen")
+	}
+	if got := barredRow(m.View()); got != "" {
+		t.Errorf("the commit diff barred %q, want no cursor at all", got)
+	}
+}

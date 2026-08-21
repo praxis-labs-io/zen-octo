@@ -34,6 +34,10 @@ func TestGoldenFilesTab(t *testing.T) {
 		// A card lit, so the frame holds the footer the ring gives it and the
 		// keys that footer names.
 		{name: "files-lit", width: 100, height: 30, keys: []string{"}", "}"}},
+
+		// The row cursor walked into a hunk: the bar takes the leading cell the
+		// rows above it hold open, and the heading it left is no longer filled.
+		{name: "files-cursor", width: 100, height: 30, keys: []string{"}", "j", "j"}},
 	}
 
 	for _, tt := range tests {

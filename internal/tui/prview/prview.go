@@ -237,6 +237,11 @@ type Model struct {
 	// blocks themselves. The Commits tab keeps one of its own.
 	diff diffBody
 
+	// diffCursor is how far into diffOn the row cursor has walked, and 0 is the
+	// block itself. Held against a key, so any other block reads as unwalked.
+	diffCursor int
+	diffOn     focusKey
+
 	// commit is the Commits tab: what the column has on screen, where its
 	// cursor is, and the diff of the commit that was last selected.
 	commit commits
@@ -892,6 +897,8 @@ func (m *Model) move(delta int) {
 	switch {
 	case m.moveCheckLine(delta):
 		return
+	case m.moveDiffCursor(delta):
+		return
 	case m.sideDriving():
 		m.moveSide(delta)
 		return
@@ -1097,6 +1104,10 @@ func (m *Model) walkDiff(delta int) {
 	if m.focus != paneMain {
 		m.focusPane(paneMain)
 	}
+
+	// A block is what the braces name, so they land on its own head rather than
+	// on the row the cursor last walked to inside it.
+	m.unpoint()
 	if !m.stepFocus(delta) {
 		m.crossFile(delta)
 	}

@@ -96,6 +96,10 @@ func (m *Model) finishJump() tea.Cmd {
 	m.reveal(t.Path)
 	m.pointAt(t.Path)
 
+	// The card is what the jump named, so the row cursor starts at its head
+	// rather than wherever it was left inside a block of the same id.
+	m.unpoint()
+
 	// Rendered before either pane is scrolled: both were only measured now, and
 	// SetYOffset clamps to the content the viewport is holding. Scrolling the
 	// column first against the tree as it was folded clamps the cursor to the

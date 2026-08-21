@@ -884,7 +884,7 @@ func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	// holds. That comment is no stop of its own, so without the second half the
 	// one box in a thread that is not a reply opens with nothing lit anywhere on
 	// the page while every other box lights the card it sits in.
-	lit := m.lit(key) || m.lit(threadCommentKey(opening(t)))
+	lit := m.cursorOn(key) || m.lit(threadCommentKey(opening(t)))
 
 	head := lipgloss.NewStyle().Foreground(m.theme.Text).Render(anchor)
 	if t.IsResolved {
@@ -1019,7 +1019,7 @@ func (m *Model) answers(t gh.ReviewThread, width int) []rendered {
 // both are inert here and named nowhere on it.
 func (m *Model) replyCard(c gh.Comment, t gh.ReviewThread, width int) rendered {
 	ck := threadCommentKey(c)
-	lit := m.lit(ck)
+	lit := m.cursorOn(ck)
 	hints := m.replyHints(lit, t, c, width)
 
 	head := m.byline(c)
@@ -1154,7 +1154,7 @@ func (m *Model) threadHunk(t gh.ReviewThread, width int) string {
 		if i < len(tokens) {
 			row = tokens[i]
 		}
-		out[i] = m.diffLine(l, row, gutter, width, nil)
+		out[i] = m.diffRow(l, row, gutter, width).text
 	}
 	return strings.Join(out, "\n")
 }
