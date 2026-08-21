@@ -981,8 +981,10 @@ func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	top := stripANSI(paneTop(m.View()))
-	rail := 200 - lipgloss.Width(top[:strings.LastIndex(top, "╭")])
+	// Both lead their row, so both are the leftmost pane and measure the same
+	// way. The rail used to close the row instead and had to be measured back
+	// from the frame's right edge.
+	rail := paneEnd(t, m.View())
 	tree := paneEnd(t, press(m, "]", "]", "]").View())
 
 	if tree != rail {

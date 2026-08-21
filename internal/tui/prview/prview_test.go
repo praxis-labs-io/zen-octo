@@ -218,21 +218,21 @@ func TestFocusMovesBetweenThePanes(t *testing.T) {
 		t.Fatalf("conversation border = %s on open, want the focused accent", got)
 	}
 
-	rail := press(m, "l")
+	rail := press(m, "h")
 	if got := conversationBorder(t, rail.View()); got != idle {
-		t.Errorf("conversation border = %s after l, want it to recede", got)
+		t.Errorf("conversation border = %s after h, want it to recede", got)
 	}
 
-	if got := conversationBorder(t, press(rail, "h").View()); got != focused {
-		t.Errorf("conversation border = %s after h, want focus back on the left pane", got)
+	if got := conversationBorder(t, press(rail, "l").View()); got != focused {
+		t.Errorf("conversation border = %s after l, want focus back on the right pane", got)
 	}
-	if got := conversationBorder(t, press(rail, "1").View()); got != focused {
-		t.Errorf("conversation border = %s after 1, want focus jumped straight back", got)
+	if got := conversationBorder(t, press(rail, "2").View()); got != focused {
+		t.Errorf("conversation border = %s after 2, want focus jumped straight back", got)
 	}
 }
 
 func TestFocusLeavesTheRailWhenTheRailDoes(t *testing.T) {
-	hidden := press(screen(200, 30), "l", "d") // focus the rail, then hide it
+	hidden := press(screen(200, 30), "h", "d") // focus the rail, then hide it
 
 	if got := conversationBorder(t, hidden.View()); got != fgSeq(theme.RosePineMoon.Accent) {
 		t.Errorf("conversation border = %s, want focus back on it once the rail went away", got)
@@ -254,7 +254,7 @@ func TestTheRailScrollsOnceItHasFocus(t *testing.T) {
 		t.Error("G moved the rail while the conversation had focus")
 	}
 
-	rail := press(m, "l", "G")
+	rail := press(m, "h", "G")
 	if !railHas(t, rail.View(), "Checks") {
 		t.Error("the rail did not scroll once it had focus")
 	}
@@ -285,12 +285,12 @@ func TestADeletedAuthorLeavesNoGapInACardHeading(t *testing.T) {
 	d.Timeline[0].Actor = gh.Actor{}
 
 	frame := detailed(held(d), 200, 30).View()
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 
 	// A heading with no login must not open with the separator that would have
 	// followed it.
 	for i, line := range strings.Split(stripANSI(frame), "\n") {
-		body := strings.TrimSpace(strings.Trim(paneBody(line, right), "│ "))
+		body := strings.TrimSpace(strings.Trim(paneBody(line, left, right), "│ "))
 		if strings.HasPrefix(body, "·") {
 			t.Errorf("line %d = %q, want no separator where the login would be", i, body)
 		}
@@ -456,12 +456,32 @@ func stripANSI(s string) string {
 func conversationBorder(t *testing.T, frame string) string {
 	t.Helper()
 
-	line := paneTop(frame)
-	end := strings.Index(line, "m")
-	if !strings.HasPrefix(line, "\x1b[") || end < 0 {
-		t.Fatalf("frame does not open with a styled border: %q", line)
+	// Read at the pane's right border rather than its left corner. The first
+	// sequence on the line is the rail's border now that the rail leads the
+	// row, and the conversation's own corner is not always on the frame at all:
+	// a rail too narrow for a column is drawn over it.
+	_, right := paneEdges(t, frame)
+
+	line, sgr, visible := paneTop(frame), "", 0
+	for i := 0; i < len(line); {
+		if strings.HasPrefix(line[i:], "\x1b[") {
+			end := strings.IndexByte(line[i:], 'm')
+			if end < 0 {
+				break
+			}
+			sgr = line[i+2 : i+end]
+			i += end + 1
+			continue
+		}
+		if visible == right {
+			return sgr
+		}
+		_, size := utf8.DecodeRuneInString(line[i:])
+		i += size
+		visible++
 	}
-	return strings.TrimPrefix(line[:end], "\x1b[")
+	t.Fatalf("no styled border at the conversation's right edge: %q", line)
+	return ""
 }
 
 func sampleDetail() gh.PullRequestDetail {
@@ -664,12 +684,12 @@ func TestAConversationWithNothingInItCentresWhatItSaysInstead(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			frame := detailed(tt.held, width, height).View()
-			right := paneRight(t, frame)
+			left, right := paneEdges(t, frame)
 
 			lines := strings.Split(stripANSI(frame), "\n")
 			at := -1
 			for i, line := range lines {
-				if strings.Contains(paneBody(line, right), tt.want) {
+				if strings.Contains(paneBody(line, left, right), tt.want) {
 					at = i
 					break
 				}
@@ -695,7 +715,7 @@ func TestAConversationWithNothingInItCentresWhatItSaysInstead(t *testing.T) {
 			// Two centrings stack here, the block inside the measure and the
 			// measure inside the pane, and each can spend its odd column on the
 			// right. So the two sides can differ by two rather than one.
-			body := paneBody(lines[at], right)
+			body := paneBody(lines[at], left, right)
 			lead := len(body) - len(strings.TrimLeft(body, " "))
 			trail := len(body) - len(strings.TrimRight(body, " "))
 			if lead == 0 || abs(lead-trail) > 2 {
@@ -1035,9 +1055,9 @@ func TestTheSpinnerRunsUntilThereIsSomethingToRead(t *testing.T) {
 func measureGutters(t *testing.T, frame string) (lead, measure, trail int) {
 	t.Helper()
 
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		body := []rune(paneBody(line, right))
+		body := []rune(paneBody(line, left, right))
 		// The top edge alone: a card's middle rule and its foot are the same
 		// width, and any of the three would do, but one answer per frame is
 		// what makes the reading stable.
@@ -1163,7 +1183,7 @@ func TestASegmentThatRendersToNothingLeavesNoGap(t *testing.T) {
 	d.Body = "<!-- linear-preview -->\n\nReview in Linear\n"
 
 	frame := detailed(held(d), 200, 40).View()
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 	lines := strings.Split(stripANSI(frame), "\n")
 
 	for i, line := range lines {
@@ -1171,7 +1191,7 @@ func TestASegmentThatRendersToNothingLeavesNoGap(t *testing.T) {
 			continue
 		}
 		// The heading, then its rule, then the first line of the body.
-		if got := strings.Trim(paneBody(lines[i+2], right), "│ "); got != "Review in Linear" {
+		if got := strings.Trim(paneBody(lines[i+2], left, right), "│ "); got != "Review in Linear" {
 			t.Errorf("first body line = %q, want the text with no gap above it", got)
 		}
 		return
@@ -1182,7 +1202,7 @@ func TestASegmentThatRendersToNothingLeavesNoGap(t *testing.T) {
 // A byline pressed against the comment under it reads as one paragraph.
 func TestAThreadCommentIsSpacedFromItsByline(t *testing.T) {
 	frame := detailed(held(sampleDetail()), 200, 40).View()
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 	lines := strings.Split(stripANSI(frame), "\n")
 
 	for i, line := range lines {
@@ -1194,7 +1214,7 @@ func TestAThreadCommentIsSpacedFromItsByline(t *testing.T) {
 		}
 		// The card and the tree rail draw their own borders through the line;
 		// what is left after them is the content.
-		if got := strings.Trim(paneBody(lines[i+1], right), "│ "); got != "" {
+		if got := strings.Trim(paneBody(lines[i+1], left, right), "│ "); got != "" {
 			t.Errorf("line after the byline = %q, want a blank one", got)
 		}
 		return
@@ -1247,26 +1267,35 @@ func TestDetailsFoldToALineAndOpenOnTheKey(t *testing.T) {
 // Scanning a content line for the first │ finds a card's border instead, and
 // every assertion built on that only ever looks at the gutter, where there is
 // nothing to find.
-func paneRight(t *testing.T, frame string) int {
+// paneEdges is where the conversation pane's own borders sit, as rune indices
+// into a frame line. It is the last pane on the row rather than the first: the
+// rail and the file column both lead it.
+func paneEdges(t *testing.T, frame string) (left, right int) {
 	t.Helper()
 
-	// Rune index, not byte: the border runes are three bytes each.
+	// Rune indices, not bytes: the border runes are three bytes each.
+	left, right = -1, -1
 	for i, r := range []rune(stripANSI(paneTop(frame))) {
-		if r == '╮' {
-			return i
+		switch r {
+		case '╭':
+			left = i
+		case '╮':
+			right = i
 		}
 	}
-	t.Fatal("the frame carries no pane border")
-	return 0
+	if left < 0 || right < 0 {
+		t.Fatalf("the frame carries no pane border: %q", stripANSI(paneTop(frame)))
+	}
+	return left, right
 }
 
 // paneBody is the conversation pane's interior on one frame line.
-func paneBody(line string, right int) string {
+func paneBody(line string, left, right int) string {
 	runes := []rune(line)
-	if len(runes) <= right || runes[0] != '│' {
+	if len(runes) <= right || left >= len(runes) || runes[left] != '│' {
 		return ""
 	}
-	return string(runes[1:right])
+	return string(runes[left+1 : right])
 }
 
 // assertWithinMeasure holds every line of the conversation inside the measure
@@ -1276,9 +1305,9 @@ func assertWithinMeasure(t *testing.T, frame string) {
 	t.Helper()
 
 	lead, rule, _ := measureGutters(t, frame)
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 	for i, line := range strings.Split(stripANSI(frame), "\n") {
-		body := []rune(paneBody(line, right))
+		body := []rune(paneBody(line, left, right))
 		if len(body) <= lead+rule {
 			continue
 		}
@@ -1291,11 +1320,11 @@ func assertWithinMeasure(t *testing.T, frame string) {
 // Text against the border reads as a rendering fault rather than as a box.
 func TestACardKeepsItsTextOffTheBorder(t *testing.T) {
 	frame := detailed(held(sampleDetail()), 200, 40).View()
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 
 	cards := 0
 	for i, line := range strings.Split(stripANSI(frame), "\n") {
-		body := []rune(paneBody(line, right))
+		body := []rune(paneBody(line, left, right))
 
 		// A content row of a card, rather than one of its own edges.
 		start := strings.IndexRune(string(body), '│')
@@ -1548,19 +1577,19 @@ func TestNoTimestampLeavesNoTrailingSeparator(t *testing.T) {
 	}
 }
 
-// railRows is the details column's own lines, which start past the
-// conversation pane's right border.
+// railRows is the details column's own lines, which lead the row and stop at
+// the conversation pane's left border.
 func railRows(t *testing.T, frame string) []string {
 	t.Helper()
 
-	right := paneRight(t, frame)
+	left, _ := paneEdges(t, frame)
 	var rows []string
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		runes := []rune(line)
-		if len(runes) <= right+1 {
+		if left == 0 || len(runes) < left {
 			continue
 		}
-		rows = append(rows, strings.Trim(string(runes[right+1:]), "│╭╮╰╯─ "))
+		rows = append(rows, strings.Trim(string(runes[:left]), "│╭╮╰╯─ "))
 	}
 	return rows
 }
@@ -1910,18 +1939,20 @@ func rowMark(raw string) (string, bool) {
 func railRaw(t *testing.T, frame string) []string {
 	t.Helper()
 
-	right := paneRight(t, frame)
+	left, _ := paneEdges(t, frame)
 	top := paneTopAt(frame)
 	var rows []string
 
 	for at, line := range strings.Split(frame, "\n") {
-		// The header spans the whole frame, so it reaches past the conversation
-		// pane's right border without being the rail.
+		// The header spans the whole frame, so it reaches into the rail's
+		// columns without being the rail.
 		if at < top {
 			continue
 		}
+		// The rail leads the row, so its share of the line is everything before
+		// the conversation's own left border.
 		visible, i := 0, 0
-		for i < len(line) && visible <= right {
+		for i < len(line) && visible < left {
 			if strings.HasPrefix(line[i:], "\x1b[") {
 				end := strings.IndexByte(line[i:], 'm')
 				if end < 0 {
@@ -1934,8 +1965,8 @@ func railRaw(t *testing.T, frame string) []string {
 			i += size
 			visible++
 		}
-		if visible > right {
-			rows = append(rows, line[i:])
+		if visible == left && left > 0 {
+			rows = append(rows, line[:i])
 		}
 	}
 	return rows
@@ -1983,14 +2014,14 @@ func TestAnEventWithNoWordsForItLeavesNoGap(t *testing.T) {
 	}
 
 	frame := detailed(held(d), 200, 44).View()
-	right := paneRight(t, frame)
+	left, right := paneEdges(t, frame)
 	lines := strings.Split(stripANSI(frame), "\n")
 
 	// Every gap, not the first: the unrendered event sits between the second
 	// card and the third, and stopping at the first pair never reaches it.
 	closed, gaps := -1, 0
 	for i, line := range lines {
-		body := paneBody(line, right)
+		body := paneBody(line, left, right)
 		switch {
 		case strings.Contains(body, "╰"):
 			closed = i

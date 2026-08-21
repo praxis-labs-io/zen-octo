@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
@@ -21,7 +19,7 @@ const (
 )
 
 // The rail is the only route to five writes, so it answers d at every width.
-// Where a column will not fit it lands over the right of the conversation.
+// Where a column will not fit it lands over the left of the conversation.
 func TestANarrowRailLandsOverTheConversation(t *testing.T) {
 	m := detailed(held(sampleDetail()), narrowFrame, 30)
 	if strings.Contains(stripANSI(m.View()), "Reviewers") {
@@ -34,19 +32,25 @@ func TestANarrowRailLandsOverTheConversation(t *testing.T) {
 		t.Fatalf("d left the rail off at %d columns, where the client is read-only without it", narrowFrame)
 	}
 
-	if got := paneEnd(t, shown.View()); got != narrowFrame {
-		t.Errorf("the conversation gave up %d columns to the rail, want it covered rather than narrowed",
-			narrowFrame-got)
+	// The conversation still reaches the frame's own edge, so it was covered
+	// rather than narrowed.
+	if _, got := paneEdges(t, shown.View()); got != narrowFrame-1 {
+		t.Errorf("the conversation's right border is at %d, want %d: it gave up width to the rail",
+			got, narrowFrame-1)
 	}
 
-	// Covered, not relaid out: everything left of the rail is the frame it was.
+	// Compared with the conversation holding the keys either way. Opening the
+	// rail hands them over, and a card that is no longer the focus stops naming
+	// the keys it answers to, which is a real difference and not a relayout.
+	//
+	// Covered, not relaid out: everything right of the rail is the frame it was.
 	// The borders are exempt, since a second pane puts an index on the first.
-	after := strings.Split(stripANSI(shown.View()), "\n")
+	after := strings.Split(stripANSI(press(shown, "l").View()), "\n")
 	if len(before) != len(after) {
 		t.Fatalf("the frame is %d lines with the rail up and %d without", len(after), len(before))
 	}
 	for i := paneRow(t, before) + 1; i < len(before)-1; i++ {
-		l, r := leftOf(before[i], narrowFrame-railCells), leftOf(after[i], narrowFrame-railCells)
+		l, r := rightOf(before[i], railCells), rightOf(after[i], railCells)
 		if l != r {
 			t.Fatalf("line %d moved under the rail:\n%q\n%q", i, l, r)
 		}
@@ -88,8 +92,13 @@ func TestARailWithRoomForAColumnTakesOne(t *testing.T) {
 		t.Fatalf("setup: d left the rail off at %d columns", wideFrame)
 	}
 
-	if got, want := paneEnd(t, shown.View()), wideFrame-railCells; got != want {
-		t.Errorf("the conversation is %d columns wide beside the rail, want %d", got, want)
+	// The rail leads the row, so it is the pane whose width paneEnd reads, and
+	// the conversation takes what is left.
+	if got := paneEnd(t, shown.View()); got != railCells {
+		t.Errorf("the rail took %d columns, want %d", got, railCells)
+	}
+	if _, got := paneEdges(t, shown.View()); got != wideFrame-1 {
+		t.Errorf("the conversation ends at %d, want it to fill out to %d", got, wideFrame-1)
 	}
 }
 
@@ -137,7 +146,12 @@ func TestOpeningTheRailFocusesIt(t *testing.T) {
 	}
 }
 
-// leftOf is the first n cells of a line.
-func leftOf(line string, n int) string {
-	return lipgloss.NewStyle().MaxWidth(n).Render(line)
+// rightOf is a line past its first n cells, which is the half an overlaid rail
+// does not cover.
+func rightOf(line string, n int) string {
+	runes := []rune(line)
+	if len(runes) <= n {
+		return ""
+	}
+	return string(runes[n:])
 }

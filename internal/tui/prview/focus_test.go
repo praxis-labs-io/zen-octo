@@ -247,7 +247,7 @@ func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
 	d := sampleDetail()
 	d.Rollup = gh.CheckRollup{}
 
-	m := press(detailed(held(d), 200, 44), "l")
+	m := press(detailed(held(d), 200, 44), "h")
 	if got := markedRailRow(t, m.View()); strings.Contains(got, "None yet") {
 		t.Error("the cursor landed on the empty checks note")
 	}
@@ -429,7 +429,7 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 		t.Fatalf("focus started on %q, want the description", got)
 	}
 
-	rail := press(m, "l", "}")
+	rail := press(m, "h", "}")
 	if got := focusedCard(t, rail.View()); got != "" {
 		t.Errorf("card %q is lit while the rail holds the keys", got)
 	}
@@ -437,7 +437,7 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 		t.Fatal("the rail row is not painted at all")
 	}
 
-	if got := markedRailRow(t, press(rail, "h").View()); got != "" {
+	if got := markedRailRow(t, press(rail, "l").View()); got != "" {
 		t.Errorf("rail row %q is lit while the conversation holds the keys", got)
 	}
 }
@@ -498,7 +498,7 @@ func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
 // keys the file column takes. Its rows have no border to take the accent, so
 // the row itself is painted, the way the column paints its own.
 func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
 	// The cursor is there with the focus. The state row leads: it is the first
 	// thing in the column and the first thing there is anything to do to.
@@ -523,7 +523,7 @@ func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
 func TestTheRailCursorStopsAtItsEnds(t *testing.T) {
 	// Short enough that the rail runs past the frame, so a wrap would be a jump
 	// the reader could see rather than a move inside one screen.
-	m := press(detailed(held(sampleDetail()), 200, 20), "l")
+	m := press(detailed(held(sampleDetail()), 200, 20), "h")
 
 	first := markedRailRow(t, m.View())
 	if !strings.Contains(first, "Open") {
@@ -548,7 +548,7 @@ func TestTheRailCursorStopsAtItsEnds(t *testing.T) {
 // The braces are block motion, and the rail has no blocks. Leaving them live on
 // it as well would give one pane two ways to do the same thing.
 func TestTheBracesDoNothingOnTheRail(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
 	for _, k := range []string{"}", "{"} {
 		if got := press(m, k).View(); got != m.View() {
@@ -579,7 +579,7 @@ func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 	}
 
 	// Four steps past the state row: three reviewers, then the add row.
-	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 	if got := markedRailRow(t, press(m, "j", "j", "j", "j").View()); got != "+ Add reviewer" {
 		t.Errorf("the fourth step marked %q, want the add row", got)
 	}
@@ -588,7 +588,7 @@ func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 // The rail sections the reader can act on are walkable and the rest are not,
 // so the ring does not stop on the churn or on a merge that cannot be made.
 func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
 	seen := map[string]bool{}
 	for i := range 16 {
@@ -675,7 +675,7 @@ func reordered(d gh.PullRequestDetail) gh.PullRequestDetail {
 // The rail keys on the row's own name. A label added above the one the reader
 // is pointing at leaves the cursor where it was.
 func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
-	m := press(detailed(held(sampleDetail()), 200, 44), "l")
+	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
 	// Seven steps past the state row: three reviewers and their add row, the
 	// assignee and its add row, then the one label.

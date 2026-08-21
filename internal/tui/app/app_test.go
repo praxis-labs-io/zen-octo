@@ -1779,7 +1779,7 @@ func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveRepoMeta(gh.RepoMeta{Labels: []gh.Label{{ID: "L_bug", Name: "bug"}}})
 
-	m := press(loaded(t, client, 160, 40), "enter", "2", "j", "j", "j", "enter")
+	m := press(loaded(t, client, 160, 40), "enter", "1", "j", "j", "j", "enter")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Add label") {
 		t.Fatalf("setup: the label picker did not open:\n%s", out)
 	}

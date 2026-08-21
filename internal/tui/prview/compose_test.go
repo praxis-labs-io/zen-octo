@@ -592,7 +592,7 @@ func TestARestoredDraftDoesNotDestroyOneWrittenSince(t *testing.T) {
 func TestWritingFromTheRailMovesTheKeysToTheConversation(t *testing.T) {
 	// l moves the keys to the rail and tab puts its cursor on a row, which is
 	// what the rail paints. Without both, there is no cursor line to be wrong.
-	rail := press(detailed(held(sampleDetail()), 200, 60), "l", "}")
+	rail := press(detailed(held(sampleDetail()), 200, 60), "h", "}")
 	if markedRailRow(t, rail.View()) == "" {
 		t.Fatal("the rail has no cursor line to begin with")
 	}

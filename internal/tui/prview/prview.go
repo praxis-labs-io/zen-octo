@@ -118,11 +118,12 @@ type RailPreference struct {
 	Set bool
 }
 
-// columnWidth is the side column on either edge of the screen: the details rail
-// on the conversation, the file tree on the diff, the commit list on the
-// commits. One number serves all three. They never share a frame, so the only
-// place the difference shows is in the jump when you tab between them, and
-// there it reads as a mistake.
+// columnWidth is the column down the left of the screen: the details rail on
+// the conversation, the file tree on the diff, the commit list on the commits.
+// One number serves all three, and one edge does too. They never share a frame,
+// so the only place either difference shows is in the jump when you change tab,
+// and there it reads as a mistake: the rail sat on the right until it was the
+// only secondary pane that did.
 //
 // It is fixed rather than proportional: a column that grows with the frame just
 // moves the content around. Wide enough for a branch name, which is the longest
@@ -804,11 +805,11 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	// pane that took the key keeps the focus it already had.
 	case key.Matches(keyMsg, k.PaneLeft):
 		if !m.stepColumn(gh.SideLeft) {
-			m.focusPane(m.focus - 1)
+			m.stepPane(-1)
 		}
 	case key.Matches(keyMsg, k.PaneRight):
 		if !m.stepColumn(gh.SideRight) {
-			m.focusPane(m.focus + 1)
+			m.stepPane(1)
 		}
 	case key.Matches(keyMsg, k.SplitView) && m.tab == tabFiles:
 		return m, m.toggleSplit()
@@ -1214,20 +1215,50 @@ func (m Model) foldTarget() focusKey {
 	return m.mainRing().on
 }
 
-// focusPane moves focus to a pane, skipping whatever is not on screen. Focus
-// walks left to right, which is the order the panes are numbered in.
+// visiblePanes is the panes on screen, left to right. It is the one place that
+// order is written down.
+//
+// The enum cannot carry it. The rail and the column both sit on the left and
+// are never on screen together, so stepping focus by adding one to the enum is
+// right on whichever kind of tab the order was written for and wrong on the
+// other.
+func (m Model) visiblePanes() []pane {
+	out := make([]pane, 0, 2)
+	for _, p := range []pane{paneRail, paneSide, paneMain} {
+		if m.paneVisible(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// focusPane moves focus to a pane, and does nothing where that pane is not on
+// screen.
 //
 // It reports whether taking the pane also landed a cursor, so a caller that was
 // going to step can tell the arrival was the step.
 func (m *Model) focusPane(want pane) bool {
-	for _, p := range []pane{paneSide, paneMain, paneRail} {
-		if p == want && m.paneVisible(p) {
-			m.focus = p
-			m.syncContent()
-			return m.landCursor()
-		}
+	if !m.paneVisible(want) {
+		return false
 	}
-	return false
+	m.focus = want
+	m.syncContent()
+	return m.landCursor()
+}
+
+// stepPane moves focus one pane along the screen. Both ends are boundaries
+// rather than seams, which is what every other cursor here does.
+func (m *Model) stepPane(delta int) {
+	panes := m.visiblePanes()
+	for i, p := range panes {
+		if p != m.focus {
+			continue
+		}
+		if next := i + delta; next >= 0 && next < len(panes) {
+			m.focusPane(panes[next])
+		}
+		return
+	}
 }
 
 // landCursor puts the cursor on the first stop of whichever ring has the keys,
@@ -1254,24 +1285,15 @@ func (m *Model) landCursor() bool {
 }
 
 // focusIndex answers a digit with the pane sitting in that position. The panes
-// are numbered by where they are rather than by what they hold, so 2 is the
-// diff on the tabs with a column and the rail on the ones without.
+// are numbered by where they are rather than by what they hold, so 1 is the
+// column or the rail, whichever this tab has, and 2 is what it sits beside.
 func (m *Model) focusIndex(digit string) {
 	n, err := strconv.Atoi(digit)
 	if err != nil {
 		return
 	}
-	at := 0
-	for _, p := range []pane{paneSide, paneMain, paneRail} {
-		if !m.paneVisible(p) {
-			continue
-		}
-		if at++; at == n {
-			m.focus = p
-			m.syncContent()
-			m.landCursor()
-			return
-		}
+	if panes := m.visiblePanes(); n >= 1 && n <= len(panes) {
+		m.focusPane(panes[n-1])
 	}
 }
 
@@ -1596,19 +1618,17 @@ func (m Model) railDetail() gh.PullRequestDetail {
 // more than one of them, because a lone pane numbered [1] is just noise, and
 // they are numbered left to right rather than by what they hold.
 func (m Model) View() string {
-	index, at := make(map[pane]int), 0
-	for _, p := range []pane{paneSide, paneMain, paneRail} {
-		if m.paneVisible(p) {
-			at++
-			index[p] = at
+	index := map[pane]int{}
+	if panes := m.visiblePanes(); len(panes) > 1 {
+		for i, p := range panes {
+			index[p] = i + 1
 		}
-	}
-	if at < 2 {
-		index = map[pane]int{}
 	}
 
 	// The tab strip goes on the main pane rather than on the column beside it:
 	// the strip is wider than the column and would clip to a fragment there.
+	// With the rail on the left the main pane is the right-hand one on all four
+	// tabs, so the strip no longer moves across the screen on a tab switch.
 	mainView := m.view.View()
 	if m.tab == tabChecks {
 		mainView = m.paintCheckCursor(mainView)
@@ -1641,7 +1661,7 @@ func (m Model) View() string {
 			Render(m.railView.View())
 	}
 	if m.railColumn() && rail != "" {
-		panes, rail = append(panes, rail), ""
+		panes, rail = append([]string{rail}, panes...), ""
 	}
 
 	// The overlays composite against the whole screen, so the header goes on
@@ -1653,10 +1673,10 @@ func (m Model) View() string {
 		lead = strings.Count(head, "\n") + 1
 	}
 
-	// Against the right edge rather than centred: it is a column that ran out of
-	// room for one, and the eye looks for it where it sits on a wide frame.
+	// Against the left edge rather than centred: it is a column that ran out of
+	// room for one, and it lands where that column would have been.
 	if rail != "" {
-		frame = comp.At(frame, rail, m.width-columnWidth, lead, m.width, m.height)
+		frame = comp.At(frame, rail, 0, lead, m.width, m.height)
 	}
 
 	// The mention popup goes on first, so a picker or the merge form composites
