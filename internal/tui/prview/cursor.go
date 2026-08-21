@@ -6,33 +6,24 @@ func (m Model) diffDriving() bool {
 	return m.tab == tabFiles && m.focus == paneMain && m.files.Loaded && m.pageRing.stops() > 0
 }
 
-// diffRows is how far the cursor can walk into a block, which is the code drawn
-// under it. A folded hunk and a comment card have none.
-func (m Model) diffRows(key focusKey) int {
-	rows := m.shownRows()
-	if len(rows) != 1 || rows[0].file == nil {
-		return 0
-	}
-
-	b, ok := m.diff.blocks[blockKey{key: rows[0].key, heading: m.diff.headings}]
-	if !ok {
-		return 0
-	}
-	for i, s := range b.stops {
-		if m.stopKey(*rows[0].file, s) == key {
-			return b.runs[i+1].codeRows()
-		}
-	}
-	return 0
-}
+// diffRows is how far the cursor can walk into a block, which is the code the
+// last render drew under it. A folded hunk and a comment card have none.
+func (m Model) diffRows(key focusKey) int { return m.diff.rows[key] }
 
 // diffAt is how far into the focused block the cursor has walked. A block it was
 // not counted against is unwalked, and a fold takes the rows it counted.
 func (m Model) diffAt() int {
-	if m.pageRing.on != m.diffOn {
+	if m.tab != tabFiles || m.pageRing.on != m.diffOn {
 		return 0
 	}
 	return min(m.diffCursor, m.diffRows(m.pageRing.on))
+}
+
+// walkedInto is whether the cursor has stepped off a block into the code under
+// it. A render asks this rather than diffAt, because the row counts diffAt reads
+// are the ones that render is still measuring.
+func (m Model) walkedInto(key focusKey) bool {
+	return m.tab == tabFiles && m.diffOn == key && m.diffCursor > 0
 }
 
 // point puts the cursor a number of rows into the block the ring is on.
@@ -63,16 +54,17 @@ func (m *Model) moveDiffCursor(delta int) bool {
 		m.point(at + 1)
 	case delta > 0:
 		// The last block of the file is a boundary, the way both ends of the ring
-		// are. The file column is what crosses to the next one.
+		// are. The file column is what crosses to the next one, and the key goes
+		// back untaken so the pane can scroll to whatever sits under the stop.
 		if !m.advanceFocus(1) {
-			return true
+			return false
 		}
 		m.unpoint()
 	case at > 0:
 		m.point(at - 1)
 	default:
 		if !m.advanceFocus(-1) {
-			return true
+			return false
 		}
 		// Back into the block above lands on its last row, the one the reader
 		// was walking towards.

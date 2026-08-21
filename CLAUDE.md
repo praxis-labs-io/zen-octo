@@ -419,7 +419,21 @@ next by index rather than by re-entering from the window, because a reader
 standing on a row has not scrolled away from anything, and `ring.advance` is
 that step beside the `step` the braces read the window with. The last block of a
 file is a boundary, the way both ends of every ring here are: `tab` crosses to
-the next file and the cursor does not, or the column is left behind. The walk is
+the next file and the cursor does not, or the column is left behind. It reports
+the key untaken there rather than swallowing it, which is the rule the rail
+already answers to: those keys go to the ends of a pane, and a boundary that ate
+them left the last block's own code below the fold with no way down to it.
+
+**Which block a stretch of code belongs to is the render's answer, not a second
+derivation.** One stop draws several: a review thread is its card, every reply
+hanging off it, and the box when one is open, so the code under it hangs beneath
+the last of those rather than beneath the card that opened the thread. Credited
+to the card, `j` steps over every reply on the page and `k` off a reply walks
+back *down* the screen onto the row below it. `drawnFile.rows` is what the pass
+that drew them writes down and the next key reads, because deriving it again in
+the movement code means spelling out where a thread's stops end in two places
+and one of them going stale. The pass reads its own measurements as it goes and
+never that map, which is the one it is in the middle of rebuilding. The walk is
 held against the block it was counted in, so a fold that takes those rows takes
 it with them, and a brace naming a block lands on that block's own head.
 
@@ -427,7 +441,10 @@ The row carries a bar in its leading cell, in accent. The tint alone is a change
 of shade a reader loses on a page of them, and the cell is one every row already
 holds open, so nothing shifts as the cursor passes. A card takes neither the
 fill nor the bar: its border already lights, and a second mark on one block says
-nothing the first did not.
+nothing the first did not. It gives that border up once the cursor walks into
+the code below it, the way a hunk heading gives up its fill, since a lit card and
+a barred row are two claims about where the reader is standing. The hints ride
+inside the border either way, so nothing changes height as it passes.
 
 `canCompose` split in two for it. It still means the conversation, because the
 compose card is drawn on one tab only; `canAct` is the wider question the keys
