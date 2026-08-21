@@ -39,6 +39,60 @@ func TestAScreenOpensWithItsCursorOnTheDescription(t *testing.T) {
 	}
 }
 
+// The leading pane takes the keys on the way in to the screen. It is the one
+// the reader navigates with and it is numbered first, so the number and the
+// keyboard would otherwise disagree about where the eye lands.
+func TestTheLeadingPaneHoldsTheKeysOnArrival(t *testing.T) {
+	m := opened(held(sampleDetail()), 200, 44)
+
+	if got := markedRailRow(t, m.View()); got == "" {
+		t.Error("the rail leads the row and holds no cursor on open")
+	}
+	if got := focusedCard(t, m.View()); got != "" {
+		t.Errorf("card %q is lit while the rail holds the keys", got)
+	}
+}
+
+// Once, and not again. A reader changing tab has already chosen a pane, and
+// handing the keys back to the rail on every press of the strip would make them
+// ask for the page again each time they came round to it.
+func TestTheStripLeavesTheKeysWhereTheReaderPutThem(t *testing.T) {
+	// Off the rail and onto the page, then round the strip and back.
+	m := press(opened(held(sampleDetail()), 200, 44), "l")
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: the page holds %q, want the description", got)
+	}
+
+	back := press(m, "]", "]", "]", "]")
+	if got := markedRailRow(t, back.View()); got != "" {
+		t.Errorf("the strip handed the keys back to the rail, which lit %q", got)
+	}
+	if got := focusedCard(t, back.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("the page came back holding %q, want the card the reader left on", got)
+	}
+}
+
+// A cursor belongs to the pane the keys are going to. Two panes holding one
+// says the keys go to both.
+func TestTheRailGivesUpItsCursorWhenItGivesUpTheKeys(t *testing.T) {
+	m := opened(held(sampleDetail()), 200, 44)
+	if markedRailRow(t, m.View()) == "" {
+		t.Fatal("setup: the rail has no cursor to give up")
+	}
+
+	page := press(m, "l")
+	if got := markedRailRow(t, page.View()); got != "" {
+		t.Errorf("rail row %q is still lit once the page took the keys", got)
+	}
+	if got := focusedCard(t, page.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("the page took the keys and lit %q, want the description", got)
+	}
+
+	if got := markedRailRow(t, press(page, "h").View()); got == "" {
+		t.Error("the rail took the keys back and lit nothing")
+	}
+}
+
 // walked steps the ring to the card a caller names. The counts every caller
 // uses are from the top of the page, so a model left somewhere else goes
 // through fromTop first: the ring stops at its ends and no longer laps round to
@@ -46,6 +100,10 @@ func TestAScreenOpensWithItsCursorOnTheDescription(t *testing.T) {
 // walked puts the ring on the nth card, counting from one. A screen opens with
 // its cursor already on the first, so the nth is n-1 steps away.
 func walked(m prview.Model, n int) prview.Model {
+	// The leading pane holds the keys on arrival, and the cards are in the one
+	// beside it. 2 is always that pane, and it is a no-op where there is only
+	// one on the frame.
+	m = press(m, "2")
 	return press(m, strings.Fields(strings.Repeat("} ", max(0, n-1)))...)
 }
 

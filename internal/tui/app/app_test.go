@@ -3360,7 +3360,7 @@ func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	m := press(loaded(t, client, 160, 40), "enter", "}", "r")
+	m := press(loaded(t, client, 160, 40), "enter", "2", "}", "r")
 	return write(m, body)
 }
 
@@ -3447,7 +3447,7 @@ func settling(t *testing.T, client *fakeSearcher) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	return press(loaded(t, client, 160, 40), "enter", "}")
+	return press(loaded(t, client, 160, 40), "enter", "2", "}")
 }
 
 // The card collapsing is the acknowledgement, the same way the optimistic

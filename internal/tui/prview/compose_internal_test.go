@@ -46,6 +46,8 @@ func editorFixture(t *testing.T) Model {
 	m := New(theme.RosePineMoon, d.PullRequest, RailPreference{}, syn)
 	m.SetDetail(store.Detail{Detail: d, Status: store.StatusReady, Loaded: true})
 	m.SetSize(200, 60)
+	// The rail leads on arrival; these tests are about the page beside it.
+	m = pressKeys(m, "2")
 	return m
 }
 

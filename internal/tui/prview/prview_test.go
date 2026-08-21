@@ -42,7 +42,16 @@ func colorizer() syntax.Syntax {
 	return s
 }
 
-func screen(width, height int) prview.Model { return sized(samplePR(), width, height) }
+// screen and detailed hand the keys to the page. A screen opens with them on
+// the leading pane instead, which is the rail or the column, and almost every
+// test here is about what sits beside that. The ones that are about the
+// arrival itself take opened and onOpen and move nothing.
+//
+// 2 is the page on every tab, and a no-op on a frame with only one pane.
+func screen(width, height int) prview.Model { return press(onOpen(width, height), "2") }
+
+// onOpen is the screen as a reader meets it, keys and all.
+func onOpen(width, height int) prview.Model { return sized(samplePR(), width, height) }
 
 func sized(pr gh.PullRequest, width, height int) prview.Model {
 	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
@@ -604,6 +613,11 @@ func held(d gh.PullRequestDetail) store.Detail {
 }
 
 func detailed(d store.Detail, width, height int) prview.Model {
+	return press(opened(d, width, height), "2")
+}
+
+// opened is the screen as a reader meets it: the leading pane has the keys.
+func opened(d store.Detail, width, height int) prview.Model {
 	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetDetail(d)
 	m.SetSize(width, height)

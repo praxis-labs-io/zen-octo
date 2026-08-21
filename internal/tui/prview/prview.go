@@ -272,6 +272,11 @@ type Model struct {
 	// a push fetch the change rather than the one before it.
 	filesAsked bool
 
+	// led is whether the leading pane has been given the keys yet. It happens on
+	// the first layout rather than in New, because which pane leads is a
+	// question about a frame and New has not been given one.
+	led bool
+
 	// jump is the review thread v is on its way to, empty when there is none.
 	// The diff costs a request of its own, so a jump made before it has ever
 	// been asked for waits here and lands when the answer arrives.
@@ -1067,7 +1072,12 @@ func (m *Model) goToTab(at int) tea.Cmd {
 	// Commits opens with an empty diff pane, so the column is the only thing on
 	// the tab there is anything to do with. Checks opens on a full pane, but
 	// every key a reader presses there is picking a workflow. The other two open
-	// on content worth reading and leave focus on the pane holding it.
+	// on content worth reading and leave focus where the reader put it.
+	//
+	// The leading pane takes the keys on the way in to the screen and not here.
+	// A reader changing tab has already chosen a pane, and handing the keys back
+	// to the rail on every press of the strip makes them ask for the page again
+	// each time they come round to it.
 	if (m.tab == tabCommits || m.tab == tabChecks) && m.sideVisible() {
 		m.focus = paneSide
 		m.syncContent()
@@ -1084,6 +1094,20 @@ func (m *Model) goToTab(at int) tea.Cmd {
 
 	id := m.pr.ID
 	return func() tea.Msg { return NeedFilesMsg{ID: id} }
+}
+
+// leadPane gives the keys to the leftmost pane on screen. A lone pane is
+// already holding them, so this is only ever a move onto a column or the rail,
+// and a frame with no width yet has no second pane to move to.
+// It reports whether there was a lead to take, so a caller doing this once can
+// tell an unsized frame from one whose leading pane it has already handed to.
+func (m *Model) leadPane() bool {
+	panes := m.visiblePanes()
+	if len(panes) < 2 {
+		return false
+	}
+	m.focusPane(panes[0])
+	return true
 }
 
 // focusRing is the ring the focused pane walks, with the viewport it scrolls
@@ -1378,6 +1402,14 @@ func (m *Model) layout() {
 	// it, so the viewport is short by whatever the pane spends on it.
 	m.view.SetHeight(max(0, m.main.InnerHeight()-(m.main.Above()-1)))
 	m.syncContent()
+
+	// The leading pane takes the keys, once, on the way in. It is the one the
+	// reader navigates with, and it is numbered first because it is where the
+	// eye lands. Only here: a reader who has moved has chosen a pane, and this
+	// runs on every resize.
+	if !m.led {
+		m.led = m.leadPane()
+	}
 
 	// Last, because a ring has no stops until a body has been rendered into it.
 	// Every arrival runs through here: a resize, a detail, a diff, a tab switch.
