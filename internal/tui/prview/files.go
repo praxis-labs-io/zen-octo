@@ -402,14 +402,15 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 func (m Model) cursorOn(key focusKey) bool { return m.lit(key) && !m.walkedInto(key) }
 
 // litRun draws one row of a run again with the cursor on it. The rest are the
-// strings already painted, so lighting a row costs no tokenising.
-func (m Model) litRun(r run, at, gutter, width int, split bool) run {
+// strings already painted, so lighting a row costs no tokenising. An empty
+// column is a unified row, which has only the one to light.
+func (m Model) litRun(r run, at, gutter, width int, column gh.DiffSide) run {
 	rows := make([]diffRow, len(r.rows))
 	copy(rows, r.rows)
 
 	fill, bar := m.theme.SelectedBackground, m.theme.Accent
-	if split {
-		rows[at].text = m.halves(rows[at], gutter, width, fill, bar)
+	if column != "" {
+		rows[at].text = m.halves(rows[at], column, gutter, width, fill, bar)
 		return newRun(rows)
 	}
 
@@ -587,13 +588,12 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 	var owner focusKey
 	for i, r := range b.runs {
 		if owner != (focusKey{}) {
-			column := m.cursorColumn(split)
-			rows := r.codeRows(column)
+			column, rows := m.walkColumn(r, split)
 			out.rows[owner] = rows
 			if m.lit(owner) && m.walkedInto(owner) {
 				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
-					r = m.litRun(r, lit, gutter, width, split)
+					r = m.litRun(r, lit, gutter, width, column)
 				}
 			}
 		}

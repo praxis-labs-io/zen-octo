@@ -139,17 +139,17 @@ func (m Model) splitRow(lines []gh.DiffLine, p pair, tokens [][]syntax.Token, gu
 		r.right = paint.Line{Kind: kindOf(l.Kind), New: l.New, Tokens: tokens[p.right]}
 	}
 
-	r.text = m.halves(r, gutter, width, nil, nil)
+	r.text = m.halves(r, m.column, gutter, width, nil, nil)
 	return r
 }
 
-// halves joins the two columns of a row. Only the column the cursor is in takes
-// the fill: lit across both, a rewritten line says nothing about which side.
-func (m Model) halves(r diffRow, gutter, width int, fill, bar color.Color) string {
+// halves joins the two columns of a row. Only the column named takes the fill:
+// lit across both, a rewritten line says nothing about which side.
+func (m Model) halves(r diffRow, column gh.DiffSide, gutter, width int, fill, bar color.Color) string {
 	left, right := m.columns(width)
 
 	l, rt := r.line, r.right
-	if m.column == gh.SideLeft {
+	if column == gh.SideLeft {
 		l.Fill, l.Bar = fill, bar
 	} else {
 		rt.Fill, rt.Bar = fill, bar
@@ -158,6 +158,25 @@ func (m Model) halves(r diffRow, gutter, width int, fill, bar color.Color) strin
 	// The rule never lights, or the lit block runs a cell past its column.
 	rule := lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).Render(splitRule)
 	return m.painter.Half(l, gutter, left) + rule + m.painter.Half(rt, gutter, right)
+}
+
+// walkColumn is the column a run is walked in and the rows it has there. A block
+// the focused column has none of is walked in the other one: the column is a
+// side of the diff to read and not a claim about where a file has content, and a
+// newly added file has every line of it on one side. Without this a reader whose
+// column is the base reaches such a file, presses j at code plainly on the
+// screen, and the client answers with nothing.
+func (m Model) walkColumn(r run, split bool) (gh.DiffSide, int) {
+	column := m.cursorColumn(split)
+	if rows := r.codeRows(column); rows > 0 || !split {
+		return column, rows
+	}
+
+	other := gh.SideRight
+	if column == gh.SideRight {
+		other = gh.SideLeft
+	}
+	return other, r.codeRows(other)
 }
 
 // stepColumn lights the named column and keeps the cursor on a row that has a

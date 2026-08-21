@@ -501,6 +501,24 @@ already puts on the hint. Taken early it latched with no toast and no change,
 because `shownFile()` is nil and `splitShort()` reads that as wide enough, and
 the answer it left behind then decided the mode when the diff landed.
 
+**A block the focused column has no rows in at all is walked in the other one.**
+That is a different question from the row rule below, and it answers what the
+row rule cannot: a newly added file has every line on one side, and the column
+outlives the file it was chosen in, so a reader who had stepped to the base
+reached one, pressed `j` at code plainly on the screen, and the client answered
+with nothing. The column is a side of the diff to read rather than a claim about
+where a file has content. `walkColumn` is the one place that decides it, so the
+count the walk reads and the column the bar is painted in cannot disagree.
+
+**A block the focused column has no rows in at all is walked in the other one.**
+That is a different question from the row rule below, and it answers what the
+row rule cannot: a newly added file has every line on one side, and the column
+outlives the file it was chosen in, so a reader who had stepped to the base
+reached one, pressed `j` at code plainly on the screen, and the client answered
+with nothing. The column is a side of the diff to read rather than a claim about
+where a file has content. `walkColumn` is the one place that decides it, so the
+count the walk reads and the column the bar is painted in cannot disagree.
+
 A row the focused column has no line on is not a row the cursor can sit on, so
 walking the head column of a deletion-only block steps over it: `run.rowAt`
 counts only the rows that column has, which is the same rule that keeps the walk
