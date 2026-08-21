@@ -894,3 +894,39 @@ func TestTheCommitDiffTakesNoRowCursor(t *testing.T) {
 		t.Errorf("the commit diff barred %q, want no cursor at all", got)
 	}
 }
+
+// The split is the body's mode and not the model's. The Commits tab draws every
+// file unified whatever the Files tab was left on, and a heading indented to a
+// half's source column sits three cells left of the code it introduces.
+func TestTheCommitsHeadingKeepsItsIndentWhileFilesIsSplit(t *testing.T) {
+	heading := func(split bool) string {
+		t.Helper()
+
+		d := sampleDetail()
+		d.Commits = sampleCommits()
+		m := detailed(held(d), 160, 40)
+		m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+		m = press(m, "]", "]", "]")
+		if split {
+			m = press(m, "|")
+		}
+		m = press(m, "[", "[")
+
+		m, _ = settled(m, "a3f91c2d5e")
+		m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
+		m, _ = settled(m, "a3f91c2d5e")
+
+		for _, line := range strings.Split(stripANSI(m.View()), "\n") {
+			if strings.Contains(line, "@@ -40,4 +40,5 @@") {
+				return strings.TrimRight(line, " │")
+			}
+		}
+		t.Fatal("the commit's diff drew no @@ heading")
+		return ""
+	}
+
+	if on, off := heading(true), heading(false); on != off {
+		t.Errorf("the Commits heading moved because Files is split:\n split %q\n plain %q", on, off)
+	}
+}

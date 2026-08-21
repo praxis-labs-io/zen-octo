@@ -463,6 +463,14 @@ no second press. The mode is on the block's own `blockState` rather than its
 key: it replaces the block it retires instead of keeping one painted per mode
 for the rest of the run.
 
+**It is the body's mode and never the model's past `filesBody`.** `renderDiff`
+draws the Commits tab as well, and that tab never splits: a heading, a lit row
+and the column a walk is counted in all read `diffBody.split`, which is written
+once from `splitting()` on the way in. Read off the model instead, `|` on Files
+moved every heading on the Commits tab three cells left of the source under it,
+because `HalfColumn` is one number column in where `CodeColumn` is two. That
+shipped as far as a runbook.
+
 The cursor is in one column and only that column lights. Lit across both, a
 reader on a rewritten line has nothing saying which side the next key takes, and
 the rule stays dark or the lit block runs a cell past its column. A heading

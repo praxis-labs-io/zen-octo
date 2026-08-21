@@ -15,9 +15,10 @@ func (m Model) diffDriving() bool {
 func (m Model) diffRows(key focusKey) int { return m.diff.rows[key] }
 
 // cursorColumn is the column the cursor is in, and empty is a unified row,
-// which names both. A comment and a fill are read on it.
-func (m Model) cursorColumn() gh.DiffSide {
-	if !m.splitting() {
+// which names both. A comment and a fill are read on it. The mode is the body's
+// rather than the model's: the Commits tab draws unified whatever Files is on.
+func (m Model) cursorColumn(split bool) gh.DiffSide {
+	if !split {
 		return ""
 	}
 	return m.column

@@ -241,7 +241,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			d.blocks[bk] = b
 		}
 
-		drawn := m.fileText(*r.file, b, width)
+		drawn := m.fileText(*r.file, b, width, d.split)
 		blocks = append(blocks, drawn.text)
 
 		for _, p := range drawn.stops {
@@ -403,12 +403,12 @@ func (m Model) cursorOn(key focusKey) bool { return m.lit(key) && !m.walkedInto(
 
 // litRun draws one row of a run again with the cursor on it. The rest are the
 // strings already painted, so lighting a row costs no tokenising.
-func (m Model) litRun(r run, at, gutter, width int) run {
+func (m Model) litRun(r run, at, gutter, width int, split bool) run {
 	rows := make([]diffRow, len(r.rows))
 	copy(rows, r.rows)
 
 	fill, bar := m.theme.SelectedBackground, m.theme.Accent
-	if m.splitting() {
+	if split {
 		rows[at].text = m.halves(rows[at], gutter, width, fill, bar)
 		return newRun(rows)
 	}
@@ -421,7 +421,7 @@ func (m Model) litRun(r run, at, gutter, width int) run {
 
 // hunkHead is the @@ line, landing at the column the source under it starts in.
 // Its marker names whether the source below it is open.
-func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open bool) string {
+func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open, split bool) string {
 	marker := ""
 	if open {
 		marker = ""
@@ -434,7 +434,7 @@ func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open bool) s
 
 	// A heading spans the pane and belongs to neither column, so its bar sits at
 	// the pane edge. Only its indent follows the source under it.
-	if m.splitting() {
+	if split {
 		return m.painter.HalfHeader(head, gutter, width)
 	}
 	return m.painter.HunkHeader(head, gutter, width)
@@ -558,7 +558,7 @@ func (m *Model) diffThread(i, width int) rendered {
 
 // fileText joins a cached block back into a page, drawing every stop fresh. It
 // says where each one landed, and where a box open inside one of them sits.
-func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
+func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawnFile {
 	gutter := paint.Gutter(widest(f))
 
 	var sb strings.Builder
@@ -587,13 +587,13 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 	var owner focusKey
 	for i, r := range b.runs {
 		if owner != (focusKey{}) {
-			column := m.cursorColumn()
+			column := m.cursorColumn(split)
 			rows := r.codeRows(column)
 			out.rows[owner] = rows
 			if m.lit(owner) && m.walkedInto(owner) {
 				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
-					r = m.litRun(r, lit, gutter, width)
+					r = m.litRun(r, lit, gutter, width, split)
 				}
 			}
 		}
@@ -607,7 +607,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int) drawnFile {
 		if s.hunk != stopNone {
 			h := f.Hunks[s.hunk]
 			key := hunkKey(f.Path, h)
-			text = m.hunkHead(h, gutter, width, key, m.hunkOpen(key))
+			text = m.hunkHead(h, gutter, width, key, m.hunkOpen(key), split)
 			if m.cursorOn(key) {
 				out.cursorAt = at
 			}
