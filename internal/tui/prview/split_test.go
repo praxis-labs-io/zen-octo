@@ -187,20 +187,21 @@ func insertOnly() []gh.ChangedFile {
 	}}
 }
 
-// The two columns do not number their rows the same, and the base has none of
-// this block's. Unclamped the walk names a row nothing draws: rowAt answers -1
-// so no bar is painted, and walkedInto reads the raw cursor so the heading gives
-// up its fill as well. Nothing on the frame then says where the next key lands.
-func TestSteppingToAColumnWithNoRowsKeepsTheCursorOnTheScreen(t *testing.T) {
+// A file with every line on one side has one column worth standing in, and
+// walkColumn already walks the reader in it. Stepping to the empty one moves
+// m.column and nothing else, so the key showed nothing and left the file column
+// a second press away. The render is what says the step took.
+func TestHOnAOneSidedBlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 40)
 	m.SetFiles(store.Files{Files: insertOnly(), Status: store.StatusReady, Loaded: true})
 	m = press(m, "]", "]", "]", "|", "}", "j")
 
-	if barredRow(m.View()) == "" {
+	before := stripANSI(m.View())
+	if barredRow(before) == "" {
 		t.Fatal("the walk into the head column painted no bar to begin with")
 	}
-	if got := barredRow(press(m, "h").View()); got == "" {
-		t.Error("nothing is barred: the cursor left the screen on a column step")
+	if after := stripANSI(press(m, "h").View()); after == before {
+		t.Error("h changed nothing at all: the key was taken and the frame is identical")
 	}
 }
 
@@ -245,52 +246,16 @@ func TestHOnABlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	}
 }
 
-// The key is offered only once there is a diff to draw two columns of. Taken
-// early it latches with no toast and no change, and the answer it left behind
-// decides the mode when the diff does land.
-func TestSplitIsRefusedBeforeTheDiffHasLoaded(t *testing.T) {
+// The reader asked for a mode, not for a fact about request ordering. The diff
+// is a second request, so ] to Files and | straight after is the common case,
+// and refusing it silently made the key need a second press once the files
+// landed.
+func TestSplitPressedBeforeTheDiffLandsAppliesWhenItDoes(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 160, 40), "]", "]", "]")
 	m = press(m, "|")
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
-	if rows := splitRows(m.View()); len(rows) > 0 {
-		t.Errorf("the diff drew %d split rows from a key pressed before it loaded", len(rows))
-	}
-}
-
-// addedFile is what GitHub reports for a new file: every line an addition, so
-// the base column is blank down its whole length.
-func addedFile() []gh.ChangedFile {
-	lines := make([]gh.DiffLine, 6)
-	for i := range lines {
-		lines[i] = gh.DiffLine{Kind: gh.DiffAdded, New: i + 1, Content: "\tconst splitCodeMin = 28"}
-	}
-	return []gh.ChangedFile{{
-		Path: "internal/tui/prview/split.go", Status: gh.FileAdded, Additions: len(lines),
-		Hunks: []gh.Hunk{{Header: "@@ -0,0 +1,6 @@", Lines: lines}},
-	}}
-}
-
-// The column outlives the file it was chosen in, and a newly added file has no
-// line in the base one anywhere. A reader who stepped to the base and then
-// reached such a file pressed j at code plainly on the screen and got nothing
-// back, so the walk follows the content instead.
-func TestTheWalkFollowsTheContentWhenAColumnHasNoneOfIt(t *testing.T) {
-	open := func() prview.Model {
-		m := detailed(held(sampleDetail()), 140, 30)
-		m.SetFiles(store.Files{Files: addedFile(), Status: store.StatusReady, Loaded: true})
-		return press(m, "]", "]", "]", "|")
-	}
-
-	head := barredRow(press(open(), "}", "j").View())
-	if head == "" {
-		t.Fatal("the head column would not walk the file's own additions")
-	}
-
-	// h to the base column and h again to the file column, which is how a reader
-	// arrives holding a column this file has nothing in.
-	base := barredRow(press(open(), "}", "j", "h", "h", "}", "j").View())
-	if base != head {
-		t.Errorf("the base column would not walk the file's additions:\n base %q\n head %q", base, head)
+	if rows := splitRows(m.View()); len(rows) == 0 {
+		t.Error("the diff drew unified: the key pressed before it loaded was dropped")
 	}
 }

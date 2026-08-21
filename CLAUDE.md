@@ -496,10 +496,23 @@ cursor back on the block's own head. Left alone it named a row nothing draws:
 the heading gives up its fill too, and `j` cannot recover it, since
 `cursorShown()` is false and the ring steps to a different block.
 
-`|` is offered only once the diff has loaded, which is the gate `ShortHelp`
-already puts on the hint. Taken early it latched with no toast and no change,
-because `shownFile()` is nil and `splitShort()` reads that as wide enough, and
-the answer it left behind then decided the mode when the diff landed.
+`|` pressed before the diff has landed is held rather than refused. The diff is
+a second request, so `]` to Files and `|` straight after is the common case, and
+a silent refusal there is a key that needs pressing twice for a reason the
+reader cannot see. The reader asked for a mode, not for a fact about request
+ordering. Too narrow when the files do land is the resize fallback's case and
+answers the way that one does, silently and reversibly.
+
+**Whether a column step took is the render's answer too.** `walkColumn` walks a
+block the focused column has no rows in in the other one, so on a file with
+every line on one side the column moves and the bar does not: the key was taken,
+the frame was identical, and the file column was a second press away, which is
+the thing three conditions were put on this key to stop. `diffBody.columns` is
+the walked column per block, twin to `rows` and written by the same pass, and
+`stepColumn` reads it twice: once to refuse a step to the column already walked,
+and once after drawing to put `m.column` back where nothing moved. No field on
+the model can answer this, because the column asked for and the column drawn are
+exactly what differ.
 
 **A block the focused column has no rows in at all is walked in the other one.**
 That is a different question from the row rule below, and it answers what the

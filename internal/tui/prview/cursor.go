@@ -14,6 +14,11 @@ func (m Model) diffDriving() bool {
 // in. Every key that changes the column re-renders before the next one lands.
 func (m Model) diffRows(key focusKey) int { return m.diff.rows[key] }
 
+// walkedColumn is the column the focused block was drawn walked in, which is
+// where the bar is rather than which side was asked for: walkColumn resolves a
+// block the focused column has no rows in to the other one.
+func (m Model) walkedColumn() gh.DiffSide { return m.diff.columns[m.pageRing.on] }
+
 // cursorColumn is the column the cursor is in, and empty is a unified row,
 // which names both. A comment and a fill are read on it. The mode is the body's
 // rather than the model's: the Commits tab draws unified whatever Files is on.

@@ -44,7 +44,11 @@ func (m Model) columns(width int) (int, int) {
 }
 
 // toggleSplit turns side-by-side on or off. Turning it off always takes; on it
-// is refused where the pane is too narrow, and says how many columns short.
+// is refused where the pane is too narrow, and says how many columns short. A
+// diff still on its way is not a refusal: the reader asked for a mode, not for a
+// fact about request ordering, so the answer is held and splitting() applies it
+// when the files land. Too narrow when they do is the resize fallback's case and
+// answers the way that one does, silently and reversibly.
 func (m *Model) toggleSplit() tea.Cmd {
 	if !m.split {
 		if short := m.splitShort(); short > 0 {
@@ -186,16 +190,32 @@ func (m Model) walkColumn(r run, split bool) (gh.DiffSide, int) {
 // are in. And the cursor has to be in the code: on a block the two columns draw
 // the same frame, so claiming the key there is a press that shows the reader
 // nothing and leaves the file column two presses away.
+//
+// The last of those is asked of the render rather than of m.column, and it is
+// the render that answers whether the step took: walkColumn walks a block the
+// focused column has no rows in in the other one, so on a file with every line
+// on one side the column moves and the bar does not. Comparing the asked-for
+// column against the walked one catches the first; drawing and comparing again
+// catches the second, which no field on the model can be read for.
 func (m *Model) stepColumn(to gh.DiffSide) bool {
-	if m.tab != tabFiles || !m.splitting() || m.focus != paneMain || m.column == to {
+	if m.tab != tabFiles || !m.splitting() || m.focus != paneMain {
 		return false
 	}
-	if !m.walkedInto(m.pageRing.on) {
+	if !m.walkedInto(m.pageRing.on) || m.walkedColumn() == to {
 		return false
 	}
 
+	from, was := m.column, m.walkedColumn()
 	m.column = to
 	m.syncContent()
+
+	// Nothing moved, so the key is the pane's. Put the column back, or the next
+	// press reads a side the reader never arrived in.
+	if m.walkedColumn() == was {
+		m.column = from
+		m.syncContent()
+		return false
+	}
 
 	// The two columns do not number their rows the same, and a block with none
 	// in this one has no row to stand on. The walk clamps to what that render

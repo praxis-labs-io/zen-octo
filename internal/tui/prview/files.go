@@ -126,6 +126,11 @@ type drawnFile struct {
 	// by the next key rather than derived again: only the render knows which of
 	// a thread's cards the code below it hangs under.
 	rows map[focusKey]int
+
+	// columns is the column each block was walked in, which is not always the
+	// one asked for: a block the focused column has no rows in is walked in the
+	// other. A key that steps columns reads the one the bar is actually in.
+	columns map[focusKey]gh.DiffSide
 }
 
 // block is one file rendered. Tokenising is what it costs and that is all in
@@ -189,6 +194,10 @@ type diffBody struct {
 
 	// rows is every drawn block's walkable row count, from the last render.
 	rows map[focusKey]int
+
+	// columns is every drawn block's walked column, from the last render. It is
+	// the render's answer the way rows is, and for the same reason.
+	columns map[focusKey]gh.DiffSide
 }
 
 // filesBody is the diff. A diff that has loaded once keeps rendering through a
@@ -214,6 +223,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	width := m.bodyWidth()
 	d.spans, d.stops = d.spans[:0], d.stops[:0]
 	d.cursorLine, d.rows = -1, make(map[focusKey]int)
+	d.columns = make(map[focusKey]gh.DiffSide)
 
 	// After the reset, or a refetch answering with nothing leaves the last
 	// render's stops on a body that is one line saying there are none.
@@ -255,7 +265,7 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 			d.cursorLine = at + drawn.cursorAt
 		}
 		for k, n := range drawn.rows {
-			d.rows[k] = n
+			d.rows[k], d.columns[k] = n, drawn.columns[k]
 		}
 
 		lines := strings.Count(drawn.text, "\n") + 1
@@ -566,6 +576,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 	out := drawnFile{
 		stops:    make([]focusItem, 0, len(b.stops)),
 		rows:     make(map[focusKey]int, len(b.stops)),
+		columns:  make(map[focusKey]gh.DiffSide, len(b.stops)),
 		cursorAt: -1,
 	}
 	at, wrote := 0, false
@@ -589,7 +600,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 	for i, r := range b.runs {
 		if owner != (focusKey{}) {
 			column, rows := m.walkColumn(r, split)
-			out.rows[owner] = rows
+			out.rows[owner], out.columns[owner] = rows, column
 			if m.lit(owner) && m.walkedInto(owner) {
 				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
