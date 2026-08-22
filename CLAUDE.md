@@ -32,7 +32,7 @@ The installed binary is built from here to `~/.local/bin/zen-octo`; **rebuild af
 make install
 ```
 
-The repo moved to the `praxis-labs-io` org on 2026-08-18, so the module path is `github.com/praxis-labs-io/zen-octo`. There is no release and no Homebrew tap; `make install` is the only install. The emptied `zen-octo` org is held to keep the name.
+The repo moved to the `praxis-labs-io` org on 2026-08-18, so the module path is `github.com/praxis-labs-io/zen-octo`. A `v*` tag cuts a release: `.github/workflows/release.yml` builds the five targets, writes the checksums, and cuts it from `docs/release-notes/<tag>.md`, which has to be on `main` before the tag is. There is no Homebrew tap. The emptied `zen-octo` org is held to keep the name.
 
 Anything published under Drew's name (PR bodies, issues, README) must be shown to him word-for-word before pushing. His voice: terse, considerate, stoic, no strong adverbs, no em-dashes.
 
