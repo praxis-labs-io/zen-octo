@@ -72,6 +72,29 @@ func TestTheStripLeavesTheKeysWhereTheReaderPutThem(t *testing.T) {
 	}
 }
 
+// A frame that opens too narrow for a rail has no lead to take, and widening it
+// is the terminal getting bigger rather than an arrival. Latched on having
+// found a lead rather than on having arrived, the first widen past railMinFrame
+// would take the keys off a reader who was already working in the only pane
+// there was.
+func TestWideningAFrameDoesNotTakeTheKeys(t *testing.T) {
+	m := opened(held(sampleDetail()), 100, 40)
+	if got := markedRailRow(t, m.View()); got != "" {
+		t.Fatalf("setup: a frame under railMinFrame drew a rail cursor at %q", got)
+	}
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Fatalf("setup: the only pane holds %q, want the description", got)
+	}
+
+	m.SetSize(200, 40)
+	if got := markedRailRow(t, m.View()); got != "" {
+		t.Errorf("widening handed the keys to the rail, which lit %q", got)
+	}
+	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
+		t.Errorf("the page holds %q after the widen, want the card the reader was on", got)
+	}
+}
+
 // A cursor belongs to the pane the keys are going to. Two panes holding one
 // says the keys go to both.
 func TestTheRailGivesUpItsCursorWhenItGivesUpTheKeys(t *testing.T) {

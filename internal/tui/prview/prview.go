@@ -272,9 +272,15 @@ type Model struct {
 	// a push fetch the change rather than the one before it.
 	filesAsked bool
 
-	// led is whether the leading pane has been given the keys yet. It happens on
-	// the first layout rather than in New, because which pane leads is a
-	// question about a frame and New has not been given one.
+	// led is whether the screen has been through the layout it arrives on. It
+	// happens there rather than in New, because which pane leads is a question
+	// about a frame and New has not been given one.
+	//
+	// It says arrived rather than handed over, and the difference is a frame
+	// that opens too narrow for a second pane. Latched on having found a lead,
+	// a reader working in the only pane there was would have the keys taken off
+	// them by the first widen past railMinFrame, which is the terminal getting
+	// bigger and not an arrival at all.
 	led bool
 
 	// jump is the review thread v is on its way to, empty when there is none.
@@ -1098,16 +1104,11 @@ func (m *Model) goToTab(at int) tea.Cmd {
 
 // leadPane gives the keys to the leftmost pane on screen. A lone pane is
 // already holding them, so this is only ever a move onto a column or the rail,
-// and a frame with no width yet has no second pane to move to.
-// It reports whether there was a lead to take, so a caller doing this once can
-// tell an unsized frame from one whose leading pane it has already handed to.
-func (m *Model) leadPane() bool {
-	panes := m.visiblePanes()
-	if len(panes) < 2 {
-		return false
+// and a frame too narrow for a second one has no lead to give.
+func (m *Model) leadPane() {
+	if panes := m.visiblePanes(); len(panes) > 1 {
+		m.focusPane(panes[0])
 	}
-	m.focusPane(panes[0])
-	return true
 }
 
 // focusRing is the ring the focused pane walks, with the viewport it scrolls
@@ -1272,6 +1273,12 @@ func (m *Model) focusPane(want pane) bool {
 
 // stepPane moves focus one pane along the screen. Both ends are boundaries
 // rather than seams, which is what every other cursor here does.
+//
+// A focus that is on no visible pane takes the key and does nothing, and it
+// cannot arise: layout puts the focus back on the main pane whenever the one
+// holding it leaves the screen, and layout runs on every resize and every tab
+// change. The loop is written to fall out rather than to assume it, because
+// what makes it safe is forty lines away in another function.
 func (m *Model) stepPane(delta int) {
 	panes := m.visiblePanes()
 	for i, p := range panes {
@@ -1407,8 +1414,14 @@ func (m *Model) layout() {
 	// reader navigates with, and it is numbered first because it is where the
 	// eye lands. Only here: a reader who has moved has chosen a pane, and this
 	// runs on every resize.
-	if !m.led {
-		m.led = m.leadPane()
+	//
+	// The arrival is what is marked, not the handover. A frame with no width
+	// yet has not arrived anywhere, and one too narrow for a second pane has
+	// arrived with no lead to take: both are settled here rather than later, or
+	// widening the terminal would move the keys under a reader mid-page.
+	if !m.led && m.width > 0 {
+		m.led = true
+		m.leadPane()
 	}
 
 	// Last, because a ring has no stops until a body has been rendered into it.

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
@@ -148,10 +150,18 @@ func TestOpeningTheRailFocusesIt(t *testing.T) {
 
 // rightOf is a line past its first n cells, which is the half an overlaid rail
 // does not cover.
+//
+// Counted in cells rather than in runes. The rail is a column of the terminal,
+// and one CJK character or emoji in a title puts a rune index short of the
+// column it is meant to name, so the two halves compared against it would no
+// longer be the same columns of the frame.
 func rightOf(line string, n int) string {
-	runes := []rune(line)
-	if len(runes) <= n {
-		return ""
+	at := 0
+	for i, r := range line {
+		if at >= n {
+			return line[i:]
+		}
+		at += lipgloss.Width(string(r))
 	}
-	return string(runes[n:])
+	return ""
 }
