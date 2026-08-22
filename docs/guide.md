@@ -25,10 +25,15 @@ list and on every tab of the detail screen.
 
 Four tabs, walked with `]` and `[`.
 
+`tab` and `shift+tab` step the column that drives the pane: the file on Files,
+the commit on Commits, the check on Checks. They work from the pane, so you move
+through the diffs without leaving the one you are reading. The conversation has
+no such column and the key does nothing there.
+
 **Conversation** is the description and every comment and review under it, as
 cards. `}` and `{` walk them.
 
-**Files** is the diff. `tab` and `shift+tab` change file, `}` and `{` walk the
+**Files** is the diff. `}` and `{` walk the
 hunks and the comments written against them, and `m` marks a file viewed. `|`
 puts the two sides in two columns, where `h` and `l` step between them.
 
@@ -60,7 +65,7 @@ it the change is reverted and a toast says so.
 
 ## The details rail
 
-`d` opens a rail down the side carrying the five things you would otherwise open
+`d` opens a rail down the left carrying the five things you would otherwise open
 a browser to change: state, labels, reviewers, assignees and the base branch.
 
 Every row answers to `⏎`, which opens a picker as a centred modal. The picker

@@ -1520,7 +1520,10 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 
 	detail := press(m, "enter")
 	out := render(t, detail)
-	if !strings.Contains(out, "Conversation") {
+	// Stripped, the way the line under it reads: the current tab is underlined
+	// and lipgloss writes that one run per rune, so the raw frame carries no
+	// contiguous "Conversation" to match on.
+	if !strings.Contains(stripANSI(out), "Conversation") {
 		t.Errorf("detail = %q, want the conversation tab strip", out)
 	}
 	if !strings.Contains(stripANSI(out), "#408 Bump deps") {
@@ -1660,12 +1663,28 @@ func TestHelpSwallowsScreenKeys(t *testing.T) {
 
 // Every section is already held, so a tab switch is a move through state rather
 // than a round trip. Refetching here is what made switching tabs feel slow.
-func TestTabSwitchesSectionWithoutRefetching(t *testing.T) {
+// tab is the detail screen's key for stepping the column that drives its pane,
+// and the list has no such column. Leaving it on sections here was what made it
+// mean one thing on one screen and another on the next.
+func TestTabDoesNotChangeSectionOnTheList(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, 120, 40)
+
+	before := render(t, m)
+	if got := render(t, settle(m, keyMsg("tab"))); got != before {
+		t.Error("tab moved the list, which is ] and [ on both screens")
+	}
+	if got := render(t, settle(m, keyMsg("]"))); got == before {
+		t.Error("] did not change section")
+	}
+}
+
+func TestChangingSectionRefetchesNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
 	before := client.calls()
 
-	m = settle(m, keyMsg("tab"))
+	m = settle(m, keyMsg("]"))
 
 	if got := client.calls(); got != before {
 		t.Errorf("calls went from %d to %d, want the switch to fetch nothing", before, got)
@@ -1779,7 +1798,7 @@ func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveRepoMeta(gh.RepoMeta{Labels: []gh.Label{{ID: "L_bug", Name: "bug"}}})
 
-	m := press(loaded(t, client, 160, 40), "enter", "2", "j", "j", "j", "enter")
+	m := press(loaded(t, client, 160, 40), "enter", "1", "j", "j", "j", "enter")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Add label") {
 		t.Fatalf("setup: the label picker did not open:\n%s", out)
 	}
@@ -2001,7 +2020,7 @@ func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 		t.Fatalf("the failed section does not show its own error\n%s", first)
 	}
 
-	second := render(t, settle(m, keyMsg("tab")))
+	second := render(t, settle(m, keyMsg("]")))
 	if strings.Contains(second, "Failed to load") {
 		t.Errorf("the failure followed the user to a section that loaded fine\n%s", second)
 	}
@@ -2030,6 +2049,49 @@ func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 	out := render(t, drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40}))
 	if !strings.Contains(out, "419") {
 		t.Errorf("view = %q, want the lowest remaining across the responses", out)
+	}
+}
+
+// The detail's header is two lines and does not carry who opened the pull
+// request, so the bar's right side is where that goes. It is the last thing on
+// that side: everything else there either changes or reports something that
+// just happened.
+func TestTheBarCarriesWhoOpenedItWhenNothingElseNeedsTheSide(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+	m := press(loaded(t, client, 160, 40), "enter")
+	if got := lastLine(render(t, m)); !strings.Contains(got, "@drucial") {
+		t.Errorf("status bar = %q, want who opened the pull request on it", strings.TrimSpace(got))
+	}
+
+	// And the list screen has no pull request to say it about.
+	if got := lastLine(render(t, loaded(t, client, 160, 40))); strings.Contains(got, "@drucial") {
+		t.Errorf("list bar = %q, want the readout off a screen with no pull request", strings.TrimSpace(got))
+	}
+}
+
+// A budget running low outranks it. One is a number that runs out and the other
+// is a fact that does not change.
+func TestALowBudgetOutranksTheReadout(t *testing.T) {
+	window := time.Now().Add(time.Hour)
+	client := &querySearcher{results: map[string]gh.SearchResult{
+		"is:open is:pr author:@me": {
+			PullRequests: samplePRs(),
+			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 419, ResetAt: window},
+		},
+	}}
+
+	// No detail served: the readout comes off the row the list opened with, so
+	// the screen has one to give up.
+	m := press(drive(t, app.New(testConfig(), client), tea.WindowSizeMsg{Width: 160, Height: 40}), "enter")
+
+	got := lastLine(render(t, m))
+	if !strings.Contains(got, "419") {
+		t.Errorf("status bar = %q, want the budget while it is low", strings.TrimSpace(got))
+	}
+	if strings.Contains(got, "@drucial") {
+		t.Errorf("status bar = %q, want the readout to give way to the budget", strings.TrimSpace(got))
 	}
 }
 
@@ -3360,7 +3422,7 @@ func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	m := press(loaded(t, client, 160, 40), "enter", "}", "}", "r")
+	m := press(loaded(t, client, 160, 40), "enter", "2", "}", "r")
 	return write(m, body)
 }
 
@@ -3447,7 +3509,7 @@ func settling(t *testing.T, client *fakeSearcher) tea.Model {
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveThread("PR_412")
 
-	return press(loaded(t, client, 160, 40), "enter", "}", "}")
+	return press(loaded(t, client, 160, 40), "enter", "2", "}")
 }
 
 // The card collapsing is the acknowledgement, the same way the optimistic

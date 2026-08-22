@@ -31,7 +31,7 @@ has to work from everywhere.
 | `g` `G` | top, bottom |
 | `pgup` `pgdn` | page |
 | `ctrl+u` `ctrl+d` | half page |
-| `]` `tab` | next section |
+| `]` | next section |
 | `[` | previous section |
 | `⏎` | open |
 | `s` | sync |
@@ -51,6 +51,7 @@ The same movement keys serve every pane. Focus decides what they move.
 | `pgup` `pgdn` | page |
 | `ctrl+u` `ctrl+d` | half page |
 | `]` `[` | next, previous tab |
+| `tab` `shift+tab` | next, previous in the column |
 | `}` `{` | next, previous block |
 | `h` `←` / `l` `→` | pane left, pane right |
 | `1` `2` `3` | focus a pane by its badge |
@@ -60,7 +61,6 @@ The same movement keys serve every pane. Focus decides what they move.
 
 | Key | Does |
 | --- | --- |
-| `tab` `shift+tab` | next, previous file |
 | `m` | mark viewed |
 | `\|` | side by side |
 | `v` | show in the diff |

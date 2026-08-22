@@ -2,6 +2,7 @@ package prview_test
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,6 +115,60 @@ func TestTheMentionListLandsWhileTheBoxHasTheKeyboard(t *testing.T) {
 
 	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
 		t.Errorf("the list that landed mid-word never reached the popup:\n%s", out)
+	}
+}
+
+// The popup stands under the word it answers. Anchoring is the whole of what it
+// does that a list in a pane would not, and nothing else on the frame says where
+// the caret is, so a popup two panes away reads as a different control.
+func TestTheMentionListStandsUnderTheWordItAnswers(t *testing.T) {
+	// Both sides of the one branch that decides the anchor's column: a frame
+	// wide enough for the rail to take a column of its own, and one where it
+	// does not and the page is against the frame's own edge.
+	for _, width := range []int{200, 100} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			anchorsUnderTheWord(t, width)
+		})
+	}
+}
+
+func anchorsUnderTheWord(t *testing.T, width int) {
+	t.Helper()
+
+	m, _ := typing(composing(width, 60), "@zq")
+	m.SetRepo(loadedRepo())
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+
+	at, caretRow := -1, -1
+	for i, line := range lines {
+		if c := strings.Index(line, "@zq"); c >= 0 {
+			at, caretRow = c, i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatalf("setup: nothing typed on the frame:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The popup's own top border, which is the first corner below the caret's
+	// row that is not one of the box's own.
+	top, left := -1, -1
+	for i := caretRow + 1; i < len(lines); i++ {
+		if c := strings.Index(lines[i], "╭"); c >= 0 {
+			top, left = i, c
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatalf("no popup under the caret:\n%s", strings.Join(lines, "\n"))
+	}
+
+	if left != at {
+		t.Errorf("the popup opens at column %d and the word is at %d", left, at)
+	}
+	if top != caretRow+1 {
+		t.Errorf("the popup opens on row %d and the caret is on %d", top, caretRow)
 	}
 }
 

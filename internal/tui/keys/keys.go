@@ -52,10 +52,15 @@ type DetailMap struct {
 	NextTab      key.Binding
 	PrevTab      key.Binding
 
-	// NextFile and PrevFile are the coarser move, on the tab that shows one file
-	// at a time. The strip keeps ] and [, which is what the list screen uses.
-	NextFile     key.Binding
-	PrevFile     key.Binding
+	// NextInColumn and PrevInColumn step the column that drives the pane, on the
+	// three tabs that have one: the file, the commit, the check. It is the
+	// coarser move, made without leaving the pane the result lands in.
+	//
+	// The conversation has no such column. Its rail is a menu whose cursor does
+	// nothing until the rail has the keys, so the binding is dead there and the
+	// bar does not name it. The strip keeps ] and [ on both screens.
+	NextInColumn key.Binding
+	PrevInColumn key.Binding
 	ToggleViewed key.Binding
 
 	// The braces are paragraph motion in vim and mean the same here: go to the
@@ -164,8 +169,8 @@ var (
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
-		NextSection:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("]/tab", "next tab")),
-		PrevSection:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("[", "prev tab")),
+		NextSection:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		PrevSection:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
 		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		CopyLink:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
@@ -183,8 +188,8 @@ var (
 		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
 		NextTab:      key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
 		PrevTab:      key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
-		NextFile:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next file")),
-		PrevFile:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev file")),
+		NextInColumn: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next in the column")),
+		PrevInColumn: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous in the column")),
 		ToggleViewed: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mark viewed")),
 		NextBlock:    key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next block")),
 		PrevBlock:    key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev block")),
@@ -279,9 +284,10 @@ type DetailContext struct {
 	// have no room for.
 	Rail bool
 
-	// Files is whether there is another file to go to, which is the one tab
-	// showing one at a time.
-	Files bool
+	// Column names what the driving column holds, and is empty where the tab has
+	// none. It is the noun rather than a flag because the bar says "tab file" on
+	// one tab and "tab commit" on the next, off one declaration.
+	Column string
 
 	// Split is whether the pane draws a diff two columns can be asked of, which
 	// is the same tab. A hint for a key that is inert is worse than no hint.
@@ -305,8 +311,8 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	if c.Blocks {
 		out = append(out, hint(k.NextBlock, "{/}", "block"))
 	}
-	if c.Files {
-		out = append(out, hint(k.NextFile, "⇥/⇧⇥", "file"))
+	if c.Column != "" {
+		out = append(out, hint(k.NextInColumn, "⇥/⇧⇥", c.Column))
 	}
 	if c.FileView {
 		action := "mark viewed"
@@ -347,7 +353,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
-		{k.NextFile, k.PrevFile, k.ToggleViewed},
+		{k.NextInColumn, k.PrevInColumn, k.ToggleViewed},
 		{k.PaneLeft, k.PaneRight, k.FocusPane, k.SplitView},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
