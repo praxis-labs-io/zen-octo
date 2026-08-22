@@ -89,13 +89,14 @@ type railEntry struct {
 	key  focusKey
 }
 
-// railBase is the style every cell in a row is rendered against. The selected
+// railRow is the style every cell in a row is rendered against. The selected
 // row carries a background, and it has to be set on each cell: every styled run
 // ends in a reset that clears the background with it, so a joined row wrapped in
 // the background afterwards paints only its first cell.
 //
 // Only the pane the keys are going to paints its selection, the same rule the
 // conversation's cards hold to. Both lit at once says the keys go to both.
+//
 // It answers with whether the row is the lit one as well, because the bar in
 // the gutter reads the same fact and two tests of it could disagree about which
 // row is marked.
@@ -110,8 +111,9 @@ func (m Model) railRow(selected bool) (lipgloss.Style, bool) {
 // cursor line out to the border rather than stopping at the last word.
 //
 // The gutter is the leading cell the diff puts its cursor bar in, and it is the
-// same bar here. railGutter is one cell wide and so is the glyph, so a row gains
-// nothing by being the one under the cursor and the rows below it do not step.
+// same bar here. The glyph is one cell and so is the first of railGutter's, so
+// a row gains nothing by being the one under the cursor and the rows below it
+// do not step. What is left of the gutter holds the content off the bar.
 //
 // The fill stays under it, which is a second mark the cards were refused. This
 // rail earns it where they do not: its ring walks controls and steps over the
@@ -125,7 +127,8 @@ func (m Model) railLine(base lipgloss.Style, lit bool, content string, width int
 	if lit {
 		bar = m.theme.Accent
 	}
-	return m.padTo(paint.Lead(bar, base)+content, width, base)
+	gutter := base.Render(strings.Repeat(" ", max(0, railGutter-1)))
+	return m.padTo(paint.Lead(bar, base)+gutter+content, width, base)
 }
 
 // railFact is a one-row section stating something about the pull request. There

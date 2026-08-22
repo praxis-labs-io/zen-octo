@@ -141,9 +141,16 @@ const railColumnFrom = columnWidth + 40
 // railGutter is the space between the rail's left border and what it holds.
 // Text against a border reads as a rendering fault rather than as a column.
 //
+// Two cells, and the cursor bar takes the first of them. One was enough while
+// the gutter was blank, and left the bar against the row it marks: a dot or a
+// glyph leading a name then sat on the bar rather than beside it, which reads
+// as one mark rather than a row that has been marked. The second cell is what
+// the headings indent by too, so a name lines up whether or not it is the row
+// the cursor is on.
+//
 // The right side is railNameRoom's business: a row runs the full width so the
 // cursor line reaches the border, and it is the name that stops short.
-const railGutter = 1
+const railGutter = 2
 
 // contentMeasure caps the conversation and centres it. Text set the full width
 // of a wide terminal is a paragraph the eye loses its place in on every line.

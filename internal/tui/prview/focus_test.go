@@ -121,6 +121,13 @@ func TestTheRailCursorCarriesTheBar(t *testing.T) {
 		t.Error("the bar is not in the accent the diff draws its own in")
 	}
 
+	// A cell of gutter is left between the bar and the row it marks. Against it,
+	// a dot or a glyph leading a name reads as one mark rather than as a row
+	// that has been marked.
+	if !strings.Contains(stripANSI(lit), paint.BarGlyph+" ") {
+		t.Errorf("the content sits against the bar: %q", stripANSI(lit))
+	}
+
 	// It goes in the gutter every row already holds open, so nothing steps.
 	for _, row := range railRows(t, m.View()) {
 		if strings.Count(row, paint.BarGlyph) > 1 {
