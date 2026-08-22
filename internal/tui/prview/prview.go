@@ -152,6 +152,19 @@ const railColumnFrom = columnWidth + 40
 // cursor line reaches the border, and it is the name that stops short.
 const railGutter = 2
 
+// branchMeasure caps the whole branch line, both names and the arrow between
+// them. A wide terminal is not a reason to spend all of it on two refs, and the
+// line reads as a pair rather than as a sentence running the frame.
+//
+// The room is shared rather than split. A name inside its share is never cut,
+// and what it leaves goes to the other one, so merging a long branch into main
+// spends four columns on main and the rest on the name worth reading. Two long
+// names take half each, which is the only answer when neither will fit.
+//
+// A cut takes the tail. The key these names carry sits at the front, so what
+// goes is the sentence after it and never which pull request this is.
+const branchMeasure = 96
+
 // contentMeasure caps the conversation and centres it. Text set the full width
 // of a wide terminal is a paragraph the eye loses its place in on every line.
 // The diff is exempt: code wants every column it can have.
@@ -1914,12 +1927,44 @@ func (m Model) opened() string {
 // the front, so it is what gives way rather than the line wrapping.
 func (m Model) branchLine(width int) string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
-	branches := faint.Render(m.pr.BaseRefName + " ← " + m.pr.HeadRefName)
+	arrow := " ← "
 
-	if lipgloss.Width(branches) > width {
-		return paint.Clip(branches, width, faint)
+	base, head := m.pr.BaseRefName, m.pr.HeadRefName
+	baseRoom, headRoom := shareBranchRoom(lipgloss.Width(base), lipgloss.Width(head),
+		min(width, branchMeasure)-lipgloss.Width(arrow))
+
+	return clipTo(faint.Render(base), baseRoom, faint) +
+		faint.Render(arrow) +
+		clipTo(faint.Render(head), headRoom, faint)
+}
+
+// shareBranchRoom divides what the line has between the two names.
+//
+// A name that fits inside half is never cut, and the room it does not want goes
+// to the other one: main merged into from a long branch takes its four columns
+// and leaves the rest, which is the case worth getting right because it is
+// nearly every pull request. Only where neither will fit is the room split, and
+// then it is halved, because there is nothing to choose between two names that
+// are both too long.
+//
+// The odd column goes to the head. It is the name that says what is being
+// merged, and the base is usually the one a reader already knows.
+func shareBranchRoom(base, head, room int) (int, int) {
+	if room <= 0 {
+		return 0, 0
 	}
-	return branches
+	if base+head <= room {
+		return base, head
+	}
+
+	half := room / 2
+	switch {
+	case base <= half:
+		return base, room - base
+	case head <= half:
+		return room - head, head
+	}
+	return half, room - half
 }
 
 // statusLine is where the pull request stands, then who raised it and when,

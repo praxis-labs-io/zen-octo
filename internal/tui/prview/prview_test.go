@@ -348,6 +348,86 @@ func TestTheBranchLineClipsTheHeadRatherThanWrapping(t *testing.T) {
 	}
 }
 
+// The room is shared, not split. main is four columns and never loses one of
+// them, which is the case worth getting right because it is nearly every pull
+// request; what it leaves goes to the name that says what is being merged.
+func TestAShortBaseLeavesItsRoomToTheHead(t *testing.T) {
+	pr := samplePR()
+	pr.BaseRefName = "main"
+	pr.HeadRefName = "feature/znn-16-a-release-skill-to-carry-the-judgement-the-workflow-cannot"
+
+	base, head := branchHalves(t, sized(pr, 200, 30).View())
+	if base != "main" {
+		t.Errorf("the base reads %q, want main whole", base)
+	}
+	if head != pr.HeadRefName {
+		t.Errorf("the head reads %q, want the room main did not take", head)
+	}
+}
+
+// Two names that will not both fit take half each. There is nothing to choose
+// between them, and the key each carries is at the front where a cut spares it.
+func TestTwoLongBranchesTakeHalfEach(t *testing.T) {
+	pr := samplePR()
+	pr.BaseRefName = "feature/znn-15-cut-releases-from-a-tag-and-install-the-binary-from-one"
+	pr.HeadRefName = "feature/znn-16-a-release-skill-to-carry-the-judgement-the-workflow-cannot"
+
+	base, head := branchHalves(t, sized(pr, 200, 30).View())
+	for _, half := range []struct{ what, name string }{{"base", base}, {"head", head}} {
+		if !strings.HasSuffix(half.name, "…") {
+			t.Errorf("the %s is not marked where it was cut: %q", half.what, half.name)
+		}
+		if !strings.Contains(half.name, "znn-1") {
+			t.Errorf("the cut took the %s's ticket key with it: %q", half.what, half.name)
+		}
+	}
+	if got := lipgloss.Width(base) - lipgloss.Width(head); got > 1 || got < -1 {
+		t.Errorf("the halves differ by %d columns, want them even", got)
+	}
+}
+
+// The line stops at its measure however wide the terminal is. Two refs running
+// the width of a wide frame read as a sentence rather than as a pair.
+func TestTheBranchLineStopsAtItsMeasure(t *testing.T) {
+	pr := samplePR()
+	pr.BaseRefName = strings.Repeat("a", 200)
+	pr.HeadRefName = strings.Repeat("b", 200)
+
+	base, head := branchHalves(t, sized(pr, 400, 30).View())
+	if got := lipgloss.Width(base + " ← " + head); got != 96 {
+		t.Errorf("the branch line is %d columns on a 400-column frame, want 96", got)
+	}
+}
+
+// And it gives way to a frame narrower than the measure, because nothing else
+// holds the header inside the terminal.
+func TestTheBranchLineGivesWayToANarrowFrame(t *testing.T) {
+	pr := samplePR()
+	pr.BaseRefName = strings.Repeat("a", 200)
+	pr.HeadRefName = strings.Repeat("b", 200)
+
+	base, head := branchHalves(t, sized(pr, 60, 30).View())
+	if got := lipgloss.Width(base + " ← " + head); got > 60-headGutterCols*2 {
+		t.Errorf("the branch line is %d columns on a 60-column frame", got)
+	}
+}
+
+// headGutterCols is what the header is held off the terminal's edges by.
+const headGutterCols = 1
+
+// branchHalves is the two names on the branch line, either side of the arrow.
+func branchHalves(t *testing.T, frame string) (string, string) {
+	t.Helper()
+
+	for _, row := range headerRows(t, frame) {
+		if base, head, ok := strings.Cut(row, " ← "); ok {
+			return base, head
+		}
+	}
+	t.Fatal("no branch line on screen")
+	return "", ""
+}
+
 // The state, the author and the timestamp are on the line below. Putting any
 // of them here is what pushed the branch onto two lines.
 func TestTheBranchLineCarriesNothingElse(t *testing.T) {
@@ -1138,11 +1218,13 @@ func TestNothingInTheBodyRunsPastTheMeasure(t *testing.T) {
 	assertWithinMeasure(t, detailed(held(d), 200, 60).View())
 }
 
-// The header is built by hand rather than by glamour, so nothing wraps it
-// unless this file does. A long branch name is what finds that out.
-func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
+// The header is built by hand rather than by glamour, so nothing holds it to
+// the frame unless this file does. A long branch name is what finds that out.
+func TestALongHeaderHoldsItsMeasure(t *testing.T) {
 	pr := samplePR()
-	pr.HeadRefName = "feature/eng-9547-marketing-and-dashboard-share-one-globalscss-so-base-element"
+	// Long enough to overrun the line's measure even with main leaving it every
+	// column main does not want.
+	pr.HeadRefName = "feature/eng-9547-marketing-and-dashboard-share-one-globalscss-so-base-element-styles-leak-across-both"
 
 	d := sampleDetail()
 	d.PullRequest = pr
@@ -1153,9 +1235,14 @@ func TestALongHeaderWrapsAtTheMeasure(t *testing.T) {
 
 	assertWithinMeasure(t, m.View())
 
-	// Wrapped, not truncated: the tail of the branch is still on screen.
-	if !strings.Contains(stripANSI(m.View()), "so-base-element") {
-		t.Error("the branch name was cut rather than wrapped")
+	// The tail is what goes: the key at the front is what names the pull
+	// request, and the line stays on one row either way.
+	out := stripANSI(m.View())
+	if strings.Contains(out, "styles-leak-across-both") {
+		t.Error("the branch ran past the measure on a frame with room for it")
+	}
+	if !strings.Contains(out, "main ← feature/eng-9547-marketing") {
+		t.Errorf("the branch lost the front of its name rather than the tail:\n%s", out)
 	}
 }
 
