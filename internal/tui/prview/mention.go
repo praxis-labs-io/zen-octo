@@ -384,10 +384,22 @@ func (m Model) mentionAnchor(lead int) (x, y int, ok bool) {
 }
 
 // mainLeft is the frame column the conversation pane's left border stands on.
-// Zero on the tab that has a box, and read rather than assumed.
+//
+// It was zero, on the argument that the tab with a box has no column beside it.
+// That was true while the rail sat on the right: the conversation was the
+// leading pane and its border was the frame's own edge. With the rail on the
+// left it is a column like any other, and a popup anchored at zero is drawn
+// inside it, two panes from the word it answers.
+//
+// An overlaid rail is not one of these. It is composited over the frame rather
+// than joined beside it, so the pane under it starts where it always did, which
+// is what railColumn separates.
 func (m Model) mainLeft() int {
-	if m.sideVisible() {
+	switch {
+	case m.sideVisible():
 		return m.side.InnerWidth() + 2
+	case m.railVisible() && m.railColumn():
+		return m.rail.InnerWidth() + 2
 	}
 	return 0
 }
