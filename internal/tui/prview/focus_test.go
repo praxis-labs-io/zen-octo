@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
@@ -92,6 +93,47 @@ func TestWideningAFrameDoesNotTakeTheKeys(t *testing.T) {
 	}
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("the page holds %q after the widen, want the card the reader was on", got)
+	}
+}
+
+// The rail marks its cursor line the way the diff marks its row: a bar in the
+// leading cell, in accent. One glyph for one fact, so crossing from the diff to
+// the rail is not a second mark to learn.
+func TestTheRailCursorCarriesTheBar(t *testing.T) {
+	m := opened(held(sampleDetail()), 200, 44)
+
+	on := markedRailRow(t, m.View())
+	lit := ""
+	for _, raw := range railRaw(t, m.View()) {
+		if strings.Contains(stripANSI(raw), on) {
+			lit = raw
+			break
+		}
+	}
+	if lit == "" {
+		t.Fatalf("no rail row reading %q", on)
+	}
+
+	if !strings.Contains(stripANSI(lit), paint.BarGlyph) {
+		t.Errorf("the rail's cursor line carries no bar: %q", stripANSI(lit))
+	}
+	if !strings.Contains(lit, fgSeq(theme.RosePineMoon.Accent)) {
+		t.Error("the bar is not in the accent the diff draws its own in")
+	}
+
+	// It goes in the gutter every row already holds open, so nothing steps.
+	for _, row := range railRows(t, m.View()) {
+		if strings.Count(row, paint.BarGlyph) > 1 {
+			t.Errorf("row %q carries more than one bar", row)
+		}
+	}
+	if got := strings.Count(stripANSI(m.View()), paint.BarGlyph); got != 1 {
+		t.Errorf("the frame carries %d bars, want the one under the cursor", got)
+	}
+
+	// And it goes with the keys.
+	if got := press(m, "l").View(); strings.Contains(stripANSI(got), paint.BarGlyph) {
+		t.Error("the bar is still on the rail once the page took the keys")
 	}
 }
 
@@ -866,7 +908,7 @@ func markedRailRow(t *testing.T, frame string) string {
 		if !strings.Contains(raw, bgSeq(theme.RosePineMoon.SelectedBackground)) {
 			continue
 		}
-		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│● "))
+		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│● "+paint.BarGlyph))
 	}
 	return ""
 }

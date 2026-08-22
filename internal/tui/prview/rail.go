@@ -9,6 +9,7 @@ import (
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 )
 
 // glyphFile marks the changed-file count. It comes from the codicons range, the
@@ -95,24 +96,43 @@ type railEntry struct {
 //
 // Only the pane the keys are going to paints its selection, the same rule the
 // conversation's cards hold to. Both lit at once says the keys go to both.
-func (m Model) railBase(selected bool) lipgloss.Style {
+// It answers with whether the row is the lit one as well, because the bar in
+// the gutter reads the same fact and two tests of it could disagree about which
+// row is marked.
+func (m Model) railRow(selected bool) (lipgloss.Style, bool) {
 	if selected && m.focus == paneRail {
-		return lipgloss.NewStyle().Background(m.theme.SelectedBackground)
+		return lipgloss.NewStyle().Background(m.theme.SelectedBackground), true
 	}
-	return lipgloss.NewStyle()
+	return lipgloss.NewStyle(), false
 }
 
 // railLine is one row: its gutter, its content, and the padding that runs the
 // cursor line out to the border rather than stopping at the last word.
-func (m Model) railLine(base lipgloss.Style, content string, width int) string {
-	return m.padTo(base.Render(strings.Repeat(" ", railGutter))+content, width, base)
+//
+// The gutter is the leading cell the diff puts its cursor bar in, and it is the
+// same bar here. railGutter is one cell wide and so is the glyph, so a row gains
+// nothing by being the one under the cursor and the rows below it do not step.
+//
+// The fill stays under it, which is a second mark the cards were refused. This
+// rail earns it where they do not: its ring walks controls and steps over the
+// headings between them, so the cursor lands on rows that are not neighbours and
+// a reader tracking it is looking for where it went rather than watching it
+// move. The file tree, the commit list and the workflow column are flat, every
+// row a stop, so a fill alone says everything there and none of them takes a
+// bar.
+func (m Model) railLine(base lipgloss.Style, lit bool, content string, width int) string {
+	var bar color.Color
+	if lit {
+		bar = m.theme.Accent
+	}
+	return m.padTo(paint.Lead(bar, base)+content, width, base)
 }
 
 // railFact is a one-row section stating something about the pull request. There
 // is nothing to do to it, so the ring walks past.
 func (m Model) railFact(text string, c color.Color, width int) []railEntry {
-	base := m.railBase(false)
-	return []railEntry{{line: m.railLine(base, base.Foreground(c).Render(text), width)}}
+	base, lit := m.railRow(false)
+	return []railEntry{{line: m.railLine(base, lit, base.Foreground(c).Render(text), width)}}
 }
 
 // railControl is a one-row section that is also something to act on. State is
@@ -120,8 +140,8 @@ func (m Model) railFact(text string, c color.Color, width int) []railEntry {
 // Merge is the other.
 func (m Model) railControl(kind focusKind, text string, c color.Color, width int) []railEntry {
 	key := focusKey{kind: kind}
-	base := m.railBase(m.railRing.focused(key))
-	return []railEntry{{line: m.railLine(base, base.Foreground(c).Render(text), width), key: key}}
+	base, lit := m.railRow(m.railRing.focused(key))
+	return []railEntry{{line: m.railLine(base, lit, base.Foreground(c).Render(text), width), key: key}}
 }
 
 // stateRow is where the pull request sits, and a stop on the ring only while
@@ -155,9 +175,9 @@ func (m Model) stateRow(d gh.PullRequestDetail, width int) []railEntry {
 // something and no way to add one has nothing to say.
 func (m Model) addRow(kind focusKind, label string, width int) railEntry {
 	key := focusKey{kind: kind}
-	base := m.railBase(m.railRing.focused(key))
+	base, lit := m.railRow(m.railRing.focused(key))
 	return railEntry{
-		line: m.railLine(base, base.Foreground(m.theme.Subtle).Render("+ "+label), width),
+		line: m.railLine(base, lit, base.Foreground(m.theme.Subtle).Render("+ "+label), width),
 		key:  key,
 	}
 }
@@ -166,14 +186,14 @@ func (m Model) addRow(kind focusKind, label string, width int) railEntry {
 // glyph rather than the word: the rail has thirty-odd columns and "files" earns
 // none of them.
 func (m Model) changeRow(pr gh.PullRequest, width int) []railEntry {
-	base := m.railBase(false)
+	base, lit := m.railRow(false)
 
 	churn := base.Foreground(m.theme.Success).Render("+"+strconv.Itoa(pr.Additions)) +
 		base.Render(" ") + base.Foreground(m.theme.Error).Render("−"+strconv.Itoa(pr.Deletions))
 	files := base.Foreground(m.theme.Subtle).
 		Render("  " + strconv.Itoa(pr.ChangedFiles) + " " + glyphFile)
 
-	return []railEntry{{line: m.railLine(base, churn+files, width)}}
+	return []railEntry{{line: m.railLine(base, lit, churn+files, width)}}
 }
 
 // checkRows is every check on the head commit, each marked with its own state.
@@ -187,21 +207,21 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 	// first check's would leave focus parked here to light up whichever check
 	// arrived in its place.
 	if len(r.Checks) == 0 {
-		base := m.railBase(false)
+		base, lit := m.railRow(false)
 		return []railEntry{{
-			line: m.railLine(base, base.Foreground(m.theme.Subtle).Render("None yet"), width),
+			line: m.railLine(base, lit, base.Foreground(m.theme.Subtle).Render("None yet"), width),
 		}}
 	}
 
 	out := make([]railEntry, 0, len(r.Checks))
 	for _, check := range r.Checks {
 		key := focusKey{kind: focusCheck, id: check.Key()}
-		base := m.railBase(m.railRing.focused(key))
+		base, lit := m.railRow(m.railRing.focused(key))
 		_, c := comp.CheckStateIcon(m.theme, check.State)
 
 		faint := base.Foreground(m.theme.Subtle)
 		out = append(out, railEntry{
-			line: m.railLine(base, base.Foreground(c).Render(glyphCheck)+faint.Render(" ")+
+			line: m.railLine(base, lit, base.Foreground(c).Render(glyphCheck)+faint.Render(" ")+
 				m.fit(faint, checkName(check), railNameRoom(width, markLead)), width),
 			key: key,
 		})
@@ -225,9 +245,9 @@ func (m Model) reviewerRows(reviewers []gh.Reviewer, width int) []railEntry {
 	out := make([]railEntry, 0, len(reviewers)+1)
 	for _, r := range reviewers {
 		key := focusKey{kind: focusReviewer, id: r.Actor.Login}
-		base := m.railBase(m.railRing.focused(key))
+		base, lit := m.railRow(m.railRing.focused(key))
 		out = append(out, railEntry{
-			line: m.railLine(base,
+			line: m.railLine(base, lit,
 				base.Foreground(comp.ReviewerColor(m.theme, r)).Render(glyphCheck)+
 					base.Render(" ")+
 					m.fit(base.Foreground(m.theme.Actor), comp.Handle(r.Actor.Login), railNameRoom(width, markLead)), width),
@@ -284,9 +304,9 @@ func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
 		if assignable {
 			key = focusKey{kind: focusAssignee, id: a.Login}
 		}
-		base := m.railBase(m.railRing.focused(key))
+		base, lit := m.railRow(m.railRing.focused(key))
 		out = append(out, railEntry{
-			line: m.railLine(base,
+			line: m.railLine(base, lit,
 				m.fit(base.Foreground(m.theme.Actor), comp.Handle(a.Login), railNameRoom(width, 0)), width),
 			key: key,
 		})
@@ -319,9 +339,9 @@ func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 	out := make([]railEntry, 0, len(labels)+1)
 	for _, l := range labels {
 		key := focusKey{kind: focusLabel, id: l.Name}
-		base := m.railBase(m.railRing.focused(key))
+		base, lit := m.railRow(m.railRing.focused(key))
 		out = append(out, railEntry{
-			line: m.railLine(base,
+			line: m.railLine(base, lit,
 				m.fit(base.Foreground(m.theme.Accent), l.Name, railNameRoom(width, 0)), width),
 			key: key,
 		})

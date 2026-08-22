@@ -15,6 +15,7 @@ import (
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
@@ -1603,7 +1604,7 @@ func railRows(t *testing.T, frame string) []string {
 		if left == 0 || len(runes) < left {
 			continue
 		}
-		rows = append(rows, strings.Trim(string(runes[:left]), "│╭╮╰╯─ "))
+		rows = append(rows, strings.Trim(string(runes[:left]), "│╭╮╰╯─ "+paint.BarGlyph))
 	}
 	return rows
 }
@@ -1904,7 +1905,7 @@ func markSGR(t *testing.T, frame, text string) string {
 	t.Helper()
 
 	for _, raw := range railRaw(t, frame) {
-		if strings.Trim(stripANSI(raw), "│╭╮╰╯›─ ") != text {
+		if strings.Trim(stripANSI(raw), "│╭╮╰╯›─ "+paint.BarGlyph) != text {
 			continue
 		}
 		seq, ok := rowMark(raw)
