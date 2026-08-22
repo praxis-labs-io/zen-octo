@@ -205,17 +205,48 @@ Inserting rebuilds the buffer back to front. `SetValue` is a `Reset` and an `Ins
 
 The list is offered before anything is fetched, because the people on the pull request are known from the detail and are who a reply usually names. `mentionableUsers` rides on the repo-meta query, so the first `@` costs a request only where no picker has opened yet, and the note under the rows is what stops a short list of participants reading as everybody there is: on its way, or refused, or matched nobody, each in its own words. The one that had to be built for it is the refusal. `SetRepo` declines to act while `Capturing()` is true, and a compose box always is, so `refillMentions` runs on its first line ahead of every guard; and `repoMetaFailed` told the screen nothing at all, which made a dead fetch and an unasked one render identically, which is the exact failure a silent empty list is.
 
+**Every secondary pane is the left column, the rail included.** It sat on the
+right until it was the only one that did, and the sidebar then changed sides on
+a keypress that only changed which tab was on. Moving it lands the tab strip on
+the right-hand pane on all four tabs as well, so the strip stopped travelling
+without being touched. Pane 1 is that column on every tab and 2 is what it sits
+beside. `visiblePanes` is the one place that order is written down, because the
+enum cannot carry it: the rail and the file column are exclusive and sit in the
+same place, so stepping focus by adding one to the enum is right on whichever
+kind of tab the order was written for and wrong on the other.
+
+**The leading pane takes the keys on the way in, once.** It is the one the
+reader navigates with, and it is numbered first because it is where the eye
+lands. It happens on the first `layout` rather than in `New`, because which pane
+leads is a question about a frame and `New` has not been given one, and it
+latches on having found a second pane rather than on having run, since `layout`
+runs again on every resize. The strip is left alone: a reader changing tab has
+already chosen a pane, and handing the keys back on every press of it would make
+them ask for the page again each time they came round. Commits and Checks still
+take their column on arrival, which they did before any of this.
+
+**A cursor is landed wherever there is something to land it on**, and `esc`
+leaves in one press. The conversation and the diff opened with nothing lit, so
+the first press of a motion key was spent arriving rather than moving, and `esc`
+let go of a card before it would leave. With a cursor everywhere there is always
+something to let go of, so the reader who wanted the list would have paid two
+presses every time: a cursor that always exists is not a thing to be dismissed.
+The Checks search keeps its own leg, because `n` and `N` stay armed off it.
+`landCursor` and `focusPane` report whether they placed one, since arriving
+somewhere is a move: `walkDiff` stepped again on top of the landing and a brace
+pressed from the file column skipped the first hunk of the file.
+
 **`d` answers at every width the shell will draw, because the rail is the only
 route to five writes**: state, labels, reviewers, assignees and the base branch.
 It used to be refused below `railColumnFrom`, where the key set the preference
 and rendered nothing, and a client in a drawer beside an editor was read-only
 with the bar still offering the key. What that width decides now is where the
 rail lands rather than whether it comes: above it a column, below it the same
-pane painted over the right of the conversation. The frame under it is
+pane painted over the left of the conversation. The frame under it is
 untouched, so nothing is relaid out on the toggle and the words behind the rail
 are covered rather than rewrapped; it goes on before the pickers, so the modal a
-rail row opens still draws over it. It sits against the right edge and not
-centred, which is where the eye already looks for it. **An overlaid rail steps
+rail row opens still draws over it. It sits against the left edge and not
+centred, because that is where the column would have been. **An overlaid rail steps
 aside for a box**, on `Composing()` and not on `Capturing()`: a picker and the
 merge form are drawn over the page and cover it themselves, where a compose or
 reply box is drawn down the page and gets covered instead, losing the half of
