@@ -3902,3 +3902,18 @@ func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
 		t.Errorf("sync did not retry the failed job fetch:\n%s", out)
 	}
 }
+
+// Nothing failed: the pane has no room for two columns of source and the diff
+// is still readable unified. The count is the whole of what the toast is for.
+func TestSideBySideInAPaneTooNarrowSaysHowShortItIs(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveFiles(412, sampleFiles())
+
+	m := press(loaded(t, client, 90, 40), "enter", "]", "]", "]", "|")
+
+	got := lastLine(render(t, m))
+	if !strings.Contains(got, "Side by side needs") || !strings.Contains(got, "more columns in the pane") {
+		t.Errorf("status bar = %q, want it to name the columns the pane is short", strings.TrimSpace(got))
+	}
+}

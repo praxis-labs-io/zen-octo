@@ -110,6 +110,71 @@ func TestGoldenOneSided(t *testing.T) {
 	compare(t, "one_sided", strings.Join(rows, "\n"))
 }
 
+// Half is the one renderer whose output is always exactly its width: a short
+// column puts the one beside it out of step for the rest of the file.
+func TestGoldenHalves(t *testing.T) {
+	tests := []struct {
+		name  string
+		line  paint.Line
+		width int
+	}{
+		{"half_added", paint.Line{Kind: paint.Added, New: 120, Tokens: tokens()}, 26},
+		{"half_removed", paint.Line{Kind: paint.Removed, Old: 119, Tokens: tokens()}, 26},
+		{"half_context", paint.Line{Kind: paint.Context, New: 120, Tokens: tokens()}, 26},
+
+		// The column facing an unpaired change: no number, no marker, no tint,
+		// and still exactly as wide as the one beside it.
+		{"half_blank", paint.Line{}, 26},
+		{
+			"half_clipped",
+			paint.Line{Kind: paint.Added, New: 120, Tokens: []syntax.Token{
+				{Text: "if err != nil { return err }", Color: theme.RosePineMoon.Text},
+			}},
+			14,
+		},
+		{
+			"half_filled",
+			paint.Line{Kind: paint.Context, New: 120, Tokens: tokens(), Fill: theme.RosePineMoon.SelectedBackground},
+			26,
+		},
+		{
+			"half_barred",
+			paint.Line{
+				Kind:   paint.Added,
+				New:    120,
+				Tokens: tokens(),
+				Fill:   theme.RosePineMoon.SelectedBackground,
+				Bar:    theme.RosePineMoon.Accent,
+			},
+			26,
+		},
+	}
+
+	p := painter()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			compare(t, tt.name, p.Half(tt.line, paint.Gutter(120), tt.width))
+		})
+	}
+}
+
+// The code column moves with the gutter, the way it does in a unified row.
+func TestGoldenHalfWideGutter(t *testing.T) {
+	compare(t, "half_wide_gutter", painter().Half(
+		paint.Line{Kind: paint.Added, New: 42100, Tokens: tokens()}, paint.Gutter(42100), 30))
+}
+
+// A heading over side-by-side indents to the left column's own code, and its
+// bar sits at the pane edge rather than in either column.
+func TestGoldenHalfHeader(t *testing.T) {
+	compare(t, "half_header", painter().HalfHeader(paint.Header{
+		Text:  "@@ -11,4 +12,6 @@ func Paint()",
+		Badge: "○",
+		Fill:  theme.RosePineMoon.SelectedBackground,
+		Bar:   theme.RosePineMoon.Accent,
+	}, paint.Gutter(120), 40))
+}
+
 func TestGoldenHunkHeader(t *testing.T) {
 	compare(t, "hunk_header", painter().HunkHeader(paint.Header{Text: "@@ -11,4 +12,6 @@ func Paint()"}, paint.Gutter(1235), 40))
 }

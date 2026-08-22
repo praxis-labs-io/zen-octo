@@ -1398,6 +1398,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.ThreadNotInDiffMsg:
 		return m, m.toasts.Show(comp.ToastInfo, msg.Path+" is not in the diff")
 
+	// A fact about the frame rather than a failure: the pane is too narrow to
+	// draw two columns of source and the diff is still readable unified.
+	case prview.SplitTooNarrowMsg:
+		return m, m.toasts.Show(comp.ToastInfo,
+			"Side by side needs "+comp.Plural(msg.Short, "more column")+" in the pane")
+
 	// The terminal answers once, at startup, and only the compose pane cares:
 	// it decides whether ctrl+enter is a key worth naming in its footer.
 	case tea.KeyboardEnhancementsMsg:

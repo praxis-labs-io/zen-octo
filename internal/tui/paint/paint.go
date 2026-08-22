@@ -61,15 +61,7 @@ type Painter struct {
 // Anything wider than the pane is clipped rather than wrapped: a wrapped row
 // puts its tail under the gutter and every row below it out of step.
 func (p Painter) Line(l Line, gutter, width int) string {
-	marker, c := " ", p.Theme.Subtle
-	var tint color.Color
-
-	switch l.Kind {
-	case Added:
-		marker, c, tint = "+", p.Theme.Success, p.Theme.AddedBackground
-	case Removed:
-		marker, c, tint = "−", p.Theme.Error, p.Theme.RemovedBackground
-	}
+	marker, c, tint := p.weight(l.Kind)
 	if l.Fill != nil {
 		tint = l.Fill
 	}
@@ -99,6 +91,47 @@ func (p Painter) Line(l Line, gutter, width int) string {
 		row += base.Render(strings.Repeat(" ", width-w))
 	}
 	return row
+}
+
+// Half paints one column of a side-by-side row. A half carries one number, so
+// whichever of Old and New is set shows, and a zero Line paints a blank column.
+func (p Painter) Half(l Line, gutter, width int) string {
+	marker, c, tint := p.weight(l.Kind)
+	if l.Fill != nil {
+		tint = l.Fill
+	}
+
+	base := background(lipgloss.NewStyle(), tint)
+	kind := base.Foreground(c)
+
+	num := base.Foreground(p.Theme.Subtle)
+	if l.Kind != Context {
+		num = kind
+	}
+
+	row := lead(l.Bar, base) + num.Render(number(max(l.Old, l.New), gutter)) +
+		base.Render(" ") + kind.Render(marker) + base.Render(" ") +
+		p.code(l.Tokens, base)
+
+	if w := lipgloss.Width(row); w > width {
+		return Clip(row, width, base.Foreground(p.Theme.Subtle))
+	} else if w < width {
+		// Padded whether or not it is tinted, where Line leaves that to the pane.
+		// A short half puts the column beside it out of step.
+		row += base.Render(strings.Repeat(" ", width-w))
+	}
+	return row
+}
+
+// weight is the marker, foreground and tint one kind of line is painted in.
+func (p Painter) weight(k Kind) (string, color.Color, color.Color) {
+	switch k {
+	case Added:
+		return "+", p.Theme.Success, p.Theme.AddedBackground
+	case Removed:
+		return "−", p.Theme.Error, p.Theme.RemovedBackground
+	}
+	return " ", p.Theme.Subtle, nil
 }
 
 // Header is the @@ line ready to paint.
@@ -131,9 +164,20 @@ type Header struct {
 	Bar color.Color
 }
 
-// HunkHeader is the @@ line, indented to the code column so it sits over the
-// source it introduces. A fill runs its background out to the full width.
+// HunkHeader is the @@ line over a unified row, indented to the code column so
+// it sits above the source it introduces.
 func (p Painter) HunkHeader(h Header, gutter, width int) string {
+	return p.header(h, CodeColumn(gutter), width)
+}
+
+// HalfHeader is HunkHeader over a side-by-side row, where the source starts one
+// number column in rather than two. A caller cannot pass the wrong one.
+func (p Painter) HalfHeader(h Header, gutter, width int) string {
+	return p.header(h, HalfColumn(gutter), width)
+}
+
+// header is the @@ line indented to wherever the source under it starts.
+func (p Painter) header(h Header, code, width int) string {
 	base := background(lipgloss.NewStyle(), h.Fill)
 	accent := base.Foreground(p.Theme.Accent)
 
@@ -150,7 +194,7 @@ func (p Painter) HunkHeader(h Header, gutter, width int) string {
 	}
 
 	row := lead(h.Bar, base) +
-		base.Render(strings.Repeat(" ", markerColumn(gutter)-markerSlot-1)) +
+		base.Render(strings.Repeat(" ", max(0, code-2*markerSlot-1))) +
 		slot(h.Badge, base, badge) + slot(h.Marker, base, text) +
 		text.Render(h.Text)
 

@@ -446,6 +446,101 @@ the code below it, the way a hunk heading gives up its fill, since a lit card an
 a barred row are two claims about where the reader is standing. The hints ride
 inside the border either way, so nothing changes height as it passes.
 
+**`|` puts the two sides in two columns.** A run of removals pairs against the
+run of additions after it, one row each, and the shorter side draws a blank
+rather than shifting up, which would put the two columns out of step for the
+rest of the file. Context takes both. One gutter serves each half, so the rule
+between them sits centre, and `paint.Half` pads to exactly its width where
+`paint.Line` leaves that to the pane: a half a column short walks the other one
+in and out down the page.
+
+It is what the reader asked for and not always what they get. Under a minimum of
+source per column the two halves clip away more than they show, so the key
+refuses and the toast says how many columns short the pane is. `m.split` is the
+answer and `splitting()` is what is drawn, which is what lets a terminal
+shrinking under a split pane fall back to unified and come back on widening with
+no second press. The mode is on the block's own `blockState` rather than its
+key: it replaces the block it retires instead of keeping one painted per mode
+for the rest of the run.
+
+**It is the body's mode and never the model's past `filesBody`.** `renderDiff`
+draws the Commits tab as well, and that tab never splits: a heading, a lit row
+and the column a walk is counted in all read `diffBody.split`, which is written
+once from `splitting()` on the way in. Read off the model instead, `|` on Files
+moved every heading on the Commits tab three cells left of the source under it,
+because `HalfColumn` is one number column in where `CodeColumn` is two. That
+shipped as far as a runbook.
+
+The cursor is in one column and only that column lights. Lit across both, a
+reader on a rewritten line has nothing saying which side the next key takes, and
+the rule stays dark or the lit block runs a cell past its column. A heading
+spans the pane and takes its bar at the pane edge, belonging to neither. `h` and
+`l` step into it, ahead of the pane they already move between: `h` from the head
+column goes to the base and again to the file column, and a pane drawing one
+column has nowhere to step and gives the focus up on the first press. The digits
+stay an absolute jump, because a badge drawn in a border names the frame it is
+drawn in and there are three frames whatever the mode.
+
+**A column step is taken on three conditions and not one.** The tab has to be
+Files, because `splitting()` reads a remembered file and a pane width and both
+outlive a tab change: ungated, `h` on the Commits pane was swallowed as a column
+step, and the reader met the moved column on their next walk in the diff rather
+than on the key they pressed. The pane has to be the one the columns are in. And
+the cursor has to be down in the code, because on a block the two columns draw
+the same frame: the key was taken, nothing changed, and the file column sat one
+press further away than it looked. That is the rule `d` already answers to, one
+key over. Where the step does happen the walk clamps to what the render just
+measured, and a block the new column has no rows in clamps to 0, which is the
+cursor back on the block's own head. Left alone it named a row nothing draws:
+`rowAt` answers -1 so no bar is painted, `walkedInto` reads the raw cursor so
+the heading gives up its fill too, and `j` cannot recover it, since
+`cursorShown()` is false and the ring steps to a different block.
+
+`|` pressed before the diff has landed is held rather than refused. The diff is
+a second request, so `]` to Files and `|` straight after is the common case, and
+a silent refusal there is a key that needs pressing twice for a reason the
+reader cannot see. The reader asked for a mode, not for a fact about request
+ordering. Too narrow when the files do land is the resize fallback's case and
+answers the way that one does, silently and reversibly.
+
+**Whether a column step took is the render's answer too.** `walkColumn` walks a
+block the focused column has no rows in in the other one, so on a file with
+every line on one side the column moves and the bar does not: the key was taken,
+the frame was identical, and the file column was a second press away, which is
+the thing three conditions were put on this key to stop. `diffBody.columns` is
+the walked column per block, twin to `rows` and written by the same pass, and
+`stepColumn` reads it twice: once to refuse a step to the column already walked,
+and once after drawing to put `m.column` back where nothing moved. No field on
+the model can answer this, because the column asked for and the column drawn are
+exactly what differ.
+
+**A block the focused column has no rows in at all is walked in the other one.**
+That is a different question from the row rule below, and it answers what the
+row rule cannot: a newly added file has every line on one side, and the column
+outlives the file it was chosen in, so a reader who had stepped to the base
+reached one, pressed `j` at code plainly on the screen, and the client answered
+with nothing. The column is a side of the diff to read rather than a claim about
+where a file has content. `walkColumn` is the one place that decides it, so the
+count the walk reads and the column the bar is painted in cannot disagree.
+
+**A block the focused column has no rows in at all is walked in the other one.**
+That is a different question from the row rule below, and it answers what the
+row rule cannot: a newly added file has every line on one side, and the column
+outlives the file it was chosen in, so a reader who had stepped to the base
+reached one, pressed `j` at code plainly on the screen, and the client answered
+with nothing. The column is a side of the diff to read rather than a claim about
+where a file has content. `walkColumn` is the one place that decides it, so the
+count the walk reads and the column the bar is painted in cannot disagree.
+
+A row the focused column has no line on is not a row the cursor can sit on, so
+walking the head column of a deletion-only block steps over it: `run.rowAt`
+counts only the rows that column has, which is the same rule that keeps the walk
+inside its own block. So the count a block offers belongs to a column as well as
+to a block, and it is the render that measures it: `stepColumn` draws again
+before it returns, which is what keeps the number the next key reads a number
+about the column that key is in. The mode lasts the run and nothing stores it; a
+default belongs with the reader's other preferences.
+
 `canCompose` split in two for it. It still means the conversation, because the
 compose card is drawn on one tab only; `canAct` is the wider question the keys
 reading the ring ask, and `answerable` asks it. `replyBody` keeps `canCompose`

@@ -515,3 +515,48 @@ func TestABarOnAHeadingLeavesTheMarkerColumnAlone(t *testing.T) {
 		t.Errorf("barred heading = %q, want %q", barred, want)
 	}
 }
+
+// A Half is always exactly its width, tinted or not. Line leaves that to the
+// pane; a half short of its width puts the column beside it out of step.
+func TestEveryHalfIsExactlyItsWidth(t *testing.T) {
+	p := paint.Painter{Theme: theme.RosePineMoon}
+	long := []syntax.Token{{Text: strings.Repeat("n = 4; ", 20)}}
+
+	lines := []paint.Line{
+		{},
+		{Kind: paint.Context, New: 120, Tokens: []syntax.Token{{Text: "n = 4"}}},
+		{Kind: paint.Added, New: 120, Tokens: []syntax.Token{{Text: "n = 4"}}},
+		{Kind: paint.Removed, Old: 119, Tokens: long},
+		{Kind: paint.Context, New: 120, Tokens: []syntax.Token{{Text: "日本語のコメントです"}}},
+	}
+
+	for i, l := range lines {
+		for width := 14; width <= 41; width++ {
+			if got := lipgloss.Width(p.Half(l, 3, width)); got != width {
+				t.Errorf("line %d at width %d painted %d cells", i, width, got)
+			}
+		}
+	}
+}
+
+// HalfColumn is where Half actually puts the source, the way CodeColumn is for
+// Line. A caller hanging a heading or a card off it indents to the number.
+func TestHalfColumnIsWhereAHalfsSourceStarts(t *testing.T) {
+	p := paint.Painter{Theme: theme.RosePineMoon}
+	const code = "n = 4"
+
+	for _, widest := range []int{9, 120, 4210, 42100} {
+		gutter := paint.Gutter(widest)
+		row := xansi.Strip(p.Half(
+			paint.Line{Kind: paint.Context, New: widest, Tokens: []syntax.Token{{Text: code}}}, gutter, 60))
+
+		i := strings.Index(row, code)
+		if i < 0 {
+			t.Fatalf("gutter %d: no source in %q", gutter, row)
+		}
+		if at := lipgloss.Width(row[:i]); at != paint.HalfColumn(gutter) {
+			t.Errorf("gutter %d: the source starts at column %d, HalfColumn says %d",
+				gutter, at, paint.HalfColumn(gutter))
+		}
+	}
+}

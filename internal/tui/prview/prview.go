@@ -90,6 +90,10 @@ type ResolveThreadMsg struct {
 	Resolved bool
 }
 
+// SplitTooNarrowMsg reports a side-by-side toggle the pane has no room for, and
+// how many columns short it is. The root raises the toast.
+type SplitTooNarrowMsg struct{ Short int }
+
 // ThreadNotInDiffMsg reports a jump with nowhere to land: the thread's file is
 // not among the changed files the diff carries. The root raises the toast, for
 // the reason EditorFailedMsg gives.
@@ -242,6 +246,12 @@ type Model struct {
 	diffCursor int
 	diffOn     focusKey
 
+	// split is what the reader asked for, not what they are getting: a pane too
+	// narrow draws unified until it is widened, and splitting() is the one to
+	// read. column is the one the cursor is in, which only a split diff has.
+	split  bool
+	column gh.DiffSide
+
 	// commit is the Commits tab: what the column has on screen, where its
 	// cursor is, and the diff of the commit that was last selected.
 	commit commits
@@ -372,7 +382,10 @@ func New(th theme.Theme, pr gh.PullRequest, rail RailPreference, syntax syntax.S
 		focus:    paneMain,
 		// The pull request's own diff is the one review threads were written
 		// against. The Commits tab keeps a diffBody of its own, which does not.
-		diff:        diffBody{threads: true},
+		diff: diffBody{threads: true},
+		// The head is the side a reader comes to read, so a split diff opens
+		// with the cursor in it and h is the step to the base.
+		column:      gh.SideRight,
 		commit:      commits{diff: diffBody{headings: true}},
 		compose:     newComposer(th),
 		inline:      newInline(th),
@@ -786,10 +799,18 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevBlock) && !m.railDriving():
 		m.stepFocus(-1)
 
+	// h and l step, and a diff in two columns is one more thing to step to. A
+	// pane that took the key keeps the focus it already had.
 	case key.Matches(keyMsg, k.PaneLeft):
-		m.focusPane(m.focus - 1)
+		if !m.stepColumn(gh.SideLeft) {
+			m.focusPane(m.focus - 1)
+		}
 	case key.Matches(keyMsg, k.PaneRight):
-		m.focusPane(m.focus + 1)
+		if !m.stepColumn(gh.SideRight) {
+			m.focusPane(m.focus + 1)
+		}
+	case key.Matches(keyMsg, k.SplitView) && m.tab == tabFiles:
+		return m, m.toggleSplit()
 	case key.Matches(keyMsg, k.FocusPane):
 		m.focusIndex(keyMsg.String())
 
@@ -1450,6 +1471,7 @@ func (m Model) ShortHelp() []key.Binding {
 		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
 		Rail:       m.railTab(),
 		Files:      m.tab == tabFiles,
+		Split:      m.tab == tabFiles && m.files.Loaded,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
 		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
