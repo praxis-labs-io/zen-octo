@@ -581,6 +581,56 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 	}
 }
 
+// tab steps the column that drives the pane, on the three tabs that have one,
+// and from the pane rather than from the column: the reader is standing where
+// the result lands, and leaving to move the selector is three keys for one
+// intention.
+func TestTabStepsTheColumnThatDrivesThePane(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	// On the page, not the column, so this is the move made without leaving it.
+	m := press(detailed(held(d), 200, 40), "]")
+	if got := conversationBorder(t, press(m, "2").View()); got != fgSeq(theme.RosePineMoon.Accent) {
+		t.Fatal("setup: 2 did not put the keys on the page")
+	}
+	m = press(m, "2")
+
+	// Read off the fill rather than off the text: the column marks its cursor
+	// with a background, which stripping the frame takes away with the colour.
+	before := stripANSI(selectedRow(m.View()))
+	after := stripANSI(selectedRow(press(m, "tab").View()))
+	if before == "" || after == "" {
+		t.Fatalf("no row lit in the column: %q then %q", before, after)
+	}
+	if before == after {
+		t.Errorf("tab left the cursor on %q, want the next commit", before)
+	}
+	if back := stripANSI(selectedRow(press(m, "tab", "shift+tab").View())); back != before {
+		t.Errorf("shift+tab landed on %q, want back on %q", back, before)
+	}
+
+	// And the keys stayed on the page: the point of the key is stepping the
+	// column without leaving the pane the result lands in.
+	if got := conversationBorder(t, press(m, "tab").View()); got != fgSeq(theme.RosePineMoon.Accent) {
+		t.Error("tab took the keys to the column it stepped")
+	}
+}
+
+// And it is dead on the conversation, which has no such column. The rail is a
+// menu whose cursor moves nothing until the rail has the keys, and it is off
+// the screen entirely below the width that gives it a column.
+func TestTabIsInertOnTheConversation(t *testing.T) {
+	m := press(detailed(held(sampleDetail()), 200, 40), "2")
+
+	before := m.View()
+	for _, k := range []string{"tab", "shift+tab"} {
+		if got := press(m, k).View(); got != before {
+			t.Errorf("%q moved something on the conversation", k)
+		}
+	}
+}
+
 // A tab gives back the pane it was left on. Focus is one field where the scroll
 // is four, and Commits takes the column on arrival, so a round trip through it
 // used to come back on whatever layout was left holding: the column goes off

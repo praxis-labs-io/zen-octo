@@ -1663,12 +1663,28 @@ func TestHelpSwallowsScreenKeys(t *testing.T) {
 
 // Every section is already held, so a tab switch is a move through state rather
 // than a round trip. Refetching here is what made switching tabs feel slow.
-func TestTabSwitchesSectionWithoutRefetching(t *testing.T) {
+// tab is the detail screen's key for stepping the column that drives its pane,
+// and the list has no such column. Leaving it on sections here was what made it
+// mean one thing on one screen and another on the next.
+func TestTabDoesNotChangeSectionOnTheList(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, 120, 40)
+
+	before := render(t, m)
+	if got := render(t, settle(m, keyMsg("tab"))); got != before {
+		t.Error("tab moved the list, which is ] and [ on both screens")
+	}
+	if got := render(t, settle(m, keyMsg("]"))); got == before {
+		t.Error("] did not change section")
+	}
+}
+
+func TestChangingSectionRefetchesNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
 	before := client.calls()
 
-	m = settle(m, keyMsg("tab"))
+	m = settle(m, keyMsg("]"))
 
 	if got := client.calls(); got != before {
 		t.Errorf("calls went from %d to %d, want the switch to fetch nothing", before, got)
@@ -2004,7 +2020,7 @@ func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 		t.Fatalf("the failed section does not show its own error\n%s", first)
 	}
 
-	second := render(t, settle(m, keyMsg("tab")))
+	second := render(t, settle(m, keyMsg("]")))
 	if strings.Contains(second, "Failed to load") {
 		t.Errorf("the failure followed the user to a section that loaded fine\n%s", second)
 	}

@@ -453,39 +453,40 @@ func TestTheBranchesStillTakeOneLine(t *testing.T) {
 	}
 }
 
-// A right half that fits is not a clipped one. It takes the line to itself
-// where the left half will not fit beside it, and an ellipsis there marks a cut
-// that never happened.
-func TestAHeaderLineTooNarrowForBothHalvesDoesNotMarkACut(t *testing.T) {
-	// Measured rather than written down. The half is a state and a rollup and
-	// both are worded elsewhere, so a number here goes stale the first time one
-	// of them gains a letter.
-	var status string
-	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
-		if _, half, ok := strings.Cut(row, "  "); ok && strings.Contains(row, "failing") {
-			status = strings.TrimSpace(half)
-		}
-	}
-	if status == "" {
-		t.Fatal("no status half on a frame with room for one")
-	}
+// The far edge sheds groups rather than clipping one, and sheds them in the
+// order they are worth losing: the churn, then the checks, then the review
+// decision. The state is on every width there is.
+//
+// Walked rather than pinned at three widths. The groups are worded elsewhere,
+// so a number written down here goes stale the first time one gains a letter.
+func TestTheFarEdgeShedsInOrderAndAlwaysKeepsTheState(t *testing.T) {
+	for width := 200; width >= 40; width-- {
+		row := titleRow(t, detailed(held(sampleDetail()), width, 30).View())
 
-	// The gutters take two of the frame, so these are the widths where the half
-	// fits exactly and with one to spare.
-	exact := lipgloss.Width(status) + headGutterCols*2
-	for _, width := range []int{exact, exact + 1} {
-		t.Run(strconv.Itoa(width), func(t *testing.T) {
-			for _, row := range headerRows(t, detailed(held(sampleDetail()), width, 30).View()) {
-				if !strings.Contains(row, "failing") {
-					continue
-				}
-				if row != status {
-					t.Errorf("status line = %q, want %q whole and unmarked", row, status)
-				}
-				return
-			}
-			t.Fatal("no rollup on screen")
-		})
+		churn := strings.Contains(row, "+42 −7")
+		checks := strings.Contains(row, "✗ failing")
+		review := strings.Contains(row, "changes requested")
+
+		if !strings.Contains(row, "Open") {
+			t.Fatalf("width %d: %q sheds the state, which is the group that never goes", width, row)
+		}
+
+		// A group is there whole or not at all. Cut to a fragment it reads as
+		// shed, which is the failure the shedding is here to prevent.
+		if strings.Contains(row, "✗") != checks {
+			t.Errorf("width %d: %q carries a cut check state", width, row)
+		}
+		if strings.Contains(row, "changes") != review {
+			t.Errorf("width %d: %q carries a cut review decision", width, row)
+		}
+
+		// And they go in order, so a narrower frame never holds more.
+		if churn && !checks {
+			t.Errorf("width %d: %q kept the churn over the checks", width, row)
+		}
+		if checks && !review {
+			t.Errorf("width %d: %q kept the checks over the review decision", width, row)
+		}
 	}
 }
 
@@ -506,27 +507,20 @@ func TestAClippedHeaderGivesItsSeparatorBack(t *testing.T) {
 	}
 }
 
-// The lifecycle and where the checks and the review got to, pushed to the far
-// edge of the branch line the way the title line pushes its numbers.
-func TestTheBranchLineCarriesTheStatusAtItsFarEdge(t *testing.T) {
+// The branch line carries the branches and nothing else. The state and the
+// rollup read on the line naming the pull request, so what it is and how it is
+// doing are one glance rather than two.
+func TestTheBranchLineCarriesNothingElse(t *testing.T) {
 	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
 		if !strings.Contains(row, "←") {
 			continue
 		}
-		// The gap is what separates the two halves; neither carries one.
-		branches, rollup, ok := strings.Cut(row, "  ")
-		if !ok {
-			t.Fatalf("branch line = %q, want the status pushed to the far edge", row)
-		}
-		if branches != "main ← fix-auth-retry" {
-			t.Errorf("branch half = %q, want the branches alone", branches)
-		}
-		if got := strings.TrimSpace(rollup); !strings.HasSuffix(got, "Open · ✗ failing · changes requested") {
-			t.Errorf("far edge = %q, want the state, the checks and the review decision", got)
+		if row != "main ← fix-auth-retry" {
+			t.Errorf("branch line = %q, want the branches alone", row)
 		}
 		return
 	}
-	t.Fatal("no status line on screen")
+	t.Fatal("no branch line on screen")
 }
 
 // paneTop is the frame's first pane border, which is the line the tab strip
@@ -1758,14 +1752,19 @@ func TestTheHeaderIsOnEveryTab(t *testing.T) {
 	}
 }
 
-// How much it touches sits at the far edge of the title line: the file count
-// marked with a glyph rather than the word, then the churn. The rail's own
-// Changes row writes the same pair.
-func TestTheTitleLineCountsTheFilesBeforeTheChurn(t *testing.T) {
+// Where the pull request stands sits at the far edge of the title line, with
+// the churn beyond it where the churn has always been.
+func TestTheTitleLineCarriesTheStatusAndTheChurn(t *testing.T) {
 	row := titleRow(t, detailed(held(sampleDetail()), 200, 30).View())
 
-	if !strings.HasSuffix(row, "3   +42 −7") {
-		t.Errorf("title line = %q, want the file count ahead of the churn", row)
+	if !strings.HasSuffix(row, "Open · ✗ failing · changes requested  +42 −7") {
+		t.Errorf("title line = %q, want the state ahead of the churn", row)
+	}
+
+	// The file count is the strip's, which says it on all four tabs where this
+	// row could only ever say it beside a title it was already crowding.
+	if strings.Contains(row, "") {
+		t.Errorf("title line = %q, want no file count on it", row)
 	}
 }
 

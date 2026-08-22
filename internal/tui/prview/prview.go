@@ -188,6 +188,12 @@ const diffMeasure = 80
 // each file starts in its own body, and scrolling to one has to clear this.
 const contentLead = 1
 
+// titleMin is the measure the title keeps before the far edge starts shedding.
+// Under it the far edge sheds rather than the title clipping further, which is
+// the order that matters: the title says which pull request this is, and
+// neither it nor the state is worth reading in fragments.
+const titleMin = 24
+
 // headGutter holds the pinned header off the terminal's edges. One column, so
 // the title starts level with the first content cell of the pane under it and
 // the far edge ends level with its last.
@@ -812,12 +818,13 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.PrevTab):
 		return m, m.changeTab(-1)
 
-	// The strip is ] and [ on both screens. tab is the file, which only the tab
-	// showing one at a time has.
-	case key.Matches(keyMsg, k.NextFile) && m.tab == tabFiles:
-		m.jumpFile(1)
-	case key.Matches(keyMsg, k.PrevFile) && m.tab == tabFiles:
-		m.jumpFile(-1)
+	// The strip is ] and [ on both screens. tab steps the column that drives the
+	// pane, which the conversation does not have: its rail is a menu, and a
+	// cursor stepped there moves nothing until the rail has the keys.
+	case key.Matches(keyMsg, k.NextInColumn) && m.columnNoun() != "":
+		m.stepColumnItem(1)
+	case key.Matches(keyMsg, k.PrevInColumn) && m.columnNoun() != "":
+		m.stepColumnItem(-1)
 
 	// A block in a diff is a hunk or a comment written against one, and both are
 	// in the pane, so the key takes the pane along with the block.
@@ -1021,6 +1028,35 @@ func (m *Model) moveSide(delta int) {
 	default:
 		m.moveCursor(delta)
 	}
+}
+
+// stepColumnItem steps the column that drives the pane, from wherever the keys
+// are. That is the whole of its use: the reader is in the pane reading the
+// result, and leaving it to move the selector and coming back is three keys for
+// one intention.
+//
+// On Files it steps by file rather than by row, because the tree's other rows
+// are directories and a directory is not a thing the pane can show.
+func (m *Model) stepColumnItem(delta int) {
+	if m.tab == tabFiles {
+		m.jumpFile(delta)
+		return
+	}
+	m.moveSide(delta)
+}
+
+// columnNoun is what the driving column holds, for the one hint that names it.
+// Empty on the conversation, which has no such column.
+func (m Model) columnNoun() string {
+	switch m.tab {
+	case tabCommits:
+		return "commit"
+	case tabChecks:
+		return "check"
+	case tabFiles:
+		return "file"
+	}
+	return ""
 }
 
 // sideRows is how far the column runs, which is what the keys that go to one
@@ -1579,7 +1615,7 @@ func (m Model) ShortHelp() []key.Binding {
 		Blocks:     m.tab != tabChecks || m.check.job.Loaded,
 		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
 		Rail:       m.railTab(),
-		Files:      m.tab == tabFiles,
+		Column:     m.columnNoun(),
 		Split:      m.tab == tabFiles && m.files.Loaded,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
@@ -1979,8 +2015,8 @@ func (m Model) head() string {
 // closing it does, and a block centred on the main pane would move with it.
 func (m Model) headWidth() int { return max(1, m.width-headGutter*2) }
 
-// titleLine is the number, the title, and what the pull request changes pushed
-// to the far edge.
+// titleLine is the number and the title, with where the pull request stands and
+// how much it changes pushed to the far edge.
 func (m Model) titleLine(width int) string {
 	// The number leads, in the accent the list numbers rows with, so the same
 	// pull request reads the same on both screens.
@@ -1988,7 +2024,43 @@ func (m Model) titleLine(width int) string {
 		Render("#"+strconv.Itoa(m.pr.Number)) + " " +
 		lipgloss.NewStyle().Foreground(m.theme.Text).Bold(true).Render(m.pr.Title)
 
-	return m.spread(lead, m.changes(), width)
+	// The far edge is built against what is left once the title has a measure to
+	// read in, rather than taking the width and leaving the title the remainder.
+	return m.spread(lead, m.titleRight(max(0, width-titleMin-1)), width)
+}
+
+// titleRight is where the pull request stands and how much it changes, in the
+// order they are worth losing. Everything fits, or the churn goes, then the
+// checks, then the review decision. The state never goes: it is the one group
+// here that changes what the reader can do next, and a far edge that could drop
+// it would drop it on the frame most in need of saying.
+//
+// Built against a room rather than clipped to one. A half cut mid-cell says
+// something it does not mean, where a half that has shed a group says less and
+// still says it whole.
+func (m Model) titleRight(room int) string {
+	state := m.stateBadge()
+
+	for _, half := range []string{
+		m.statusHalf() + m.churn(),
+		m.statusHalf(),
+		m.joinStatus(state, m.reviewBadge()),
+		state,
+	} {
+		if lipgloss.Width(half) <= room {
+			return half
+		}
+	}
+	return state
+}
+
+// churn is the diff stat with the gap setting it apart from the status before
+// it, and nothing at all when there is no stat to set apart.
+func (m Model) churn() string {
+	if changes := m.changes(); changes != "" {
+		return "  " + changes
+	}
+	return ""
 }
 
 // spread lays left against the header's left edge and right against its right.
@@ -2101,60 +2173,67 @@ func shareBranchRoom(base, head, room int) (int, int) {
 // putting an ellipsis after an ellipsis. So the status is measured first and the
 // branches are told what is left.
 func (m Model) branchRow(width int) string {
-	status := m.statusHalf()
-
-	room := width
-	if status != "" {
-		room = width - lipgloss.Width(status) - 1
-	}
-	return m.spread(m.branchLine(room), status, width)
+	return m.branchLine(width)
 }
 
 // statusHalf is where the pull request stands, with where the checks and the
 // review got to after it. The state always has something to say, so this is
 // never empty even when the rollup behind it is.
 func (m Model) statusHalf() string {
+	return m.joinStatus(m.stateBadge(), m.checksBadge(), m.reviewBadge())
+}
+
+// joinStatus puts the separator between the groups that have something to say
+// and drops the rest, so a pull request nobody has reviewed carries no dot
+// standing in for the decision.
+func (m Model) joinStatus(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · "))
+}
+
+// The three groups are ungated. The rail carries the checks and the review as
+// controls and the rail is on one tab of four, so reading them off it alone
+// would leave three tabs unable to say; and a header row that came and went
+// with the rail would move every pane border under it on the tab switch that
+// hid the rail.
+//
+// stateBadge is where the pull request sits in its lifecycle. It always has
+// something to say, which is what makes it the group the far edge keeps.
+func (m Model) stateBadge() string {
 	label, c := comp.PRStateLabel(m.theme, m.pr)
 	icon, _ := comp.PRStateIcon(m.theme, m.pr)
-
-	state := lipgloss.NewStyle().Foreground(c).Render(icon + " " + label)
-	if rollup := m.rollup(); rollup != "" {
-		return state + lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · ") + rollup
-	}
-	return state
+	return lipgloss.NewStyle().Foreground(c).Render(icon + " " + label)
 }
 
-// changes is how much the pull request touches: the file count, then the diff
-// stat in the colors the list gives its own columns. The count is marked with a
-// glyph rather than the word, the same way the rail's own Changes row writes
-// the pair.
-func (m Model) changes() string {
-	files := lipgloss.NewStyle().Foreground(m.theme.Subtle).
-		Render(strconv.Itoa(m.pr.ChangedFiles) + " " + glyphFile)
-
-	return files + "  " +
-		lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(m.pr.Additions)) +
-		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(m.pr.Deletions))
-}
-
-// rollup is where the checks got to and what the reviewers decided, which are
-// the two things standing between the pull request and a merge.
-//
-// It is ungated. The rail carries both as controls and the rail is on one tab
-// of four, so reading it off the rail alone would leave three tabs unable to
-// say; and a header row that came and went with the rail would move every pane
-// border under it on the tab switch that hid it.
-func (m Model) rollup() string {
-	var parts []string
-	if label, c := comp.CheckStateLabel(m.theme, m.pr.Checks); label != "" {
-		glyph, _ := comp.CheckStateIcon(m.theme, m.pr.Checks)
-		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(glyph+" "+label))
-	}
-	if label, c := comp.ReviewLabel(m.theme, m.pr.ReviewDecision); label != "" {
-		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(label))
-	}
-	if len(parts) == 0 {
+// checksBadge is where the checks got to, and empty where none has run.
+func (m Model) checksBadge() string {
+	label, c := comp.CheckStateLabel(m.theme, m.pr.Checks)
+	if label == "" {
 		return ""
 	}
-	return strings.Join(parts, lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · "))
+	glyph, _ := comp.CheckStateIcon(m.theme, m.pr.Checks)
+	return lipgloss.NewStyle().Foreground(c).Render(glyph + " " + label)
+}
+
+// reviewBadge is what the reviewers decided, and empty until they decide.
+func (m Model) reviewBadge() string {
+	label, c := comp.ReviewLabel(m.theme, m.pr.ReviewDecision)
+	if label == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(label)
+}
+
+// changes is how much the pull request touches, in the colors the list gives its
+// own columns. The file count is not here: the strip says it, on all four tabs
+// and beside the tab that shows the files, and the same number twice on one
+// screen is one of them saying nothing.
+func (m Model) changes() string {
+	return lipgloss.NewStyle().Foreground(m.theme.Success).Render("+"+strconv.Itoa(m.pr.Additions)) +
+		" " + lipgloss.NewStyle().Foreground(m.theme.Error).Render("−"+strconv.Itoa(m.pr.Deletions))
 }
