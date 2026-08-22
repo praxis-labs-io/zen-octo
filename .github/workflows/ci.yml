@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           # Keep this matching the local brew version, or local runs and CI
           # stop agreeing about what passes.
