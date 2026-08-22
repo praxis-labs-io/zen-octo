@@ -9,6 +9,24 @@ people's branches.
 Needs the [GitHub CLI](https://cli.github.com) authenticated. zen-octo rides on
 `gh`'s token rather than asking for one of its own.
 
+![The pull request list, in sections you defined](docs/images/pull-request-list.png)
+
+You open on a list divided into sections, each one a GitHub search query you
+wrote. What is on screen is whatever you told it to watch.
+
+![A pull request's conversation, with the details rail beside it](docs/images/conversation-and-rail.png)
+
+`⏎` opens one. The rail down the left is the only route to five writes: state,
+labels, reviewers, assignees and the base branch. It answers at every width the
+shell will draw, so a client in a drawer beside an editor is not read-only.
+
+![The diff, with a review comment against the line it was written on](docs/images/review-comments.png)
+
+`]` and `[` walk the four tabs. On Files the tree is beside the diff, review
+comments sit against the lines they were written on, and `c` adds one scoped to
+the line under the cursor. `\|` splits the diff into two columns, and `?` lists
+every key.
+
 ## Install
 
 ```sh
