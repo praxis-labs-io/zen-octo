@@ -420,43 +420,71 @@ func branchHalves(t *testing.T, frame string) (string, string) {
 	t.Helper()
 
 	for _, row := range headerRows(t, frame) {
-		if base, head, ok := strings.Cut(row, " ← "); ok {
-			return base, head
+		base, head, ok := strings.Cut(row, " ← ")
+		if !ok {
+			continue
 		}
+		// The status shares this row, at its far edge. Two spaces is the gap
+		// spread leaves and neither half carries one.
+		if at, _, cut := strings.Cut(head, "  "); cut {
+			head = at
+		}
+		return base, head
 	}
 	t.Fatal("no branch line on screen")
 	return "", ""
 }
 
-// The state, the author and the timestamp are on the line below. Putting any
-// of them here is what pushed the branch onto two lines.
-func TestTheBranchLineCarriesNothingElse(t *testing.T) {
+// The status shares this row, and the branches still take one line. Putting
+// anything beside them used to push them onto two, which is answered now by
+// measuring the two halves against each other rather than each against the
+// frame.
+func TestTheBranchesStillTakeOneLine(t *testing.T) {
+	rows := 0
 	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
-		if !strings.Contains(row, "main ←") {
+		if !strings.Contains(row, "←") {
 			continue
 		}
-		if row != "main ← fix-auth-retry" {
-			t.Errorf("branch line = %q, want the branches and nothing else", row)
+		rows++
+
+		base, head := branchHalves(t, detailed(held(sampleDetail()), 200, 30).View())
+		if base+" ← "+head != "main ← fix-auth-retry" {
+			t.Errorf("the branch half is %q ← %q, want the branches whole", base, head)
 		}
-		return
 	}
-	t.Fatal("no branch line on screen")
+	if rows != 1 {
+		t.Errorf("the branches take %d lines, want 1", rows)
+	}
 }
 
 // A right half that fits is not a clipped one. It takes the line to itself
 // where the left half will not fit beside it, and an ellipsis there marks a cut
 // that never happened.
 func TestAHeaderLineTooNarrowForBothHalvesDoesNotMarkACut(t *testing.T) {
-	// The rollup is 29 cells and the gutters take two of the frame, so these
-	// are the widths where it fits exactly and with one to spare.
-	for _, width := range []int{31, 32} {
+	// Measured rather than written down. The half is a state and a rollup and
+	// both are worded elsewhere, so a number here goes stale the first time one
+	// of them gains a letter.
+	var status string
+	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
+		if _, half, ok := strings.Cut(row, "  "); ok && strings.Contains(row, "failing") {
+			status = strings.TrimSpace(half)
+		}
+	}
+	if status == "" {
+		t.Fatal("no status half on a frame with room for one")
+	}
+
+	// The gutters take two of the frame, so these are the widths where the half
+	// fits exactly and with one to spare.
+	exact := lipgloss.Width(status) + headGutterCols*2
+	for _, width := range []int{exact, exact + 1} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
 			for _, row := range headerRows(t, detailed(held(sampleDetail()), width, 30).View()) {
 				if !strings.Contains(row, "failing") {
 					continue
 				}
-				if row != "✗ failing · changes requested" {
-					t.Errorf("status line = %q, want the rollup whole and unmarked", row)
+				if row != status {
+					t.Errorf("status line = %q, want %q whole and unmarked", row, status)
 				}
 				return
 			}
@@ -471,33 +499,33 @@ func TestAHeaderLineTooNarrowForBothHalvesDoesNotMarkACut(t *testing.T) {
 func TestAClippedHeaderGivesItsSeparatorBack(t *testing.T) {
 	frame := detailed(held(sampleDetail()), 200, 6).View()
 
-	// Three rows are left once the panes have their floor, and the third of the
-	// header's own is the separator, so two survive.
-	if at := paneTopAt(frame); at != 2 {
-		t.Errorf("the panes open on frame line %d, want line 2 with the separator given back", at)
+	// Three rows are left once the panes have their floor, which is the whole
+	// header: two lines and the separator, and nothing to give back.
+	if at := paneTopAt(frame); at != 3 {
+		t.Errorf("the panes open on frame line %d, want line 3", at)
 	}
 	if lines := strings.Split(frame, "\n"); len(lines) != 6 {
 		t.Errorf("frame is %d lines, want the 6 it was given", len(lines))
 	}
 }
 
-// The lifecycle, who raised it and when, with where the checks and the review
-// got to pushed to the far edge the way the title line pushes its numbers.
-func TestTheStatusLineCarriesTheRollupAtItsFarEdge(t *testing.T) {
+// The lifecycle and where the checks and the review got to, pushed to the far
+// edge of the branch line the way the title line pushes its numbers.
+func TestTheBranchLineCarriesTheStatusAtItsFarEdge(t *testing.T) {
 	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
-		if !strings.Contains(row, "Opened") {
+		if !strings.Contains(row, "←") {
 			continue
 		}
 		// The gap is what separates the two halves; neither carries one.
-		status, rollup, ok := strings.Cut(row, "  ")
+		branches, rollup, ok := strings.Cut(row, "  ")
 		if !ok {
-			t.Fatalf("status line = %q, want the rollup pushed to the far edge", row)
+			t.Fatalf("branch line = %q, want the status pushed to the far edge", row)
 		}
-		if !strings.HasSuffix(status, "Open · Opened 2 days ago by @drucial") {
-			t.Errorf("status half = %q, want the state and who raised it", status)
+		if branches != "main ← fix-auth-retry" {
+			t.Errorf("branch half = %q, want the branches alone", branches)
 		}
-		if got := strings.TrimSpace(rollup); got != "✗ failing · changes requested" {
-			t.Errorf("far edge = %q, want the checks and the review decision", got)
+		if got := strings.TrimSpace(rollup); !strings.HasSuffix(got, "Open · ✗ failing · changes requested") {
+			t.Errorf("far edge = %q, want the state, the checks and the review decision", got)
 		}
 		return
 	}
@@ -1534,11 +1562,11 @@ func headerRows(t *testing.T, frame string) []string {
 func TestTheHeaderReadsAsTwoBlocks(t *testing.T) {
 	rows := headerRows(t, detailed(held(sampleDetail()), 200, 30).View())
 
+	// Two lines and four corners: what it is and how big, then where it is
+	// going and how it is doing. Who opened it and when is on the status bar.
 	want := []string{
 		"#412 Fix the auth retry backoff loop",
 		"main ← fix-auth-retry",
-		"",
-		"Open · Opened 2 days ago by @drucial",
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("header is %d lines, want %d: %q", len(rows), len(want), rows)
@@ -1627,18 +1655,19 @@ func TestTheHeaderDoesNotScrollWithTheConversation(t *testing.T) {
 	}
 }
 
-// The age is phrased so it reads as when the pull request was created rather
-// than as when anything last happened to it, and it has to survive both ends of
-// the scale.
-func TestTheAgeReadsAsWhenItOpened(t *testing.T) {
+// The readout is who raised the pull request and how long ago, for the status
+// bar. Compact, because the bar's left half is a line of key hints that runs
+// most of the width and a clause spelled out is one clipped mid-handle.
+func TestTheReadoutNamesWhoOpenedItAndWhen(t *testing.T) {
 	tests := []struct {
 		name    string
 		created time.Time
 		want    string
 	}{
-		{name: "days", created: time.Now().Add(-50 * time.Hour), want: "Opened 2 days ago by @drucial"},
-		{name: "hours", created: time.Now().Add(-19 * time.Hour), want: "Opened 19 hours ago by @drucial"},
-		{name: "moments", created: time.Now(), want: "Opened just now by @drucial"},
+		{name: "days", created: time.Now().Add(-50 * time.Hour), want: "@drucial · 2d"},
+		{name: "hours", created: time.Now().Add(-19 * time.Hour), want: "@drucial · 19h"},
+		{name: "minutes", created: time.Now().Add(-34 * time.Minute), want: "@drucial · 34m"},
+		{name: "moments", created: time.Now(), want: "@drucial · now"},
 	}
 
 	for _, tt := range tests {
@@ -1646,36 +1675,47 @@ func TestTheAgeReadsAsWhenItOpened(t *testing.T) {
 			d := sampleDetail()
 			d.CreatedAt = tt.created
 
-			rows := headerRows(t, detailed(held(d), 200, 30).View())
-			if got := rows[len(rows)-1]; !strings.Contains(got, tt.want) {
-				t.Errorf("last header line = %q, want %q", got, tt.want)
+			if got := detailed(held(d), 200, 30).Readout(); got != tt.want {
+				t.Errorf("readout = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-// A pull request with no timestamp is not one opened at the epoch, and a
-// separator with nothing after it says the render broke.
-func TestNoTimestampLeavesNoTrailingSeparator(t *testing.T) {
-	d := sampleDetail()
-	d.CreatedAt = time.Time{}
-
-	// Nothing to roll up either, so the clause under test is the whole line and
-	// a fragment left on the end of it is unmistakable.
-	d.Checks, d.ReviewDecision = gh.CheckStateNone, gh.ReviewDecisionNone
-
-	// Either half of the clause can be missing, and neither leaves a fragment.
-	rows := headerRows(t, detailed(held(d), 200, 30).View())
-	if got := rows[len(rows)-1]; got != "\uf407 Open · Opened by @drucial" {
-		t.Errorf("status line = %q, want the clause without a time in it", got)
+// Either half can be missing: a deleted account has no login, and the row the
+// list opens with carries no timestamp until the detail lands. Neither leaves a
+// separator with nothing after it.
+func TestTheReadoutDropsWhicheverHalfIsMissing(t *testing.T) {
+	tests := []struct {
+		name  string
+		login string
+		when  time.Time
+		want  string
+	}{
+		{name: "no timestamp", login: "drucial", want: "@drucial"},
+		{name: "no author", when: time.Now().Add(-50 * time.Hour), want: "2d"},
+		{name: "neither", want: ""},
 	}
 
-	// With neither half there is no clause at all, and the state stands alone
-	// rather than trailing a separator.
-	d.Author = gh.Actor{}
-	rows = headerRows(t, detailed(held(d), 200, 30).View())
-	if got := rows[len(rows)-1]; got != "\uf407 Open" {
-		t.Errorf("status line = %q, want the state on its own", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := sampleDetail()
+			d.CreatedAt = tt.when
+			d.Author = gh.Actor{Login: tt.login}
+
+			if got := detailed(held(d), 200, 30).Readout(); got != tt.want {
+				t.Errorf("readout = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// And the header no longer carries any of it. The line it was on is gone.
+func TestTheHeaderLeavesTheOpenedByToTheBar(t *testing.T) {
+	for _, row := range headerRows(t, detailed(held(sampleDetail()), 200, 30).View()) {
+		if strings.Contains(row, "Opened") || strings.Contains(row, "@drucial") {
+			t.Errorf("header line %q still carries who opened the pull request", row)
+		}
 	}
 }
 

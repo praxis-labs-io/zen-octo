@@ -1822,13 +1822,15 @@ func (m Model) sideTitle() string {
 func (m Model) frameHead() string {
 	width := m.headWidth()
 
-	// The blank sets the status apart from the two lines naming the pull
-	// request. Three stacked lines read as one block and the eye skips the last.
+	// Two lines and four corners, one group of facts in each: what it is and how
+	// big, then where it is going and how it is doing. Who opened it and when is
+	// the group that went, to the status bar: it is read once, and the bar's
+	// right side is empty the rest of the time.
 	//
 	// The same lines whatever the rail is doing. A row that came and went with
 	// it would move every pane border under it on the tab switch that hid the
 	// rail, which is the jump the header is here to take out.
-	lines := []string{m.titleLine(width), m.branchLine(width), "", m.statusLine(width)}
+	lines := []string{m.titleLine(width), m.branchRow(width)}
 	return indent(strings.Join(append(lines, ""), "\n"), headGutter)
 }
 
@@ -1905,21 +1907,26 @@ func (m Model) spread(left, right string, width int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-// opened is when the pull request was raised and who raised it, as one clause.
+// Readout is who raised the pull request and how long ago, for the status bar.
+// The root asks the screen that has focus, the same way it asks for the hints
+// beside it.
+//
+// Compact rather than the sentence the header used to carry. The bar's left
+// half is a line of key hints that runs most of the width, so a clause spelled
+// out is one clipped mid-handle on any frame a reader is likely to have.
+//
 // Either half can be missing: a deleted account has no login, and the row the
 // list opens with carries no timestamp until the detail query answers.
-func (m Model) opened() string {
-	age, login := comp.LongAgo(m.pr.CreatedAt), m.pr.Author.Login
+func (m Model) Readout() string {
+	age, login := comp.RelativeTime(m.pr.CreatedAt), comp.Handle(m.pr.Author.Login)
 
 	switch {
 	case age != "" && login != "":
-		return "Opened " + age + " by " + comp.Handle(login)
+		return login + " · " + age
 	case age != "":
-		return "Opened " + age
-	case login != "":
-		return "Opened by " + comp.Handle(login)
+		return age
 	}
-	return ""
+	return login
 }
 
 // branchLine is where the work is going and where it came from. It stays on one
@@ -1967,21 +1974,36 @@ func shareBranchRoom(base, head, room int) (int, int) {
 	return half, room - half
 }
 
-// statusLine is where the pull request stands, then who raised it and when,
-// with where the checks and the review got to at the far edge. The state always
-// has something to say, so the left half is never empty even when the clause
-// after it is.
-func (m Model) statusLine(width int) string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+// branchRow is the second line: where the work is going, and where it stands.
+//
+// The two halves are measured together rather than one after the other. spread
+// gives the right half the width and clips the left, and branchLine has already
+// cut its names to the room it thought it had; handed the frame, it would cut a
+// name to a width the row does not have and spread would then cut it again,
+// putting an ellipsis after an ellipsis. So the status is measured first and the
+// branches are told what is left.
+func (m Model) branchRow(width int) string {
+	status := m.statusHalf()
 
+	room := width
+	if status != "" {
+		room = width - lipgloss.Width(status) - 1
+	}
+	return m.spread(m.branchLine(room), status, width)
+}
+
+// statusHalf is where the pull request stands, with where the checks and the
+// review got to after it. The state always has something to say, so this is
+// never empty even when the rollup behind it is.
+func (m Model) statusHalf() string {
 	label, c := comp.PRStateLabel(m.theme, m.pr)
 	icon, _ := comp.PRStateIcon(m.theme, m.pr)
 
-	line := lipgloss.NewStyle().Foreground(c).Render(icon + " " + label)
-	if opened := m.opened(); opened != "" {
-		line += faint.Render(" · " + opened)
+	state := lipgloss.NewStyle().Foreground(c).Render(icon + " " + label)
+	if rollup := m.rollup(); rollup != "" {
+		return state + lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(" · ") + rollup
 	}
-	return m.spread(line, m.rollup(), width)
+	return state
 }
 
 // changes is how much the pull request touches: the file count, then the diff

@@ -205,6 +205,23 @@ Inserting rebuilds the buffer back to front. `SetValue` is a `Reset` and an `Ins
 
 The list is offered before anything is fetched, because the people on the pull request are known from the detail and are who a reply usually names. `mentionableUsers` rides on the repo-meta query, so the first `@` costs a request only where no picker has opened yet, and the note under the rows is what stops a short list of participants reading as everybody there is: on its way, or refused, or matched nobody, each in its own words. The one that had to be built for it is the refusal. `SetRepo` declines to act while `Capturing()` is true, and a compose box always is, so `refillMentions` runs on its first line ahead of every guard; and `repoMetaFailed` told the screen nothing at all, which made a dead fetch and an unasked one render identically, which is the exact failure a silent empty list is.
 
+**The header is two lines and four corners.** The title and the number lead,
+with what the pull request changes at the far edge; the branches lead the second,
+with the lifecycle and the check rollup at the far edge of that. It was five
+rows: a third line carried the state, who opened it and when, and a blank held
+that apart from the two naming the pull request. Who opened it went to the status
+bar, which is empty on that side most of the time, and the two blanks went with
+the line. The one closing the block stays, because the pane border under it is
+already a horizontal and a second one a row above reads as a box that has come
+open.
+
+The two halves of the second line are measured against each other rather than
+each against the frame. `spread` gives the right half the width and clips the
+left, and `branchLine` has already cut its names to the room it thought it had;
+handed the frame, it cuts a name to a width the row does not have and `spread`
+cuts it again, which puts an ellipsis after an ellipsis. So the status is
+measured first and the branches are told what is left.
+
 **Every secondary pane is the left column, the rail included.** It sat on the
 right until it was the only one that did, and the sidebar then changed sides on
 a keypress that only changed which tab was on. Moving it lands the tab strip on
@@ -267,7 +284,7 @@ The rail is the exception, and the braces are dead on it. Its rows are a list of
 
 The bar's hints are the detail screen's own, built per tab from what that tab can do. The keymap is the same on all four and the tabs are not: Checks has no blocks to walk, Commits and Checks have nothing to expand, and the three with a column have no rail to toggle. A hint for a key that is inert under it is worse than no hint, since the reader presses it, nothing happens, and the line stops being worth reading. The same rule takes the hints off entirely while a picker or a form is up: it has the keys they name and carries a hint line of its own.
 
-The status bar carries the hints on the left in every state. A toast or the refresh spinner lands on the right and wins a narrow line, which is the opposite of the readout that sits there otherwise: a toast may be the only account of a write that failed, and a key works whether or not it is on the line. `RenderMessage` is that priority, beside `Render`. The readout is the remaining budget and nothing else, shown only once it has run low enough to be worth reading. Neither screen names itself there: the list's section is the current tab in the top border and the detail's pull request is in its own header, so both were spending the line on something already on the screen, and spending it on the side a toast lands on.
+The status bar carries the hints on the left in every state. A toast or the refresh spinner lands on the right and wins a narrow line, which is the opposite of the readout that sits there otherwise: a toast may be the only account of a write that failed, and a key works whether or not it is on the line. `RenderMessage` is that priority, beside `Render`. The readout under those is the remaining budget while it is low enough to be worth reading, and under that whatever the screen in front of the reader has to say: on the detail, who raised the pull request and how long ago, as `@handle · 2d`. The budget outranks it, being a number that runs out where the other is a fact that does not change. Neither screen names *itself* there: the list's section is the current tab in the top border and the detail's pull request is in its own header, so both were spending the line on something already on the screen, and spending it on the side a toast lands on. Who opened it stopped being one of those when the header went to two lines. The compact form is the bar's alone, because the left half is a line of key hints running most of the width and a clause spelled out is one clipped mid-handle.
 
 The State row's menu is built from where the pull request sits and from what
 GitHub says the viewer may do to it, never from the word on the row: state and
