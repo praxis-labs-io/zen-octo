@@ -87,8 +87,10 @@ func TestTheCommitColumnNamesEveryCommit(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(out, "3 commits") {
-		t.Error("the column is not titled with its count")
+	// The count is on the strip now, which can say all four where a column can
+	// only ever say its own.
+	if !strings.Contains(out, "Commits") {
+		t.Error("the column is not titled")
 	}
 }
 
@@ -472,10 +474,10 @@ func TestTheSelectedCommitIsPaintedCellByCellAcrossBothLines(t *testing.T) {
 // accident. The list runs past the window on both so the scroll is a real one
 // rather than a clamp to the end, which lands on a boundary by accident too.
 //
-// The heights are the frame's, and the header takes five rows off the top of
+// The heights are the frame's, and the header takes four rows off the top of
 // it, so these are the pane heights that were 6 and 7.
 func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
-	for _, height := range []int{11, 12} {
+	for _, height := range []int{10, 11} {
 		t.Run(strconv.Itoa(height), func(t *testing.T) {
 			d := sampleDetail()
 			d.Commits = append(sampleCommits(), sampleCommits()...)
