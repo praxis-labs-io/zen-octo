@@ -129,17 +129,26 @@ func TestTheRailCursorCarriesTheBar(t *testing.T) {
 	}
 
 	// It goes in the gutter every row already holds open, so nothing steps.
-	for _, row := range railRows(t, m.View()) {
-		if strings.Count(row, paint.BarGlyph) > 1 {
-			t.Errorf("row %q carries more than one bar", row)
+	// Counted over the rail rather than over the frame: the tab strip marks its
+	// own current tab with the same glyph, a row above and outside every pane.
+	bars := func(frame string) int {
+		n := 0
+		for _, row := range railRaw(t, frame) {
+			row = stripANSI(row)
+			if c := strings.Count(row, paint.BarGlyph); c > 1 {
+				t.Errorf("row %q carries more than one bar", row)
+			} else {
+				n += c
+			}
 		}
+		return n
 	}
-	if got := strings.Count(stripANSI(m.View()), paint.BarGlyph); got != 1 {
-		t.Errorf("the frame carries %d bars, want the one under the cursor", got)
+	if got := bars(m.View()); got != 1 {
+		t.Errorf("the rail carries %d bars, want the one under the cursor", got)
 	}
 
 	// And it goes with the keys.
-	if got := press(m, "l").View(); strings.Contains(stripANSI(got), paint.BarGlyph) {
+	if got := bars(press(m, "l").View()); got != 0 {
 		t.Error("the bar is still on the rail once the page took the keys")
 	}
 }
@@ -574,18 +583,21 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 
 // The strip is ] and [ here and on the list screen, and nothing else reaches
 // it: the braces walk blocks and tab is the file key on the tab with files.
+//
+// It is on no pane now, so the other half of what this once asserted is free:
+// the strip cannot be moved across the screen by anything, only through.
 func TestOnlyTheBracketsMoveTheTabStrip(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 	active := fgSeq(theme.RosePineMoon.Accent)
 
-	if !strings.Contains(paneTop(press(m, "]").View()), active+"mCommits") {
+	if !strings.Contains(stripRow(t, press(m, "]").View()), active+"mCommits") {
 		t.Error("] did not move to the Commits tab")
 	}
-	if !strings.Contains(paneTop(press(m, "[").View()), active+"mFiles") {
+	if !strings.Contains(stripRow(t, press(m, "[").View()), active+"mFiles") {
 		t.Error("[ did not wrap back to the Files tab")
 	}
 	for _, k := range []string{"}", "{", "tab", "shift+tab"} {
-		if !strings.Contains(paneTop(press(m, k).View()), active+"mConversation") {
+		if !strings.Contains(stripRow(t, press(m, k).View()), active+"mConversation") {
 			t.Errorf("%q moved off the Conversation tab", k)
 		}
 	}

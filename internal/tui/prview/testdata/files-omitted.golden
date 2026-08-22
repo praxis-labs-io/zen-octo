@@ -1,7 +1,8 @@
  #412 Fix the auth retry backoff loop                                                   3   +42 −7 
  main ← fix-auth-retry                                        Open · ✗ failing · changes requested 
                                                                                                     
-╭─[1]─4 files──────────╮╭─[2]─Conversation - Commits - Checks - Files──────────────────────────────╮
+  Conversation (24)   Commits   Checks (4)  ▌Files (3)                                              
+╭─[1]─Files────────────╮╭─[2]─Diff─────────────────────────────────────────────────────────────────╮
 │▾ docs/               ││ docs/screenshot.png                                                 +0 −0│
 │    screenshot.png    │├──────────────────────────────────────────────────────────────────────────┤
 │▾ internal/           ││                                                                          │
@@ -11,7 +12,6 @@
 │      store.go        ││                                                                          │
 │  ▾ tui/prview/       ││                                                                          │
 │      files.go        ││                                                                          │
-│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func samplePR() gh.PullRequest {
 		URL:        sampleURL,
 		Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
 		State: gh.PRStateOpen, BaseRefName: "main", HeadRefName: "fix-auth-retry",
-		Additions: 42, Deletions: 7, ChangedFiles: 3,
+		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 24,
 		Checks: gh.CheckStateFailure, ReviewDecision: gh.ReviewDecisionChangesRequested,
 		CreatedAt: time.Now().Add(-50 * time.Hour),
 	}
@@ -101,16 +102,16 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 
 	active := fgSeq(theme.RosePineMoon.Accent)
-	if top := paneTop(m.View()); !strings.Contains(top, active+"mConversation") {
+	if strip := stripRow(t, m.View()); !strings.Contains(strip, active+"mConversation") {
 		t.Error("Conversation is not the current tab on open")
 	}
 
 	next := press(m, "]")
-	top := paneTop(next.View())
-	if !strings.Contains(top, active+"mCommits") {
+	strip := stripRow(t, next.View())
+	if !strings.Contains(strip, active+"mCommits") {
 		t.Error("] did not move to the Commits tab")
 	}
-	if strings.Contains(top, active+"mConversation") {
+	if strings.Contains(strip, active+"mConversation") {
 		t.Error("Conversation still reads as current after switching")
 	}
 	if !strings.Contains(stripANSI(next.View()), "No commits.") {
@@ -118,7 +119,7 @@ func TestTabsSwitchAndOnlyOneReadsAsCurrent(t *testing.T) {
 	}
 
 	// Four tabs, so [ from the first wraps round to the last.
-	if !strings.Contains(paneTop(press(m, "[").View()), active+"mFiles") {
+	if !strings.Contains(stripRow(t, press(m, "[").View()), active+"mFiles") {
 		t.Error("[ from the first tab did not wrap to the last")
 	}
 }
@@ -499,10 +500,11 @@ func TestAHeaderLineTooNarrowForBothHalvesDoesNotMarkACut(t *testing.T) {
 func TestAClippedHeaderGivesItsSeparatorBack(t *testing.T) {
 	frame := detailed(held(sampleDetail()), 200, 6).View()
 
-	// Three rows are left once the panes have their floor, which is the whole
-	// header: two lines and the separator, and nothing to give back.
-	if at := paneTopAt(frame); at != 3 {
-		t.Errorf("the panes open on frame line %d, want line 3", at)
+	// Three rows are left once the panes have their floor and the header wants
+	// four, so the strip goes; the separator goes with it, because a header cut
+	// to its last carried row has nothing under it to be set apart from.
+	if at := paneTopAt(frame); at != 2 {
+		t.Errorf("the panes open on frame line %d, want line 2", at)
 	}
 	if lines := strings.Split(frame, "\n"); len(lines) != 6 {
 		t.Errorf("frame is %d lines, want the 6 it was given", len(lines))
@@ -1536,9 +1538,9 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 // used to close on a rule of its own, and the card's border a row under that
 // read as a box that had come open.
 //
-// The trailing blank the header ends on is dropped, so what comes back is the
-// lines that carry something. Matching on their text instead breaks the moment
-// a line is empty, which is one of the cases worth asserting.
+// A trailing blank is dropped, so what comes back is the lines that carry
+// something. Matching on their text instead breaks the moment a line is empty,
+// which is one of the cases worth asserting.
 func headerRows(t *testing.T, frame string) []string {
 	t.Helper()
 
@@ -1557,16 +1559,35 @@ func headerRows(t *testing.T, frame string) []string {
 	return nil
 }
 
-// What and how big, where the code is going, then a gap, then where the pull
-// request stands and who raised it.
+// stripRow is the tab strip: the header's last row, sitting on the borders of
+// the panes it switches.
+func stripRow(t *testing.T, frame string) string {
+	t.Helper()
+
+	var last string
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.HasPrefix(stripANSI(line), "╭") {
+			return last
+		}
+		last = line
+	}
+	t.Fatal("no pane on screen to close the header")
+	return ""
+}
+
+// What and how big, where the code is going, then a gap, then where the reader
+// is standing.
 func TestTheHeaderReadsAsTwoBlocks(t *testing.T) {
 	rows := headerRows(t, detailed(held(sampleDetail()), 200, 30).View())
 
 	// Two lines and four corners: what it is and how big, then where it is
 	// going and how it is doing. Who opened it and when is on the status bar.
+	// The strip closes the block, on the pane borders it switches.
 	want := []string{
 		"#412 Fix the auth retry backoff loop",
 		"main ← fix-auth-retry",
+		"",
+		"Conversation",
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("header is %d lines, want %d: %q", len(rows), len(want), rows)
@@ -1578,6 +1599,100 @@ func TestTheHeaderReadsAsTwoBlocks(t *testing.T) {
 		if !strings.Contains(rows[i], w) {
 			t.Errorf("header line %d = %q, want it to carry %q", i, rows[i], w)
 		}
+	}
+}
+
+// A tab name is never what gets cut. The counts are the droppable half of the
+// strip, so they go first and every width the shell will draw still names all
+// four tabs whole.
+func TestTheStripDropsItsCountsBeforeATabName(t *testing.T) {
+	d := sampleDetail()
+	d.Commits = sampleCommits()
+
+	for width := 56; width <= 200; width += 8 {
+		strip := stripANSI(stripRow(t, detailed(held(d), width, 30).View()))
+		for _, tab := range []string{"Conversation", "Commits", "Checks", "Files"} {
+			if !strings.Contains(strip, tab) {
+				t.Errorf("width %d: %q is cut: %q", width, tab, strip)
+			}
+		}
+	}
+
+	// And it is the counts the narrow frame gave up to do it.
+	if narrow := stripANSI(stripRow(t, detailed(held(d), 56, 30).View())); strings.Contains(narrow, "(") {
+		t.Errorf("the strip kept its counts where they did not fit: %q", narrow)
+	}
+	if wide := stripANSI(stripRow(t, detailed(held(d), 200, 30).View())); !strings.Contains(wide, "(24)") {
+		t.Errorf("the strip carries no counts where they fit: %q", wide)
+	}
+}
+
+// The mark is a cell every tab holds, not a prefix the current one gains. Drawn
+// on the active tab alone, every tab to its right would step sideways each time
+// the reader changed tab, which is a strip that moves under the key that moves
+// through it.
+func TestTheStripHoldsItsColumnsWhicheverTabIsCurrent(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 30)
+
+	var first []int
+	for _, tab := range []string{"Conversation", "Commits", "Checks", "Files"} {
+		strip := stripANSI(stripRow(t, m.View()))
+
+		// Columns rather than byte offsets: the mark is three bytes where the
+		// space standing in for it is one, so a strip that never moved would
+		// still measure differently on every tab.
+		var at []int
+		for _, name := range []string{"Conversation", "Commits", "Checks", "Files"} {
+			at = append(at, len([]rune(strip[:strings.Index(strip, name)])))
+		}
+		if first == nil {
+			first = at
+		}
+		if !slices.Equal(at, first) {
+			t.Errorf("on %s the labels start at %v, want %v as on the first tab", tab, at, first)
+		}
+		m = press(m, "]")
+	}
+}
+
+// A count that has not answered renders nothing. A zero claims the tab is
+// empty, which is a different thing from unasked, and the two tabs that wait on
+// the detail query are unasked for as long as it is out.
+func TestAnUnansweredTabCountIsAbsentRatherThanZero(t *testing.T) {
+	strip := stripANSI(stripRow(t, onOpen(200, 30).View()))
+
+	if strings.Contains(strip, "(0)") {
+		t.Errorf("the strip reads %q, want no count on what has not answered", strip)
+	}
+	// The two off the list row are there before the query is: the reader has
+	// them the moment the screen opens.
+	for _, want := range []string{"Conversation (24)", "Files (3)"} {
+		if !strings.Contains(strip, want) {
+			t.Errorf("the strip reads %q, want %q off the row", strip, want)
+		}
+	}
+}
+
+// Both panes are named, and the right one by what it holds rather than by the
+// tab it is under: the strip a row above already says which tab this is.
+func TestEachTabNamesBothOfItsPanes(t *testing.T) {
+	m := detailed(held(sampleDetail()), 200, 40)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+
+	for _, tt := range []struct{ tab, side, main string }{
+		{"Conversation", "Details", "Feed"},
+		{"Commits", "Commits", "Diff"},
+		{"Checks", "Checks", "Log"},
+		{"Files", "Files", "Diff"},
+	} {
+		top := stripANSI(paneTop(m.View()))
+		if !strings.Contains(top, "[1]─"+tt.side) {
+			t.Errorf("%s: the left pane reads %q, want %q", tt.tab, top, tt.side)
+		}
+		if !strings.Contains(top, "[2]─"+tt.main) {
+			t.Errorf("%s: the right pane reads %q, want %q", tt.tab, top, tt.main)
+		}
+		m = press(m, "]")
 	}
 }
 
@@ -1594,7 +1709,7 @@ func TestTheHeaderIsOnEveryTab(t *testing.T) {
 
 	for _, tab := range []string{"Conversation", "Commits", "Checks", "Files"} {
 		frame := m.View()
-		if !onTab(frame, tab) {
+		if !onTab(t, frame, tab) {
 			t.Fatalf("the strip does not read %q as the current tab", tab)
 		}
 
@@ -1636,7 +1751,7 @@ func TestTheHeaderHoldsItsColumnAcrossTabs(t *testing.T) {
 	}
 
 	files := press(m, "]", "]", "]")
-	if !strings.Contains(stripANSI(paneTop(files.View())), "4 files") {
+	if !strings.Contains(stripANSI(paneTop(files.View())), "Files") {
 		t.Fatal("setup: the Files tab opened no column, so there is nothing to hold against")
 	}
 

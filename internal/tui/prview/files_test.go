@@ -742,7 +742,7 @@ func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	active := fgSeq(theme.RosePineMoon.Accent)
 
 	for _, k := range []string{"tab", "shift+tab"} {
-		if !strings.Contains(paneTop(press(m, k).View()), active+"mFiles") {
+		if !strings.Contains(stripRow(t, press(m, k).View()), active+"mFiles") {
 			t.Errorf("%q moved the tab strip", k)
 		}
 	}
@@ -967,9 +967,9 @@ func TestTheRailIsOffOnTheFilesTabAtEveryWidth(t *testing.T) {
 		if strings.Contains(out, "Details") {
 			t.Errorf("width %d: the rail is on screen", tt.width)
 		}
-		// The tree pane is titled by what it holds; the diff beside it carries
-		// the same paths in its own file headings.
-		if got := strings.Contains(out, "4 files"); got != tt.tree {
+		// Read off the border rather than off the title alone: the strip a row
+		// above names the tab Files too, and it is there at every width.
+		if got := strings.Contains(out, "[1]─Files"); got != tt.tree {
 			t.Errorf("width %d: tree on screen = %v, want %v", tt.width, got, tt.tree)
 		}
 	}

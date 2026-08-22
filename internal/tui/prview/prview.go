@@ -177,8 +177,7 @@ const contentMeasure = 90
 const sideMin = 24
 
 // treeMinFrame is the width below which a left column hides. Under it the pane
-// beside it is down to a gutter and a fragment, and the tab strip above it no
-// longer fits the frame at all.
+// beside it is down to a gutter and a fragment.
 const treeMinFrame = 70
 
 // diffMeasure is the width the diff keeps before the tree gives any up. Below
@@ -215,7 +214,8 @@ const (
 	tabFiles   = 3
 )
 
-// tabs on the detail screen.
+// tabs on the detail screen. The counts are filled in per render by tabCounts;
+// these are the labels and the order.
 var tabs = []comp.Tab{
 	{Label: "Conversation"},
 	{Label: "Commits"},
@@ -1690,17 +1690,13 @@ func (m Model) View() string {
 		}
 	}
 
-	// The tab strip goes on the main pane rather than on the column beside it:
-	// the strip is wider than the column and would clip to a fragment there.
-	// With the rail on the left the main pane is the right-hand one on all four
-	// tabs, so the strip no longer moves across the screen on a tab switch.
 	mainView := m.view.View()
 	if m.tab == tabChecks {
 		mainView = m.paintCheckCursor(mainView)
 	}
 	panes := []string{m.main.
 		Index(index[paneMain]).
-		Tabs(tabs, m.tab).
+		Title(m.mainTitle()).
 		Header(m.mainHeading()).
 		Footer(scrollFooter(m.view)).
 		Focus(m.focus == paneMain).
@@ -1799,16 +1795,30 @@ func (m *Model) sideBody(width int) string {
 	return m.treeBody(width)
 }
 
-// sideTitle names the column by what it holds, since the tab strip beside it
-// already says which tab this is.
+// sideTitle names the column by what it holds. It carries no count any more:
+// the strip above carries all four, where the column could only ever say its
+// own, and the same number in both places is one of them saying nothing.
 func (m Model) sideTitle() string {
 	switch m.tab {
 	case tabCommits:
-		return m.commitTitle()
+		return "Commits"
 	case tabChecks:
-		return m.checkTitle()
+		return "Checks"
 	}
-	return m.treeTitle()
+	return "Files"
+}
+
+// mainTitle names the pane by what it holds rather than by the tab it is under.
+// The strip already says which tab this is, and a border repeating it spends
+// itself on a fact the reader can see a row above.
+func (m Model) mainTitle() string {
+	switch m.tab {
+	case tabCommits, tabFiles:
+		return "Diff"
+	case tabChecks:
+		return "Log"
+	}
+	return "Feed"
 }
 
 // frameHead is the header block every GitHub PR page leads with, before the
@@ -1816,9 +1826,10 @@ func (m Model) sideTitle() string {
 // on screen before the detail query answers.
 //
 // It sits above the panes rather than inside one, so it names the pull request
-// on every tab and holds its column when a tab opens a left column under it. It
-// closes on a blank rather than a rule: the pane border below is already a
-// horizontal, and a second one a row above it read as a box that had come open.
+// on every tab and holds its column when a tab opens a left column under it.
+// The blank inside it is a blank rather than a rule: the pane border below is
+// already a horizontal, and a second one two rows above it read as a box that
+// had come open.
 func (m Model) frameHead() string {
 	width := m.headWidth()
 
@@ -1830,8 +1841,86 @@ func (m Model) frameHead() string {
 	// The same lines whatever the rail is doing. A row that came and went with
 	// it would move every pane border under it on the tab switch that hid the
 	// rail, which is the jump the header is here to take out.
-	lines := []string{m.titleLine(width), m.branchRow(width)}
-	return indent(strings.Join(append(lines, ""), "\n"), headGutter)
+	//
+	// The strip closes the block rather than leading it, sitting on the borders
+	// of the panes it switches: it is navigation for the screen below it, and
+	// the two rows above it name the pull request all four tabs share.
+	lines := []string{m.titleLine(width), m.branchRow(width), "", m.tabStrip(width)}
+	return indent(strings.Join(lines, "\n"), headGutter)
+}
+
+// tabStrip is the detail screen's navigation, on a row of its own above the
+// panes. It is not comp.Pane's strip and cannot be: that one is set into a
+// border and separates its segments with border-coloured punctuation so the run
+// reads unbroken, where this one sits on a bare row and would read as dashes.
+//
+// The counts go before a name does. At the narrowest frame the shell will draw,
+// the counted strip is a few cells over, and clipping there takes the tail off
+// the last tab, which may be the one the reader is standing on.
+func (m Model) tabStrip(width int) string {
+	strip := m.renderTabs(m.tabCounts())
+	if lipgloss.Width(strip) > width {
+		strip = m.renderTabs(tabs)
+	}
+	if lipgloss.Width(strip) > width {
+		return paint.Clip(strip, width, lipgloss.NewStyle().Foreground(m.theme.Subtle))
+	}
+	return strip
+}
+
+// renderTabs lays the segments out. The mark is a cell every tab holds rather
+// than a prefix the current one gains: drawn only on the active tab, every tab
+// to its right would step a column sideways each time the reader changed tab,
+// which is a strip that moves under the key that moves through it.
+func (m Model) renderTabs(list []comp.Tab) string {
+	active := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true)
+	idle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+	count := lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle())
+	mark := lipgloss.NewStyle().Foreground(m.theme.Accent).Render(paint.BarGlyph)
+
+	parts := make([]string, 0, len(list))
+	for i, tab := range list {
+		style, lead := idle, " "
+		if i == m.tab {
+			style, lead = active, mark
+		}
+		part := lead + style.Render(tab.Label)
+		if tab.Badge != "" {
+			part += count.Render(" " + tab.Badge)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "  ")
+}
+
+// tabCounts is how much each tab holds. Conversation and Files come off the
+// list row, so they are there before the detail query answers; the other two
+// wait for it and render bare meanwhile, because a zero claims a tab is empty
+// rather than unanswered.
+func (m Model) tabCounts() []comp.Tab {
+	counted := make([]comp.Tab, len(tabs))
+	copy(counted, tabs)
+
+	counted[0].Badge = tabCount(m.pr.Comments)
+	counted[tabFiles].Badge = tabCount(m.pr.ChangedFiles)
+	if m.detail.Loaded {
+		counted[tabCommits].Badge = tabCount(len(m.detail.Detail.Commits))
+		counted[tabChecks].Badge = tabCount(len(m.detail.Detail.Rollup.Checks))
+	}
+	return counted
+}
+
+// tabCount is the list screen's own spelling, parentheses and all: they read as
+// holding a quantity where a bare number beside a word reads as part of it.
+//
+// Zero renders as nothing, which reads the same as a count that has not arrived.
+// That conflation is worth taking: both are a tab the reader would open to find
+// out, and "(0)" on four tabs of a fresh screen is a row of noise.
+func tabCount(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return "(" + strconv.Itoa(n) + ")"
 }
 
 // head is what renders: frameHead clipped to the rows left once the panes have

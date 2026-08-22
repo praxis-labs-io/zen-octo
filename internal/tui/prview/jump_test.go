@@ -27,9 +27,11 @@ func jumping(t *testing.T, n int) prview.Model {
 	return m
 }
 
-// onTab is whether the strip reads this tab as the current one.
-func onTab(frame, name string) bool {
-	return strings.Contains(paneTop(frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
+// onTab is whether the strip reads this tab as the current one. The strip is in
+// the header now, so it is that row the accent is looked for on.
+func onTab(t *testing.T, frame, name string) bool {
+	t.Helper()
+	return strings.Contains(stripRow(t, frame), fgSeq(theme.RosePineMoon.Accent)+"m"+name)
 }
 
 // landed is what every jump has to produce: the code the thread was written
@@ -65,7 +67,7 @@ func landed(t *testing.T, frame string) {
 func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 
-	if !onTab(m.View(), "Files") {
+	if !onTab(t, m.View(), "Files") {
 		t.Fatalf("v did not reach the Files tab:\n%s", stripANSI(m.View()))
 	}
 	landed(t, m.View())
@@ -131,7 +133,7 @@ func TestVOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
 	if got := cmd(); got != want {
 		t.Fatalf("v produced %+v, want %+v", got, want)
 	}
-	if !onTab(next.View(), "Conversation") {
+	if !onTab(t, next.View(), "Conversation") {
 		t.Error("v left the conversation for a tab with nothing on it to show")
 	}
 }
@@ -167,7 +169,7 @@ func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	if !onTab(m.View(), "Conversation") {
+	if !onTab(t, m.View(), "Conversation") {
 		t.Fatalf("the arriving diff pulled the reader back to the Files tab:\n%s", stripANSI(m.View()))
 	}
 }

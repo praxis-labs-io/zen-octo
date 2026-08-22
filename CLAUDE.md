@@ -213,7 +213,7 @@ that apart from the two naming the pull request. Who opened it went to the statu
 bar, which is empty on that side most of the time, and the two blanks went with
 the line. The one closing the block stays, because the pane border under it is
 already a horizontal and a second one a row above reads as a box that has come
-open.
+open, and the tab strip is what sits under it now.
 
 The two halves of the second line are measured against each other rather than
 each against the frame. `spread` gives the right half the width and clips the
@@ -222,12 +222,40 @@ handed the frame, it cuts a name to a width the row does not have and `spread`
 cuts it again, which puts an ellipsis after an ellipsis. So the status is
 measured first and the branches are told what is left.
 
+**The tab strip closes the header, on a row of its own above the panes.** It sat
+in the main pane's top border, which was right while the strip travelled with
+that pane and stopped being right once the rail moved left: navigation for the
+whole screen was being drawn inside one of the two boxes it switches, and it
+cost that pane its title outright, since `Tabs` wins over `Title` in
+`topBorder`. It is not `comp.Pane`'s strip and cannot be. That one is set into a
+border and separates its segments with border-coloured punctuation so the run
+reads unbroken; this one sits on a bare row, where the same punctuation reads as
+dashes. The list screen still draws its sections through `Pane.Tabs`, so the two
+are two renderers on purpose, and the header's stays in `prview` with its one
+caller.
+
+**The mark is a cell every tab holds open, not a prefix the current one gains.**
+It is `paint.BarGlyph`, the rail cursor's and the diff row's. Drawn on the active
+tab alone, every tab to its right would step a column sideways each time the
+reader changed tab, which is a strip that moves under the key that moves through
+it. The counts go before a name does: at the narrowest frame the shell will draw
+the counted strip is a few cells over, and clipping there takes the tail off the
+last tab, which may be the one the reader is standing on. Conversation and Files
+count off the list row, so they are there before the detail query answers;
+Commits and Checks wait for it and render bare meanwhile, because a zero claims
+a tab is empty rather than unanswered. The parentheses are `list.badge`'s
+spelling, which is the one this app already had.
+
+**Both panes are named, and the right one by what it holds** rather than by the
+tab it is under: Feed, Diff, Log, Diff, against Details, Commits, Checks, Files.
+The left column gave its count up to the strip, which can say all four where a
+column could only ever say its own, and the same number in two places is one of
+them saying nothing.
+
 **Every secondary pane is the left column, the rail included.** It sat on the
 right until it was the only one that did, and the sidebar then changed sides on
-a keypress that only changed which tab was on. Moving it lands the tab strip on
-the right-hand pane on all four tabs as well, so the strip stopped travelling
-without being touched. Pane 1 is that column on every tab and 2 is what it sits
-beside. `visiblePanes` is the one place that order is written down, because the
+a keypress that only changed which tab was on. Pane 1 is that column on every
+tab and 2 is what it sits beside. `visiblePanes` is the one place that order is written down, because the
 enum cannot carry it: the rail and the file column are exclusive and sit in the
 same place, so stepping focus by adding one to the enum is right on whichever
 kind of tab the order was written for and wrong on the other.
