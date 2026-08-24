@@ -7,8 +7,8 @@ Every binding is declared once in `internal/tui/keys/keys.go` with its help text
 attached, so the overlay and this page cannot drift from what `Update` matches
 on.
 
-The keymap is shared with zen-review by convention, so the two tools feel the
-same without either being hostage to the other's release cycle.
+The keymap is shared with zen-review by convention, so learning one tool teaches
+you the other, and each still ships on its own schedule.
 
 ## Everywhere
 
@@ -111,8 +111,8 @@ every printable one, then movement takes what is left.
 
 ## Notes
 
-`d` answers at every width the shell will draw, because the details rail is the
-only route to five writes: state, labels, reviewers, assignees and the base
+`d` answers at every width the shell will draw, because the details rail is
+where five writes live: state, labels, reviewers, assignees and the base
 branch. What the width decides is where the rail lands, not whether it comes.
 
 The rail is a list of controls rather than blocks of prose, so `j` and `k` walk

@@ -36,6 +36,14 @@ type ListMap struct {
 	// terminal. Both mean the pull request itself, on either screen.
 	CopyLink key.Binding
 	Browse   key.Binding
+
+	// Search narrows the section on screen against what is already fetched. It
+	// is the detail screen's key meaning the same thing: what a search is over
+	// belongs to the screen. ClearSearch answers from both sides of it, the bar
+	// open and the bar closed over a filter still standing, because dropping a
+	// filter and dismissing the thing that took it are one intention.
+	Search      key.Binding
+	ClearSearch key.Binding
 }
 
 // DetailMap is live on the pull request detail screen. The same movement keys
@@ -175,6 +183,8 @@ var (
 		Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync")),
 		CopyLink:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy link")),
 		Browse:       key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open in browser")),
+		Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		ClearSearch:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "clear search")),
 	}
 
 	Detail = DetailMap{
@@ -262,6 +272,7 @@ func (k ListMap) FullHelp() [][]key.Binding {
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextSection, k.PrevSection, k.Open, k.Sync},
 		{k.CopyLink, k.Browse},
+		{k.Search, k.ClearSearch},
 		{Global.Help, Global.Quit, Global.ForceQuit},
 	}
 }

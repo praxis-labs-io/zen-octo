@@ -1,8 +1,7 @@
 # Guide
 
-zen-octo handles a pull request end to end without opening a browser: read it,
-discuss it, watch its CI, fix its metadata, merge it. Issues get the same
-treatment where it makes sense.
+zen-octo opens a pull request as four tabs and keeps you on the keyboard through
+all of them: read it, discuss it, watch its CI, set its metadata, merge it.
 
 The keymap is in [keys](keys.md), the config file in
 [configuration](configuration.md), and installing it in [install](install.md).
@@ -54,8 +53,8 @@ comment lands on the line you are reading rather than the file as a whole.
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens
 GitHub's eight reactions over the block and toggles the one you pick.
 
-`ctrl+⏎` posts. `ctrl+e` opens `$EDITOR` for anything longer than a line, which
-is the escape hatch for writing prose in a box that is not your editor.
+`ctrl+⏎` posts. `ctrl+e` opens `$EDITOR` for anything longer than a line, and
+what you write there comes back into the box.
 
 `v` on a review comment shows it in the diff, which is the jump from the
 conversation to the code it was written against.
@@ -65,8 +64,8 @@ it the change is reverted and a toast says so.
 
 ## The details rail
 
-`d` opens a rail down the left carrying the five things you would otherwise open
-a browser to change: state, labels, reviewers, assignees and the base branch.
+`d` opens a rail down the left carrying five fields: state, labels, reviewers,
+assignees and the base branch.
 
 Every row answers to `⏎`, which opens a picker as a centred modal. The picker
 owns the keyboard while it is up: the keys that can never be text go first, the
@@ -76,10 +75,10 @@ The rail is a list of controls rather than blocks of prose, so `j` and `k` walk
 its rows and the braces are dead on it. Its cursor stops at each end rather than
 wrapping.
 
-`d` answers at every width the shell will draw, because the rail is the only
-route to those five writes. What the width decides is where it lands: wide
-enough and it is a column, narrower and it is painted over the conversation. A
-client in a drawer beside an editor is not read-only.
+`d` answers at every width the shell will draw, because the rail is where those
+five writes live. What the width decides is where it lands: wide enough and it
+is a column, narrower and it is painted over the conversation, so the writes
+hold in a drawer beside an editor.
 
 ## Merging
 

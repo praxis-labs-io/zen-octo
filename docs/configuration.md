@@ -8,9 +8,13 @@ a missing file is a working app rather than a prompt.
 
 ## Sections
 
-A section is one tab in the list, a title and a raw GitHub search query. The
-query is passed through as typed, so anything GitHub's search understands works
-here.
+A section is one tab in the list, a title and a raw GitHub search query.
+zen-octo passes the query through as typed, so anything GitHub's search
+understands works here.
+
+The key names come from [gh-dash](https://github.com/dlvhdr/gh-dash), where
+Dolev Hadar worked this shape out first, so a gh-dash `prSections` block reads
+here as written.
 
 ```yaml
 prSections:
