@@ -792,6 +792,39 @@ group headers. It carries `sort:updated-desc` because the limit is applied
 before the rows reach this side, so without it GitHub's relevance order decides
 which twenty come back.
 
+**`/` narrows the section on screen and never asks GitHub anything.** The
+section's own filter is a search query and costs a request; this reads the rows
+already in the store, so what it can reach is what that query returned and no
+further. It is the detail screen's key meaning the same thing one screen over.
+The query is one substring against the whole row rather than a field at a time:
+a reader types what they can see, and what they can see is a line, so the number
+carries its `#` and the handle its `@` the way the row writes them. `visible()`
+is the one place the filter is applied, because `changeSection` and
+`SetSections` both build rows and a section rendered unfiltered from one of them
+is a filter that comes off on a keypress nobody aimed at it.
+
+The bar is drawn past the keyboard being handed back. `enter` settles the filter
+and gives `j` and `enter` back to the rows it left; `esc` clears it in one press
+from either side. A filter nothing on the screen accounts for is a list that
+looks like it lost rows, which is the failure a silent one is, so the bar stays
+up for as long as the query stands and carries what it matched against the
+section's own count. **The tab badges keep counting the section**: the same
+number in two places is one of them saying nothing, and the badge is the only
+place the sections nobody is looking at can say how big they are. It owns the
+keyboard while it is open, ahead of the three keys that answer whatever the
+section is doing, because `]` and `s` are characters in a search and a key that
+both types and changes tab does the wrong one.
+
+It is `comp.Pane.Header`, which costs two of the pane's lines and is why the
+pane is told about it in `Update` and never while drawing: `Above` reads the
+heading off the pane to say what it draws over the content, and a `View` reached
+through a value receiver would be sizing a copy. `relayout` is that one path,
+and `bodyHeight` subtracts `Above`'s own answer rather than the two lines, which
+already carries the rule that a pane too short for a heading draws none. The
+`same` early-out in `SetSections` yields to it: the bar counts what the query
+left out, so a section that grew by a row nothing matches has moved it while the
+rows on screen did not.
+
 **A merged pull request has no head branch, and the detail query compares
 against one.** GitHub answers with the whole pull request, `compare` null, and a
 `NOT_FOUND` scoped to `node.baseRef.compare`; go-gh decodes the payload into the

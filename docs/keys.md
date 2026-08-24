@@ -37,6 +37,14 @@ has to work from everywhere.
 | `s` | sync |
 | `y` | copy link |
 | `O` | open in browser |
+| `/` | search |
+| `esc` | clear the search |
+
+`/` narrows the section on screen against the number, the repository, the title,
+the author and the head branch. It reads what is already fetched, so it costs no
+request and reaches nothing the section did not return. `⏎` hands the keyboard
+back and leaves the filter standing; `esc` clears it. Every other key on the
+screen is a character while the bar is open.
 
 ## The pull request
 
