@@ -99,6 +99,9 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		full  [][]key.Binding
 	}{
 		{name: "list", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(), full: keys.List.FullHelp()},
+		// The search bar's line is the same map read while it has the keyboard,
+		// so it answers to the same rule: a key named there is a key declared.
+		{name: "list search", live: []any{keys.List, keys.Global}, short: keys.List.SearchHelp(), full: keys.List.FullHelp()},
 		// The form keys reach the overlay through the detail screen's help: they
 		// are the answer to what tab does inside a box, and the reader asking
 		// has only the one overlay to ask.

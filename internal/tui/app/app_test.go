@@ -3278,6 +3278,36 @@ func TestTheHelpKeyIsPunctuationWhileACommentIsBeingWritten(t *testing.T) {
 	}
 }
 
+// The list's search bar takes text too, so the root stands aside for it the
+// same way. q would otherwise quit on the first letter of "question".
+func TestQAndTheHelpKeyAreLettersInTheListsSearchBar(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+	m = settle(m, keyMsg("/"), keyMsg("q"), keyMsg("?"))
+
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "Search: q?") {
+		t.Errorf("the root ate the letters:\n%s", out)
+	}
+}
+
+// The bar names the two keys that answer while it holds the keyboard. The rest
+// of the screen's hints are keys that would type rather than act.
+func TestTheStatusBarNamesTheSearchKeysWhileTheBarIsOpen(t *testing.T) {
+	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
+
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "search") {
+		t.Errorf("the bar does not name the search key:\n%s", out)
+	}
+
+	out := stripANSI(render(t, settle(m, keyMsg("/"))))
+	if !strings.Contains(out, "clear") || !strings.Contains(out, "apply") {
+		t.Errorf("the status bar does not name the bar's own keys:\n%s", out)
+	}
+	if strings.Contains(out, "copy link") {
+		t.Errorf("the status bar names a key that types rather than acts:\n%s", out)
+	}
+}
+
 // One way out has to work from anywhere, including out of a pane taking text.
 func TestCtrlCStillQuitsFromTheComposer(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}

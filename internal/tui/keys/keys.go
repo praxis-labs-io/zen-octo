@@ -256,11 +256,22 @@ func (k ListMap) ShortHelp() []key.Binding {
 		hint(k.Down, "j/k", "move"),
 		k.Open,
 		hint(k.NextSection, "[/]", "tab"),
+		k.Search,
 		k.CopyLink,
 		hint(k.Browse, "O", "browser"),
 		k.Sync,
 		Global.Help,
 		Global.Quit,
+	}
+}
+
+// SearchHelp is the line the list's search bar carries while it has the
+// keyboard. Every other key on that screen is a character in the query, so
+// naming one would be naming a key that does not answer.
+func (k ListMap) SearchHelp() []key.Binding {
+	return []key.Binding{
+		hint(k.Open, "⏎", "apply"),
+		hint(k.ClearSearch, "esc", "clear"),
 	}
 }
 

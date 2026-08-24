@@ -161,9 +161,9 @@ func (m Model) pollChecks(msg checksTickMsg) (tea.Model, tea.Cmd) {
 func (m Model) poll(msg pollTickMsg) (tea.Model, tea.Cmd) {
 	next := armPoll()
 
-	// A picker or a form has the keyboard, and an answer landing under one
-	// relayouts the page it is drawn over.
-	if m.detail.Capturing() {
+	// A picker, a form or the list's search bar has the keyboard, and an answer
+	// landing under one relayouts the page it is drawn over.
+	if m.capturing() {
 		return m, next
 	}
 
