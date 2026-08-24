@@ -3285,7 +3285,7 @@ func TestQAndTheHelpKeyAreLettersInTheListsSearchBar(t *testing.T) {
 	m = settle(m, keyMsg("/"), keyMsg("q"), keyMsg("?"))
 
 	out := stripANSI(render(t, m))
-	if !strings.Contains(out, "Search: q?") {
+	if !strings.Contains(out, "/ q?") {
 		t.Errorf("the root ate the letters:\n%s", out)
 	}
 }

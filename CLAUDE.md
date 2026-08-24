@@ -815,15 +815,29 @@ keyboard while it is open, ahead of the three keys that answer whatever the
 section is doing, because `]` and `s` are characters in a search and a key that
 both types and changes tab does the wrong one.
 
-It is `comp.Pane.Header`, which costs two of the pane's lines and is why the
-pane is told about it in `Update` and never while drawing: `Above` reads the
-heading off the pane to say what it draws over the content, and a `View` reached
-through a value receiver would be sizing a copy. `relayout` is that one path,
-and `bodyHeight` subtracts `Above`'s own answer rather than the two lines, which
-already carries the rule that a pane too short for a heading draws none. The
-`same` early-out in `SetSections` yields to it: the bar counts what the query
-left out, so a section that grew by a row nothing matches has moved it while the
-rows on screen did not.
+**The box is a `comp.Pane` and is drawn into the pane's content**, not set as
+its heading. A heading is one row and a rule where this is three, and widening
+`Header` to take more would move `Above`, which `prview` reads to map a line on
+the screen back to a line of content. So the box goes at the top of `body` and
+`bodyHeight` takes its three lines off the viewport, which is one number in one
+place. It is a pane rather than a border built here because `comp.Modal` is
+already a pane sized to its content, and the corners a pane draws are the ones
+the rest of this app draws. It sits a column in from each side and pads its own
+interior by one: flush, the two verticals meet and read as a frame that has come
+apart rather than as a box inside one.
+
+The border and the prompt both answer to whether it has the keyboard, and it is
+the only thing on this screen that can say where the keys are: the list is one
+pane and never takes focus, having nothing to hand it to. That is the shape
+zen-linear's nav search has, which is where this came from; nothing carried over
+as code, since that client is `tview` and this one is Bubble Tea. The caret is
+drawn rather than a terminal cursor, which is `comp.Picker`'s reason one widget
+over: nobody edits the middle of a search, and a blinking one costs a command
+plumbed through two packages.
+
+The `same` early-out in `SetSections` yields to the box: it counts what the
+query left out, so a section that grew by a row nothing matches has moved it
+while the rows on screen did not.
 
 **A merged pull request has no head branch, and the detail query compares
 against one.** GitHub answers with the whole pull request, `compare` null, and a

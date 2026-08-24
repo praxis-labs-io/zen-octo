@@ -48,45 +48,85 @@ func (m Model) visible() []gh.PullRequest {
 	return filter(m.activeSection().PRs, m.search)
 }
 
-// searchOpen is whether the bar is drawn: while it has the keyboard, and after
+// searchOpen is whether the box is drawn: while it has the keyboard, and after
 // it has given it back with a query still standing. A filter nothing on the
 // screen accounts for is a list that looks like it lost rows.
 func (m Model) searchOpen() bool { return m.searching || !m.search.Empty() }
 
-// headerRow is the bar, or nothing when there is no filter and none is being
-// typed. The pane reads it for its own height, so it is set in Update and never
-// while drawing.
-func (m Model) headerRow() string {
+// searchBoxLines is what the box costs the rows below it: its two borders and
+// the one line it holds.
+const searchBoxLines = 3
+
+// searchLines is the height the box takes off the pane, which is none at all
+// while there is nothing to search by.
+func (m Model) searchLines() int {
 	if !m.searchOpen() {
-		return ""
+		return 0
 	}
-	return m.searchBar(m.pane.InnerWidth())
+	return searchBoxLines
 }
 
-// searchBar is the query on the left and what it left out on the right. The
-// caret is drawn rather than a real cursor: nobody edits the middle of a search,
-// and a blinking one costs a command plumbed through two packages.
-func (m Model) searchBar(width int) string {
-	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
-
-	caret := ""
-	if m.searching {
-		caret = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▏")
+// searchBox is the query in a box of its own, inside the pane and above the
+// rows. It is a comp.Pane rather than a bordered row built here: the modal is
+// already a pane sized to its content, and the border a pane draws is the one
+// the rest of this app draws.
+//
+// It sits a column in from each side. Flush against the pane's own border the
+// two verticals meet, which reads as a frame that has come apart rather than as
+// a box inside one.
+//
+// The border and the prompt both answer to whether it has the keyboard, which
+// is the only thing on this screen that says where the keys are going: the list
+// pane itself never takes focus, having nothing to hand it to.
+func (m Model) searchBox(width int) string {
+	box := comp.NewPane(m.theme).Focus(m.searching).Size(max(0, width-2), searchBoxLines)
+	if box.InnerWidth() == 0 {
+		return ""
 	}
-	lead := " " + faint.Render("Search: ") + m.search.Query() + caret
+
+	prompt := m.theme.Subtle
+	if m.searching {
+		prompt = m.theme.Accent
+	}
+	lead := lipgloss.NewStyle().Foreground(prompt).Render("/ ")
+
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+	switch {
+	case !m.search.Empty():
+		lead += m.search.Query()
+	case m.searching:
+		// The prompt is a glyph rather than a word, so the box says what it is
+		// for in the one state where nothing else on it does.
+		lead += faint.Render("Search")
+	}
+	if m.searching {
+		lead += lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▏")
+	}
 
 	right := ""
 	if !m.search.Empty() {
 		right = faint.Render(strconv.Itoa(m.rows.len()) +
-			" of " + strconv.Itoa(len(m.activeSection().PRs)) + " ")
+			" of " + strconv.Itoa(len(m.activeSection().PRs)))
 	}
 
-	room := max(0, width-lipgloss.Width(right))
+	// A column of padding inside the box, which is comp.Modal's own: a prompt
+	// against the border reads as text that has run into it.
+	inner := max(0, box.InnerWidth()-2)
+
+	room := max(0, inner-lipgloss.Width(right)-1)
 	if lipgloss.Width(lead) > room {
 		lead = paint.Clip(lead, room, faint)
 	}
-	gap := max(0, width-lipgloss.Width(lead)-lipgloss.Width(right))
-	return lead + strings.Repeat(" ", gap) + right
+	gap := max(0, inner-lipgloss.Width(lead)-lipgloss.Width(right))
+	content := " " + lead + strings.Repeat(" ", gap) + right + " "
+
+	// The box is indented rather than the pane padded: the rows under it have a
+	// margin of their own and the pane holds no gutter for anyone.
+	lines := strings.Split(box.Render(content), "\n")
+	for i, line := range lines {
+		lines[i] = " " + line + " "
+	}
+	return strings.Join(lines, "\n")
 }
 
 // searchKey is the bar's own keyboard. It runs ahead of every binding on this

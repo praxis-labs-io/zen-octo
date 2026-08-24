@@ -27,14 +27,30 @@ func typed(m list.Model, s string) list.Model {
 	return m
 }
 
-// searchBar is the bar's line, or "" when the pane is not drawing one.
-func searchBar(frame string) string {
+// searchBox is the query line inside the box, or "" when the pane draws none.
+// The box is three lines and only the middle one holds anything.
+func searchBox(frame string) string {
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		if strings.Contains(line, "Search:") {
+		if strings.Contains(line, "│ / ") {
 			return line
 		}
 	}
 	return ""
+}
+
+// boxBorders is the box's own top and bottom, which is what says a box was
+// drawn at all rather than a row of text.
+func boxBorders(frame string) int {
+	n := 0
+	for _, line := range strings.Split(stripANSI(frame), "\n") {
+		if strings.Contains(line, "╭─") && strings.Contains(line, "─╮ ") {
+			n++
+		}
+		if strings.Contains(line, "╰─") && strings.Contains(line, "─╯ ") {
+			n++
+		}
+	}
+	return n
 }
 
 // mixed is a section whose rows differ in every field the search reads, so one
@@ -52,12 +68,12 @@ func mixed() []gh.PullRequest {
 func TestSlashOpensTheSearchBarAndEscTakesItAway(t *testing.T) {
 	m := newList(90, 20, numbered(4))
 
-	if bar := searchBar(m.View()); bar != "" {
+	if bar := searchBox(m.View()); bar != "" {
 		t.Fatalf("the bar is drawn before it was asked for: %q", bar)
 	}
 
 	m = press(m, key('/'))
-	if bar := searchBar(m.View()); bar == "" {
+	if bar := searchBox(m.View()); bar == "" {
 		t.Errorf("no bar after /\n%s", stripANSI(m.View()))
 	}
 	if !m.Capturing() {
@@ -65,7 +81,7 @@ func TestSlashOpensTheSearchBarAndEscTakesItAway(t *testing.T) {
 	}
 
 	m = press(m, esc)
-	if bar := searchBar(m.View()); bar != "" {
+	if bar := searchBox(m.View()); bar != "" {
 		t.Errorf("bar = %q, want it gone after esc", bar)
 	}
 	if m.Capturing() {
@@ -83,7 +99,7 @@ func TestTypingNarrowsTheSectionAndTheBarCountsWhatItLeftOut(t *testing.T) {
 	if !strings.Contains(out, "Change 1") {
 		t.Errorf("the row the query matches is not on the list\n%s", out)
 	}
-	if bar := searchBar(m.View()); !strings.Contains(bar, "other") || !strings.Contains(bar, "1 of 4") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "other") || !strings.Contains(bar, "1 of 4") {
 		t.Errorf("bar = %q, want the query and 1 of 4 on it", bar)
 	}
 }
@@ -109,7 +125,7 @@ func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			m := typed(press(newList(110, 20, mixed()), key('/')), c.query)
 
-			if bar := searchBar(m.View()); !strings.Contains(bar, "1 of 4") {
+			if bar := searchBox(m.View()); !strings.Contains(bar, "1 of 4") {
 				t.Fatalf("bar = %q, want %q to match one row", bar, c.query)
 			}
 			if out := stripANSI(m.View()); !strings.Contains(out, c.want) {
@@ -135,7 +151,7 @@ func TestTheBarTakesTheKeysThatWouldOtherwiseActOnTheList(t *testing.T) {
 		m = next
 	}
 
-	if bar := searchBar(m.View()); !strings.Contains(bar, "][sj") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "][sj") {
 		t.Errorf("bar = %q, want the four keys typed into it", bar)
 	}
 	if top := strings.Split(stripANSI(m.View()), "\n")[0]; !strings.Contains(top, "Mine (4)") {
@@ -151,7 +167,7 @@ func TestEnterKeepsTheFilterAndHandsTheKeyboardBack(t *testing.T) {
 	if m.Capturing() {
 		t.Error("enter left the bar holding the keyboard")
 	}
-	if bar := searchBar(m.View()); !strings.Contains(bar, "change") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "change") {
 		t.Errorf("bar = %q, want the filter still named on it", bar)
 	}
 
@@ -175,7 +191,7 @@ func TestEscClearsAFilterThatHasAlreadyBeenApplied(t *testing.T) {
 	m := press(typed(press(newList(110, 20, mixed()), key('/')), "other"), enter)
 
 	m = press(m, esc)
-	if bar := searchBar(m.View()); bar != "" {
+	if bar := searchBox(m.View()); bar != "" {
 		t.Errorf("bar = %q, want it gone in the one press", bar)
 	}
 	if out := stripANSI(m.View()); !strings.Contains(out, "Change 0") {
@@ -198,7 +214,7 @@ func TestTheQuerySurvivesATabSwitch(t *testing.T) {
 
 	m = press(press(typed(press(m, key('/')), "other"), enter), key(']'))
 
-	if bar := searchBar(m.View()); !strings.Contains(bar, "4 of 4") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "4 of 4") {
 		t.Errorf("bar = %q, want the query re-counted against the section arrived at", bar)
 	}
 }
@@ -213,7 +229,7 @@ func TestASearchThatMatchesNothingSaysSoRatherThanTheSection(t *testing.T) {
 	if strings.Contains(out, "Nothing matches this section.") {
 		t.Errorf("an empty result reads as an empty section\n%s", out)
 	}
-	if bar := searchBar(m.View()); !strings.Contains(bar, "0 of 4") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "0 of 4") {
 		t.Errorf("bar = %q, want 0 of 4", bar)
 	}
 }
@@ -247,7 +263,7 @@ func TestTheBarIsRefusedWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	})
 
 	m = press(m, key('/'))
-	if bar := searchBar(m.View()); bar != "" {
+	if bar := searchBox(m.View()); bar != "" {
 		t.Errorf("bar = %q, want the key refused over a section showing an error", bar)
 	}
 	if m.Capturing() {
@@ -259,7 +275,7 @@ func TestTheBarIsRefusedWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 // carries moves with the section even where the rows it shows do not.
 func TestASnapshotUnderTheBarKeepsTheFilterAndMovesItsCount(t *testing.T) {
 	m := typed(press(newList(110, 20, mixed()), key('/')), "other")
-	if bar := searchBar(m.View()); !strings.Contains(bar, "1 of 4") {
+	if bar := searchBox(m.View()); !strings.Contains(bar, "1 of 4") {
 		t.Fatalf("setup: bar = %q", bar)
 	}
 
@@ -267,7 +283,7 @@ func TestASnapshotUnderTheBarKeepsTheFilterAndMovesItsCount(t *testing.T) {
 	grown[4].ID = "PR_grown"
 	m.SetSections(ready([]string{"My PRs"}, grown))
 
-	bar := searchBar(m.View())
+	bar := searchBox(m.View())
 	if !strings.Contains(bar, "other") {
 		t.Errorf("bar = %q, want the query held through the snapshot", bar)
 	}
@@ -279,20 +295,54 @@ func TestASnapshotUnderTheBarKeepsTheFilterAndMovesItsCount(t *testing.T) {
 	}
 }
 
-// The bar is two of the pane's own lines and gives them back. Nothing about it
-// reaches past the frame the shell handed down.
-func TestTheBarCostsTwoRowsAndGivesThemBack(t *testing.T) {
+// The border says where the keys are. This screen is one pane and never takes
+// focus, so the box is the only thing on it that can say so.
+func TestTheBoxBorderFollowsTheKeyboard(t *testing.T) {
+	boxTop := func(frame string) string {
+		plain := strings.Split(stripANSI(frame), "\n")
+		for i, line := range plain {
+			if strings.Contains(line, "╭─") && strings.Contains(line, "─╮ ") {
+				return strings.Split(frame, "\n")[i]
+			}
+		}
+		t.Fatalf("no box in the frame\n%s", stripANSI(frame))
+		return ""
+	}
+
+	m := press(newList(90, 20, mixed()), key('/'))
+	if top := boxTop(m.View()); !strings.Contains(top, fgSeq(theme.RosePineMoon.Accent)) {
+		t.Error("the box holds the keyboard and its border does not say so")
+	}
+
+	m = press(typed(m, "auth"), enter)
+	top := boxTop(m.View())
+	if strings.Contains(top, fgSeq(theme.RosePineMoon.Accent)) {
+		t.Error("the box gave the keyboard back and its border still claims it")
+	}
+	if !strings.Contains(top, fgSeq(theme.RosePineMoon.BorderSubtleOrBorder())) {
+		t.Error("the settled box does not carry the border colour")
+	}
+}
+
+// The box is three of the pane's own lines and gives them back. Nothing about
+// it reaches past the frame the shell handed down.
+func TestTheBoxCostsItsThreeLinesAndGivesThemBack(t *testing.T) {
 	const width, height = 90, 20
 
 	m := newList(width, height, numbered(20))
-	rows := func() int {
+	body := func() int {
 		return strings.Count(stripANSI(m.View()), "Change ")
 	}
+	// A pull request is two lines with a third under it, so the box's three
+	// take one row off the pane and leave a line the padding absorbs.
+	before := body()
 
-	before := rows()
 	m = press(m, key('/'))
-	if got := rows(); got != before-1 {
-		t.Errorf("the bar took %d rows off the pane, want one", before-got)
+	if got := boxBorders(m.View()); got != 2 {
+		t.Errorf("the box drew %d of its own borders, want a top and a bottom", got)
+	}
+	if got := body(); got != before-1 {
+		t.Errorf("the box took %d rows off the pane, want one", before-got)
 	}
 
 	open := m.View()
@@ -308,7 +358,10 @@ func TestTheBarCostsTwoRowsAndGivesThemBack(t *testing.T) {
 			}
 		}
 	}
-	if got := rows(); got != before {
+	if got := body(); got != before {
 		t.Errorf("esc gave back %d rows, want the pane as it was", got)
+	}
+	if got := boxBorders(m.View()); got != 0 {
+		t.Errorf("the box left %d border lines behind after esc", got)
 	}
 }

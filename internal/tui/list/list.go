@@ -277,27 +277,23 @@ func (m *Model) SetSize(width, height int) {
 	m.relayout()
 }
 
-// relayout puts the bar on the pane, sizes the viewport to what is left under
-// it, and redraws. The pane is told about its own heading here and never while
-// drawing: Above reads the heading off the pane, and a View reached through a
-// value receiver would be sizing a copy.
+// relayout sizes the viewport to what the search box leaves of the pane and
+// redraws. The box is drawn into the pane's content rather than set as its
+// heading, which is one line and a rule where this is three: the pane keeps one
+// idea of what it draws above content, and prview reads it to map lines.
 //
 // A shrink can leave the selection below the fold, where the next enter opens a
 // pull request the user cannot see, so the scroll is part of the same path.
 func (m *Model) relayout() {
-	m.pane = m.pane.Header(m.headerRow())
 	m.view.SetWidth(m.pane.InnerWidth())
 	m.view.SetHeight(m.bodyHeight())
 	m.syncContent()
 	m.scrollToCursor()
 }
 
-// bodyHeight is the pane's interior less whatever it draws above the content.
-// Above is the pane's own answer, and it already carries the rule that a pane
-// too short for a heading draws none: deriving the two lines here would be the
-// same number written in two places.
+// bodyHeight is the pane's interior less the box standing in it.
 func (m Model) bodyHeight() int {
-	return max(0, m.pane.InnerHeight()-max(0, m.pane.Above()-1))
+	return max(0, m.pane.InnerHeight()-m.searchLines())
 }
 
 // SetSections takes the store's snapshot. It is the only way data reaches this
@@ -425,6 +421,15 @@ func badge(s store.Section) string {
 // pane, and a sentence in the top-left corner of an empty frame reads as the
 // first row of a list still filling in.
 func (m Model) body() string {
+	if !m.searchOpen() {
+		return m.rowsBody()
+	}
+	return m.searchBox(m.pane.InnerWidth()) + "\n" + m.rowsBody()
+}
+
+// rowsBody is the rows once they are there, and the block standing in for them
+// when they are not.
+func (m Model) rowsBody() string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	section := m.activeSection()
 
