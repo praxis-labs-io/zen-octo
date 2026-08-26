@@ -1080,11 +1080,24 @@ by re-rendering, which is a message every half second and a relayout behind it,
 against a `View` costing 7ms on a long conversation and 27ms a keystroke with a
 compose box open; this one blinks in the terminal emulator, where no message
 reaches `Update` and nothing crosses an ssh connection. `SetVirtualCursor(false)`
-is what turns the widget's own block off, and after it `Model.Cursor()` reports
-a position local to the widget with the prompt, the gutter, the borders and the
-textarea's own scroll already taken off. **Ask the widget rather than deriving
-its column**: the merge headline scrolls sideways once the subject outruns its
-box and nothing outside it can see how far.
+is what turns the widget's own block off, and after it `area.Model.Cursor()`
+reports a position local to the widget with the prompt, the gutter, the borders
+and the textarea's own scroll already taken off.
+
+**Every box here is a textarea, and the merge headline is one because a text
+input cannot say where its caret is.** `textinput.Model.Cursor()` returns
+`Position()`, a rune index into the value, clamped to the box's width; the
+horizontal offset it scrolls the value by is unexported and never subtracted.
+Inside the box the two agree, and past the edge the reported cell is wherever
+the clamp landed while the caret walks away from it. With the widget's own
+caret off nothing else draws the true one, so the cursor pinned to the right
+edge. A textarea counts in cells within its wrapped row and is right at any
+length. Wrapping suits the field anyway: a squash headline is the title with
+`(#N)` after it, so overflow is the ordinary case, and a title that runs on
+reads better on two rows than scrolled through a slot. It takes two rows where
+the frame can afford them and one at the floor, since the message box is
+already at its own there and a subject losing its second row loses less than a
+message losing one of six.
 
 A screen reports against its own frame and the root adds `noticeHeight()`, which
 is the whole of the difference: `render` stacks the notice, the screen and the

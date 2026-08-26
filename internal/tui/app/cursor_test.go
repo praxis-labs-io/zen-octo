@@ -201,3 +201,41 @@ func TestTheCursorIsMutedAndBlinks(t *testing.T) {
 		t.Errorf("cursor colour is %v, want the theme's muted", c.Color)
 	}
 }
+
+// A headline longer than its box is the ordinary case: a squash subject is the
+// pull request's title with "(#N)" after it. The box wraps rather than
+// scrolling sideways, because a text input reports its caret as an index into
+// the value rather than into the window it scrolls through, and with the
+// widget's own caret off nothing else draws the true one. Pinned, the cursor
+// sat at the box's right edge while the caret walked away from it.
+func TestTheHeadlineCursorFollowsACaretPastTheEdge(t *testing.T) {
+	m := write(press(openMergeForm(t, &fakeSearcher{prs: samplePRs()}), "tab"), strings.Repeat("x", 90))
+
+	at := func() (int, int) {
+		t.Helper()
+		c := cursorOf(t, m)
+		if c == nil {
+			t.Fatal("no cursor in the headline box")
+		}
+		return c.X, c.Y
+	}
+
+	x0, y0 := at()
+	for range 20 {
+		m = settle(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	}
+	x1, y1 := at()
+
+	if x0 == x1 && y0 == y1 {
+		t.Errorf("the cursor stayed at (%d,%d) through twenty lefts", x0, y0)
+	}
+
+	// And it is somewhere the box actually draws, rather than off the end of it.
+	frame := strings.Split(stripANSI(render(t, m)), "\n")
+	if y1 < 0 || y1 >= len(frame) {
+		t.Fatalf("cursor row %d is outside a %d-row frame", y1, len(frame))
+	}
+	if row := frame[y1]; !strings.Contains(row, "x") {
+		t.Errorf("cursor is on row %d, which holds no headline text: %q", y1, row)
+	}
+}

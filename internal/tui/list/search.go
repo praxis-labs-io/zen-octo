@@ -116,7 +116,10 @@ func (m Model) searchRow(inner int) (lead, right string, room int) {
 		lead += faint.Render("Search")
 	}
 
-	if !m.search.Empty() {
+	// Only over rows. A filter carries across a tab, and against a section
+	// still loading both numbers are zero: "0 of 0" beside a spinner says the
+	// query excluded everything when nothing has been fetched yet.
+	if !m.search.Empty() && showsRows(m.activeSection()) {
 		right = faint.Render(strconv.Itoa(m.rows.len()) +
 			" of " + strconv.Itoa(len(m.activeSection().PRs)))
 	}

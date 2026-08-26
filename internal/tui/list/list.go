@@ -446,7 +446,9 @@ func (m Model) rowsBody() string {
 		block = label + "\n" + faint.Render(section.Err.Error())
 	case !section.Loaded:
 		block = m.spinner.Render("Loading pull requests")
-	case m.rows.len() == 0 && m.searchOpen():
+	// The query rather than the box: pressing / over a section that is empty
+	// anyway would otherwise be answered by blaming a search nobody has typed.
+	case m.rows.len() == 0 && !m.search.Empty():
 		block = faint.Render("Nothing in this section matches that search.")
 	case m.rows.len() == 0:
 		block = faint.Render("Nothing matches this section.")

@@ -6,7 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	area "charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -43,6 +42,12 @@ const (
 	// and the first thing to give way on a short terminal. A squash body is one
 	// line per commit, so six of them is a small branch whole.
 	mergeBodyRows = 6
+
+	// mergeHeadlineRows is what the subject box shows. Two, because a squash
+	// headline is a title with "(#N)" after it and one row hides the tail of
+	// every long one; the message box gives the row back through bodyHeight,
+	// so the form is no taller at the floor than it was.
+	mergeHeadlineRows = 2
 
 	// mergeBodyFloor is as small as the box goes before the modal starts
 	// clipping instead. One line, because the box borders its own text now and
@@ -114,7 +119,7 @@ type merging struct {
 	methods []gh.MergeMethod
 	at      int
 
-	headline textinput.Model
+	headline area.Model
 	body     area.Model
 
 	// typedHeadline and typedBody mark a field the reader has changed.
@@ -320,20 +325,23 @@ func mergeBypass(d gh.PullRequestDetail) bool {
 	return d.Merge == gh.MergeBlocked || d.Merge == gh.MergeBehind
 }
 
-func newMergeInput(th theme.Theme) textinput.Model {
-	in := textinput.New()
-	in.Prompt = ""
-	in.CharLimit = 0
-	// The terminal draws the cursor for every box in this app. Left on, the
-	// widget paints a block of its own and there would be two.
-	in.SetVirtualCursor(false)
-
-	styles := in.Styles()
-	for _, state := range []*textinput.StyleState{&styles.Focused, &styles.Blurred} {
-		state.Text = lipgloss.NewStyle().Foreground(th.Text)
-		state.Placeholder = lipgloss.NewStyle().Foreground(th.Subtle)
-	}
-	in.SetStyles(styles)
+// newMergeInput is the headline box. It is a textarea rather than a text input,
+// and it wraps rather than scrolling sideways.
+//
+// A text input scrolls its value through a window, and bubbles reports the
+// caret as an index into the value rather than into that window: past the edge
+// the position it gives is the wrong cell, and turning its own caret off leaves
+// nothing drawing the right one. A textarea counts in cells within its wrapped
+// row and gets it right. Wrapping also suits the field: a squash headline is
+// the pull request's title with "(#N)" after it, so overflow is the ordinary
+// case rather than the edge, and a title that runs on is better read on two
+// rows than scrolled through a slot.
+func newMergeInput(th theme.Theme) area.Model {
+	in := textarea(th, mergeHeadlineRows)
+	// One paragraph. The Post key is what sends the form, so a newline in the
+	// subject would only be a way to write a commit message GitHub will not
+	// take.
+	in.ShowLineNumbers = false
 	return in
 }
 
@@ -371,7 +379,7 @@ func (f *merging) prefill() {
 //
 // The beginning is where a field nobody has typed in is read from. focus moves
 // it to the end on the way in, which is where one is edited from.
-func headStart(in *textinput.Model) {
+func headStart(in *area.Model) {
 	in.CursorEnd()
 	in.CursorStart()
 }
@@ -567,6 +575,7 @@ func (f *merging) resize(frameWidth, frameHeight int) {
 	}
 	width := fieldText(f.width(frameWidth))
 	f.headline.SetWidth(width)
+	f.headline.SetHeight(f.headlineHeight(frameHeight))
 	f.body.SetWidth(width)
 	f.body.SetHeight(f.bodyHeight(frameHeight))
 }
@@ -595,7 +604,7 @@ func (f merging) formRows(th theme.Theme, width int) (rows []string, fieldTop in
 		if f.on() == mergeHeadlineRow {
 			fieldTop = len(rows)
 		}
-		rows = append(rows, f.field(th, "Headline", f.headline.View(), 1, width, mergeHeadlineRow)...)
+		rows = append(rows, f.field(th, "Headline", f.headline.View(), f.headline.Height(), width, mergeHeadlineRow)...)
 		rows = append(rows, "")
 		if f.on() == mergeBodyRow {
 			fieldTop = len(rows)
@@ -686,23 +695,46 @@ func (f merging) bodyHeight(frameHeight int) int {
 		return mergeBodyRows
 	}
 
-	// Everything the form draws except the message itself: the modal's two
-	// border rows, the row it opens with, the Method heading and its rows, a
-	// blank and the
-	// title box's three rows, a blank and the message box's own two borders,
-	// then the blank and the footer at the foot. After that the delete row and
-	// the warning where there are any, each with its own blank.
-	//
-	// Counted rather than measured, because the height has to be decided before
-	// the box it decides is rendered.
-	chrome := 2 + 1 + 1 + len(f.methods) + 1 + 3 + 1 + 2 + 2
+	return min(mergeBodyRows, max(mergeBodyFloor,
+		frameHeight-f.chromeRows(f.headlineHeight(frameHeight))))
+}
+
+// chromeRows is everything the form draws except the message itself: the
+// modal's two border rows, the row it opens with, the Method heading and its
+// rows, a blank and the title box with its two borders, a blank and the message
+// box's own two borders, then the blank and the footer at the foot. After that
+// the delete row and the warning where there are any, each with its own blank.
+//
+// Counted rather than measured, because the height has to be decided before the
+// box it decides is rendered.
+func (f merging) chromeRows(headlineRows int) int {
+	chrome := 2 + 1 + 1 + len(f.methods) + 1 + (headlineRows + 2) + 1 + 2 + 2
 	if f.branch != "" {
 		chrome += 2
 	}
 	if f.bypass {
 		chrome += 2
 	}
-	return min(mergeBodyRows, max(mergeBodyFloor, frameHeight-chrome))
+	return chrome
+}
+
+// headlineHeight is what the subject box shows: two rows, so a title that runs
+// past the width wraps rather than leaving the screen, and one where the frame
+// cannot afford the second.
+//
+// The row has to come from somewhere at the floor, and the message box is
+// already at its own there. This is the box that can spare it: a subject is one
+// line and a commit message is many, so a subject losing its second row loses
+// the tail of a long title while a message losing a row loses a row of prose
+// out of six.
+func (f merging) headlineHeight(frameHeight int) int {
+	if frameHeight <= 0 {
+		return mergeHeadlineRows
+	}
+	if frameHeight-f.chromeRows(1)-mergeBodyFloor >= 1 {
+		return mergeHeadlineRows
+	}
+	return 1
 }
 
 // methodRows is the choices under their heading, with the tick on the one that

@@ -1792,8 +1792,12 @@ func (m Model) View() string {
 	// The overlays composite against the whole screen, so the header goes on
 	// first: a modal centred on the panes sits low by half the header.
 	frame := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	lead := m.headLead()
-	if head := m.head(); head != "" {
+
+	// Built once. head runs the title line, the branch line, spread and the
+	// badges, and this frame is drawn on every keystroke.
+	head := m.head()
+	lead := headRows(head)
+	if head != "" {
 		frame = lipgloss.JoinVertical(lipgloss.Left, head, frame)
 	}
 
@@ -1809,10 +1813,11 @@ func (m Model) View() string {
 	return m.mergeOverlay(m.pickerOverlay(m.mentionOverlay(frame, lead)))
 }
 
-// headLead is the rows the header spends before the panes. View draws from it
-// and Cursor measures from it, so a header that grows a line moves both.
-func (m Model) headLead() int {
-	head := m.head()
+// headLead is the rows the header spends before the panes. Cursor measures from
+// it; View has the header in hand already and counts it with headRows.
+func (m Model) headLead() int { return headRows(m.head()) }
+
+func headRows(head string) int {
 	if head == "" {
 		return 0
 	}
