@@ -1066,6 +1066,47 @@ An `Edit` settles by writing GitHub's answer into the held detail and then dropp
 
 Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
 
+**There is one cursor, and the terminal draws it.** Every text input reports
+where the next character lands and none of them draws a caret: `tea.View`
+carries a `Cursor` and the root sets it once, from whichever screen has the
+keyboard. Seven boxes styling a glyph to match is what let the picker's filter
+end up on `paint.BarGlyph`, which already means the row under a cursorline in
+the diff and the rail. `comp.Cursor` is the one place shape, blink and colour
+are decided, and it is muted rather than accent, because a focused box already
+says it has the keyboard with its border.
+
+**Blink is free and a drawn caret's is not.** The bubbles virtual cursor blinks
+by re-rendering, which is a message every half second and a relayout behind it,
+against a `View` costing 7ms on a long conversation and 27ms a keystroke with a
+compose box open; this one blinks in the terminal emulator, where no message
+reaches `Update` and nothing crosses an ssh connection. `SetVirtualCursor(false)`
+is what turns the widget's own block off, and after it `Model.Cursor()` reports
+a position local to the widget with the prompt, the gutter, the borders and the
+textarea's own scroll already taken off. **Ask the widget rather than deriving
+its column**: the merge headline scrolls sideways once the subject outruns its
+box and nothing outside it can see how far.
+
+A screen reports against its own frame and the root adds `noticeHeight()`, which
+is the whole of the difference: `render` stacks the notice, the screen and the
+status bar at column zero. **A caret nobody can see gets no cursor** rather than
+one clamped to an edge, which would point at a row the caret is not on;
+`caretAt` returns false where the box has scrolled out of the pane, and every
+other site holds the cursor inside its own box the same way.
+
+`caretAt` is `mentionAnchor` with its last step taken off. That step walks back
+to the `@` so the popup holds still while a handle is typed, and it is the whole
+difference between where the next character lands and where a list answering a
+word hangs. Splitting them removed a derivation rather than adding one, and the
+arithmetic now runs on every keystroke instead of only when somebody types an
+`@`, so a drift in it shows up immediately rather than sitting latent.
+
+`comp.OverOrigin` exists because `Over` computed the corner it centres on and
+returned only a string. A cursor inside a modal has to know where the modal
+landed, and deriving that corner again at the call site is two answers to one
+question with the wrong one being the one nothing renders. The picker and the
+merge form each build their rows once and both measure and draw from them, so a
+row added to either moves the cursor with it.
+
 ## Rendering traps
 
 Each of these looks like working code and produces a broken frame.

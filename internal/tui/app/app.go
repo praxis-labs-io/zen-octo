@@ -1575,7 +1575,35 @@ func (m Model) screenView() string {
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.Cursor = m.cursor()
 	return v
+}
+
+// cursor is the one cursor this app has. Every text input reports where the
+// next character lands and none of them draws a caret, so there is a single
+// thing to place and nothing to keep in step.
+//
+// A screen reports against its own frame. render stacks the notice, the screen
+// and the status bar at column zero, so the notice is the whole of the
+// difference and it is worth exactly one row.
+func (m Model) cursor() *tea.Cursor {
+	// Below the floor the frame is the size instead of a screen, so there is no
+	// box on it whatever the screen behind the message still holds.
+	if m.width < minWidth || m.height < minHeight {
+		return nil
+	}
+	// The help overlay covers the screen and takes no text of its own.
+	if m.showHelp {
+		return nil
+	}
+
+	var c *tea.Cursor
+	if m.screen == screenDetail {
+		c = m.detail.Cursor()
+	} else {
+		c = m.list.Cursor()
+	}
+	return comp.Offset(c, 0, m.noticeHeight())
 }
 
 func (m Model) render() string {

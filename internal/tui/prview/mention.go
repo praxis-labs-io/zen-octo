@@ -349,10 +349,14 @@ func (m *Model) refillMentions() tea.Cmd {
 	return nil
 }
 
-// mentionAnchor is the frame cell the caret is drawn in, and whether there is
-// one to draw at. It walks the path showCaret walks, then takes the two steps
+// caretAt is the frame cell the caret sits in, and whether there is one to
+// point at. It walks the path showCaret walks, then takes the two steps
 // showCaret has no use for: the pane the page sits in, and the column.
-func (m Model) mentionAnchor(lead int) (x, y int, ok bool) {
+//
+// Two callers want different things from it. The terminal's cursor wants this
+// cell exactly; the mention popup wants the '@' a few cells back. Deriving
+// either one twice is how the two end up disagreeing about where the box is.
+func (m Model) caretAt(lead int) (x, y int, ok bool) {
 	box := m.writing()
 	if box == nil || m.boxLine <= 0 || !m.ringTab() || m.view.Height() <= 0 {
 		return 0, 0, false
@@ -374,13 +378,33 @@ func (m Model) mentionAnchor(lead int) (x, y int, ok bool) {
 	// within its wrapped row. CharOffset rather than Column, because this is
 	// cells on a screen where that is runes in a line.
 	x = m.mainLeft() + 1 + m.bodyGutter() + m.boxCol + box.area.LineInfo().CharOffset
-
-	// Back to the '@' rather than the caret, so the handles in the list stand
-	// under the handle being typed and the popup holds still while it is. One
-	// cell per rune is exact here and nowhere else: a login is alphanumerics and
-	// hyphens, which is all that can lie between the two.
-	x -= max(0, box.area.Column()-m.mention.at)
 	return x, y, true
+}
+
+// mentionAnchor is the cell the popup hangs from: the caret, walked back to the
+// '@' that opened the list, so the handles stand under the handle being typed
+// and the popup holds still while it is.
+//
+// One cell per rune is exact here and nowhere else: a login is alphanumerics
+// and hyphens, which is all that can lie between the two.
+func (m Model) mentionAnchor(lead int) (x, y int, ok bool) {
+	x, y, ok = m.caretAt(lead)
+	if !ok {
+		return 0, 0, false
+	}
+	box := m.writing()
+	return x - max(0, box.area.Column()-m.mention.at), y, true
+}
+
+// composeCursor is the terminal's cursor while a box is taking text. It is
+// caretAt with nothing taken off it, which is the whole difference between
+// where the next character lands and where a popup answering a word hangs.
+func (m Model) composeCursor(lead int) *tea.Cursor {
+	x, y, ok := m.caretAt(lead)
+	if !ok {
+		return nil
+	}
+	return comp.Cursor(m.theme, x, y)
 }
 
 // mainLeft is the frame column the conversation pane's left border stands on.

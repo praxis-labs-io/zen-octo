@@ -53,9 +53,23 @@ func (m Model) visible() []gh.PullRequest {
 // screen accounts for is a list that looks like it lost rows.
 func (m Model) searchOpen() bool { return m.searching || !m.search.Empty() }
 
-// searchBoxLines is what the box costs the rows below it: its two borders and
-// the one line it holds.
-const searchBoxLines = 3
+const (
+	// searchBoxLines is what the box costs the rows below it: its two borders
+	// and the one line it holds.
+	searchBoxLines = 3
+
+	// searchBoxIndent is the column the box sits in from each side of the pane,
+	// and searchBoxLead is everything before the query on its row: that indent,
+	// the pane's own border, the box's border, and the box's padding. Named
+	// because searchBox lays the row out and Cursor points into it, and two
+	// spellings of the same offset is how a cursor ends up a cell out.
+	searchBoxIndent = 1
+	searchBoxLead   = 1 + searchBoxIndent + 1 + 1
+
+	// searchPrompt opens the box. It is the key that opened it, which is what
+	// the row says instead of a word.
+	searchPrompt = "/ "
+)
 
 // searchLines is the height the box takes off the pane, which is none at all
 // while there is nothing to search by.
@@ -88,7 +102,7 @@ func (m Model) searchBox(width int) string {
 	if m.searching {
 		prompt = m.theme.Accent
 	}
-	lead := lipgloss.NewStyle().Foreground(prompt).Render("/ ")
+	lead := lipgloss.NewStyle().Foreground(prompt).Render(searchPrompt)
 
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	switch {
@@ -99,10 +113,6 @@ func (m Model) searchBox(width int) string {
 		// for in the one state where nothing else on it does.
 		lead += faint.Render("Search")
 	}
-	if m.searching {
-		lead += lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▏")
-	}
-
 	right := ""
 	if !m.search.Empty() {
 		right = faint.Render(strconv.Itoa(m.rows.len()) +
@@ -122,11 +132,35 @@ func (m Model) searchBox(width int) string {
 
 	// The box is indented rather than the pane padded: the rows under it have a
 	// margin of their own and the pane holds no gutter for anyone.
+	indent := strings.Repeat(" ", searchBoxIndent)
 	lines := strings.Split(box.Render(content), "\n")
 	for i, line := range lines {
-		lines[i] = " " + line + " "
+		lines[i] = indent + line + indent
 	}
 	return strings.Join(lines, "\n")
+}
+
+// Cursor is where the terminal draws its cursor on this screen, relative to the
+// screen's own frame. Only the box takes text, and only while it holds the
+// keyboard: a filter settled with enter is a fact on the screen rather than
+// somewhere the next character lands.
+func (m Model) Cursor() *tea.Cursor {
+	if !m.searching {
+		return nil
+	}
+
+	// The query rather than the rendered lead, because the placeholder is text
+	// the box is not holding: the cursor opens where the first character will
+	// go, which is where "Search" starts.
+	col := searchBoxLead + lipgloss.Width(searchPrompt) + lipgloss.Width(m.search.Query())
+
+	// Inside the box, whatever has been typed. searchBar clips a long query and
+	// a cursor past the clip points at the border rather than at the text.
+	last := m.pane.InnerWidth() - searchBoxIndent - 2
+	if last < searchBoxLead || col > last {
+		return nil
+	}
+	return comp.Cursor(m.theme, col, m.pane.Above()+1)
 }
 
 // searchKey is the bar's own keyboard. It runs ahead of every binding on this

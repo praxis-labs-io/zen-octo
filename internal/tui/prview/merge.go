@@ -324,6 +324,9 @@ func newMergeInput(th theme.Theme) textinput.Model {
 	in := textinput.New()
 	in.Prompt = ""
 	in.CharLimit = 0
+	// The terminal draws the cursor for every box in this app. Left on, the
+	// widget paints a block of its own and there would be two.
+	in.SetVirtualCursor(false)
 
 	styles := in.Styles()
 	for _, state := range []*textinput.StyleState{&styles.Focused, &styles.Blurred} {
@@ -570,13 +573,33 @@ func (f *merging) resize(frameWidth, frameHeight int) {
 
 // render draws the form as a modal, at the size resize last gave it.
 func (f merging) render(th theme.Theme, frameWidth, frameHeight int) string {
-	width := f.width(frameWidth)
-	rows := append([]string{""}, f.methodRows(th, width)...)
+	rows, _ := f.formRows(th, f.width(frameWidth))
+	return comp.Modal(th, f.title(), strings.Join(rows, "\n"))
+}
+
+func (f merging) title() string { return "Merge #" + strconv.Itoa(f.number) }
+
+// mergeFieldLead is the columns a boxed field spends before its text: its own
+// pane border and the padding inside it.
+const mergeFieldLead = 2
+
+// formRows is the modal's content and the row the focused field's box opens on,
+// or -1 where no field has the keyboard. render draws it and cursor measures
+// it, so a row added to this form moves both rather than one of them.
+func (f merging) formRows(th theme.Theme, width int) (rows []string, fieldTop int) {
+	fieldTop = -1
+	rows = append([]string{""}, f.methodRows(th, width)...)
 
 	if f.writes() {
 		rows = append(rows, "")
+		if f.on() == mergeHeadlineRow {
+			fieldTop = len(rows)
+		}
 		rows = append(rows, f.field(th, "Headline", f.headline.View(), 1, width, mergeHeadlineRow)...)
 		rows = append(rows, "")
+		if f.on() == mergeBodyRow {
+			fieldTop = len(rows)
+		}
 		rows = append(rows, f.field(th, "Message", f.body.View(), f.body.Height(), width, mergeBodyRow)...)
 	}
 
@@ -593,7 +616,40 @@ func (f merging) render(th theme.Theme, frameWidth, frameHeight int) string {
 	}
 
 	rows = append(rows, "", f.footer(th, width))
-	return comp.Modal(th, "Merge #"+strconv.Itoa(f.number), strings.Join(rows, "\n"))
+	return rows, fieldTop
+}
+
+// cursor is the terminal's cursor while a field on this form has the keyboard.
+// The widget is asked where its caret sits rather than told: the headline
+// scrolls sideways once the subject outruns its box, and nothing out here can
+// see how far.
+func (f merging) cursor(th theme.Theme, frameWidth, frameHeight int) *tea.Cursor {
+	if !f.open {
+		return nil
+	}
+
+	var local *tea.Cursor
+	switch f.on() {
+	case mergeHeadlineRow:
+		local = f.headline.Cursor()
+	case mergeBodyRow:
+		local = f.body.Cursor()
+	}
+	if local == nil {
+		return nil
+	}
+
+	rows, fieldTop := f.formRows(th, f.width(frameWidth))
+	if fieldTop < 0 {
+		return nil
+	}
+	x, y := comp.OverOrigin(comp.Modal(th, f.title(), strings.Join(rows, "\n")), frameWidth, frameHeight)
+
+	// The modal's own chrome, then the field's, then wherever inside its box
+	// the widget says the caret is. Both boxes open on a titled top border.
+	return comp.Cursor(th,
+		x+comp.ModalLead+mergeFieldLead+local.X,
+		y+1+fieldTop+1+local.Y)
 }
 
 // width is what the modal gets inside its border: the widest row it has to draw

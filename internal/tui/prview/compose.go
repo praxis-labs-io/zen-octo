@@ -104,6 +104,9 @@ func textarea(th theme.Theme, rows int) area.Model {
 	box.Prompt = ""
 	box.CharLimit = 0
 	box.SetHeight(rows)
+	// The terminal draws the cursor for every box in this app. Left on, the
+	// widget paints a block of its own and there would be two.
+	box.SetVirtualCursor(false)
 
 	styles := box.Styles()
 	for _, state := range []*area.StyleState{&styles.Focused, &styles.Blurred} {

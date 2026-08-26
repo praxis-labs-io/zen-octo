@@ -18,11 +18,25 @@ func Over(base, over string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return base
 	}
-	over = clip(over, width, height)
+	x, y := OverOrigin(over, width, height)
+	return At(base, clip(over, width, height), x, y, width, height)
+}
 
-	x := (width - lipgloss.Width(over)) / 2
-	y := (height - lipgloss.Height(over)) / 2
-	return At(base, over, x, y, width, height)
+// OverOrigin is the corner Over puts an overlay on, measured against the
+// overlay once it has been clipped and clamped the way At will clamp it.
+//
+// Exported because a caller drawing a cursor inside an overlay has to know
+// where the overlay landed, and Over answers with a string. Deriving the corner
+// a second time at the call site is two answers to one question, and the one
+// that drifts is the one nothing renders.
+func OverOrigin(over string, width, height int) (x, y int) {
+	if width <= 0 || height <= 0 {
+		return 0, 0
+	}
+	over = clip(over, width, height)
+	x = (width - lipgloss.Width(over)) / 2
+	y = (height - lipgloss.Height(over)) / 2
+	return max(0, min(x, width-lipgloss.Width(over))), max(0, min(y, height-lipgloss.Height(over)))
 }
 
 // At composites over on top of base with its top-left corner at (x, y), held
@@ -62,6 +76,11 @@ func At(base, over string, x, y, width, height int) string {
 func clip(over string, width, height int) string {
 	return lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(over)
 }
+
+// ModalLead is the columns a modal spends before its content: its pane border
+// and the padding inside it. Anything placing a cursor in a modal clears this,
+// and it is named here so it moves with Modal rather than with a caller.
+const ModalLead = 2
 
 // Modal frames content as a dialog for Over to place. It is a focused pane, so
 // modals, pickers, and confirms all inherit the same chrome.
