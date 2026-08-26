@@ -98,7 +98,10 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		short []key.Binding
 		full  [][]key.Binding
 	}{
-		{name: "list", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(), full: keys.List.FullHelp()},
+		{name: "list", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(keys.ListContext{Rows: true, Search: true}), full: keys.List.FullHelp()},
+		// The line a section that has not answered gets. It names fewer keys, and
+		// every one of them still has to be a key this map declares.
+		{name: "list blocked", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(keys.ListContext{}), full: keys.List.FullHelp()},
 		// The search bar's line is the same map read while it has the keyboard,
 		// so it answers to the same rule: a key named there is a key declared.
 		{name: "list search", live: []any{keys.List, keys.Global}, short: keys.List.SearchHelp(), full: keys.List.FullHelp()},
@@ -106,6 +109,13 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		// are the answer to what tab does inside a box, and the reader asking
 		// has only the one overlay to ask.
 		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Blocks: true, Expand: true, Rail: true, Column: "file"}), full: keys.Detail.FullHelp()},
+		// The rail's own line: enter and the pane step in place of the keys that
+		// act on the page, none of which the rail answers.
+		{name: "detail rail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Activate: true, Panes: true, Rail: true}), full: keys.Detail.FullHelp()},
+		// A settled query rewrites what esc is named as, and the bar the job
+		// log's own search carries while it is typing is two keys off this map.
+		{name: "detail searched", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{SearchStanding: true, JobLog: true, JobMatches: true}), full: keys.Detail.FullHelp()},
+		{name: "detail search", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.SearchHelp(), full: keys.Detail.FullHelp()},
 	}
 
 	for _, tt := range tests {

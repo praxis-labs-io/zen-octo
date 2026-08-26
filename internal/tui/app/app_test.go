@@ -1553,7 +1553,7 @@ func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
 			frame: func(t *testing.T) string {
 				return lastLine(render(t, loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40)))
 			},
-			want: []string{"j/k move", "⏎ open", "[/] tab", "q quit"},
+			want: []string{"j/k move", "⏎ open", "[/] tab", "? help"},
 		},
 		{
 			name: "detail",
@@ -1749,8 +1749,18 @@ func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
 		want, gone []string
 	}{
 		{
+			// The rail leads the conversation, and it is a list of controls: the
+			// braces are dead on it and space folds nothing, so the line names
+			// what it does answer and the pane step that reaches the page.
 			name: "conversation",
+			want: []string{"⏎ open", "h/l panes", "d details"},
+			gone: []string{"{/} block", "space expand"},
+		},
+		{
+			name: "conversation, on the page",
+			to:   []string{"l"},
 			want: []string{"{/} block", "space expand", "d details"},
+			gone: []string{"h/l panes"},
 		},
 		{
 			name: "commits",

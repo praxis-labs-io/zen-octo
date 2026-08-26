@@ -1626,10 +1626,15 @@ func (m Model) render() string {
 	if body := m.screenView(); body != "" {
 		parts = append(parts, body)
 	}
+	// The room the hints get is the bar's own arithmetic, and which side gives
+	// way decides it. Render keeps the left whole and clips the readout to what
+	// is left; RenderMessage flips that, so the hints shed around the message
+	// and the gap the bar holds between them.
 	if message := m.statusMessage(); message != "" {
-		parts = append(parts, m.status.RenderMessage(m.statusHints(), message))
+		room := statusInner(m.width) - lipgloss.Width(message) - statusGap
+		parts = append(parts, m.status.RenderMessage(m.statusHints(room), message))
 	} else {
-		parts = append(parts, m.status.Render(m.statusHints(), m.statusReadout()))
+		parts = append(parts, m.status.Render(m.statusHints(statusInner(m.width)), m.statusReadout()))
 	}
 
 	frame := strings.Join(parts, "\n")
@@ -1649,20 +1654,50 @@ func (m Model) noticeLine() string {
 // happening. They used to give way for a toast; a message on the right leaves
 // the keys where the reader's eye already learned to find them.
 //
-// A picker or a form is the exception, because it has taken the keys the line
-// names and carries a hint line of its own. The bar goes quiet rather than
-// spending its width on keys that stopped working when the modal opened.
-//
-// The detail screen builds its own line: the keymap is the same on all four
-// tabs and what they can do is not.
-func (m Model) statusHints() string {
+// Each screen builds its own line: the keymap is the same wherever the reader
+// is standing and what answers is not. Which of them goes quiet for a modal is
+// theirs to say too, next to the widgets drawing the hints that replace it.
+func (m Model) statusHints(room int) string {
 	if m.screen != screenDetail {
-		return m.help.ShortHelpView(m.list.ShortHelp())
+		return m.shedHints(m.list.ShortHelp(), room)
 	}
-	if m.detail.Capturing() {
-		return ""
+	return m.shedHints(m.detail.ShortHelp(), room)
+}
+
+// statusInner and statusGap are the bar's own layout, named here because the
+// hints have to be shed to the room before the bar is handed them: it takes two
+// rendered strings and lays them out, so by the time it can measure an overrun
+// the only cut left to it is through the middle of a word.
+const statusGap = 2
+
+func statusInner(width int) int { return width - 2 }
+
+// shedHints drops whole hints from the right until the line fits the room, and
+// renders what is left. A line clipped instead loses its tail mid-word, which
+// is the failure this replaces: the bar hard-cut with lipgloss.MaxWidth and put
+// no mark where it cut, so a reader at eighty columns saw a line that looked
+// complete and was not.
+//
+// Help is declared last on every line and is never dropped. It is the way to
+// each key the room could not hold, so a short line ending in it says there is
+// more; the same line without it says there is nothing.
+//
+// The measuring is done on the rendered string rather than on the declarations,
+// because the separator and the styles are the help bubble's and only it knows
+// what a hint costs. Its own shedding is turned off for the same reason it
+// cannot do this job: it drops to a width and marks the drop with an ellipsis,
+// where the hint that survives is the mark this line wants.
+func (m Model) shedHints(hints []key.Binding, room int) string {
+	h := m.help
+	h.SetWidth(0)
+	for len(hints) > 1 {
+		if line := h.ShortHelpView(hints); lipgloss.Width(line) <= room {
+			return line
+		}
+		last := len(hints) - 1
+		hints = append(hints[:last-1:last-1], hints[last])
 	}
-	return m.help.ShortHelpView(m.detail.ShortHelp())
+	return h.ShortHelpView(hints)
 }
 
 // statusMessage is what the right side says happened, and empty when nothing
