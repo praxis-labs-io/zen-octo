@@ -113,6 +113,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, k.Sync):
 		return m, func() tea.Msg { return RefreshMsg{} }
+
+	case m.searchOpen() && key.Matches(msg, k.ClearSearch):
+		// A filter is the reader's own state rather than the section's, so it is
+		// let go of wherever the section stands. Below the guard this key was
+		// inert over a section showing an error, which is the worst place to
+		// find it: the box is still naming a filter, the rows behind it are
+		// gone, and the one key that explains the screen does nothing.
+		m.clearSearch()
+		return m, nil
 	}
 
 	// A reload keeps its rows up, so taking the keyboard for the length of one
@@ -161,13 +170,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return BrowseMsg{PR: pr} }
 
 	case key.Matches(msg, k.Search):
+		// Opening one is refused here rather than above, because a section
+		// showing a block instead of its rows has nothing to narrow.
 		m.startSearch()
-
-	case key.Matches(msg, k.ClearSearch):
-		// Nothing to let go of is nothing to redraw for.
-		if m.searchOpen() {
-			m.clearSearch()
-		}
 	}
 
 	return m, nil

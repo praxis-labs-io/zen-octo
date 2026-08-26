@@ -66,6 +66,34 @@ func TestTheSizeMessageFillsTheFrame(t *testing.T) {
 
 // Nothing is thrown away under the message. A terminal dragged small and back
 // is the terminal it was, with whatever was open still open.
+// The list's search box is drawn into the pane rather than over it, so a drag
+// below the floor and back has to give it back with its query intact. esc is
+// one of the keys the floor leaves standing, and it has to reach the box under
+// the message rather than the screen behind it.
+func TestTheListSearchBoxSurvivesADragBelowTheFloor(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	m := loaded(t, client, app.MinWidth, app.MinHeight)
+
+	m = settle(m, keyMsg("/"), keyMsg("a"))
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "/ a") {
+		t.Fatalf("no box at the floor itself:\n%s", out)
+	}
+
+	m = settle(m, tea.WindowSizeMsg{Width: 30, Height: 8})
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "needs") {
+		t.Fatalf("the frame below the floor is not the message:\n%s", out)
+	}
+
+	m = settle(m, tea.WindowSizeMsg{Width: app.MinWidth, Height: app.MinHeight})
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "/ a") {
+		t.Errorf("the box did not come back with the terminal:\n%s", out)
+	}
+
+	if out := stripANSI(render(t, settle(m, keyMsg("esc")))); strings.Contains(out, "/ a") {
+		t.Errorf("esc did not reach the box after the drag:\n%s", out)
+	}
+}
+
 func TestAPickerSurvivesADragBelowTheFloor(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := openLabelPicker(t, client)

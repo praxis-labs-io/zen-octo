@@ -2,10 +2,12 @@ package list_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
@@ -321,6 +323,48 @@ func TestTheBoxBorderFollowsTheKeyboard(t *testing.T) {
 	}
 	if !strings.Contains(top, fgSeq(theme.RosePineMoon.BorderSubtleOrBorder())) {
 		t.Error("the settled box does not carry the border colour")
+	}
+}
+
+// A filter is the reader's own state rather than the section's, so esc lets go
+// of it wherever the section stands. Below the rows guard this key was inert
+// exactly where the screen is hardest to read: the box still names a filter,
+// the rows behind it are gone, and nothing explains either.
+func TestEscClearsASettledFilterOverASectionShowingAnError(t *testing.T) {
+	m := press(typed(press(newList(110, 20, mixed()), key('/')), "other"), enter)
+
+	held := ready([]string{"My PRs"}, mixed())
+	held[0].Status = store.StatusFailed
+	held[0].Err = errors.New("boom")
+	m.SetSections(held)
+
+	if box := searchBox(m.View()); !strings.Contains(box, "other") {
+		t.Fatalf("setup: box = %q, want the settled filter still named", box)
+	}
+
+	m = press(m, esc)
+	if box := searchBox(m.View()); box != "" {
+		t.Errorf("box = %q, want esc to clear it over a section showing an error", box)
+	}
+	if out := stripANSI(m.View()); !strings.Contains(out, "boom") {
+		t.Errorf("clearing the filter took the error report with it\n%s", out)
+	}
+}
+
+// The pane clips overflow silently and mid-cell, so the box has to fit before
+// the pane sees it. Only a width where the query and the count cannot both fit
+// exercises the clip at all.
+func TestEveryLineFillsThePaneWidthWithTheBoxOpen(t *testing.T) {
+	for _, width := range []int{200, 140, 100, 90, 70, 56, 50, 40, 30, 20} {
+		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
+			m := typed(press(newList(width, 14, mixed()), key('/')), "auth retry")
+
+			for i, line := range strings.Split(m.View(), "\n") {
+				if w := lipgloss.Width(line); w != width {
+					t.Errorf("line %d is %d cells wide, want %d\n%s", i, w, width, stripANSI(line))
+				}
+			}
+		})
 	}
 }
 

@@ -805,7 +805,13 @@ is a filter that comes off on a keypress nobody aimed at it.
 
 The bar is drawn past the keyboard being handed back. `enter` settles the filter
 and gives `j` and `enter` back to the rows it left; `esc` clears it in one press
-from either side. A filter nothing on the screen accounts for is a list that
+from either side, and it answers above the guard the movement keys sit below. A
+filter is the reader's own state rather than the section's, so it is let go of
+wherever the section stands: under the guard the key was inert exactly where the
+screen is hardest to read, with the box still naming a filter, the rows behind
+it replaced by an error, and nothing able to explain either. Opening one stays
+below the guard, because a section showing a block instead of its rows has
+nothing to narrow. A filter nothing on the screen accounts for is a list that
 looks like it lost rows, which is the failure a silent one is, so the bar stays
 up for as long as the query stands and carries what it matched against the
 section's own count. **The tab badges keep counting the section**: the same
