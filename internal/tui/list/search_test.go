@@ -3,6 +3,7 @@ package list_test
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
+
+// searchPromptText is the box's prompt, spelled here rather than imported: the
+// test reads the rendered row the way a person does.
+const searchPromptText = "/ "
 
 var (
 	enter = tea.KeyPressMsg{Code: tea.KeyEnter}
@@ -407,5 +412,49 @@ func TestTheBoxCostsItsThreeLinesAndGivesThemBack(t *testing.T) {
 	}
 	if got := boxBorders(m.View()); got != 0 {
 		t.Errorf("the box left %d border lines behind after esc", got)
+	}
+}
+
+// The row keeps its right side for the count, so a query long enough to clip
+// stops short of the box's border. A caret measured against that border walks
+// past the ellipsis and sits on the count, which is a cursor pointing at text
+// nobody is editing.
+//
+// The window is a few characters wide: below it nothing clips, above it the
+// caret runs out of box entirely. That is why this is a test and not a check
+// somebody performs, and why holding a key down finds nothing.
+func TestTheCursorNeverSitsPastTheQueryItIsIn(t *testing.T) {
+	for _, width := range []int{56, 80, 120} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			for n := 1; n < width; n++ {
+				m := typed(press(newList(width, 20, numbered(20)), key('/')), strings.Repeat("a", n))
+
+				c := m.Cursor()
+				if c == nil {
+					continue
+				}
+				row := searchBox(m.View())
+				if row == "" {
+					t.Fatalf("a cursor with no box to sit in, at %d characters", n)
+				}
+
+				// The end of the query as drawn, not the end of the row: the
+				// count sits further right with a gap before it, and measuring
+				// to the row's last cell calls a cursor sitting on the count
+				// in bounds.
+				at := strings.Index(row, searchPromptText)
+				if at < 0 {
+					t.Fatalf("no prompt on the box row at %d characters:\n%s", n, row)
+				}
+				end := at
+				for end < len(row) && row[end] != ' ' || end == at+1 {
+					end++
+				}
+				if last := lipgloss.Width(row[:end]); c.X > last {
+					t.Fatalf("at %d characters the cursor is at %d, past the query's last cell %d\n%s",
+						n, c.X, last, row)
+				}
+			}
+		})
 	}
 }
