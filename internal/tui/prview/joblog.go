@@ -154,16 +154,43 @@ func (m Model) jobStepLead() int {
 	return 6 // five summary-card rows and the blank below it
 }
 
+// checkSearchLabel opens the search heading. checkSearchLead is everything
+// before the query on that row: the pane's left border and the space
+// mainHeading writes in front of the label.
+const (
+	checkSearchLabel = "Search: "
+	checkSearchLead  = 1 + 1
+)
+
+// checkCursor is where the terminal draws its cursor while the Checks search is
+// taking text, relative to this screen's frame. lead is the header's height,
+// handed down the way mentionAnchor takes it.
+//
+// bodyGutter is deliberately absent, and would be absent even if it were not
+// zero here: it centres the measure inside the viewport, and this row is the
+// pane's own heading. It happens to be zero on this tab anyway, because Checks
+// carries a side column and bodyWidth gives a tab with one the whole pane. Both
+// reasons are worth writing down, since only the first survives a layout
+// change.
+func (m Model) checkCursor(lead int) *tea.Cursor {
+	if m.tab != tabChecks || !m.check.searching {
+		return nil
+	}
+
+	col := m.mainLeft() + checkSearchLead + lipgloss.Width(checkSearchLabel) +
+		lipgloss.Width(m.check.search.Query())
+	if last := m.mainLeft() + m.main.InnerWidth(); col > last {
+		return nil
+	}
+	return comp.Cursor(m.theme, col, lead+1)
+}
+
 func (m Model) mainHeading() string {
 	if m.tab != tabChecks || (!m.check.searching && m.check.search.Empty()) {
 		return m.fileHeading()
 	}
 
-	caret := ""
-	if m.check.searching {
-		caret = lipgloss.NewStyle().Foreground(m.theme.Accent).Render("▏")
-	}
-	left := " " + m.faint().Render("Search: ") + m.check.search.Query() + caret
+	left := " " + m.faint().Render(checkSearchLabel) + m.check.search.Query()
 	right := ""
 	if !m.check.search.Empty() && m.check.renderQuery == m.check.search.Query() {
 		at, total := 0, len(m.check.matchLines)

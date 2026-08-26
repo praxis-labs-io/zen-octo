@@ -359,15 +359,42 @@ func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	inner := p.width(frameWidth)
 	shown := p.shown()
 
+	return Modal(th, p.heading(), strings.Join(p.rows(th, inner, shown), "\n"))
+}
+
+// rows is the modal's content, filter row included. Render draws it and Cursor
+// measures it, so a row added here moves both rather than one of them.
+func (p Picker) rows(th theme.Theme, inner int, shown []PickerItem) []string {
 	var rows []string
 	if p.filtering {
 		rows = append(rows, p.filterRow(th, inner))
 	}
 	rows = append(rows, "")
 	rows = append(rows, p.list(th, shown, inner)...)
-	rows = append(rows, "", p.hint(th, shown, inner))
+	return append(rows, "", p.hint(th, shown, inner))
+}
 
-	return Modal(th, p.heading(), strings.Join(rows, "\n"))
+// Cursor is where the terminal draws its cursor while this picker is filtering,
+// relative to the frame the picker is composited into. A picker with no filter
+// row takes no text, so there is nothing to point at.
+//
+// The modal has to be built to be measured: Over centres on the rendered size,
+// and the width is a function of the longest row. It is a dozen short strings,
+// which is nothing beside the page it is drawn over.
+func (p Picker) Cursor(th theme.Theme, frameWidth, frameHeight int) *tea.Cursor {
+	if !p.filtering {
+		return nil
+	}
+
+	inner := p.width(frameWidth)
+	over := Modal(th, p.heading(), strings.Join(p.rows(th, inner, p.shown()), "\n"))
+	x, y := OverOrigin(over, frameWidth, frameHeight)
+
+	// The modal's border and its padding, then the filter row is the first
+	// thing in it. Held inside the row: paint.Clip cuts a long filter, and a
+	// cursor past the last cell points outside the box it belongs to.
+	col := min(lipgloss.Width(p.filter), max(0, inner-1))
+	return Cursor(th, x+ModalLead+col, y+1)
 }
 
 // heading is the title with whatever the list has to say about itself.
@@ -402,15 +429,14 @@ func (p Picker) width(frameWidth int) int {
 	return max(want, 1)
 }
 
-// filterRow is what has been typed, with a block for the caret. The caret is
-// drawn rather than blinked: the picker owns the keyboard whenever it is up, so
-// there is nothing for a blink to disambiguate.
+// filterRow is what has been typed. It draws no caret: the terminal's own
+// cursor is put here by Cursor, which is the one cursor this app has.
 func (p Picker) filterRow(th theme.Theme, width int) string {
 	plain := lipgloss.NewStyle()
 	if p.filter == "" {
 		return pad(plain.Foreground(th.Subtle).Render("Type to filter"), width, plain)
 	}
-	text := plain.Foreground(th.Text).Render(p.filter) + plain.Foreground(th.Accent).Render("▌")
+	text := plain.Foreground(th.Text).Render(p.filter)
 	return pad(paint.Clip(text, width, plain.Foreground(th.Subtle)), width, plain)
 }
 
