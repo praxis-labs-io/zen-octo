@@ -792,6 +792,59 @@ group headers. It carries `sort:updated-desc` because the limit is applied
 before the rows reach this side, so without it GitHub's relevance order decides
 which twenty come back.
 
+**`/` narrows the section on screen and never asks GitHub anything.** The
+section's own filter is a search query and costs a request; this reads the rows
+already in the store, so what it can reach is what that query returned and no
+further. It is the detail screen's key meaning the same thing one screen over.
+The query is one substring against the whole row rather than a field at a time:
+a reader types what they can see, and what they can see is a line, so the number
+carries its `#` and the handle its `@` the way the row writes them. `visible()`
+is the one place the filter is applied, because `changeSection` and
+`SetSections` both build rows and a section rendered unfiltered from one of them
+is a filter that comes off on a keypress nobody aimed at it.
+
+The bar is drawn past the keyboard being handed back. `enter` settles the filter
+and gives `j` and `enter` back to the rows it left; `esc` clears it in one press
+from either side, and it answers above the guard the movement keys sit below. A
+filter is the reader's own state rather than the section's, so it is let go of
+wherever the section stands: under the guard the key was inert exactly where the
+screen is hardest to read, with the box still naming a filter, the rows behind
+it replaced by an error, and nothing able to explain either. Opening one stays
+below the guard, because a section showing a block instead of its rows has
+nothing to narrow. A filter nothing on the screen accounts for is a list that
+looks like it lost rows, which is the failure a silent one is, so the bar stays
+up for as long as the query stands and carries what it matched against the
+section's own count. **The tab badges keep counting the section**: the same
+number in two places is one of them saying nothing, and the badge is the only
+place the sections nobody is looking at can say how big they are. It owns the
+keyboard while it is open, ahead of the three keys that answer whatever the
+section is doing, because `]` and `s` are characters in a search and a key that
+both types and changes tab does the wrong one.
+
+**The box is a `comp.Pane` and is drawn into the pane's content**, not set as
+its heading. A heading is one row and a rule where this is three, and widening
+`Header` to take more would move `Above`, which `prview` reads to map a line on
+the screen back to a line of content. So the box goes at the top of `body` and
+`bodyHeight` takes its three lines off the viewport, which is one number in one
+place. It is a pane rather than a border built here because `comp.Modal` is
+already a pane sized to its content, and the corners a pane draws are the ones
+the rest of this app draws. It sits a column in from each side and pads its own
+interior by one: flush, the two verticals meet and read as a frame that has come
+apart rather than as a box inside one.
+
+The border and the prompt both answer to whether it has the keyboard, and it is
+the only thing on this screen that can say where the keys are: the list is one
+pane and never takes focus, having nothing to hand it to. That is the shape
+zen-linear's nav search has, which is where this came from; nothing carried over
+as code, since that client is `tview` and this one is Bubble Tea. The caret is
+drawn rather than a terminal cursor, which is `comp.Picker`'s reason one widget
+over: nobody edits the middle of a search, and a blinking one costs a command
+plumbed through two packages.
+
+The `same` early-out in `SetSections` yields to the box: it counts what the
+query left out, so a section that grew by a row nothing matches has moved it
+while the rows on screen did not.
+
 **A merged pull request has no head branch, and the detail query compares
 against one.** GitHub answers with the whole pull request, `compare` null, and a
 `NOT_FOUND` scoped to `node.baseRef.compare`; go-gh decodes the payload into the
@@ -1012,6 +1065,60 @@ A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, 
 An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 
 Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
+
+**There is one cursor, and the terminal draws it.** Every text input reports
+where the next character lands and none of them draws a caret: `tea.View`
+carries a `Cursor` and the root sets it once, from whichever screen has the
+keyboard. Seven boxes styling a glyph to match is what let the picker's filter
+end up on `paint.BarGlyph`, which already means the row under a cursorline in
+the diff and the rail. `comp.Cursor` is the one place shape, blink and colour
+are decided, and it is muted rather than accent, because a focused box already
+says it has the keyboard with its border.
+
+**Blink is free and a drawn caret's is not.** The bubbles virtual cursor blinks
+by re-rendering, which is a message every half second and a relayout behind it,
+against a `View` costing 7ms on a long conversation and 27ms a keystroke with a
+compose box open; this one blinks in the terminal emulator, where no message
+reaches `Update` and nothing crosses an ssh connection. `SetVirtualCursor(false)`
+is what turns the widget's own block off, and after it `area.Model.Cursor()`
+reports a position local to the widget with the prompt, the gutter, the borders
+and the textarea's own scroll already taken off.
+
+**Every box here is a textarea, and the merge headline is one because a text
+input cannot say where its caret is.** `textinput.Model.Cursor()` returns
+`Position()`, a rune index into the value, clamped to the box's width; the
+horizontal offset it scrolls the value by is unexported and never subtracted.
+Inside the box the two agree, and past the edge the reported cell is wherever
+the clamp landed while the caret walks away from it. With the widget's own
+caret off nothing else draws the true one, so the cursor pinned to the right
+edge. A textarea counts in cells within its wrapped row and is right at any
+length. Wrapping suits the field anyway: a squash headline is the title with
+`(#N)` after it, so overflow is the ordinary case, and a title that runs on
+reads better on two rows than scrolled through a slot. It takes two rows where
+the frame can afford them and one at the floor, since the message box is
+already at its own there and a subject losing its second row loses less than a
+message losing one of six.
+
+A screen reports against its own frame and the root adds `noticeHeight()`, which
+is the whole of the difference: `render` stacks the notice, the screen and the
+status bar at column zero. **A caret nobody can see gets no cursor** rather than
+one clamped to an edge, which would point at a row the caret is not on;
+`caretAt` returns false where the box has scrolled out of the pane, and every
+other site holds the cursor inside its own box the same way.
+
+`caretAt` is `mentionAnchor` with its last step taken off. That step walks back
+to the `@` so the popup holds still while a handle is typed, and it is the whole
+difference between where the next character lands and where a list answering a
+word hangs. Splitting them removed a derivation rather than adding one, and the
+arithmetic now runs on every keystroke instead of only when somebody types an
+`@`, so a drift in it shows up immediately rather than sitting latent.
+
+`comp.OverOrigin` exists because `Over` computed the corner it centres on and
+returned only a string. A cursor inside a modal has to know where the modal
+landed, and deriving that corner again at the call site is two answers to one
+question with the wrong one being the one nothing renders. The picker and the
+merge form each build their rows once and both measure and draw from them, so a
+row added to either moves the cursor with it.
 
 ## Rendering traps
 

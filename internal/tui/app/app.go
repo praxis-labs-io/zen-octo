@@ -1457,7 +1457,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// A screen writing a comment or filtering a picker owns the keyboard. q is
 	// a letter in there, and the root's own bindings would each eat one.
-	capturing := m.screen == screenDetail && m.detail.Capturing()
+	capturing := m.capturing()
 
 	// Below the floor the frame is a message, so a key acts on a screen nobody
 	// can see: a blind enter is a merge. Only the ways out answer.
@@ -1494,6 +1494,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m.delegate(msg)
+}
+
+// capturing is whether the screen in front of the reader is taking text: a
+// comment, a picker's filter, or the list's search bar. The root stands aside
+// for all of it, because q is a letter in every one of them.
+func (m Model) capturing() bool {
+	switch m.screen {
+	case screenDetail:
+		return m.detail.Capturing()
+	case screenList:
+		return m.list.Capturing()
+	}
+	return false
 }
 
 // delegate hands a message to the screen that has focus.
@@ -1562,7 +1575,35 @@ func (m Model) screenView() string {
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.Cursor = m.cursor()
 	return v
+}
+
+// cursor is the one cursor this app has. Every text input reports where the
+// next character lands and none of them draws a caret, so there is a single
+// thing to place and nothing to keep in step.
+//
+// A screen reports against its own frame. render stacks the notice, the screen
+// and the status bar at column zero, so the notice is the whole of the
+// difference and it is worth exactly one row.
+func (m Model) cursor() *tea.Cursor {
+	// Below the floor the frame is the size instead of a screen, so there is no
+	// box on it whatever the screen behind the message still holds.
+	if m.width < minWidth || m.height < minHeight {
+		return nil
+	}
+	// The help overlay covers the screen and takes no text of its own.
+	if m.showHelp {
+		return nil
+	}
+
+	var c *tea.Cursor
+	if m.screen == screenDetail {
+		c = m.detail.Cursor()
+	} else {
+		c = m.list.Cursor()
+	}
+	return comp.Offset(c, 0, m.noticeHeight())
 }
 
 func (m Model) render() string {
@@ -1616,7 +1657,7 @@ func (m Model) noticeLine() string {
 // tabs and what they can do is not.
 func (m Model) statusHints() string {
 	if m.screen != screenDetail {
-		return m.help.ShortHelpView(m.list.Keys().ShortHelp())
+		return m.help.ShortHelpView(m.list.ShortHelp())
 	}
 	if m.detail.Capturing() {
 		return ""

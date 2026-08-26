@@ -1792,10 +1792,13 @@ func (m Model) View() string {
 	// The overlays composite against the whole screen, so the header goes on
 	// first: a modal centred on the panes sits low by half the header.
 	frame := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	lead := 0
-	if head := m.head(); head != "" {
+
+	// Built once. head runs the title line, the branch line, spread and the
+	// badges, and this frame is drawn on every keystroke.
+	head := m.head()
+	lead := headRows(head)
+	if head != "" {
 		frame = lipgloss.JoinVertical(lipgloss.Left, head, frame)
-		lead = strings.Count(head, "\n") + 1
 	}
 
 	// Against the left edge rather than centred: it is a column that ran out of
@@ -1808,6 +1811,37 @@ func (m Model) View() string {
 	// over it. The three cannot be up together, and the order says so rather
 	// than leaving it to be assumed.
 	return m.mergeOverlay(m.pickerOverlay(m.mentionOverlay(frame, lead)))
+}
+
+// headLead is the rows the header spends before the panes. Cursor measures from
+// it; View has the header in hand already and counts it with headRows.
+func (m Model) headLead() int { return headRows(m.head()) }
+
+func headRows(head string) int {
+	if head == "" {
+		return 0
+	}
+	return strings.Count(head, "\n") + 1
+}
+
+// Cursor is where the terminal draws its cursor on this screen, relative to the
+// screen's own frame, and nil wherever nothing is taking text.
+//
+// The order is the one handleKey dispatches in and the one View composites in.
+// Only one of these can hold the keyboard at a time, and saying so here rather
+// than assuming it is what keeps the cursor under whatever is on top.
+func (m Model) Cursor() *tea.Cursor {
+	switch {
+	case m.merging.open:
+		return m.merging.cursor(m.theme, m.width, m.height)
+	case m.picking.open():
+		return m.picking.p.Cursor(m.theme, m.width, m.height)
+	case m.Composing():
+		return m.composeCursor(m.headLead())
+	case m.check.searching:
+		return m.checkCursor(m.headLead())
+	}
+	return nil
 }
 
 // scrollFooter reports position only when there is somewhere to scroll to. A

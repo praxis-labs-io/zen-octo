@@ -17,6 +17,17 @@ A section that has never answered shows a block rather than rows, and a failed
 one shows its error. A reload keeps its rows: the spinner moves to the status
 bar and the keys keep working on what is already there.
 
+`/` opens a search bar over the section on screen. It narrows the rows as you
+type, against the number, the repository, the title, the author and the head
+branch, and it reads what is already fetched rather than asking GitHub. `⏎`
+keeps the filter and hands the keyboard back, so `j` and `⏎` then work on what
+is left. `esc` clears it. The bar stays on screen while a filter stands, with
+what it matched counted against the section it narrowed. The tab counts are the
+section's own either way.
+
+A search reaches only what the section returned. Widening beyond that is a
+change to the section's query in the config file.
+
 `y` copies a pull request's link and `O` opens it in a browser. Both work on the
 list and on every tab of the detail screen.
 

@@ -52,6 +52,12 @@ type Model struct {
 
 	rows   rows
 	cursor int // indexes the selectable rows, so a header is never addressable
+
+	// search narrows the section on screen against what is already fetched.
+	// searching is whether the bar has the keyboard; the bar is drawn past that,
+	// for as long as a query stands. See search.go.
+	search    comp.Search
+	searching bool
 }
 
 // New builds the list. It starts with no sections: the store is the one source
@@ -91,6 +97,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.List
 
+	// The bar owns the keyboard while it is open, ahead of the three keys that
+	// answer whatever the section is doing: "]" and "s" are characters in a
+	// search.
+	if m.searching {
+		return m.searchKey(msg)
+	}
+
 	switch {
 	case key.Matches(msg, k.NextSection):
 		m.changeSection(1)
@@ -100,6 +113,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, k.Sync):
 		return m, func() tea.Msg { return RefreshMsg{} }
+
+	case m.searchOpen() && key.Matches(msg, k.ClearSearch):
+		// A filter is the reader's own state rather than the section's, so it is
+		// let go of wherever the section stands. Below the guard this key was
+		// inert over a section showing an error, which is the worst place to
+		// find it: the box is still naming a filter, the rows behind it are
+		// gone, and the one key that explains the screen does nothing.
+		m.clearSearch()
+		return m, nil
 	}
 
 	// A reload keeps its rows up, so taking the keyboard for the length of one
@@ -146,6 +168,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, func() tea.Msg { return BrowseMsg{PR: pr} }
+
+	case key.Matches(msg, k.Search):
+		// Opening one is refused here rather than above, because a section
+		// showing a block instead of its rows has nothing to narrow.
+		m.startSearch()
 	}
 
 	return m, nil
@@ -160,13 +187,18 @@ func (m *Model) changeSection(delta int) {
 
 	m.cursors[m.active] = m.selectedID()
 	m.active = (m.active + delta + len(m.sections)) % len(m.sections)
-	m.rows = newRows(m.activeSection().PRs)
+	m.rows = newRows(m.visible())
 
 	// The window belongs to the section being left. Opening the new one at the
 	// top and scrolling to the cursor lands somewhere valid whatever the two
 	// sections' lengths are.
+	//
+	// The cursor is clamped here rather than through setCursor because the bar
+	// counts the section it is over, so this goes through the layout that
+	// rebuilds it and one render is enough.
 	m.view.SetYOffset(0)
-	m.setCursor(m.rowOf(m.cursors[m.active]))
+	m.cursor = min(m.rowOf(m.cursors[m.active]), max(0, m.rows.len()-1))
+	m.relayout()
 }
 
 func (m Model) selectedID() string {
@@ -247,12 +279,26 @@ func (m *Model) scrollToCursor() {
 // Nothing here derives a height from a count of chrome lines.
 func (m *Model) SetSize(width, height int) {
 	m.pane = m.pane.Size(width, height)
+	m.relayout()
+}
+
+// relayout sizes the viewport to what the search box leaves of the pane and
+// redraws. The box is drawn into the pane's content rather than set as its
+// heading, which is one line and a rule where this is three: the pane keeps one
+// idea of what it draws above content, and prview reads it to map lines.
+//
+// A shrink can leave the selection below the fold, where the next enter opens a
+// pull request the user cannot see, so the scroll is part of the same path.
+func (m *Model) relayout() {
 	m.view.SetWidth(m.pane.InnerWidth())
-	m.view.SetHeight(m.pane.InnerHeight())
+	m.view.SetHeight(m.bodyHeight())
 	m.syncContent()
-	// A shrink can leave the selection below the fold, where the next enter
-	// opens a pull request the user cannot see.
 	m.scrollToCursor()
+}
+
+// bodyHeight is the pane's interior less the box standing in it.
+func (m Model) bodyHeight() int {
+	return max(0, m.pane.InnerHeight()-m.searchLines())
 }
 
 // SetSections takes the store's snapshot. It is the only way data reaches this
@@ -267,17 +313,18 @@ func (m *Model) SetSections(sections []store.Section) {
 	}
 	m.sections = sections
 
-	next := newRows(m.activeSection().PRs)
+	next := newRows(m.visible())
 	m.restoreCursor(next)
 	same := m.rows.same(next)
 	m.rows = next
 	// Grouping is cheap and rendering every row is not, so a snapshot another
-	// section triggered pays for the compare rather than the repaint.
-	if same {
+	// section triggered pays for the compare rather than the repaint. The bar
+	// counts what the query left out, so a section that grew by a row nothing
+	// matches has still moved it.
+	if same && !m.searchOpen() {
 		return
 	}
-	m.syncContent()
-	m.scrollToCursor()
+	m.relayout()
 }
 
 // Selected reports the pull request under the cursor.
@@ -379,6 +426,15 @@ func badge(s store.Section) string {
 // pane, and a sentence in the top-left corner of an empty frame reads as the
 // first row of a list still filling in.
 func (m Model) body() string {
+	if !m.searchOpen() {
+		return m.rowsBody()
+	}
+	return m.searchBox(m.pane.InnerWidth()) + "\n" + m.rowsBody()
+}
+
+// rowsBody is the rows once they are there, and the block standing in for them
+// when they are not.
+func (m Model) rowsBody() string {
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	section := m.activeSection()
 
@@ -390,12 +446,16 @@ func (m Model) body() string {
 		block = label + "\n" + faint.Render(section.Err.Error())
 	case !section.Loaded:
 		block = m.spinner.Render("Loading pull requests")
+	// The query rather than the box: pressing / over a section that is empty
+	// anyway would otherwise be answered by blaming a search nobody has typed.
+	case m.rows.len() == 0 && !m.search.Empty():
+		block = faint.Render("Nothing in this section matches that search.")
 	case m.rows.len() == 0:
 		block = faint.Render("Nothing matches this section.")
 	default:
 		return m.view.View()
 	}
-	return comp.Centered(block, m.pane.InnerWidth(), m.pane.InnerHeight())
+	return comp.Centered(block, m.pane.InnerWidth(), m.bodyHeight())
 }
 
 // showsRows is whether the pane holds the section's rows rather than a block
@@ -421,3 +481,17 @@ func (m Model) footer() string {
 
 // Keys is the keymap live while this screen has focus.
 func (m Model) Keys() keys.ListMap { return keys.List }
+
+// Capturing is whether the search bar has the keyboard. The root stands aside
+// for it: q is a letter in there, and every root binding would eat one.
+func (m Model) Capturing() bool { return m.searching }
+
+// ShortHelp is the line the status bar carries for this screen. The bar names
+// the two keys that answer while it is taking text, because the rest of the
+// screen's keys are characters in it.
+func (m Model) ShortHelp() []key.Binding {
+	if m.searching {
+		return keys.List.SearchHelp()
+	}
+	return keys.List.ShortHelp()
+}

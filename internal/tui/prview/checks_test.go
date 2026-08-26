@@ -797,3 +797,44 @@ func TestTheFrameFillsItsSizeExactlyOnTheChecksTab(t *testing.T) {
 		})
 	}
 }
+
+// The Checks search bar is one of the seven boxes that report a cursor and draw
+// no caret of their own. Its row is a pane heading rather than viewport
+// content, so bodyGutter never reaches it: the two rows start in different
+// columns and reading the wrong one is a cursor a few cells adrift.
+func TestTheChecksSearchReportsACursorAfterItsQuery(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, loadedJob(101, false))
+	m = press(m, "/", "z", "q")
+
+	c := m.Cursor()
+	if c == nil {
+		t.Fatalf("no cursor while the search is taking text:\n%s", stripANSI(m.View()))
+	}
+
+	for row, line := range strings.Split(stripANSI(m.View()), "\n") {
+		at := strings.Index(line, "Search: zq")
+		if at < 0 {
+			continue
+		}
+		want := lipgloss.Width(line[:at] + "Search: zq")
+		if c.X != want || c.Y != row {
+			t.Errorf("cursor at (%d,%d), want (%d,%d)", c.X, c.Y, want, row)
+		}
+		return
+	}
+	t.Fatalf("the search bar is not on the frame:\n%s", stripANSI(m.View()))
+}
+
+// Nothing on the Checks tab takes text until the search is opened.
+func TestTheChecksTabHasNoCursorUntilTheSearchOpens(t *testing.T) {
+	m := onChecks(160, 24)
+	m.SetJob(101, loadedJob(101, false))
+
+	if c := m.Cursor(); c != nil {
+		t.Errorf("cursor at (%d,%d) with nothing taking text", c.X, c.Y)
+	}
+	if c := press(m, "/", "z").Cursor(); c == nil {
+		t.Error("no cursor once the search has the keyboard")
+	}
+}

@@ -16,6 +16,18 @@ on:
     # No branch filter. A PR onto a stacked branch would otherwise trigger
     # nothing, and required checks that never ran report as satisfied rather
     # than as missing.
+  # Asking for a run by hand, because a head can end up with no CI and no way
+  # to request one. Merging a stacked PR into its parent moves the parent's
+  # head without GitHub emitting a `synchronize` for the parent, and closing
+  # and reopening it does not fire `reopened` either: the PR then reports the
+  # checks that do run on a push as though they were the whole suite, which is
+  # the same failure the types above were written to prevent, reached by a
+  # route they do not cover.
+  #
+  # This is the way out that does not involve an empty commit. Every job below
+  # gates on `github.event_name != 'pull_request'`, so a dispatched run behaves
+  # like a push and runs everything.
+  workflow_dispatch:
 
 concurrency:
   # The action is part of the key so a `ready_for_review` run can't be cancelled
