@@ -159,7 +159,10 @@ func (m Model) jobStepLead() int {
 // mainHeading writes in front of the label.
 const (
 	checkSearchLabel = "Search: "
-	checkSearchLead  = 1 + 1
+
+	// checkSearchLead is the pane's own left border. The space in front of the
+	// label belongs to the row and is measured with it, in checkSearchRow.
+	checkSearchLead = 1
 )
 
 // checkCursor is where the terminal draws its cursor while the Checks search is
@@ -177,11 +180,13 @@ func (m Model) checkCursor(lead int) *tea.Cursor {
 		return nil
 	}
 
-	col := m.mainLeft() + checkSearchLead + lipgloss.Width(checkSearchLabel) +
-		lipgloss.Width(m.check.search.Query())
-	if last := m.mainLeft() + m.main.InnerWidth(); col > last {
-		return nil
-	}
+	// Clamped to where checkLine stopped drawing. The row keeps its right side
+	// for the match counter, so a caret measured against the pane's edge walks
+	// off the end of a clipped query and onto the count.
+	left, right, width := m.checkSearchRow()
+	room := max(0, width-lipgloss.Width(right)-1)
+
+	col := m.mainLeft() + checkSearchLead + min(lipgloss.Width(left), room)
 	return comp.Cursor(m.theme, col, lead+1)
 }
 
@@ -190,8 +195,16 @@ func (m Model) mainHeading() string {
 		return m.fileHeading()
 	}
 
-	left := " " + m.faint().Render(checkSearchLabel) + m.check.search.Query()
-	right := ""
+	left, right, width := m.checkSearchRow()
+	return m.checkLine(left, right, width, lipgloss.NewStyle())
+}
+
+// checkSearchRow is what the search heading holds: the label and the query on
+// the left, the match counter on the right, and the width checkLine fits them
+// into. mainHeading draws from it and checkCursor measures from it, so the
+// caret lands where the query stopped rather than where the pane ends.
+func (m Model) checkSearchRow() (left, right string, width int) {
+	left = " " + m.faint().Render(checkSearchLabel) + m.check.search.Query()
 	if !m.check.search.Empty() && m.check.renderQuery == m.check.search.Query() {
 		at, total := 0, len(m.check.matchLines)
 		if total > 0 {
@@ -199,7 +212,7 @@ func (m Model) mainHeading() string {
 		}
 		right = m.faint().Render(fmt.Sprintf("%d/%d", at, total))
 	}
-	return m.checkLine(left, right, max(1, m.main.InnerWidth()-1), lipgloss.NewStyle())
+	return left, right, max(1, m.main.InnerWidth()-1)
 }
 
 func (m *Model) startCheckSearch() {

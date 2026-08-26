@@ -92,17 +92,19 @@ func (m Model) searchLines() int {
 // The border and the prompt both answer to whether it has the keyboard, which
 // is the only thing on this screen that says where the keys are going: the list
 // pane itself never takes focus, having nothing to hand it to.
-func (m Model) searchBox(width int) string {
-	box := comp.NewPane(m.theme).Focus(m.searching).Size(max(0, width-2), searchBoxLines)
-	if box.InnerWidth() == 0 {
-		return ""
-	}
-
+// searchRow is what the box's one row holds: the prompt and the query on the
+// left, what the query left out on the right, and the room the left has before
+// the count takes over.
+//
+// searchBox draws from it and Cursor measures from it. The row reserves its
+// right side, so a caret measured against the box's border instead walks off
+// the end of a clipped query and onto the count.
+func (m Model) searchRow(inner int) (lead, right string, room int) {
 	prompt := m.theme.Subtle
 	if m.searching {
 		prompt = m.theme.Accent
 	}
-	lead := lipgloss.NewStyle().Foreground(prompt).Render(searchPrompt)
+	lead = lipgloss.NewStyle().Foreground(prompt).Render(searchPrompt)
 
 	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	switch {
@@ -113,17 +115,33 @@ func (m Model) searchBox(width int) string {
 		// for in the one state where nothing else on it does.
 		lead += faint.Render("Search")
 	}
-	right := ""
+
 	if !m.search.Empty() {
 		right = faint.Render(strconv.Itoa(m.rows.len()) +
 			" of " + strconv.Itoa(len(m.activeSection().PRs)))
+	}
+	return lead, right, max(0, inner-lipgloss.Width(right)-1)
+}
+
+// searchInner is the room inside the box, measured off a pane built the way
+// searchBox builds one rather than off arithmetic repeated here.
+func (m Model) searchInner() int {
+	box := comp.NewPane(m.theme).Size(max(0, m.pane.InnerWidth()-2), searchBoxLines)
+	return max(0, box.InnerWidth()-2)
+}
+
+func (m Model) searchBox(width int) string {
+	box := comp.NewPane(m.theme).Focus(m.searching).Size(max(0, width-2), searchBoxLines)
+	if box.InnerWidth() == 0 {
+		return ""
 	}
 
 	// A column of padding inside the box, which is comp.Modal's own: a prompt
 	// against the border reads as text that has run into it.
 	inner := max(0, box.InnerWidth()-2)
+	lead, right, room := m.searchRow(inner)
 
-	room := max(0, inner-lipgloss.Width(right)-1)
+	faint := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	if lipgloss.Width(lead) > room {
 		lead = paint.Clip(lead, room, faint)
 	}
@@ -149,18 +167,21 @@ func (m Model) Cursor() *tea.Cursor {
 		return nil
 	}
 
+	inner := m.searchInner()
+	if inner <= 0 {
+		return nil
+	}
+	_, _, room := m.searchRow(inner)
+
 	// The query rather than the rendered lead, because the placeholder is text
 	// the box is not holding: the cursor opens where the first character will
 	// go, which is where "Search" starts.
-	col := searchBoxLead + lipgloss.Width(searchPrompt) + lipgloss.Width(m.search.Query())
-
-	// Inside the box, whatever has been typed. searchBar clips a long query and
-	// a cursor past the clip points at the border rather than at the text.
-	last := m.pane.InnerWidth() - searchBoxIndent - 2
-	if last < searchBoxLead || col > last {
-		return nil
-	}
-	return comp.Cursor(m.theme, col, m.pane.Above()+1)
+	//
+	// Clamped to where the row stopped drawing, which is the clip point once
+	// the query outruns its room. Measured against the box's border instead it
+	// walks past the ellipsis and sits on the count.
+	typed := lipgloss.Width(searchPrompt) + lipgloss.Width(m.search.Query())
+	return comp.Cursor(m.theme, searchBoxLead+min(typed, room), m.pane.Above()+1)
 }
 
 // searchKey is the bar's own keyboard. It runs ahead of every binding on this
