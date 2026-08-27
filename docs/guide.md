@@ -101,6 +101,21 @@ are actually about to write.
 Where the head branch can be deleted the form offers that too, and where a
 protection would be bypassed it says so before the button rather than after.
 
+## The status bar
+
+The bar along the bottom names the keys that answer where you are standing. It
+is built from what the screen in front of you can do, so a key that would do
+nothing is not on it: the braces are absent on the rail, and a section that has
+never answered names nothing that acts on a row.
+
+Where the line does not fit it drops whole hints from the right rather than
+cutting one in half, so what is left of it is true. `?` is the last to go, being
+the way to every key the room could not hold. `q` is not on it at all.
+
+The right side carries whatever there is to say: a toast from a write, the
+spinner while a sync is out, the GraphQL budget once it is low enough to be
+worth reading, and on a pull request who raised it and how long ago.
+
 ## Sizing
 
 Under 56 by 23 the shell draws its size instead of a screen. The height is where
