@@ -242,3 +242,75 @@ func TestWalkingTheChecksColumnDoesNotBlinkTheLogKeys(t *testing.T) {
 		t.Errorf("the line changed while the next job was still on its way:\n before %v\n after  %v", landed, moved)
 	}
 }
+
+// A toast wins the line and the hints shed around it, where the readout loses
+// to them. The room the shed is given differs per path, and this is the one
+// where getting the arithmetic wrong still renders: the line would come back
+// too long and the bar would cut it the old way, through a word.
+func TestTheHintsShedAroundAToastRatherThanBeingCut(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	full := hintTokens(t, loaded(t, client, 300, 40))
+	help := full[len(full)-1]
+	rest := full[:len(full)-1]
+
+	m := settle(loaded(t, client, 70, 40), keyMsg("s"))
+	bar := stripANSI(lastLine(render(t, m)))
+	if !strings.Contains(bar, "Refreshed") {
+		t.Fatalf("status bar = %q, want the toast whole on it", strings.TrimSpace(bar))
+	}
+	if w := lipgloss.Width(bar); w > 70 {
+		t.Errorf("the bar is %d cells wide in a 70 column frame", w)
+	}
+
+	got := hintTokens(t, m)
+	if len(got) == 0 || got[len(got)-1] != help {
+		t.Fatalf("hints = %v, want them to end in %q beside the toast", got, help)
+	}
+	kept := got[:len(got)-1]
+	if len(kept) >= len(rest) {
+		t.Errorf("hints = %v, want fewer than the %d the frame holds without a toast", got, len(rest))
+	}
+	for i, tok := range kept {
+		if tok != rest[i] {
+			t.Fatalf("hint %d = %q, want %q: a hint was cut rather than shed", i, tok, rest[i])
+		}
+	}
+}
+
+// A picker, the merge form and a compose box each carry a hint line inside
+// their own frame, so the bar spends nothing on keys that stopped answering
+// when the modal opened. That decision moved into the screen, next to the
+// widgets drawing what replaces it, so all three have to be held.
+func TestTheBarGoesQuietForEveryBoxThatDrawsItsOwnHints(t *testing.T) {
+	tests := []struct {
+		name string
+		open func(*testing.T, *fakeSearcher) tea.Model
+	}{
+		{name: "merge form", open: openMergeForm},
+		{
+			name: "compose box",
+			open: func(t *testing.T, client *fakeSearcher) tea.Model {
+				t.Helper()
+				m := press(loaded(t, client, 160, 40), "enter", "c")
+				if out := stripANSI(render(t, m)); !strings.Contains(out, "ctrl+e") {
+					t.Fatalf("setup: c opened no compose box:\n%s", out)
+				}
+				return m
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeSearcher{prs: samplePRs()}
+			client.serveDetail("PR_412", "Caps the backoff at 30s.")
+
+			bar := stripANSI(lastLine(render(t, tt.open(t, client))))
+			for _, gone := range []string{"j/k move", "esc back", "? help"} {
+				if strings.Contains(bar, gone) {
+					t.Errorf("status bar = %q, want %q off it: the box has that key", strings.TrimSpace(bar), gone)
+				}
+			}
+		})
+	}
+}
