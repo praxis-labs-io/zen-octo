@@ -100,7 +100,7 @@ func TestThemeOverridesLoad(t *testing.T) {
 		t.Error("Transparent = false, want it read from the file")
 	}
 
-	th := got.Theme.Apply(theme.Terminal(lipgloss.Color("#232136"), got.Transparent))
+	th := got.Theme.Apply(theme.Terminal(theme.Surface{Background: lipgloss.Color("#232136")}, got.Transparent))
 	if r, g, b, _ := th.Accent.RGBA(); r>>8 != 0xff || g>>8 != 0 || b>>8 != 0 {
 		t.Errorf("Accent = %d,%d,%d, want the override's ff,00,00", r>>8, g>>8, b>>8)
 	}
@@ -117,7 +117,7 @@ func TestANamedBackgroundLoadsAndDrivesTheDerivation(t *testing.T) {
 	}
 
 	// Resolved against nothing reported, which is the case it exists for.
-	th := got.Theme.Resolve(nil, false)
+	th := got.Theme.Resolve(theme.Surface{}, false)
 	if th.SelectedBackground == nil {
 		t.Error("SelectedBackground is nil, want the named background to restore the surfaces")
 	}

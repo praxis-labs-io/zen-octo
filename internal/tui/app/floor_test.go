@@ -137,7 +137,7 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	// Without it the form fits a shorter frame and 23 is a row too generous.
 	cfg := testConfig()
 	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
-	sized := drive(t, app.New(cfg, client, testBG), tea.WindowSizeMsg{Width: app.MinWidth, Height: app.MinHeight})
+	sized := drive(t, app.New(cfg, client, testSurface), tea.WindowSizeMsg{Width: app.MinWidth, Height: app.MinHeight})
 	if !strings.Contains(stripANSI(render(t, sized)), "Theme names are gone") {
 		t.Fatal("setup: no config notice, so the frame is a row taller than this is measuring")
 	}

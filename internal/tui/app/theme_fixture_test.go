@@ -11,6 +11,10 @@ import (
 // another in CI.
 var testBG = lipgloss.Color("#232136")
 
-// testTheme is the shipped theme over that background, so a test asserts the
+// testSurface is that background with the foreground beside it, since the
+// shades travel toward the foreground rather than toward pure white.
+var testSurface = theme.Surface{Background: testBG, Foreground: lipgloss.Color("#e0def4")}
+
+// testTheme is the shipped theme over that surface, so a test asserts the
 // colors a reader is actually given rather than a palette nothing runs.
-var testTheme = theme.Terminal(testBG, false)
+var testTheme = theme.Terminal(testSurface, false)

@@ -15,6 +15,11 @@ import (
 var (
 	darkBG  = lipgloss.Color("#232136")
 	lightBG = lipgloss.Color("#faf4ed")
+
+	// The pair a terminal reports. The shades travel toward the foreground, so
+	// most of these assertions need both halves.
+	dark  = theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0def4")}
+	light = theme.Surface{Background: lightBG, Foreground: lipgloss.Color("#575279")}
 )
 
 // rgb reads a color the way a terminal will, so a test compares what is painted
@@ -37,11 +42,11 @@ func TestHuesStayASlot(t *testing.T) {
 		got  color.Color
 		want xansi.BasicColor
 	}{
-		{"Accent", theme.Terminal(darkBG, false).Accent, lipgloss.Magenta},
-		{"Success", theme.Terminal(darkBG, false).Success, lipgloss.Green},
-		{"Warning", theme.Terminal(darkBG, false).Warning, lipgloss.Yellow},
-		{"Error", theme.Terminal(darkBG, false).Error, lipgloss.Red},
-		{"Actor", theme.Terminal(darkBG, false).Actor, lipgloss.Cyan},
+		{"Accent", theme.Terminal(dark, false).Accent, lipgloss.Magenta},
+		{"Success", theme.Terminal(dark, false).Success, lipgloss.Green},
+		{"Warning", theme.Terminal(dark, false).Warning, lipgloss.Yellow},
+		{"Error", theme.Terminal(dark, false).Error, lipgloss.Red},
+		{"Actor", theme.Terminal(dark, false).Actor, lipgloss.Cyan},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := tc.got.(xansi.BasicColor)
@@ -58,7 +63,7 @@ func TestHuesStayASlot(t *testing.T) {
 func TestHuesDoNotFollowTheBackground(t *testing.T) {
 	// The hues are the reader's, so a light terminal and a dark one get the
 	// same slots. Only the shades move.
-	dark, light := theme.Terminal(darkBG, false), theme.Terminal(lightBG, false)
+	dark, light := theme.Terminal(dark, false), theme.Terminal(light, false)
 	if dark.Accent != light.Accent {
 		t.Errorf("Accent = %v on dark and %v on light, want the same slot", dark.Accent, light.Accent)
 	}
@@ -68,8 +73,8 @@ func TestHuesDoNotFollowTheBackground(t *testing.T) {
 }
 
 func TestTextIsTheTerminalsOwn(t *testing.T) {
-	if _, ok := theme.Terminal(darkBG, false).Text.(lipgloss.NoColor); !ok {
-		t.Errorf("Text = %v, want NoColor so the terminal's own foreground is used", theme.Terminal(darkBG, false).Text)
+	if _, ok := theme.Terminal(dark, false).Text.(lipgloss.NoColor); !ok {
+		t.Errorf("Text = %v, want NoColor so the terminal's own foreground is used", theme.Terminal(dark, false).Text)
 	}
 }
 
@@ -79,14 +84,14 @@ func TestTextIsTheTerminalsOwn(t *testing.T) {
 func TestAThemeCarriesItsBackground(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		bg   color.Color
+		s    theme.Surface
 	}{
-		{"dark", darkBG},
-		{"light", lightBG},
+		{"dark", dark},
+		{"light", light},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := theme.Terminal(tc.bg, false).Background; got != tc.bg {
-				t.Errorf("Background = %v, want the %v it was derived from", got, tc.bg)
+			if got := theme.Terminal(tc.s, false).Background; got != tc.s.Background {
+				t.Errorf("Background = %v, want the %v it was derived from", got, tc.s.Background)
 			}
 		})
 	}
@@ -95,7 +100,7 @@ func TestAThemeCarriesItsBackground(t *testing.T) {
 // Nothing established a background, so there is none to carry and none to
 // paint. The terminal's own goes on showing through.
 func TestNoBackgroundCarriesNone(t *testing.T) {
-	if got := theme.Terminal(nil, false).Background; got != nil {
+	if got := theme.Terminal(theme.Surface{}, false).Background; got != nil {
 		t.Errorf("Background = %v, want nil when nothing answered", got)
 	}
 }
@@ -103,13 +108,13 @@ func TestNoBackgroundCarriesNone(t *testing.T) {
 // transparent is one rule: paint nothing. The background goes with the surfaces,
 // or a translucent terminal is filled in solid by the thing meant to spare it.
 func TestTransparentCarriesNoBackground(t *testing.T) {
-	if got := theme.Terminal(darkBG, true).Background; got != nil {
+	if got := theme.Terminal(dark, true).Background; got != nil {
 		t.Errorf("Background = %v, want nil under transparent", got)
 	}
 }
 
 func TestShadesLightenADarkBackground(t *testing.T) {
-	th := theme.Terminal(darkBG, false)
+	th := theme.Terminal(dark, false)
 	base := luma(darkBG)
 
 	// The ladder, dimmest first. Each has to clear the background it sits on
@@ -132,7 +137,7 @@ func TestShadesLightenADarkBackground(t *testing.T) {
 }
 
 func TestShadesDarkenALightBackground(t *testing.T) {
-	th := theme.Terminal(lightBG, false)
+	th := theme.Terminal(light, false)
 	base := luma(lightBG)
 
 	for _, step := range []struct {
@@ -153,7 +158,7 @@ func TestShadesDarkenALightBackground(t *testing.T) {
 }
 
 func TestDiffTintsLeanTheirOwnWay(t *testing.T) {
-	th := theme.Terminal(darkBG, false)
+	th := theme.Terminal(dark, false)
 	br, bg, bb := rgb(darkBG)
 
 	ar, ag, ab := rgb(th.AddedBackground)
@@ -171,7 +176,7 @@ func TestTintsStayUnderTheCode(t *testing.T) {
 	// A tint groups a run of changed lines. At full strength it buries the
 	// source sitting on it, so it has to stay nearer the background than the
 	// color it leans toward.
-	th := theme.Terminal(darkBG, false)
+	th := theme.Terminal(dark, false)
 	base, added := luma(darkBG), luma(th.AddedBackground)
 	if added-base > luma(lipgloss.Green)-base {
 		t.Errorf("AddedBackground luma = %.1f, want far nearer the background's %.1f than green's %.1f",
@@ -183,7 +188,7 @@ func TestNoBackgroundPaintsNoSurface(t *testing.T) {
 	// A guessed surface is worse than none. Slot 0 is the background on a great
 	// many dark palettes, so a selection painted in it is invisible exactly
 	// where it was needed; the bar glyph and the markers carry it instead.
-	th := theme.Terminal(nil, false)
+	th := theme.Terminal(theme.Surface{}, false)
 	for _, tc := range []struct {
 		name string
 		c    color.Color
@@ -205,7 +210,7 @@ func TestNoBackgroundPaintsNoSurface(t *testing.T) {
 }
 
 func TestTransparentDropsTheSurfacesAndKeepsTheRest(t *testing.T) {
-	th := theme.Terminal(darkBG, true)
+	th := theme.Terminal(dark, true)
 
 	for _, tc := range []struct {
 		name string
@@ -222,7 +227,7 @@ func TestTransparentDropsTheSurfacesAndKeepsTheRest(t *testing.T) {
 
 	// The shades are not surfaces and go on being derived: a translucent
 	// terminal still has a background, it just must not be painted over.
-	opaque := theme.Terminal(darkBG, false)
+	opaque := theme.Terminal(dark, false)
 	if th.Subtle != opaque.Subtle || th.Border != opaque.Border {
 		t.Error("transparent changed the derived shades, want only the painted surfaces dropped")
 	}
@@ -233,14 +238,14 @@ func TestSyntaxIsPairedAgainstTheBackground(t *testing.T) {
 	// palette. Pairing is what stops a light terminal drawing dark-theme source.
 	for _, tc := range []struct {
 		name string
-		bg   color.Color
+		s    theme.Surface
 		want string
 	}{
-		{"dark", darkBG, theme.SyntaxDark},
-		{"light", lightBG, theme.SyntaxLight},
-		{"undetected", nil, theme.SyntaxDark},
+		{"dark", dark, theme.SyntaxDark},
+		{"light", light, theme.SyntaxLight},
+		{"undetected", theme.Surface{}, theme.SyntaxDark},
 	} {
-		if got := theme.Terminal(tc.bg, false).Syntax; got != tc.want {
+		if got := theme.Terminal(tc.s, false).Syntax; got != tc.want {
 			t.Errorf("%s: Syntax = %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -268,7 +273,7 @@ func TestOptionalFieldsFallBack(t *testing.T) {
 }
 
 func TestSetOptionalFieldsWin(t *testing.T) {
-	full := theme.Terminal(darkBG, false)
+	full := theme.Terminal(dark, false)
 
 	if got := full.InvertedOrText(); got != full.Inverted {
 		t.Errorf("InvertedOrText() = %v, want Inverted when it is set", got)
@@ -292,7 +297,7 @@ func overrides(t *testing.T, doc string) theme.Overrides {
 
 func TestOverridesWinPerTokenAndLeaveTheRestDerived(t *testing.T) {
 	o := overrides(t, "accent: \"#ff0000\"\n")
-	derived := theme.Terminal(darkBG, false)
+	derived := theme.Terminal(dark, false)
 	got := o.Apply(derived)
 
 	if r, g, b := rgb(got.Accent); r != 0xff || g != 0 || b != 0 {
@@ -306,7 +311,7 @@ func TestOverridesWinPerTokenAndLeaveTheRestDerived(t *testing.T) {
 func TestOverrideTakesASlotIndex(t *testing.T) {
 	// A user pinning a color may well want another of their own slots rather
 	// than a hex, and lipgloss already spells one as a bare number.
-	got := overrides(t, "accent: \"4\"\n").Apply(theme.Terminal(darkBG, false))
+	got := overrides(t, "accent: \"4\"\n").Apply(theme.Terminal(dark, false))
 	if got.Accent != lipgloss.Blue {
 		t.Errorf("Accent = %v, want slot 4", got.Accent)
 	}
@@ -347,7 +352,7 @@ func TestAThemeNameIsToleratedRatherThanFatal(t *testing.T) {
 		t.Errorf("Validate() = %v, want nil so the app still starts", err)
 	}
 
-	derived := theme.Terminal(darkBG, false)
+	derived := theme.Terminal(dark, false)
 	if got := o.Apply(derived); got.Accent != derived.Accent {
 		t.Error("a theme name changed a color, want it ignored")
 	}
@@ -373,7 +378,7 @@ func TestANamedBackgroundDrivesTheDerivation(t *testing.T) {
 	o := overrides(t, "background: \"#faf4ed\"\n")
 
 	// Nothing answered, which is the case this exists for.
-	got := o.Resolve(nil, false)
+	got := o.Resolve(theme.Surface{}, false)
 
 	if got.SelectedBackground == nil {
 		t.Error("SelectedBackground is nil, want the named background to restore the surfaces")
@@ -389,20 +394,28 @@ func TestANamedBackgroundDrivesTheDerivation(t *testing.T) {
 func TestANamedBackgroundOutranksTheReportedOne(t *testing.T) {
 	// The reported one is what was wrong, so it has to lose.
 	o := overrides(t, "background: \"#faf4ed\"\n")
-	got := o.Resolve(darkBG, false)
+	got := o.Resolve(dark, false)
 
 	if got.Syntax != theme.SyntaxLight {
 		t.Errorf("Syntax = %q, want the named background to win over the reported one", got.Syntax)
 	}
-	if want := theme.Terminal(lightBG, false); got.Subtle != want.Subtle {
+
+	// Only the background was named, so the reported foreground stands beside
+	// it. That pair has no separation left — a light page under light text — and
+	// the shades fall back to contrast, which is what keeps them readable.
+	want := theme.Terminal(theme.Surface{Background: lightBG, Foreground: dark.Foreground}, false)
+	if got.Subtle != want.Subtle {
 		t.Errorf("Subtle = %v, want %v, derived from the named background", got.Subtle, want.Subtle)
+	}
+	if luma(got.Subtle) >= luma(lightBG) {
+		t.Error("Subtle is not darker than the named background, want it readable against it")
 	}
 }
 
 // Naming one is how a reader asks for a chrome that disagrees with their
 // terminal, so it has to be carried and painted rather than only derived from.
 func TestANamedBackgroundIsPainted(t *testing.T) {
-	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(darkBG, false)
+	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(dark, false)
 	if r, g, b := rgb(got.Background); r != 0xfa || g != 0xf4 || b != 0xed {
 		t.Errorf("Background = %d,%d,%d, want the named fa,f4,ed painted", r, g, b)
 	}
@@ -411,11 +424,12 @@ func TestANamedBackgroundIsPainted(t *testing.T) {
 // Named and translucent together is the reader who wrote it down only because
 // their terminal could not answer. They get the derivation and no fill.
 func TestANamedBackgroundIsNotPaintedUnderTransparent(t *testing.T) {
-	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(nil, true)
+	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(theme.Surface{}, true)
 	if got.Background != nil {
 		t.Errorf("Background = %v, want nil so the terminal's own still shows", got.Background)
 	}
-	if want := theme.Terminal(lightBG, true); got.Subtle != want.Subtle {
+	want := theme.Terminal(theme.Surface{Background: lightBG}, true)
+	if got.Subtle != want.Subtle {
 		t.Error("the named background stopped driving the shades under transparent")
 	}
 }
@@ -436,8 +450,100 @@ func TestBackgroundIsAKnownKey(t *testing.T) {
 // behaviour from the escape hatch existing.
 func TestResolveWithoutANamedBackgroundIsTheReportedOne(t *testing.T) {
 	var o theme.Overrides
-	got, want := o.Resolve(darkBG, false), theme.Terminal(darkBG, false)
+	got, want := o.Resolve(dark, false), theme.Terminal(dark, false)
 	if got.Subtle != want.Subtle || got.Syntax != want.Syntax || got.SelectedBackground != want.SelectedBackground {
 		t.Error("Resolve changed the derivation when config named no background")
+	}
+}
+
+// The shades travel toward the terminal's own text rather than toward pure
+// white or black, so they sit on the axis between the page and the words on it.
+func TestShadesTravelTowardTheReportedForeground(t *testing.T) {
+	warm := lipgloss.Color("#e0c0a0") // a foreground well off neutral
+	got := theme.Terminal(theme.Surface{Background: darkBG, Foreground: warm}, false)
+	flat := theme.Terminal(theme.Surface{Background: darkBG}, false)
+
+	if got.Subtle == flat.Subtle {
+		t.Error("Subtle ignored the reported foreground, want it derived toward it")
+	}
+
+	// Toward a warm foreground the grey has to come out warm: red above blue,
+	// where the pure-white fallback keeps the background's own balance.
+	r, _, b := rgb(got.Subtle)
+	if r <= b {
+		t.Errorf("Subtle = %d,_,%d, want the warm foreground to lead red over blue", r, b)
+	}
+}
+
+// A terminal reporting two colors close together would give a ladder nobody can
+// read. Pure white or black is the worse fit and the safer one.
+func TestAForegroundTooCloseToTheBackgroundIsRefused(t *testing.T) {
+	murky := theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#2b2940")}
+	got := theme.Terminal(murky, false)
+	flat := theme.Terminal(theme.Surface{Background: darkBG}, false)
+
+	if got.Subtle != flat.Subtle {
+		t.Error("a foreground with no separation was used, want the contrast fallback")
+	}
+}
+
+// It is a derivation input like the background, for the same reader: a terminal
+// that cannot answer, or answered wrongly.
+func TestANamedForegroundDrivesTheShades(t *testing.T) {
+	o := overrides(t, "foreground: \"#e0c0a0\"\n")
+	got := o.Resolve(theme.Surface{Background: darkBG}, false)
+
+	if want := theme.Terminal(theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0c0a0")}, false); got.Subtle != want.Subtle {
+		t.Errorf("Subtle = %v, want %v, derived toward the named foreground", got.Subtle, want.Subtle)
+	}
+	if err := o.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want foreground accepted", err)
+	}
+	if !slices.Contains(theme.Keys(), "foreground") {
+		t.Errorf("Keys() = %v, want it to name foreground", theme.Keys())
+	}
+}
+
+// The foreground is a direction to travel, never a color to paint: Text stays
+// the terminal's own, which follows a change this query only saw once.
+func TestAReportedForegroundIsNotPaintedAsText(t *testing.T) {
+	got := theme.Terminal(theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0c0a0")}, false)
+	if _, ok := got.Text.(lipgloss.NoColor); !ok {
+		t.Errorf("Text = %v, want NoColor even when a foreground was reported", got.Text)
+	}
+}
+
+// Naming a background that flips the terminal light-to-dark leaves the reported
+// foreground on the wrong side of it. The separation guard is what stops that
+// pair producing a ladder drawn in the page's own color.
+func TestANamedBackgroundThatStrandsTheForegroundStaysReadable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		named   string
+		against theme.Surface
+	}{
+		{"light named over a dark terminal", "#faf4ed", dark},
+		{"dark named over a light terminal", "#232136", light},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := overrides(t, "background: \""+tc.named+"\"\n").Resolve(tc.against, false)
+
+			for _, shade := range []struct {
+				name string
+				c    color.Color
+			}{{"Subtle", got.Subtle}, {"Muted", got.Muted}, {"Border", got.Border}} {
+				if separationOf(shade.c, got.Background) < 24 {
+					t.Errorf("%s is indistinguishable from the background it sits on", shade.name)
+				}
+			}
+		})
+	}
+}
+
+func separationOf(a, b color.Color) float64 {
+	if d := luma(a) - luma(b); d < 0 {
+		return -d
+	} else {
+		return d
 	}
 }

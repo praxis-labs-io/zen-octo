@@ -41,7 +41,7 @@ func noticing(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 
 	cfg := testConfig()
 	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
-	m := drive(t, app.New(cfg, client, testBG), tea.WindowSizeMsg{Width: width, Height: height})
+	m := drive(t, app.New(cfg, client, testSurface), tea.WindowSizeMsg{Width: width, Height: height})
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Theme names are gone") {
 		t.Fatalf("no notice on the frame\n%s", out)
 	}

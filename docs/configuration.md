@@ -83,25 +83,33 @@ The keys are `text`, `accent`, `subtle`, `muted`, `inverted`, `success`,
 `warning`, `error`, `actor`, `selectedBackground`, `addedBackground`,
 `removedBackground`, `border`, `borderSubtle` and `borderMuted`.
 
-`background` is the sixteenth and it does not work like the others. It is not
-layered over a derived color, it is the color everything else is derived *from*,
-and zen-octo paints it:
+`background` and `foreground` are the last two and they do not work like the
+others. They are not layered over a derived color; they are what everything else
+is derived *from*. zen-octo paints the background, and the shades travel from it
+toward the foreground:
 
 ```yaml
 theme:
   background: "#eff1f5"
+  foreground: "#4c4f69"
 ```
 
-Two reasons to reach for it. The first is wanting zen-octo to look different
+Two reasons to reach for them. The first is wanting zen-octo to look different
 from the terminal you run it in — a dark client in a light terminal, say. The
 second is a terminal that cannot answer the background query: `screen`, and some
 `tmux` and `ssh` setups, do not reply, and without an answer zen-octo paints no
-cursor line and no diff wash. Naming it brings all of that back.
+cursor line and no diff wash. Naming them brings all of that back.
 
-It beats whatever the terminal reported, so it also fixes an answer that was
+They beat whatever the terminal reported, so they also fix an answer that was
 simply wrong. One line moves the shades, the surfaces and the light-or-dark
 syntax pairing together, which is why it is worth preferring over pinning half a
 dozen colors by hand.
+
+Naming only the background is fine and usually enough. Where it flips the page
+from light to dark or back, the foreground the terminal reported is left on the
+wrong side of it, and zen-octo falls back to deriving the greys against plain
+black or white rather than building an unreadable ladder between two colors that
+are now both dark. Naming the foreground too is how you get the harmony back.
 
 `theme` used to be a name. If yours still says `theme: rose-pine-moon`, zen-octo
 starts and says so rather than refusing; there is one theme now and it is yours.

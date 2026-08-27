@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"image/color"
 	"slices"
 	"strconv"
 	"strings"
@@ -325,12 +324,12 @@ const (
 	legCommit
 )
 
-// New builds the root model over the configured PR sections. bg is the
-// background the terminal reported, or nil where nothing answered.
-func New(cfg *config.Config, client GitHub, bg color.Color) Model {
-	// Resolve, not Terminal: a background named in config outranks the reported
-	// one, and everything else hangs off whichever won.
-	th := cfg.Theme.Resolve(bg, cfg.Transparent)
+// New builds the root model over the configured PR sections. surface is what
+// the terminal reported about itself, either field nil where nothing answered.
+func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
+	// Resolve, not Terminal: a background or foreground named in config outranks
+	// the reported one, and everything else hangs off whichever won.
+	th := cfg.Theme.Resolve(surface, cfg.Transparent)
 
 	// The syntax palette is a separate question from the chrome's. The chrome
 	// follows the terminal and Chroma's styles cannot, so the theme pairs one

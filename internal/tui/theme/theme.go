@@ -113,11 +113,17 @@ const (
 	SyntaxLight = "github"
 )
 
-// Terminal derives the theme from the background the terminal reported, which
-// is nil when nothing answered the query. transparent asks for nothing to be
+// minSeparation is the least a usable pair may be apart, in luma. It is the
+// floor under the side test below, for the pair that straddles the midpoint by
+// a hair and is no direction to travel in either.
+const minSeparation = 48
+
+// Terminal derives the theme from what the terminal reported. Either field of
+// the surface is nil where nothing answered. transparent asks for nothing to be
 // painted at all, for a terminal running translucent: neither the background
 // the theme would otherwise carry nor the three surfaces over it.
-func Terminal(bg color.Color, transparent bool) Theme {
+func Terminal(s Surface, transparent bool) Theme {
+	bg := s.Background
 	t := Theme{
 		Syntax: SyntaxDark,
 
@@ -150,7 +156,7 @@ func Terminal(bg color.Color, transparent bool) Theme {
 	// deliberate. A palette's identity lives in its hues. Greys are structural
 	// and only have to stay legible, which a slot cannot promise and a blend off
 	// the known background is by construction.
-	away := contrast(bg)
+	away := shadeToward(bg, s.Foreground)
 	t.Subtle = mix(bg, away, 0.65)
 	t.Muted = mix(bg, away, 0.45)
 	t.Border = mix(bg, away, 0.30)
@@ -201,9 +207,36 @@ func mix(a, b color.Color, ratio float64) color.Color {
 	return lipgloss.RGBColor{R: blend(ar, br), G: blend(ag, bg), B: blend(ab, bb)}
 }
 
+// shadeToward is the direction a shade travels from the background. The
+// terminal's own foreground is the right answer where it reported one: the greys
+// then sit on the axis between the page and the text on it, rather than on the
+// one between the page and pure white.
+//
+// It has to be on the far side of the midpoint from the background, which is a
+// different test from being far from it. Config naming a background flips the
+// page without touching the foreground beside it, so a dark one named on a light
+// terminal leaves two dark colors and a ladder built along them climbs from
+// almost-black to still-dark. Refusing the pair costs the harmony and keeps the
+// shades legible, which is the half that matters.
+func shadeToward(bg, fg color.Color) color.Color {
+	if fg == nil || isDark(bg) == isDark(fg) || separation(bg, fg) < minSeparation {
+		return contrast(bg)
+	}
+	return fg
+}
+
+func separation(a, b color.Color) float64 {
+	d := luma(a) - luma(b)
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
 // contrast is the direction a shade moves in to stay visible against c: toward
-// white on a dark background, toward black on a light one. It is what lets one
-// set of ratios serve both without a second table.
+// white on a dark background, toward black on a light one. It is the fallback
+// wherever no usable foreground was reported, and it lets one set of ratios
+// serve a light terminal and a dark one without a second table.
 func contrast(c color.Color) color.Color {
 	if isDark(c) {
 		return lipgloss.RGBColor{R: 0xff, G: 0xff, B: 0xff}
@@ -213,9 +246,11 @@ func contrast(c color.Color) color.Color {
 
 // isDark reports whether c is dark, by perceived luminance. lipgloss has this
 // and does not export it.
-func isDark(c color.Color) bool {
+func isDark(c color.Color) bool { return luma(c) < 128 }
+
+func luma(c color.Color) float64 {
 	r, g, b := rgb8(c)
-	return 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) < 128
+	return 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
 }
 
 func rgb8(c color.Color) (uint8, uint8, uint8) {

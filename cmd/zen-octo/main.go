@@ -7,13 +7,13 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
 	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 	"github.com/praxis-labs-io/zen-octo/internal/version"
 )
 
@@ -55,13 +55,13 @@ func run(mockup bool) error {
 	}
 
 	// Asked before Bubble Tea takes the tty, so the theme is built once and the
-	// first frame is already the right colors. lipgloss ends the query on the
-	// terminal's device-attributes reply, so a terminal that answers at all
-	// answers immediately; one that answers nothing yields nil and the theme
-	// falls back to the palette alone.
-	bg, _ := lipgloss.BackgroundColor(os.Stdin, os.Stdout)
+	// first frame is already the right colors. The query ends on the terminal's
+	// device-attributes reply, so a terminal that answers at all answers at
+	// once; one that answers nothing yields an empty surface and the theme falls
+	// back to the palette alone.
+	surface := theme.Query(os.Stdin, os.Stdout)
 
-	_, err = tea.NewProgram(app.New(cfg, client, bg)).Run()
+	_, err = tea.NewProgram(app.New(cfg, client, surface)).Run()
 	return err
 }
 

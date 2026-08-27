@@ -148,8 +148,8 @@ func TestARowTakesNoBackgroundFromAThemeThatDefinesNone(t *testing.T) {
 		name string
 		th   theme.Theme
 	}{
-		{"transparent", theme.Terminal(lipgloss.Color("#232136"), true)},
-		{"undetected", theme.Terminal(nil, false)},
+		{"transparent", theme.Terminal(testSurface, true)},
+		{"undetected", theme.Terminal(theme.Surface{}, false)},
 		{"bare", theme.Theme{Text: testTheme.Text, Subtle: testTheme.Subtle}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

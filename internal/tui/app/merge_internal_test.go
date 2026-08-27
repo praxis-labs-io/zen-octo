@@ -69,7 +69,7 @@ func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 // covered at all.
 func TestADetailLandingArmsTheProbe(t *testing.T) {
 	cfg := &config.Config{Defaults: config.Defaults{PRsLimit: 20}}
-	m := New(cfg, nil, testBG)
+	m := New(cfg, nil, testSurface)
 
 	landed := gh.DetailResult{Detail: gh.PullRequestDetail{
 		PullRequest: gh.PullRequest{ID: "PR_1", State: gh.PRStateOpen},

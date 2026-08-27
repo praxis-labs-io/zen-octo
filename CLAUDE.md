@@ -1155,9 +1155,23 @@ where a terminal ignores the request; what it buys is that the shades and the
 tints can never sit on a base other than the one they were computed from. It is
 also what makes a chrome that disagrees with the terminal possible at all.
 
-**`background` in config is a derivation input rather than a token**, which is
-why it is absent from `setters` and handled beside them. `Overrides.Resolve`
-puts it in front of the reported one and derives everything from whichever won.
+**The shades travel toward the terminal's own foreground**, so they sit on the
+axis between the page and the words on it rather than the one between the page
+and pure white. `theme.Query` asks OSC 10 and OSC 11 together and ends on the
+device attributes, which is the machinery lipgloss has for the background alone
+and does not export. **A foreground has to be on the far side of the midpoint
+from the background, which is not the same test as being far from it**: config
+naming a background flips the page without touching the foreground beside it, so
+a dark one named on a light terminal leaves two dark colors, and a ladder built
+along them climbs from almost-black to still-dark. `shadeToward` refuses that
+pair for `contrast`, losing the harmony and keeping the legibility. The
+foreground is a direction and never a color: `Text` stays `NoColor` so it
+follows a change this one-shot query cannot see.
+
+**`background` and `foreground` in config are derivation inputs rather than
+tokens**, which is why they are absent from `setters` and handled beside them.
+`Overrides.Resolve` puts them in front of the reported pair, field by field, and
+derives everything from what won.
 The ordering is the whole of its value: applied after derivation it would
 correct one field, where the shades, the surfaces and the syntax pairing all
 hang off it. It answers two readers at once — the one who wants a dark client in
