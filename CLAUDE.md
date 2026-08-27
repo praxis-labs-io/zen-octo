@@ -32,6 +32,11 @@ The installed binary is built from here to `~/.local/bin/zen-octo`; **rebuild af
 make install
 ```
 
+**It does not reach a session already open.** A long-lived one goes on running
+the code it started with, which reads as the change not having landed: a theme
+overhaul was diagnosed twice over against screenshots of the palette it
+replaced. Before believing a rendering bug, restart the app.
+
 The repo moved to the `praxis-labs-io` org on 2026-08-18, so the module path is `github.com/praxis-labs-io/zen-octo`. A `v*` tag cuts a release: `.github/workflows/release.yml` builds the five targets, writes the checksums, and cuts it from `docs/release-notes/<tag>.md`, which has to be on `main` before the tag is. There is no Homebrew tap. The emptied `zen-octo` org is held to keep the name.
 
 Anything published under Drew's name (PR bodies, issues, README) must be shown to him word-for-word before pushing. His voice: terse, considerate, stoic, no strong adverbs, no em-dashes.
@@ -1107,7 +1112,116 @@ A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, 
 
 An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 
-Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
+**There is one theme and it is derived, not written down.** `theme.Terminal`
+takes the background the terminal reported and builds every token from it. The
+hues are ANSI slots, so they are whatever the reader's palette maps them to,
+which is the whole of the feature: the client matches the terminal without being
+configured. The shades and the surfaces are blended off the background instead,
+and the split is deliberate. A palette's identity lives in its hues; greys are
+structural and only have to stay legible, which a slot cannot promise. A
+terminal is free to map slot 8 onto slot 0, and nothing here could tell, because
+**a slot's `RGBA()` is the canonical value rather than what the terminal did with
+it.** So a slot may be painted and must not be blended. The two diff tints are
+the one place that bites: they are a standard-green and standard-red wash over
+the real background rather than a wash in the reader's own, and no arithmetic on
+this side can fix it. Reading the true palette would take an OSC 4 query per
+slot, which is not worth it for a tint.
+
+`Text` is `NoColor{}`, the terminal's own foreground, because nothing matches a
+reader's palette as exactly as the palette. It writes no escape at all, which is
+worth knowing before a test asserts a sequence for it.
+
+**The background is asked for once, synchronously, before Bubble Tea takes the
+tty.** `lipgloss.BackgroundColor` in `run` already does the raw-mode dance and
+already ends on the terminal's device-attributes reply, so anything that answers
+answers at once. That timing is what keeps the theme built once in `app.New` and
+threaded by value: no screen gains a `SetTheme`, and the first frame is already
+the right colors. The async route through `tea.RequestBackgroundColor` would also
+supply the foreground, but the foreground is never needed, and it would cost four
+setters and a visible repaint.
+
+**Nothing answering means no painted surface, not a guessed one**, which is the
+same path `transparent: true` takes. Slot 0 is the background on a great many
+dark palettes, so a selection painted in it is invisible exactly where it was
+needed; the bar glyph and the `+` and `−` markers carry it instead. Borders are
+drawn runes rather than fills, so those do fall back to a slot. `paint` and
+lipgloss both treat a nil background as "paint none", so this needed no work at
+any of the sixteen call sites.
+
+**A theme carries the background it was derived against, and the root paints
+it**, through `tea.View.BackgroundColor`, which writes OSC 11 once and resets on
+the way out. Painting the reported background is invisible and costs nothing
+where a terminal ignores the request; what it buys is that the shades and the
+tints can never sit on a base other than the one they were computed from. It is
+also what makes a chrome that disagrees with the terminal possible at all.
+
+**The shades travel toward the terminal's own foreground**, so they sit on the
+axis between the page and the words on it rather than the one between the page
+and pure white. `theme.Query` asks OSC 10 and OSC 11 together and ends on the
+device attributes, which is the machinery lipgloss has for the background alone
+and does not export. **A foreground has to be on the far side of the midpoint
+from the background, which is not the same test as being far from it**: config
+naming a background flips the page without touching the foreground beside it, so
+a dark one named on a light terminal leaves two dark colors, and a ladder built
+along them climbs from almost-black to still-dark. `shadeToward` refuses that
+pair for `contrast`, losing the harmony and keeping the legibility. The
+foreground is a direction and never a color: `Text` stays `NoColor` so it
+follows a change this one-shot query cannot see.
+
+**`internal/tui/theme` is a leaf and speaks no YAML.** `config.Theme` owns the
+document, tolerant scalar and all, and hands plain strings to
+`theme.NewOverrides`; `app.New` is where the two meet, being the one place that
+already imports both. It was the other way round for an afternoon, config
+importing the theme so a field could unmarshal itself, and the cost was a
+package that draws colors knowing what a config file looks like — which is the
+package a `themes/` directory would then have grown file loading in. The colors
+are validated in `app.New` for the same reason: the vocabulary is the theme's,
+and a color that will not parse is worth a line on the screen rather than a
+client that will not start. A set carrying a bad one is dropped whole, since
+applying the rest leaves a page half corrected with nothing saying which half.
+
+**A bare integer is range-checked before `lipgloss.Color` sees it.** That one
+reads any integer: past 255 it packs the value as RGB, so `"256"` is a near-black
+`#000100` rather than an error, and a negative is silently made positive. Both
+are ordinary off-by-ones, and `background` is the field they land worst on, since
+it paints the whole app and every shade is derived against it.
+
+**`background` and `foreground` in config are derivation inputs rather than
+tokens**, which is why they are absent from `setters` and handled beside them.
+`Overrides.Resolve` puts them in front of the reported pair, field by field, and
+derives everything from what won.
+The ordering is the whole of its value: applied after derivation it would
+correct one field, where the shades, the surfaces and the syntax pairing all
+hang off it. It answers two readers at once — the one who wants a dark client in
+a light terminal, and `screen` and the ssh and tmux setups that never reply,
+which otherwise get no painted surface at all.
+
+**`transparent` is one rule: paint nothing.** The background goes with the three
+surfaces rather than being a separate switch, because the reader it exists for
+is running translucent and a filled window is the thing that spoils it — sparing
+the cursor line while filling the whole terminal behind it would be the setting
+defeating itself. It stays a derivation input under the flag, so naming a
+background and asking for transparency together means "derive against this,
+paint nothing", which is the translucent terminal that also cannot answer.
+
+`theme:` in config is a set of token overrides layered on the derived theme
+rather than a name. It tolerates a scalar, because `theme: rose-pine-moon` is on
+disk for anyone running the last release and refusing to start over a color
+scheme is the wrong trade; `Overrides.Named` carries it up to the notice.
+
+Code is the exception and cannot follow the palette: Chroma's styles are all
+truecolor and none of them is the terminal's. `Theme.Syntax` pairs one against
+the background instead, `github-dark` on a dark terminal and `github` on a
+light one, overridable with `syntaxTheme` in config. `internal/tui/syntax`
+returns colored tokens rather than rendered text: Chroma's own terminal
+formatter writes resets that would tear a row's background open.
+
+**Anything spelling a theme color out for a third party has to keep a slot a
+slot.** `comp.hex` feeds glamour, whose style config is JSON-shaped, and glamour
+passes the string to `lipgloss.Color`, which reads a bare number back into the
+same slot. A hex there would pin the color and stop the palette reaching
+rendered markdown. `NoColor` gets no spelling at all, since its `RGBA()` is
+black and writing it out renders every paragraph in the app black.
 
 **There is one cursor, and the terminal draws it.** Every text input reports
 where the next character lands and none of them draws a caret: `tea.View`

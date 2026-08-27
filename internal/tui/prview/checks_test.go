@@ -14,7 +14,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func checkRollup() gh.CheckRollup {
@@ -384,7 +383,7 @@ func TestGitHubLogAnnotationsUseTheThemeWhenTheToolSentNoColor(t *testing.T) {
 	m.SetJob(103, loadedJob(103, true))
 	for _, line := range strings.Split(m.View(), "\n") {
 		if strings.Contains(line, "tests failed") {
-			if !strings.Contains(line, fgSeq(theme.RosePineMoon.Error)) {
+			if !strings.Contains(line, fgSeq(testTheme.Error)) {
 				t.Errorf("error line has no error color: %q", line)
 			}
 			return
@@ -413,7 +412,7 @@ func TestExpandedLogLinesCarryStableMutedNumbers(t *testing.T) {
 	frame := m.View()
 	for _, line := range strings.Split(frame, "\n") {
 		if strings.Contains(stripANSI(line), "runner ready") &&
-			!strings.Contains(line, fgSeq(theme.RosePineMoon.MutedOrSubtle())) {
+			!strings.Contains(line, fgSeq(testTheme.MutedOrSubtle())) {
 			t.Errorf("line number is not muted: %q", line)
 		}
 	}
@@ -513,7 +512,7 @@ func TestTheLogCursorBackgroundSurvivesLogColorResets(t *testing.T) {
 	m.SetJob(101, job)
 	m = press(m, "2", "j")
 
-	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	fill := bgSeq(testTheme.SelectedBackground)
 	for _, line := range strings.Split(m.View(), "\n") {
 		if strings.Contains(stripANSI(line), "red plain") {
 			if got := strings.Count(line, fill); got < 3 {
@@ -676,7 +675,7 @@ func TestAJobFailureRendersItsReason(t *testing.T) {
 }
 
 func logCursorLine(frame string) string {
-	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	fill := bgSeq(testTheme.SelectedBackground)
 	for _, line := range strings.Split(frame, "\n") {
 		selected := textOnBackground(line, fill)
 		for at := 0; at+7 <= len(selected); at++ {

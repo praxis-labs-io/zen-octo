@@ -16,7 +16,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // ready is a store snapshot with everything loaded, which is what the list sees
@@ -35,7 +34,7 @@ func ready(titles []string, prs ...[]gh.PullRequest) []store.Section {
 }
 
 func newList(width, height int, prs []gh.PullRequest) list.Model {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(width, height)
 	m.SetSections(ready([]string{"My PRs"}, prs))
 	return m
@@ -106,14 +105,10 @@ const (
 
 // selectionSeq is the SGR sequence that sets the selection background.
 func selectionSeq() string {
-	r, g, b, _ := theme.RosePineMoon.SelectedBackground.RGBA()
-	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+	return sgrParams(lipgloss.NewStyle().Background(testTheme.SelectedBackground))
 }
 
-func fgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
 // selectedRow returns every line painted with the selection background. A row
 // is two lines now, and the number lives on the second, so a helper returning
@@ -295,7 +290,7 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	if !strings.HasPrefix(top, "\x1b[") || end < 0 {
 		t.Fatalf("the frame does not open with a styled border: %q", top)
 	}
-	if got, want := top[2:end], fgSeq(theme.RosePineMoon.BorderSubtle); got != want {
+	if got, want := top[2:end], fgSeq(testTheme.BorderSubtle); got != want {
 		t.Errorf("the border opens as %s, want the idle colour %s", got, want)
 	}
 }
@@ -577,10 +572,10 @@ func TestTheChurnColoursAdditionsAndDeletionsApart(t *testing.T) {
 	// alone, so the sequence names a colour with no background spliced into it.
 	row := rowContaining(t, screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), second}), "@octobot")
 
-	if got := styleOf(t, row, "+11"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
+	if got := styleOf(t, row, "+11"); !strings.Contains(got, fgSeq(testTheme.Success)) {
 		t.Errorf("additions render as %s, want the success colour", got)
 	}
-	if got := styleOf(t, row, "−3"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Error)) {
+	if got := styleOf(t, row, "−3"); !strings.Contains(got, fgSeq(testTheme.Error)) {
 		t.Errorf("deletions render as %s, want the error colour", got)
 	}
 }
@@ -632,11 +627,11 @@ func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 		decision gh.ReviewDecision
 		want     color.Color
 	}{
-		{decision: gh.ReviewDecisionApproved, want: theme.RosePineMoon.Success},
-		{decision: gh.ReviewDecisionChangesRequested, want: theme.RosePineMoon.Error},
-		{decision: gh.ReviewDecisionReviewRequired, want: theme.RosePineMoon.Warning},
+		{decision: gh.ReviewDecisionApproved, want: testTheme.Success},
+		{decision: gh.ReviewDecisionChangesRequested, want: testTheme.Error},
+		{decision: gh.ReviewDecisionReviewRequired, want: testTheme.Warning},
 		// Nothing blocking is the same news as an approval, so it says the same.
-		{decision: gh.ReviewDecisionNone, want: theme.RosePineMoon.Success},
+		{decision: gh.ReviewDecisionNone, want: testTheme.Success},
 	}
 
 	for _, tt := range tests {
@@ -811,7 +806,7 @@ func TestAMessageWithNoRowsBehindItSitsInTheMiddleOfThePane(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := list.New(theme.RosePineMoon)
+			m := list.New(testTheme)
 			m.SetSize(width, height)
 			m.SetSections(tt.sections)
 
@@ -906,7 +901,7 @@ func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 	// as the next one along.
 	_, after, _ := strings.Cut(selectedRow(t, screen(t, 140, 12, []gh.PullRequest{unknown})), reviewGlyph)
 
-	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(theme.RosePineMoon.Success)) {
+	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(testTheme.Success)) {
 		t.Errorf("an unknown check state renders as a pass: %q", got)
 	}
 }
@@ -915,7 +910,7 @@ func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 // it is empty, and leaving a failed one blank reads the same as one still on
 // its way.
 func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(160, 20)
 	m.SetSections([]store.Section{
 		{Section: config.Section{Title: "Mine"}, PRs: numbered(7), Status: store.StatusReady, Loaded: true},
@@ -936,7 +931,7 @@ func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
 // the length of the fetch shifts every label along and then jumps them back,
 // and the store still holds numbers that were true a moment ago.
 func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(160, 20)
 	m.SetSections(ready([]string{"Mine", "Review"}, numbered(7), numbered(2)))
 
@@ -1045,7 +1040,7 @@ func TestCopyAndBrowseCarryTheSelectedPullRequest(t *testing.T) {
 // A refresh reorders a section nobody is looking at. Parking a row index rather
 // than the pull request means coming back to a different one.
 func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(140, 20)
 	m.SetSections(ready([]string{"Mine", "Review"}, numbered(4), numbered(6)))
 
@@ -1067,7 +1062,7 @@ func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
 // Every section is loaded, so a tab switch is a move rather than a reload.
 // Landing back on row zero would be throwing the user's place away.
 func TestSwitchingSectionsAndBackKeepsTheCursor(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(140, 20)
 	m.SetSections(ready([]string{"My PRs", "Needs My Review"}, numbered(10), numbered(10)[6:]))
 
@@ -1099,4 +1094,18 @@ func stripANSI(s string) string {
 		b.WriteByte(s[i])
 	}
 	return b.String()
+}
+
+// sgrParams is the parameter run lipgloss emits for a style, read back off a
+// rendered cell rather than rebuilt from the color. A slot goes over the wire as
+// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
+// doing the arithmetic itself asserts against a sequence the app never writes.
+func sgrParams(s lipgloss.Style) string {
+	out := s.Render("x")
+	end := strings.Index(out, "m")
+	if end < 0 {
+		// NoColor is the terminal's own, and nothing is written for it.
+		return ""
+	}
+	return out[len("\x1b["):end]
 }

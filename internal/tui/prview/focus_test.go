@@ -12,7 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // The conversation in sampleDetail, in the order the ring walks it. The resolved
@@ -117,7 +116,7 @@ func TestTheRailCursorCarriesTheBar(t *testing.T) {
 	if !strings.Contains(stripANSI(lit), paint.BarGlyph) {
 		t.Errorf("the rail's cursor line carries no bar: %q", stripANSI(lit))
 	}
-	if !strings.Contains(lit, fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(lit, fgSeq(testTheme.Accent)) {
 		t.Error("the bar is not in the accent the diff draws its own in")
 	}
 
@@ -591,7 +590,7 @@ func TestTabStepsTheColumnThatDrivesThePane(t *testing.T) {
 
 	// On the page, not the column, so this is the move made without leaving it.
 	m := press(detailed(held(d), 200, 40), "]")
-	if got := conversationBorder(t, press(m, "2").View()); got != fgSeq(theme.RosePineMoon.Accent) {
+	if got := conversationBorder(t, press(m, "2").View()); got != fgSeq(testTheme.Accent) {
 		t.Fatal("setup: 2 did not put the keys on the page")
 	}
 	m = press(m, "2")
@@ -612,7 +611,7 @@ func TestTabStepsTheColumnThatDrivesThePane(t *testing.T) {
 
 	// And the keys stayed on the page: the point of the key is stepping the
 	// column without leaving the pane the result lands in.
-	if got := conversationBorder(t, press(m, "tab").View()); got != fgSeq(theme.RosePineMoon.Accent) {
+	if got := conversationBorder(t, press(m, "tab").View()); got != fgSeq(testTheme.Accent) {
 		t.Error("tab took the keys to the column it stepped")
 	}
 }
@@ -637,8 +636,8 @@ func TestTabIsInertOnTheConversation(t *testing.T) {
 // screen on the way back and the keys fell to the page.
 func TestATabGivesBackThePaneItWasLeftOn(t *testing.T) {
 	var (
-		lit  = fgSeq(theme.RosePineMoon.Accent)
-		idle = fgSeq(theme.RosePineMoon.BorderSubtle)
+		lit  = fgSeq(testTheme.Accent)
+		idle = fgSeq(testTheme.BorderSubtle)
 	)
 
 	// Left alone, the rail leads and keeps the keys across the round trip.
@@ -665,7 +664,7 @@ func TestATabGivesBackThePaneItWasLeftOn(t *testing.T) {
 // who walked off it once meant it, and coming back to a column they left is the
 // strip handing the keys back on a key that only changes what is on screen.
 func TestACommitsColumnIsTakenOnArrivalAndNotAgain(t *testing.T) {
-	idle := fgSeq(theme.RosePineMoon.BorderSubtle)
+	idle := fgSeq(testTheme.BorderSubtle)
 
 	m := press(opened(held(sampleDetail()), 200, 40), "]")
 	if got := conversationBorder(t, m.View()); got != idle {
@@ -978,7 +977,7 @@ func focusedCard(t *testing.T, frame string) string {
 func focusedCardAt(t *testing.T, frame string) (string, int) {
 	t.Helper()
 
-	accent := fgSeq(theme.RosePineMoon.Accent)
+	accent := fgSeq(testTheme.Accent)
 	lines := strings.Split(frame, "\n")
 	top := paneTopAt(frame)
 
@@ -1021,7 +1020,7 @@ func markedRailRow(t *testing.T, frame string) string {
 	t.Helper()
 
 	for _, raw := range railRaw(t, frame) {
-		if !strings.Contains(raw, bgSeq(theme.RosePineMoon.SelectedBackground)) {
+		if !strings.Contains(raw, bgSeq(testTheme.SelectedBackground)) {
 			continue
 		}
 		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│● "+paint.BarGlyph))

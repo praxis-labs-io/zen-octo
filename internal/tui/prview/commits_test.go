@@ -15,7 +15,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // sampleCommits covers what the column has to tell apart: the three check
@@ -134,7 +133,7 @@ func TestACommitWithNoAccountFallsBackToTheNameGitRecorded(t *testing.T) {
 func TestTheCheckMarkerTakesEachCommitsOwnState(t *testing.T) {
 	out := onCommits(160, 24).View()
 
-	th := theme.RosePineMoon
+	th := testTheme
 	for _, want := range []struct {
 		name string
 		seq  string
@@ -448,7 +447,7 @@ func TestAnEmptyCommitListLeavesThePaneEmpty(t *testing.T) {
 // token. Both lines of the row have to hold it the whole way across.
 func TestTheSelectedCommitIsPaintedCellByCellAcrossBothLines(t *testing.T) {
 	m := onCommits(160, 24)
-	seq := bgSeq(theme.RosePineMoon.SelectedBackground)
+	seq := bgSeq(testTheme.SelectedBackground)
 
 	var painted []string
 	for _, line := range strings.Split(m.View(), "\n") {

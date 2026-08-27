@@ -37,9 +37,6 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if len(got.PRSections) != len(want.PRSections) {
 		t.Errorf("PRSections = %d, want %d", len(got.PRSections), len(want.PRSections))
 	}
-	if got.Theme != want.Theme {
-		t.Errorf("Theme = %q, want %q", got.Theme, want.Theme)
-	}
 	if got.Defaults.PRsLimit != want.Defaults.PRsLimit {
 		t.Errorf("PRsLimit = %d, want %d", got.Defaults.PRsLimit, want.Defaults.PRsLimit)
 	}
@@ -69,17 +66,55 @@ defaults:
 	if got.Defaults.IssuesLimit != 20 {
 		t.Errorf("IssuesLimit = %d, want 20", got.Defaults.IssuesLimit)
 	}
-	if got.Theme != "rose-pine-moon" {
-		t.Errorf("Theme = %q, want rose-pine-moon", got.Theme)
-	}
 	if len(got.IssueSections) == 0 {
 		t.Error("IssueSections is empty, want defaults")
 	}
 }
 
-// The syntax palette stays empty unless it is asked for. A theme already names
-// the Chroma style that matches it, and filling one in here would override
-// every theme with the default's.
+// The colors reach the config as written; what they mean belongs to the theme.
+func TestThemeColorsLoad(t *testing.T) {
+	writeConfig(t, "theme:\n  accent: \"#ff0000\"\n  error: \"1\"\ntransparent: true\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if !got.Transparent {
+		t.Error("Transparent = false, want it read from the file")
+	}
+	if got.Theme.Colors["accent"] != "#ff0000" || got.Theme.Colors["error"] != "1" {
+		t.Errorf("Colors = %v, want them read as written", got.Theme.Colors)
+	}
+}
+
+// A color this package cannot judge is not a reason to refuse the file. The
+// vocabulary belongs to the theme, and so does the complaint.
+func TestABadColorStillLoads(t *testing.T) {
+	writeConfig(t, "theme:\n  accent: \"nonsense\"\n")
+
+	if _, err := config.Load(); err != nil {
+		t.Errorf("Load() error = %v, want the file read and the color left to the theme", err)
+	}
+}
+
+// A theme name is what the last release took, so one is on disk for anyone
+// upgrading. A scalar unmarshalled into a map is a hard parse error, and
+// refusing to start over a color scheme is the wrong trade.
+func TestALeftoverThemeNameLoadsRatherThanFailing(t *testing.T) {
+	writeConfig(t, "theme: rose-pine-moon\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want a config that still starts", err)
+	}
+	if got.Theme.Named != "rose-pine-moon" {
+		t.Errorf("Theme.Named = %q, want the name kept so the app can say it is ignored", got.Theme.Named)
+	}
+}
+
+// The syntax palette stays empty unless it is asked for. The theme pairs a
+// Chroma style against the background it read, and filling one in here would
+// override that pairing with the default's on every terminal.
 func TestSyntaxThemeIsEmptyUntilItIsSet(t *testing.T) {
 	writeConfig(t, "theme: rose-pine-moon\n")
 

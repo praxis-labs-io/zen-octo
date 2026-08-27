@@ -13,6 +13,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 	"github.com/praxis-labs-io/zen-octo/internal/version"
 )
 
@@ -53,7 +54,14 @@ func run(mockup bool) error {
 		return err
 	}
 
-	_, err = tea.NewProgram(app.New(cfg, client)).Run()
+	// Asked before Bubble Tea takes the tty, so the theme is built once and the
+	// first frame is already the right colors. The query ends on the terminal's
+	// device-attributes reply, so a terminal that answers at all answers at
+	// once; one that answers nothing yields an empty surface and the theme falls
+	// back to the palette alone.
+	surface := theme.Query(os.Stdin, os.Stdout)
+
+	_, err = tea.NewProgram(app.New(cfg, client, surface)).Run()
 	return err
 }
 

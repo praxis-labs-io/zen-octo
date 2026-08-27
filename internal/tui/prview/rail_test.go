@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 const (
@@ -133,7 +131,7 @@ func TestAColumnRailStaysUnderABox(t *testing.T) {
 // The key that opens the rail is a reader reaching for a control, so it hands
 // the keys over and takes them back. Both widths, since one is the bug's shape.
 func TestOpeningTheRailFocusesIt(t *testing.T) {
-	focused := fgSeq(theme.RosePineMoon.Accent)
+	focused := fgSeq(testTheme.Accent)
 
 	for _, width := range []int{narrowFrame, wideFrame} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {

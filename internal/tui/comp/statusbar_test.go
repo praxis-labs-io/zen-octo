@@ -7,10 +7,9 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-func bar() comp.StatusBar { return comp.NewStatusBar(theme.RosePineMoon) }
+func bar() comp.StatusBar { return comp.NewStatusBar(testTheme) }
 
 func TestStatusBarFillsItsWidthExactly(t *testing.T) {
 	tests := []struct {
@@ -119,12 +118,12 @@ func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	if got := s.Budget(4821); got != "" {
 		t.Errorf("Budget(4821) = %q, want nothing while the pool is healthy", got)
 	}
-	if got := s.Budget(120); !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {
+	if got := s.Budget(120); !strings.Contains(got, fgSeq(testTheme.Warning)) {
 		t.Error("a low budget is not rendered as a warning")
 	}
 	// An exhausted pool is the one reading the user most needs. Hiding it here
 	// made the warning branch unreachable.
-	if got := s.Budget(0); !strings.Contains(got, "0") || !strings.Contains(got, fgSeq(theme.RosePineMoon.Warning)) {
+	if got := s.Budget(0); !strings.Contains(got, "0") || !strings.Contains(got, fgSeq(testTheme.Warning)) {
 		t.Errorf("Budget(0) = %q, want a warning-colored zero", got)
 	}
 }

@@ -1,7 +1,6 @@
 package comp_test
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 	"testing"
@@ -9,17 +8,13 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-func pane() comp.Pane { return comp.NewPane(theme.RosePineMoon) }
+func pane() comp.Pane { return comp.NewPane(testTheme) }
 
 // fgSeq is the SGR sequence lipgloss emits for a foreground color, which is how
 // these tests tell a focused border from an idle one.
-func fgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
 func TestPaneReportsTheSizeLeftForContent(t *testing.T) {
 	p := pane().Size(40, 10)
@@ -91,8 +86,8 @@ func TestPaneBrightensOnlyTheActiveTab(t *testing.T) {
 
 	top := strings.Split(pane().Size(60, 5).Tabs(tabs, 0).Render(""), "\n")[0]
 
-	active := fgSeq(theme.RosePineMoon.Accent) + "mConversation"
-	idle := fgSeq(theme.RosePineMoon.Subtle) + "mCommits"
+	active := fgSeq(testTheme.Accent) + "mConversation"
+	idle := fgSeq(testTheme.Subtle) + "mCommits"
 	if !strings.Contains(top, active) {
 		t.Errorf("top border = %q, want Conversation in the accent color", top)
 	}
@@ -155,13 +150,13 @@ func TestPaneBorderColorFollowsFocus(t *testing.T) {
 	focused := pane().Size(30, 4).Focus(true).Render("")
 	idle := pane().Size(30, 4).Render("")
 
-	if !strings.Contains(focused, fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(focused, fgSeq(testTheme.Accent)) {
 		t.Error("focused pane does not use the accent color for its border")
 	}
-	if strings.Contains(idle, fgSeq(theme.RosePineMoon.Accent)) {
+	if strings.Contains(idle, fgSeq(testTheme.Accent)) {
 		t.Error("idle pane uses the focused border color")
 	}
-	if !strings.Contains(idle, fgSeq(theme.RosePineMoon.BorderSubtle)) {
+	if !strings.Contains(idle, fgSeq(testTheme.BorderSubtle)) {
 		t.Error("idle pane does not use the idle border color")
 	}
 }
@@ -205,7 +200,7 @@ func stripANSI(s string) string {
 // A heading needs a line of its own and a rule under it, and the rule has to
 // join the sides rather than float between them.
 func TestAHeaderIsRuledOffFromTheContent(t *testing.T) {
-	out := comp.NewPane(theme.RosePineMoon).
+	out := comp.NewPane(testTheme).
 		Header("octobot commented").
 		Size(30, 6).
 		Render("Coverage held.")
@@ -229,7 +224,7 @@ func TestAHeaderIsRuledOffFromTheContent(t *testing.T) {
 // A caller sizing a pane to its content has to know what the pane spends on
 // itself, and a heading costs two lines the borders do not.
 func TestChromeCountsTheHeaderAndItsRule(t *testing.T) {
-	plain := comp.NewPane(theme.RosePineMoon)
+	plain := comp.NewPane(testTheme)
 	headed := plain.Header("octobot commented")
 
 	if plain.Chrome() != 2 {
@@ -249,7 +244,7 @@ func TestChromeCountsTheHeaderAndItsRule(t *testing.T) {
 // A pane too short for a heading, a rule and a line of content drops the
 // heading: the content is the part carrying the meaning.
 func TestAPaneTooShortForBothKeepsTheContent(t *testing.T) {
-	out := comp.NewPane(theme.RosePineMoon).
+	out := comp.NewPane(testTheme).
 		Header("octobot commented").
 		Size(30, 3).
 		Render("Coverage held.")
@@ -296,4 +291,18 @@ func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sgrParams is the parameter run lipgloss emits for a style, read back off a
+// rendered cell rather than rebuilt from the color. A slot goes over the wire as
+// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
+// doing the arithmetic itself asserts against a sequence the app never writes.
+func sgrParams(s lipgloss.Style) string {
+	out := s.Render("x")
+	end := strings.Index(out, "m")
+	if end < 0 {
+		// NoColor is the terminal's own, and nothing is written for it.
+		return ""
+	}
+	return out[len("\x1b["):end]
 }

@@ -68,8 +68,8 @@ func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 // to watch a tick arrive. One test paying that is worth the call site being
 // covered at all.
 func TestADetailLandingArmsTheProbe(t *testing.T) {
-	cfg := &config.Config{Defaults: config.Defaults{PRsLimit: 20}, Theme: "rose-pine-moon"}
-	m := New(cfg, nil)
+	cfg := &config.Config{Defaults: config.Defaults{PRsLimit: 20}}
+	m := New(cfg, nil, testSurface)
 
 	landed := gh.DetailResult{Detail: gh.PullRequestDetail{
 		PullRequest: gh.PullRequest{ID: "PR_1", State: gh.PRStateOpen},

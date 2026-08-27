@@ -6,7 +6,6 @@ import (
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // State and IsDraft are independent fields, and a pull request closed while it
@@ -38,14 +37,14 @@ func TestPRStateReadsTheLifecycleBeforeTheDraftFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pr := gh.PullRequest{State: tt.state, IsDraft: tt.draft}
 
-			got, gotColor := comp.PRStateLabel(theme.RosePineMoon, pr)
+			got, gotColor := comp.PRStateLabel(testTheme, pr)
 			if got != tt.want {
 				t.Errorf("PRStateLabel = %q, want %q", got, tt.want)
 			}
 
 			// The icon carries the same answer, so its color has to match the
 			// label's rather than the two disagreeing about the same pair.
-			_, iconColor := comp.PRStateIcon(theme.RosePineMoon, pr)
+			_, iconColor := comp.PRStateIcon(testTheme, pr)
 			if iconColor != gotColor {
 				t.Errorf("the icon and the label disagree: %v against %v", iconColor, gotColor)
 			}
@@ -56,7 +55,7 @@ func TestPRStateReadsTheLifecycleBeforeTheDraftFlag(t *testing.T) {
 // A state GitHub adds later arrives here unvalidated. It says what it was given
 // rather than claiming the pull request is open.
 func TestPRStateLabelPassesAStateItDoesNotKnowThrough(t *testing.T) {
-	got, _ := comp.PRStateLabel(theme.RosePineMoon, gh.PullRequest{State: "LOCKED"})
+	got, _ := comp.PRStateLabel(testTheme, gh.PullRequest{State: "LOCKED"})
 	if got != "LOCKED" {
 		t.Errorf("PRStateLabel = %q, want the state it was given", got)
 	}
@@ -65,7 +64,7 @@ func TestPRStateLabelPassesAStateItDoesNotKnowThrough(t *testing.T) {
 // An unknown state on a draft is still a draft: the flag is the only thing
 // either field knows about it.
 func TestPRStateLabelFallsBackToTheDraftFlag(t *testing.T) {
-	got, _ := comp.PRStateLabel(theme.RosePineMoon, gh.PullRequest{IsDraft: true})
+	got, _ := comp.PRStateLabel(testTheme, gh.PullRequest{IsDraft: true})
 	if got != "Draft" {
 		t.Errorf("PRStateLabel = %q, want %q", got, "Draft")
 	}
@@ -77,7 +76,7 @@ func TestPRStateLabelFallsBackToTheDraftFlag(t *testing.T) {
 // and a changes-requested review with nothing to resolve is as blocking on its
 // last day as its first.
 func TestReviewerColorSaysWhichWayTheBallIsGoing(t *testing.T) {
-	th := theme.RosePineMoon
+	th := testTheme
 
 	tests := []struct {
 		name string

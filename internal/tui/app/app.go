@@ -324,13 +324,27 @@ const (
 	legCommit
 )
 
-// New builds the root model over the configured PR sections.
-func New(cfg *config.Config, client GitHub) Model {
-	th, ok := theme.Get(cfg.Theme)
+// New builds the root model over the configured PR sections. surface is what
+// the terminal reported about itself, either field nil where nothing answered.
+func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
+	// The colors are validated here rather than at load: the vocabulary is this
+	// package's, and a color that will not parse is worth a line on the screen
+	// rather than a client that will not start. A set carrying one is dropped
+	// whole, since applying the rest would leave a page half corrected with
+	// nothing saying which half.
+	colors := theme.NewOverrides(cfg.Theme.Colors, cfg.Theme.Named)
+	colorErr := colors.Validate()
+	if colorErr != nil {
+		colors = theme.NewOverrides(nil, cfg.Theme.Named)
+	}
 
-	// The syntax palette is a separate question from the chrome's. A theme
-	// names the Chroma style that matches it, and config overrides that for a
-	// theme with no counterpart.
+	// Resolve, not Terminal: a background or foreground named in config outranks
+	// the reported one, and everything else hangs off whichever won.
+	th := colors.Resolve(surface, cfg.Transparent)
+
+	// The syntax palette is a separate question from the chrome's. The chrome
+	// follows the terminal and Chroma's styles cannot, so the theme pairs one
+	// against the background it read and config overrides that pairing.
 	syntaxName := cmp.Or(cfg.SyntaxTheme, th.Syntax)
 	syn, syntaxOK := syntax.New(syntaxName)
 
@@ -355,9 +369,12 @@ func New(cfg *config.Config, client GitHub) Model {
 	m.list.SetSections(m.store.Sections())
 
 	switch {
-	case !ok:
-		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
-			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
+	case colorErr != nil:
+		m.notice = colorErr.Error()
+	case cfg.Theme.Named != "":
+		m.notice = fmt.Sprintf("Theme names are gone: the chrome now follows your terminal. "+
+			"Drop %q, or set colors under theme: to pin any it gets wrong. Known: %s",
+			cfg.Theme.Named, strings.Join(theme.Keys(), ", "))
 	case !syntaxOK:
 		m.notice = fmt.Sprintf("Unknown syntax theme %q, using Chroma's default. Known: %s",
 			syntaxName, strings.Join(syntax.Names(), ", "))
@@ -1576,6 +1593,13 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.Cursor = m.cursor()
+
+	// The theme carries the background every shade in it was derived against,
+	// so painting it is what keeps the two from disagreeing. Bubble Tea writes
+	// it once and resets it on the way out. Nil under transparent, and nil where
+	// no background was ever established, and then the terminal's own shows
+	// through the way it always did.
+	v.BackgroundColor = m.theme.Background
 	return v
 }
 

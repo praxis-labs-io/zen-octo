@@ -110,3 +110,24 @@ Nothing is torn down under it, so a terminal dragged small and back is the one
 it was with whatever was open still open. What is dropped is the keyboard,
 everything but the ways out: a picker still holding a set would otherwise write
 it on a blind `⏎`, and the merge form's button is one blind `⏎` from a merge.
+
+## Colors
+
+zen-octo takes its colors from your terminal. The hues are ANSI slots, so the
+accent, the check marks and the diff markers are the ones your palette already
+uses; the greys, the borders and the cursor line are blended from the background
+your terminal reports when it starts, so they sit just above it whether it is
+light or dark. Nothing needs configuring for this, and there is no theme to
+pick.
+
+zen-octo paints that background rather than leaving it to show through, so
+nothing it draws can sit on a surface it was not built against. If you would
+rather it left your terminal alone — a translucent window, say — or you want a
+client that deliberately disagrees with the terminal around it, both are one
+line in [Configuration](configuration.md).
+
+Code is the exception. Syntax palettes are all fixed colors and none of them is
+yours, so the diff is highlighted in GitHub's, paired light or dark against the
+same background. [Configuration](configuration.md) covers overriding a color it
+gets wrong, running against a translucent terminal, and choosing a different
+palette for code.

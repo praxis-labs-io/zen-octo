@@ -13,7 +13,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // type sends a string one keypress at a time, the way a reader writes it.
@@ -252,7 +251,7 @@ func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
 
 // lit is whether the post button carries the accent it takes on focus.
 func lit(frame string) bool {
-	return strings.Contains(frame, bgSeq(theme.RosePineMoon.Accent)+"mPost")
+	return strings.Contains(frame, bgSeq(testTheme.Accent)+"mPost")
 }
 
 // It is a button at every state, filled surface and all. Muted is the colour it
@@ -268,7 +267,7 @@ func TestThePostButtonIsAFilledSurfaceAtEveryState(t *testing.T) {
 		"holding focus":        press(written, "tab").View(),
 	}
 	for name, frame := range states {
-		if !strings.Contains(frame, bgSeq(theme.RosePineMoon.SelectedBackground)+"mPost") &&
+		if !strings.Contains(frame, bgSeq(testTheme.SelectedBackground)+"mPost") &&
 			!lit(frame) {
 			t.Errorf("the button has no background %s", name)
 		}

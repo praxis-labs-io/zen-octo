@@ -52,15 +52,22 @@ type Defaults struct {
 
 // Config is the whole of what's on disk, after defaults are applied.
 //
+// Theme is a set of color overrides rather than a name. The chrome is derived
+// from the terminal, so there is nothing to pick between; what a user wants
+// instead is to pin the one or two colors their terminal gets wrong.
+//
+// Transparent drops the painted surfaces for a terminal running translucent.
+//
 // SyntaxTheme names the palette code is highlighted with, which is a separate
-// question from the palette the chrome is drawn in. It stays empty by default:
-// a theme already names the one that matches it, and this is the override for a
-// theme with no counterpart.
+// question from the one the chrome is drawn in: Chroma's styles are truecolor
+// and none of them is the terminal's. It stays empty by default, where the
+// theme pairs one against the background it read.
 type Config struct {
 	PRSections    []Section `yaml:"prSections"`
 	IssueSections []Section `yaml:"issueSections"`
 	Defaults      Defaults  `yaml:"defaults"`
-	Theme         string    `yaml:"theme"`
+	Theme         Theme     `yaml:"theme"`
+	Transparent   bool      `yaml:"transparent"`
 	SyntaxTheme   string    `yaml:"syntaxTheme"`
 }
 
@@ -83,7 +90,6 @@ func Default() *Config {
 			{Title: "Assigned", Filters: "is:open is:issue assignee:@me"},
 		},
 		Defaults: Defaults{PRsLimit: 20, IssuesLimit: 20},
-		Theme:    "rose-pine-moon",
 	}
 }
 
@@ -149,9 +155,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Defaults.IssuesLimit == 0 {
 		c.Defaults.IssuesLimit = d.Defaults.IssuesLimit
-	}
-	if c.Theme == "" {
-		c.Theme = d.Theme
 	}
 }
 

@@ -105,7 +105,7 @@ per-repo config, and its own themes and layouts. Its docs are at
 [gh-dash.dev](https://gh-dash.dev). Reach for it when you want a dashboard over
 your whole GitHub day. zen-octo goes narrow instead, deep on one pull request.
 
-Themed with [Rose Pine](https://rosepinetheme.com). Built on
+Drawn in your terminal's own colors. Built on
 [Bubble Tea](https://github.com/charmbracelet/bubbletea),
 [Bubbles](https://github.com/charmbracelet/bubbles),
 [Lip Gloss](https://github.com/charmbracelet/lipgloss),

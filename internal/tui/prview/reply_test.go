@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // Where the ring stops on the fixture: the thread GitHub will take a reply to,
@@ -236,7 +235,7 @@ func TestQuotingAReplyTakesTheReply(t *testing.T) {
 func litCards(t *testing.T, frame string) []string {
 	t.Helper()
 
-	accent := fgSeq(theme.RosePineMoon.Accent)
+	accent := fgSeq(testTheme.Accent)
 	lines := strings.Split(frame, "\n")
 
 	var out []string

@@ -14,7 +14,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // searchPromptText is the box's prompt, spelled here rather than imported: the
@@ -145,7 +144,7 @@ func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 // The bar takes every key while it has the keyboard. "]" and "s" are characters
 // in a search, and a key that both types and changes tab does the wrong one.
 func TestTheBarTakesTheKeysThatWouldOtherwiseActOnTheList(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(110, 20)
 	m.SetSections(ready([]string{"Mine", "Review"}, numbered(4), numbered(6)[4:]))
 
@@ -215,7 +214,7 @@ func TestTheQuerySurvivesATabSwitch(t *testing.T) {
 		second[i].Repository = "praxis-labs-io/other"
 	}
 
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(110, 20)
 	m.SetSections(ready([]string{"Mine", "Review"}, mixed(), second))
 
@@ -263,7 +262,7 @@ func TestTheCursorLandsOnARowTheFilterLeft(t *testing.T) {
 // A section showing a block instead of its rows has nothing to narrow, which is
 // the rule every other key on this screen already answers to.
 func TestTheBarIsRefusedWhileTheSectionIsNotShowingItsRows(t *testing.T) {
-	m := list.New(theme.RosePineMoon)
+	m := list.New(testTheme)
 	m.SetSize(110, 20)
 	m.SetSections([]store.Section{
 		{Section: config.Section{Title: "Broken"}, Status: store.StatusFailed, Err: errors.New("boom")},
@@ -317,16 +316,16 @@ func TestTheBoxBorderFollowsTheKeyboard(t *testing.T) {
 	}
 
 	m := press(newList(90, 20, mixed()), key('/'))
-	if top := boxTop(m.View()); !strings.Contains(top, fgSeq(theme.RosePineMoon.Accent)) {
+	if top := boxTop(m.View()); !strings.Contains(top, fgSeq(testTheme.Accent)) {
 		t.Error("the box holds the keyboard and its border does not say so")
 	}
 
 	m = press(typed(m, "auth"), enter)
 	top := boxTop(m.View())
-	if strings.Contains(top, fgSeq(theme.RosePineMoon.Accent)) {
+	if strings.Contains(top, fgSeq(testTheme.Accent)) {
 		t.Error("the box gave the keyboard back and its border still claims it")
 	}
-	if !strings.Contains(top, fgSeq(theme.RosePineMoon.BorderSubtleOrBorder())) {
+	if !strings.Contains(top, fgSeq(testTheme.BorderSubtleOrBorder())) {
 		t.Error("the settled box does not carry the border colour")
 	}
 }

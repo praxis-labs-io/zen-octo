@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func TestToastShowsThenExpires(t *testing.T) {
@@ -21,7 +20,7 @@ func TestToastShowsThenExpires(t *testing.T) {
 	if toasts.Empty() {
 		t.Fatal("Show() left nothing showing")
 	}
-	if !strings.Contains(toasts.Render(theme.RosePineMoon), "Loaded 12 pull requests") {
+	if !strings.Contains(toasts.Render(testTheme), "Loaded 12 pull requests") {
 		t.Error("Render() does not carry the text")
 	}
 
@@ -45,7 +44,7 @@ func TestAStaleTimerDoesNotClearANewerToast(t *testing.T) {
 	if toasts.Empty() {
 		t.Fatal("the first toast's timer cleared the second")
 	}
-	if !strings.Contains(toasts.Render(theme.RosePineMoon), "Refresh failed") {
+	if !strings.Contains(toasts.Render(testTheme), "Refresh failed") {
 		t.Error("the wrong toast survived")
 	}
 }
@@ -56,9 +55,11 @@ func TestToastKindPicksTheColor(t *testing.T) {
 		kind comp.ToastKind
 		want string
 	}{
-		{name: "info", kind: comp.ToastInfo, want: fgSeq(theme.RosePineMoon.Text)},
-		{name: "success", kind: comp.ToastSuccess, want: fgSeq(theme.RosePineMoon.Success)},
-		{name: "error", kind: comp.ToastError, want: fgSeq(theme.RosePineMoon.Error)},
+		// Info is Text, which is the terminal's own foreground and writes no
+		// sequence at all. What the test can hold is that the other two do not
+		// borrow it.
+		{name: "success", kind: comp.ToastSuccess, want: fgSeq(testTheme.Success)},
+		{name: "error", kind: comp.ToastError, want: fgSeq(testTheme.Error)},
 	}
 
 	for _, tt := range tests {
@@ -66,7 +67,7 @@ func TestToastKindPicksTheColor(t *testing.T) {
 			var toasts comp.Toasts
 			toasts.Show(tt.kind, "message")
 
-			if got := toasts.Render(theme.RosePineMoon); !strings.Contains(got, tt.want) {
+			if got := toasts.Render(testTheme); !strings.Contains(got, tt.want) {
 				t.Errorf("Render() = %q, want the %s color", got, tt.name)
 			}
 		})
@@ -76,7 +77,7 @@ func TestToastKindPicksTheColor(t *testing.T) {
 func TestToastRendersNothingWhenEmpty(t *testing.T) {
 	var toasts comp.Toasts
 
-	if got := toasts.Render(theme.RosePineMoon); got != "" {
+	if got := toasts.Render(testTheme); got != "" {
 		t.Errorf("Render() = %q, want empty", got)
 	}
 }

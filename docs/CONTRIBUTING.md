@@ -72,7 +72,7 @@ again before a release:
 | --- | --- |
 | `internal/tui/keys/**` | [`keys.md`](keys.md) |
 | `internal/tui/**` | [`guide.md`](guide.md), [`keys.md`](keys.md) |
-| `internal/config/**` | [`configuration.md`](configuration.md) |
+| `internal/config/**`, `internal/tui/theme/**` | [`configuration.md`](configuration.md) |
 | `internal/gh/**`, `internal/store/**` | [`guide.md`](guide.md) |
 | `Makefile`, `install.sh`, `.github/workflows/**` | [`install.md`](install.md), [`README.md`](../README.md) |
 | the boundaries, the test conventions | this file |
