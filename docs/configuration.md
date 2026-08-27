@@ -67,7 +67,7 @@ is nothing to configure to get this.
 
 ```yaml
 theme:
-  accent: "#c4a7e7"
+  accent: "#8839ef"
   error: "1"
 transparent: false
 syntaxTheme: ""

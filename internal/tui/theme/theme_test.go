@@ -42,11 +42,11 @@ func TestHuesStayASlot(t *testing.T) {
 		got  color.Color
 		want xansi.BasicColor
 	}{
-		{"Accent", theme.Terminal(dark, false).Accent, lipgloss.Magenta},
+		{"Accent", theme.Terminal(dark, false).Accent, lipgloss.Blue},
 		{"Success", theme.Terminal(dark, false).Success, lipgloss.Green},
 		{"Warning", theme.Terminal(dark, false).Warning, lipgloss.Yellow},
 		{"Error", theme.Terminal(dark, false).Error, lipgloss.Red},
-		{"Actor", theme.Terminal(dark, false).Actor, lipgloss.Cyan},
+		{"Actor", theme.Terminal(dark, false).Actor, lipgloss.Magenta},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := tc.got.(xansi.BasicColor)

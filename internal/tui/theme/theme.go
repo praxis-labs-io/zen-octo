@@ -94,14 +94,14 @@ func (t Theme) BorderMutedOrSubtle() color.Color {
 // configured. Only the low eight are taken. A terminal is free to leave 8 to 15
 // undeclared or collapsed onto 0 to 7, and nothing here would be able to tell.
 const (
-	slotBlack = lipgloss.Black
-	slotRed   = lipgloss.Red
-	slotGreen = lipgloss.Green
-	slotGold  = lipgloss.Yellow
-	slotIris  = lipgloss.Magenta
-	slotFoam  = lipgloss.Cyan
-	slotWhite = lipgloss.White
-	slotGrey  = lipgloss.BrightBlack
+	slotBlack   = lipgloss.Black
+	slotRed     = lipgloss.Red
+	slotGreen   = lipgloss.Green
+	slotYellow  = lipgloss.Yellow
+	slotBlue    = lipgloss.Blue
+	slotMagenta = lipgloss.Magenta
+	slotWhite   = lipgloss.White
+	slotGrey    = lipgloss.BrightBlack
 )
 
 // SyntaxDark and SyntaxLight are the Chroma styles code is highlighted with.
@@ -129,13 +129,23 @@ func Terminal(s Surface, transparent bool) Theme {
 
 		// Text is the terminal's own foreground rather than a color of ours.
 		// Nothing matches a reader's palette as exactly as the palette.
-		Text:   lipgloss.NoColor{},
-		Accent: slotIris,
+		Text: lipgloss.NoColor{},
+
+		// Blue is where a palette puts what is interactive, and it is the slot
+		// a scheme's identity most often lives in. Magenta was this app's
+		// accent while the theme was Rosé Pine and iris was the colour it
+		// highlighted with; read as a slot rather than as that palette, it is
+		// the decorative one. Nord is the case that shows it: slot 5 is a muted
+		// mauve where slot 4 is the frost blue the scheme is known for.
+		Accent: slotBlue,
 
 		Success: slotGreen,
-		Warning: slotGold,
+		Warning: slotYellow,
 		Error:   slotRed,
-		Actor:   slotFoam,
+
+		// Magenta rather than cyan, which sits beside blue and would muddle
+		// wherever a handle is written next to focused chrome.
+		Actor: slotMagenta,
 
 		// Filled in below, once there is a background to carry.
 		Background: nil,
