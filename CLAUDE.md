@@ -1168,6 +1168,24 @@ pair for `contrast`, losing the harmony and keeping the legibility. The
 foreground is a direction and never a color: `Text` stays `NoColor` so it
 follows a change this one-shot query cannot see.
 
+**`internal/tui/theme` is a leaf and speaks no YAML.** `config.Theme` owns the
+document, tolerant scalar and all, and hands plain strings to
+`theme.NewOverrides`; `app.New` is where the two meet, being the one place that
+already imports both. It was the other way round for an afternoon, config
+importing the theme so a field could unmarshal itself, and the cost was a
+package that draws colors knowing what a config file looks like — which is the
+package a `themes/` directory would then have grown file loading in. The colors
+are validated in `app.New` for the same reason: the vocabulary is the theme's,
+and a color that will not parse is worth a line on the screen rather than a
+client that will not start. A set carrying a bad one is dropped whole, since
+applying the rest leaves a page half corrected with nothing saying which half.
+
+**A bare integer is range-checked before `lipgloss.Color` sees it.** That one
+reads any integer: past 255 it packs the value as RGB, so `"256"` is a near-black
+`#000100` rather than an error, and a negative is silently made positive. Both
+are ordinary off-by-ones, and `background` is the field they land worst on, since
+it paints the whole app and every shade is derived against it.
+
 **`background` and `foreground` in config are derivation inputs rather than
 tokens**, which is why they are absent from `setters` and handled beside them.
 `Overrides.Resolve` puts them in front of the reported pair, field by field, and

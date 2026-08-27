@@ -8,9 +8,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // Below the floor a control goes missing with nothing said. The frame says the
@@ -136,7 +136,7 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	// Under a config notice, which is the row the floor's spare one is for.
 	// Without it the form fits a shorter frame and 23 is a row too generous.
 	cfg := testConfig()
-	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
+	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 	sized := drive(t, app.New(cfg, client, testSurface), tea.WindowSizeMsg{Width: app.MinWidth, Height: app.MinHeight})
 	if !strings.Contains(stripANSI(render(t, sized)), "Theme names are gone") {
 		t.Fatal("setup: no config notice, so the frame is a row taller than this is measuring")

@@ -75,9 +75,10 @@ syntaxTheme: ""
 
 `theme` is a set of overrides for the colors it got wrong, every key optional
 and layered over what was derived. A value is a hex like `"#c4a7e7"` or an ANSI
-index like `"5"`, which is worth preferring: an index follows your palette where
-a hex pins the color to itself. A key that is not a color, or a color that will
-not parse, is reported with its name.
+index from `"0"` to `"255"`, which is worth preferring: an index follows your
+palette where a hex pins the color to itself. A key that is not a color, or a
+value outside that range, is named on the notice line and the whole set is left
+unapplied rather than half of it.
 
 The keys are `text`, `accent`, `subtle`, `muted`, `inverted`, `success`,
 `warning`, `error`, `actor`, `selectedBackground`, `addedBackground`,

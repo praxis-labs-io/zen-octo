@@ -50,7 +50,7 @@ func Query(in, out *os.File) Surface {
 	query := ansi.RequestForegroundColor + ansi.RequestBackgroundColor +
 		ansi.RequestPrimaryDeviceAttributes
 
-	read(in, out, query, func(seq string, pa *ansi.Parser) bool {
+	read(in, out, query, queryTimeout, func(seq string, pa *ansi.Parser) bool {
 		switch {
 		case ansi.HasOscPrefix(seq):
 			switch pa.Command() {
@@ -96,7 +96,7 @@ func splitOnce(data string) string {
 // The reply is drained to the filter's own stopping point rather than to the
 // last color parsed: leaving the device attributes in the buffer means raw mode
 // ends, echo comes back, and the terminal prints them before anything is drawn.
-func read(in io.Reader, out io.Writer, query string, filter func(string, *ansi.Parser) bool) {
+func read(in io.Reader, out io.Writer, query string, timeout time.Duration, filter func(string, *ansi.Parser) bool) {
 	rd, err := uv.NewCancelReader(in)
 	if err != nil {
 		return
@@ -108,7 +108,7 @@ func read(in io.Reader, out io.Writer, query string, filter func(string, *ansi.P
 	go func() {
 		select {
 		case <-done:
-		case <-time.After(queryTimeout):
+		case <-time.After(timeout):
 			rd.Cancel()
 		}
 	}()

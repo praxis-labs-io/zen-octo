@@ -327,9 +327,20 @@ const (
 // New builds the root model over the configured PR sections. surface is what
 // the terminal reported about itself, either field nil where nothing answered.
 func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
+	// The colors are validated here rather than at load: the vocabulary is this
+	// package's, and a color that will not parse is worth a line on the screen
+	// rather than a client that will not start. A set carrying one is dropped
+	// whole, since applying the rest would leave a page half corrected with
+	// nothing saying which half.
+	colors := theme.NewOverrides(cfg.Theme.Colors, cfg.Theme.Named)
+	colorErr := colors.Validate()
+	if colorErr != nil {
+		colors = theme.NewOverrides(nil, cfg.Theme.Named)
+	}
+
 	// Resolve, not Terminal: a background or foreground named in config outranks
 	// the reported one, and everything else hangs off whichever won.
-	th := cfg.Theme.Resolve(surface, cfg.Transparent)
+	th := colors.Resolve(surface, cfg.Transparent)
 
 	// The syntax palette is a separate question from the chrome's. The chrome
 	// follows the terminal and Chroma's styles cannot, so the theme pairs one
@@ -358,6 +369,8 @@ func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
 	m.list.SetSections(m.store.Sections())
 
 	switch {
+	case colorErr != nil:
+		m.notice = colorErr.Error()
 	case cfg.Theme.Named != "":
 		m.notice = fmt.Sprintf("Theme names are gone: the chrome now follows your terminal. "+
 			"Drop %q, or set colors under theme: to pin any it gets wrong. Known: %s",

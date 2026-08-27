@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
+	"strconv"
 
 	"charm.land/lipgloss/v2"
-	"github.com/goccy/go-yaml"
 )
 
 // setters maps a config key to the field it writes. It is the whole of the
@@ -51,33 +51,26 @@ func Keys() []string {
 	return keys
 }
 
-// Overrides is what config carries under `theme`: a token name against a color,
-// every one optional, layered over the derived theme. Pinning one color and
-// bringing a whole palette are then the same feature.
+// Overrides is a token name against a color, every one optional, layered over
+// the derived theme. Pinning one color and bringing a whole palette are then the
+// same feature.
+//
+// It takes plain strings rather than reading a file: what a config document
+// looks like belongs to the package that loads one, and a package that draws
+// colors has no business knowing. That is also what keeps this one a leaf.
 type Overrides struct {
 	raw map[string]string
 
-	// Named is a theme name found where the map was expected. There is one
+	// Named is a theme name found where the colors were expected. There is one
 	// theme now and it has no name, but `theme: rose-pine-moon` is on disk for
-	// anyone running the last release, and a hard parse error there would stop
-	// the app rather than the color scheme.
+	// anyone running the last release, and refusing to start over a color
+	// scheme is the wrong trade.
 	Named string
 }
 
-// UnmarshalYAML takes the map, and tolerates the scalar that used to be there.
-func (o *Overrides) UnmarshalYAML(b []byte) error {
-	var raw map[string]string
-	if err := yaml.Unmarshal(b, &raw); err == nil {
-		o.raw = raw
-		return nil
-	}
-
-	var name string
-	if err := yaml.Unmarshal(b, &name); err != nil {
-		return fmt.Errorf("theme: want a map of color overrides, got %s", b)
-	}
-	o.Named = name
-	return nil
+// NewOverrides builds the set from whatever config read.
+func NewOverrides(colors map[string]string, named string) Overrides {
+	return Overrides{raw: colors, Named: named}
 }
 
 // Surface is what config says the terminal is, either field nil where it says
@@ -118,7 +111,7 @@ func (o Overrides) Validate() error {
 			return fmt.Errorf("theme: unknown color %q. Known: %v", key, Keys())
 		}
 		if _, ok := parse(o.raw[key]); !ok {
-			return fmt.Errorf("theme: %s: %q is not a color. Want a hex like \"#c4a7e7\" or an ANSI index like \"5\"",
+			return fmt.Errorf("theme: %s: %q is not a color. Want a hex like \"#c4a7e7\" or an ANSI index from 0 to 255",
 				key, o.raw[key])
 		}
 	}
@@ -141,10 +134,25 @@ func (o Overrides) Apply(t Theme) Theme {
 	return t
 }
 
-// parse reads one config value. lipgloss answers an unparseable string with
-// NoColor, which is a real color meaning "the terminal's own" everywhere else
-// here, so it is the failure rather than a value a user may ask for.
+// parse reads one config value: a hex, or an ANSI index as a bare number.
+//
+// The range check is the whole reason this is not lipgloss.Color alone. That
+// one reads any integer: past 255 it packs the value as RGB, so "256" is a
+// near-black #000100 rather than an error, and a negative is silently made
+// positive. Both are ordinary off-by-ones against the 0-255 this documents, and
+// the background is the field they land worst on, since it paints the whole app
+// and every shade is derived against it.
+//
+// lipgloss answers unparseable text with NoColor, which means "the terminal's
+// own" everywhere else here, so it is the failure rather than a value to offer.
 func parse(s string) (color.Color, bool) {
+	if n, err := strconv.Atoi(s); err == nil {
+		if n < 0 || n > 255 {
+			return nil, false
+		}
+		return lipgloss.Color(s), true
+	}
+
 	c := lipgloss.Color(s)
 	if _, blank := c.(lipgloss.NoColor); blank {
 		return nil, false

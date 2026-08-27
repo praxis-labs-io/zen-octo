@@ -7,9 +7,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // filteringPicker opens a label picker long enough to earn a filter row. The
@@ -40,7 +40,7 @@ func noticing(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	t.Helper()
 
 	cfg := testConfig()
-	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
+	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 	m := drive(t, app.New(cfg, client, testSurface), tea.WindowSizeMsg{Width: width, Height: height})
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Theme names are gone") {
 		t.Fatalf("no notice on the frame\n%s", out)

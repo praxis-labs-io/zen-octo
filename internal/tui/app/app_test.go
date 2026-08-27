@@ -16,14 +16,12 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/goccy/go-yaml"
 
 	"github.com/praxis-labs-io/zen-octo/internal/config"
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // fakeSearcher answers every section with the same rows. Sections fetch
@@ -1914,7 +1912,7 @@ func TestFetchCarriesADeadline(t *testing.T) {
 // and has no way to find out.
 func TestALeftoverThemeNameSaysSoRatherThanBeingDropped(t *testing.T) {
 	cfg := testConfig()
-	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
+	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 
 	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 
@@ -1929,7 +1927,7 @@ func TestALeftoverThemeNameSaysSoRatherThanBeingDropped(t *testing.T) {
 
 func TestOverridesShowNoNotice(t *testing.T) {
 	cfg := testConfig()
-	cfg.Theme = overridesFor(t, "accent: \"#ff0000\"\n")
+	cfg.Theme = config.Theme{Colors: map[string]string{"accent": "#ff0000"}}
 
 	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 	if strings.Contains(render(t, m), "Theme names are gone") {
@@ -1940,7 +1938,7 @@ func TestOverridesShowNoNotice(t *testing.T) {
 // The override has to reach the frame, or the setting is a note in a file.
 func TestAnOverrideReachesTheScreen(t *testing.T) {
 	cfg := testConfig()
-	cfg.Theme = overridesFor(t, "accent: \"#ff0000\"\n")
+	cfg.Theme = config.Theme{Colors: map[string]string{"accent": "#ff0000"}}
 
 	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 
@@ -1981,7 +1979,7 @@ func TestTransparentPaintsNoBackground(t *testing.T) {
 // with their terminal, so that is the one that has to reach the paint.
 func TestANamedBackgroundReachesThePaint(t *testing.T) {
 	cfg := testConfig()
-	cfg.Theme = overridesFor(t, "background: \"#faf4ed\"\n")
+	cfg.Theme = config.Theme{Colors: map[string]string{"background": "#faf4ed"}}
 
 	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 
@@ -1992,15 +1990,6 @@ func TestANamedBackgroundReachesThePaint(t *testing.T) {
 	if r, g, b, _ := got.RGBA(); r>>8 != 0xfa || g>>8 != 0xf4 || b>>8 != 0xed {
 		t.Errorf("BackgroundColor = %d,%d,%d, want the named fa,f4,ed", r>>8, g>>8, b>>8)
 	}
-}
-
-func overridesFor(t *testing.T, doc string) theme.Overrides {
-	t.Helper()
-	var o theme.Overrides
-	if err := yaml.Unmarshal([]byte(doc), &o); err != nil {
-		t.Fatalf("unmarshalling %q: %v", doc, err)
-	}
-	return o
 }
 
 // Scrolling has to follow the cursor by a row. viewport.EnsureVisible acts only
@@ -2214,7 +2203,7 @@ func TestHidingTheRailSticksAcrossPullRequests(t *testing.T) {
 // exists to prevent.
 func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	cfg := testConfig()
-	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
+	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 
 	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 

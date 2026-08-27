@@ -7,7 +7,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
-	"github.com/goccy/go-yaml"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
@@ -286,17 +285,17 @@ func TestSetOptionalFieldsWin(t *testing.T) {
 	}
 }
 
-func overrides(t *testing.T, doc string) theme.Overrides {
-	t.Helper()
-	var o theme.Overrides
-	if err := yaml.Unmarshal([]byte(doc), &o); err != nil {
-		t.Fatalf("unmarshalling %q: %v", doc, err)
+// overrides builds a set the way config hands one over, from plain strings.
+func overrides(colors ...string) theme.Overrides {
+	m := make(map[string]string, len(colors)/2)
+	for i := 0; i+1 < len(colors); i += 2 {
+		m[colors[i]] = colors[i+1]
 	}
-	return o
+	return theme.NewOverrides(m, "")
 }
 
 func TestOverridesWinPerTokenAndLeaveTheRestDerived(t *testing.T) {
-	o := overrides(t, "accent: \"#ff0000\"\n")
+	o := overrides("accent", "#ff0000")
 	derived := theme.Terminal(dark, false)
 	got := o.Apply(derived)
 
@@ -311,7 +310,7 @@ func TestOverridesWinPerTokenAndLeaveTheRestDerived(t *testing.T) {
 func TestOverrideTakesASlotIndex(t *testing.T) {
 	// A user pinning a color may well want another of their own slots rather
 	// than a hex, and lipgloss already spells one as a bare number.
-	got := overrides(t, "accent: \"4\"\n").Apply(theme.Terminal(dark, false))
+	got := overrides("accent", "4").Apply(theme.Terminal(dark, false))
 	if got.Accent != lipgloss.Blue {
 		t.Errorf("Accent = %v, want slot 4", got.Accent)
 	}
@@ -319,24 +318,43 @@ func TestOverrideTakesASlotIndex(t *testing.T) {
 
 func TestOverridesValidateByName(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		doc  string
+		name       string
+		key, value string
 	}{
-		{"unknown key", "chartreuse: \"#ff0000\"\n"},
-		{"unparseable value", "accent: \"nonsense\"\n"},
+		{"unknown key", "chartreuse", "#ff0000"},
+		{"unparseable value", "accent", "nonsense"},
+
+		// lipgloss reads any integer: past 255 it packs the value as RGB, so
+		// "256" is a near-black rather than an error, and a negative is
+		// silently made positive. Both are ordinary off-by-ones against the
+		// range this documents, and on the background they paint the whole app.
+		{"index past the range", "accent", "256"},
+		{"index far past the range", "background", "16711680"},
+		{"negative index", "accent", "-1"},
+		{"half a hex", "accent", "#ff00"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := overrides(t, tc.doc).Validate(); err == nil {
-				t.Errorf("Validate() = nil for %q, want an error naming it", tc.doc)
+			if err := overrides(tc.key, tc.value).Validate(); err == nil {
+				t.Errorf("Validate() = nil for %s: %q, want an error naming it", tc.key, tc.value)
 			}
 		})
 	}
 }
 
 func TestValidOverridesPass(t *testing.T) {
-	doc := "accent: \"#c4a7e7\"\nselectedBackground: \"#2a283e\"\nerror: \"1\"\n"
-	if err := overrides(t, doc).Validate(); err != nil {
+	o := overrides("accent", "#c4a7e7", "selectedBackground", "#2a283e",
+		"error", "1", "muted", "255")
+	if err := o.Validate(); err != nil {
 		t.Errorf("Validate() = %v, want nil", err)
+	}
+}
+
+// An out-of-range index must not reach a field either, or refusing it in
+// Validate is a promise the layering does not keep.
+func TestAnOutOfRangeIndexIsNotApplied(t *testing.T) {
+	derived := theme.Terminal(dark, false)
+	if got := overrides("accent", "256").Apply(derived); got.Accent != derived.Accent {
+		t.Errorf("Accent = %v, want the derived %v rather than a packed near-black", got.Accent, derived.Accent)
 	}
 }
 
@@ -344,7 +362,7 @@ func TestAThemeNameIsToleratedRatherThanFatal(t *testing.T) {
 	// `theme: rose-pine-moon` is on disk for anyone running the last release. A
 	// scalar into a map is a parse error, and refusing to start over a color
 	// scheme is the wrong trade.
-	o := overrides(t, "rose-pine-moon\n")
+	o := theme.NewOverrides(nil, "rose-pine-moon")
 	if o.Named != "rose-pine-moon" {
 		t.Errorf("Named = %q, want the name kept so a notice can report it", o.Named)
 	}
@@ -375,7 +393,7 @@ func TestKeysAreStable(t *testing.T) {
 // derivation rather than one field: the shades, the surfaces and the syntax
 // pairing all hang off it.
 func TestANamedBackgroundDrivesTheDerivation(t *testing.T) {
-	o := overrides(t, "background: \"#faf4ed\"\n")
+	o := overrides("background", "#faf4ed")
 
 	// Nothing answered, which is the case this exists for.
 	got := o.Resolve(theme.Surface{}, false)
@@ -393,7 +411,7 @@ func TestANamedBackgroundDrivesTheDerivation(t *testing.T) {
 
 func TestANamedBackgroundOutranksTheReportedOne(t *testing.T) {
 	// The reported one is what was wrong, so it has to lose.
-	o := overrides(t, "background: \"#faf4ed\"\n")
+	o := overrides("background", "#faf4ed")
 	got := o.Resolve(dark, false)
 
 	if got.Syntax != theme.SyntaxLight {
@@ -415,7 +433,7 @@ func TestANamedBackgroundOutranksTheReportedOne(t *testing.T) {
 // Naming one is how a reader asks for a chrome that disagrees with their
 // terminal, so it has to be carried and painted rather than only derived from.
 func TestANamedBackgroundIsPainted(t *testing.T) {
-	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(dark, false)
+	got := overrides("background", "#faf4ed").Resolve(dark, false)
 	if r, g, b := rgb(got.Background); r != 0xfa || g != 0xf4 || b != 0xed {
 		t.Errorf("Background = %d,%d,%d, want the named fa,f4,ed painted", r, g, b)
 	}
@@ -424,7 +442,7 @@ func TestANamedBackgroundIsPainted(t *testing.T) {
 // Named and translucent together is the reader who wrote it down only because
 // their terminal could not answer. They get the derivation and no fill.
 func TestANamedBackgroundIsNotPaintedUnderTransparent(t *testing.T) {
-	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(theme.Surface{}, true)
+	got := overrides("background", "#faf4ed").Resolve(theme.Surface{}, true)
 	if got.Background != nil {
 		t.Errorf("Background = %v, want nil so the terminal's own still shows", got.Background)
 	}
@@ -435,10 +453,10 @@ func TestANamedBackgroundIsNotPaintedUnderTransparent(t *testing.T) {
 }
 
 func TestBackgroundIsAKnownKey(t *testing.T) {
-	if err := overrides(t, "background: \"#faf4ed\"\n").Validate(); err != nil {
+	if err := overrides("background", "#faf4ed").Validate(); err != nil {
 		t.Errorf("Validate() = %v, want background accepted", err)
 	}
-	if err := overrides(t, "background: \"nonsense\"\n").Validate(); err == nil {
+	if err := overrides("background", "nonsense").Validate(); err == nil {
 		t.Error("Validate() = nil for an unparseable background, want an error")
 	}
 	if !slices.Contains(theme.Keys(), "background") {
@@ -490,7 +508,7 @@ func TestAForegroundTooCloseToTheBackgroundIsRefused(t *testing.T) {
 // It is a derivation input like the background, for the same reader: a terminal
 // that cannot answer, or answered wrongly.
 func TestANamedForegroundDrivesTheShades(t *testing.T) {
-	o := overrides(t, "foreground: \"#e0c0a0\"\n")
+	o := overrides("foreground", "#e0c0a0")
 	got := o.Resolve(theme.Surface{Background: darkBG}, false)
 
 	if want := theme.Terminal(theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0c0a0")}, false); got.Subtle != want.Subtle {
@@ -526,7 +544,7 @@ func TestANamedBackgroundThatStrandsTheForegroundStaysReadable(t *testing.T) {
 		{"dark named over a light terminal", "#232136", light},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := overrides(t, "background: \""+tc.named+"\"\n").Resolve(tc.against, false)
+			got := overrides("background", tc.named).Resolve(tc.against, false)
 
 			for _, shade := range []struct {
 				name string

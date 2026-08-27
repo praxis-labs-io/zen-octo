@@ -7,10 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/praxis-labs-io/zen-octo/internal/config"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // writeConfig points config.Dir at a temp dir and writes body to config.yml.
@@ -74,6 +71,32 @@ defaults:
 	}
 }
 
+// The colors reach the config as written; what they mean belongs to the theme.
+func TestThemeColorsLoad(t *testing.T) {
+	writeConfig(t, "theme:\n  accent: \"#ff0000\"\n  error: \"1\"\ntransparent: true\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if !got.Transparent {
+		t.Error("Transparent = false, want it read from the file")
+	}
+	if got.Theme.Colors["accent"] != "#ff0000" || got.Theme.Colors["error"] != "1" {
+		t.Errorf("Colors = %v, want them read as written", got.Theme.Colors)
+	}
+}
+
+// A color this package cannot judge is not a reason to refuse the file. The
+// vocabulary belongs to the theme, and so does the complaint.
+func TestABadColorStillLoads(t *testing.T) {
+	writeConfig(t, "theme:\n  accent: \"nonsense\"\n")
+
+	if _, err := config.Load(); err != nil {
+		t.Errorf("Load() error = %v, want the file read and the color left to the theme", err)
+	}
+}
+
 // A theme name is what the last release took, so one is on disk for anyone
 // upgrading. A scalar unmarshalled into a map is a hard parse error, and
 // refusing to start over a color scheme is the wrong trade.
@@ -86,56 +109,6 @@ func TestALeftoverThemeNameLoadsRatherThanFailing(t *testing.T) {
 	}
 	if got.Theme.Named != "rose-pine-moon" {
 		t.Errorf("Theme.Named = %q, want the name kept so the app can say it is ignored", got.Theme.Named)
-	}
-}
-
-func TestThemeOverridesLoad(t *testing.T) {
-	writeConfig(t, "theme:\n  accent: \"#ff0000\"\n  error: \"1\"\ntransparent: true\n")
-
-	got, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v, want nil", err)
-	}
-	if !got.Transparent {
-		t.Error("Transparent = false, want it read from the file")
-	}
-
-	th := got.Theme.Apply(theme.Terminal(theme.Surface{Background: lipgloss.Color("#232136")}, got.Transparent))
-	if r, g, b, _ := th.Accent.RGBA(); r>>8 != 0xff || g>>8 != 0 || b>>8 != 0 {
-		t.Errorf("Accent = %d,%d,%d, want the override's ff,00,00", r>>8, g>>8, b>>8)
-	}
-}
-
-// The escape hatch for a terminal that cannot answer the background query, or
-// answers it wrong. It has to reach Load intact, since that is the only path.
-func TestANamedBackgroundLoadsAndDrivesTheDerivation(t *testing.T) {
-	writeConfig(t, "theme:\n  background: \"#faf4ed\"\n")
-
-	got, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v, want nil", err)
-	}
-
-	// Resolved against nothing reported, which is the case it exists for.
-	th := got.Theme.Resolve(theme.Surface{}, false)
-	if th.SelectedBackground == nil {
-		t.Error("SelectedBackground is nil, want the named background to restore the surfaces")
-	}
-	if th.Syntax != theme.SyntaxLight {
-		t.Errorf("Syntax = %q, want the pairing to follow the named background", th.Syntax)
-	}
-}
-
-// A color that cannot be used is worth refusing by name. Written through, it
-// reaches the screen as the absence of a color, which reads as a broken app
-// rather than a typo.
-func TestABadThemeOverrideIsRefusedByName(t *testing.T) {
-	writeConfig(t, "theme:\n  accent: \"not-a-color\"\n")
-
-	if _, err := config.Load(); err == nil {
-		t.Fatal("Load() error = nil, want the bad color refused")
-	} else if !strings.Contains(err.Error(), "accent") {
-		t.Errorf("Load() error = %v, want it to name the color", err)
 	}
 }
 

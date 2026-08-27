@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
-
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // DirEnv overrides the config directory. Tests set it; users generally don't.
@@ -65,12 +63,12 @@ type Defaults struct {
 // and none of them is the terminal's. It stays empty by default, where the
 // theme pairs one against the background it read.
 type Config struct {
-	PRSections    []Section       `yaml:"prSections"`
-	IssueSections []Section       `yaml:"issueSections"`
-	Defaults      Defaults        `yaml:"defaults"`
-	Theme         theme.Overrides `yaml:"theme"`
-	Transparent   bool            `yaml:"transparent"`
-	SyntaxTheme   string          `yaml:"syntaxTheme"`
+	PRSections    []Section `yaml:"prSections"`
+	IssueSections []Section `yaml:"issueSections"`
+	Defaults      Defaults  `yaml:"defaults"`
+	Theme         Theme     `yaml:"theme"`
+	Transparent   bool      `yaml:"transparent"`
+	SyntaxTheme   string    `yaml:"syntaxTheme"`
 }
 
 // Default is what a user gets before they've written a config file.
@@ -170,10 +168,7 @@ func (c *Config) validate() error {
 	if err := validateLimit("prsLimit", c.Defaults.PRsLimit); err != nil {
 		return err
 	}
-	if err := validateLimit("issuesLimit", c.Defaults.IssuesLimit); err != nil {
-		return err
-	}
-	return c.Theme.Validate()
+	return validateLimit("issuesLimit", c.Defaults.IssuesLimit)
 }
 
 func validateSections(field string, sections []Section) error {

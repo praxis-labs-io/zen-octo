@@ -3,6 +3,8 @@ package theme
 import (
 	"bytes"
 	"image/color"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +16,14 @@ import (
 // everything but the raw-mode dance.
 func reply(t *testing.T, answer string) Surface {
 	t.Helper()
+	return collect(strings.NewReader(answer), queryTimeout)
+}
 
+// collect is reply over any reader, for the cases that need one that does not
+// hand its whole answer over at once.
+func collect(in io.Reader, timeout time.Duration) Surface {
 	var s Surface
-	read(strings.NewReader(answer), &bytes.Buffer{}, "", func(seq string, pa *ansi.Parser) bool {
+	read(in, &bytes.Buffer{}, "", timeout, func(seq string, pa *ansi.Parser) bool {
 		switch {
 		case ansi.HasOscPrefix(seq):
 			switch pa.Command() {
@@ -101,20 +108,59 @@ func TestTheDeviceAttributesEndTheRead(t *testing.T) {
 	}
 }
 
-// A terminal that answers nothing must not hang the launch, and must not leave a
-// reader parked on the tty eating the first key pressed.
+// A terminal that answers nothing must not hang the launch, and must not leave
+// a reader parked on the tty eating the first key pressed. A reader that ends
+// proves neither: it returns of its own accord and the timeout never fires.
+//
+// It has to be an os.Pipe rather than any blocking io.Reader. The cancel reader
+// interrupts a file descriptor and cannot interrupt an arbitrary Read, so a
+// hand-written blocking reader tests a path this never takes: what Query passes
+// is os.Stdin, and a pipe is the same kind of thing.
 func TestASilentTerminalGivesUpAndReportsNothing(t *testing.T) {
-	got := reply(t, "")
-	if got.Background != nil || got.Foreground != nil {
-		t.Errorf("Surface = %+v, want both nil when nothing answered", got)
+	silent, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("opening a pipe: %v", err)
+	}
+	defer silent.Close() //nolint:errcheck
+	defer w.Close()      //nolint:errcheck
+
+	done := make(chan Surface, 1)
+	go func() { done <- collect(silent, 20*time.Millisecond) }()
+
+	select {
+	case got := <-done:
+		if got.Background != nil || got.Foreground != nil {
+			t.Errorf("Surface = %+v, want both nil when nothing answered", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the read never gave up, so a silent terminal hangs the launch")
 	}
 }
 
-// A reply arriving in pieces is the ordinary case over a slow link: the decoder
-// carries state across reads, so a sequence split mid-way still parses.
+// A reply arriving in pieces is the ordinary case over a slow link. The decoder
+// carries acc and state across reads, and only a reader that actually returns
+// the answer in more than one Read exercises that: string literals beside each
+// other are one string by the time the test runs, and a strings.Reader hands
+// the whole of it over in a single call.
 func TestASplitReplyStillParses(t *testing.T) {
-	got := reply(t, "\x1b]11;rgb:23"+"23/2121/3636\x1b\\"+"\x1b[?62;c")
+	full := "\x1b]11;rgb:2323/2121/3636\x1b\\\x1b[?62;c"
+
+	// Split inside the colour sequence, so the carry is what has to work.
+	got := collect(&chunked{parts: []string{full[:12], full[12:]}}, queryTimeout)
 	if want := "#232136"; hexOf(t, got.Background) != want {
 		t.Errorf("Background = %s, want %s", hexOf(t, got.Background), want)
 	}
+}
+
+// chunked hands its answer over one piece per Read, which strings.Reader will
+// not do.
+type chunked struct{ parts []string }
+
+func (c *chunked) Read(p []byte) (int, error) {
+	if len(c.parts) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, c.parts[0])
+	c.parts = c.parts[1:]
+	return n, nil
 }
