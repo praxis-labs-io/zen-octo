@@ -3,6 +3,7 @@ package app_test
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -203,5 +204,41 @@ func TestEscReadsAsClearingASettledJobLogSearch(t *testing.T) {
 	}
 	if strings.Contains(bar, "esc back") {
 		t.Errorf("status bar = %q, want esc off the line as a way out while a query stands", bar)
+	}
+}
+
+// Walking the Checks column empties the selected job and refills it a debounce
+// and a round trip later. A line derived from that fetch dropped the log keys
+// on every step and put them back when the reader stopped, which on a held j is
+// the line gone for the length of the walk.
+func TestWalkingTheChecksColumnDoesNotBlinkTheLogKeys(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{
+		{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9001},
+		{Name: "lint", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9002},
+	}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	for _, id := range []int64{9001, 9002} {
+		client.servedJob(id, gh.Job{
+			ID: id, Name: "test", State: gh.CheckStateFailure,
+			Steps: []gh.JobStep{{Number: 1, Name: "Run", State: gh.CheckStateFailure}},
+		}, "2026-08-19T14:00:00Z boom\n")
+	}
+
+	m := settleJob(press(loaded(t, client, 160, 40), "enter", "]", "]"), d.Rollup.Checks[0], false)
+	landed := hintTokens(t, m)
+	for _, want := range []string{"{/} block", "/ search log", "f first failure"} {
+		if !slices.Contains(landed, want) {
+			t.Fatalf("setup: line = %v, want %q on it once a job has landed", landed, want)
+		}
+	}
+
+	// One step down the column, with the new job's fetch still out.
+	if moved := hintTokens(t, press(m, "j")); !slices.Equal(moved, landed) {
+		t.Errorf("the line changed while the next job was still on its way:\n before %v\n after  %v", landed, moved)
 	}
 }

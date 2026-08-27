@@ -1628,8 +1628,13 @@ func (m Model) ShortHelp() []key.Binding {
 	}
 	file := m.fileViewTarget()
 	rail := m.railDriving()
+
+	// Loaded or on its way: a job the cursor just landed on is neither, for a
+	// debounce and a round trip, and the keys it answers are the tab's rather
+	// than that fetch's.
+	job := m.check.job.Loaded || m.checkHasJob()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks:     !rail && (m.tab != tabChecks || m.check.job.Loaded),
+		Blocks:     !rail && (m.tab != tabChecks || job),
 		Expand:     !rail && (m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable()),
 		Activate:   rail,
 		Panes:      rail,
@@ -1638,8 +1643,8 @@ func (m Model) ShortHelp() []key.Binding {
 		Split:      m.tab == tabFiles && m.files.Loaded,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
-		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
-		JobFailure: m.tab == tabChecks && m.checkHasFailure(),
+		JobLog:     m.tab == tabChecks && job,
+		JobFailure: m.tab == tabChecks && m.checkFailed(),
 		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
 		JobRerun:   m.canRerunCheck(),
 

@@ -34,15 +34,6 @@ type jobSection struct {
 	plain []string
 }
 
-func (m Model) checkHasFailure() bool {
-	for _, step := range m.check.job.Job.Steps {
-		if step.State == gh.CheckStateFailure || step.State == gh.CheckStateError {
-			return true
-		}
-	}
-	return false
-}
-
 func (m Model) checkStepFoldable() bool {
 	return m.tab == tabChecks && m.focus == paneMain && m.check.job.Loaded &&
 		m.check.step >= 0 && m.check.step < len(m.check.job.Job.Steps) &&
