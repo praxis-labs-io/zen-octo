@@ -128,3 +128,42 @@ func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 		t.Errorf("Budget(0) = %q, want a warning-colored zero", got)
 	}
 }
+
+// The hints are shed to the room before the bar is handed them, so Room has to
+// answer what render will actually leave the left side. Two numbers in two
+// packages agreed once and nothing would have failed when they stopped: the
+// hints would go back to being cut mid-word, which is the whole of what the
+// shed exists to stop.
+func TestRoomIsWhatTheLeftSideActuallyGets(t *testing.T) {
+	b := bar().Size(40)
+	message := "Refreshed 3 sections"
+
+	tests := []struct {
+		name  string
+		room  int
+		right string
+		draw  func(left, right string) string
+	}{
+		{name: "Render, where the left wins", room: b.Room(), draw: b.Render},
+		{name: "RenderMessage, where it does not", room: b.MessageRoom(message), right: message, draw: b.RenderMessage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Filled to exactly the room: nothing is cut and the line still
+			// fits, which is the two numbers agreeing.
+			left := strings.Repeat("x", tt.room)
+			got := tt.draw(left, tt.right)
+
+			if w := lipgloss.Width(got); w != 40 {
+				t.Errorf("the bar is %d cells wide, want 40", w)
+			}
+			if !strings.Contains(got, left) {
+				t.Errorf("a left side of exactly the room (%d) was cut: %q", tt.room, got)
+			}
+			if tt.right != "" && !strings.Contains(got, tt.right) {
+				t.Errorf("the right side was cut to fit a left the room said would fit: %q", got)
+			}
+		})
+	}
+}

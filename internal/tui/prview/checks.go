@@ -360,9 +360,14 @@ func (m *Model) checkHasJob() bool {
 	return check != nil && check.JobID != 0
 }
 
-// checkFailed is whether that job failed, which is what f jumps into and what r
-// may rerun. The check's own state answers before its log has arrived, where
-// walking the fetched steps for a failing one cannot.
+// checkFailed is whether the check under the cursor failed, which is half of
+// what f jumps into and what r may rerun. The check's own state answers before
+// its log has arrived, where walking the fetched steps for a failing one
+// cannot.
+//
+// It is only ever half. A status context carries no job at all, so a failing
+// Codecov or Vercel row is a failure with nothing to jump into and nothing to
+// rerun, and both keys read checkHasJob beside this.
 func (m *Model) checkFailed() bool {
 	check := m.selectedCheck()
 	return check != nil &&

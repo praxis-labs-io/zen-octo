@@ -1626,15 +1626,13 @@ func (m Model) render() string {
 	if body := m.screenView(); body != "" {
 		parts = append(parts, body)
 	}
-	// The room the hints get is the bar's own arithmetic, and which side gives
-	// way decides it. Render keeps the left whole and clips the readout to what
-	// is left; RenderMessage flips that, so the hints shed around the message
-	// and the gap the bar holds between them.
+	// The hints are shed to the room before the bar is handed them, and the bar
+	// is what knows the room: which side gives way differs between the two
+	// calls, and only Room answers for both.
 	if message := m.statusMessage(); message != "" {
-		room := statusInner(m.width) - lipgloss.Width(message) - statusGap
-		parts = append(parts, m.status.RenderMessage(m.statusHints(room), message))
+		parts = append(parts, m.status.RenderMessage(m.statusHints(m.status.MessageRoom(message)), message))
 	} else {
-		parts = append(parts, m.status.Render(m.statusHints(statusInner(m.width)), m.statusReadout()))
+		parts = append(parts, m.status.Render(m.statusHints(m.status.Room()), m.statusReadout()))
 	}
 
 	frame := strings.Join(parts, "\n")
@@ -1663,14 +1661,6 @@ func (m Model) statusHints(room int) string {
 	}
 	return m.shedHints(m.detail.ShortHelp(), room)
 }
-
-// statusInner and statusGap are the bar's own layout, named here because the
-// hints have to be shed to the room before the bar is handed them: it takes two
-// rendered strings and lays them out, so by the time it can measure an overrun
-// the only cut left to it is through the middle of a word.
-const statusGap = 2
-
-func statusInner(width int) int { return width - 2 }
 
 // shedHints drops whole hints from the right until the line fits the room, and
 // renders what is left. A line clipped instead loses its tail mid-word, which

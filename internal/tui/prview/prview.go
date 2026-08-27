@@ -1644,7 +1644,7 @@ func (m Model) ShortHelp() []key.Binding {
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
 		JobLog:     m.tab == tabChecks && job,
-		JobFailure: m.tab == tabChecks && m.checkFailed(),
+		JobFailure: m.tab == tabChecks && job && m.checkFailed(),
 		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
 		JobRerun:   m.canRerunCheck(),
 
