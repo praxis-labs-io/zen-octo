@@ -1143,6 +1143,17 @@ drawn runes rather than fills, so those do fall back to a slot. `paint` and
 lipgloss both treat a nil background as "paint none", so this needed no work at
 any of the sixteen call sites.
 
+**`background` in config is a derivation input rather than a token**, which is
+why it is absent from `setters` and handled beside them. It answers "what is
+already behind the page", so `Overrides.Resolve` puts it in front of the
+reported one and derives everything from whichever won; written into
+`Theme.Background` instead it would be an instruction to fill the terminal in,
+which is the opposite of what somebody reaching for it wants, and it would paint
+over a translucent terminal. The ordering is the whole of its value: applied
+after derivation it would correct one field, where the shades, the surfaces and
+the syntax pairing all hang off it. It is the answer for `screen` and the ssh
+and tmux setups that never reply, which otherwise get no painted surface at all.
+
 `theme:` in config is a set of token overrides layered on the derived theme
 rather than a name. It tolerates a scalar, because `theme: rose-pine-moon` is on
 disk for anyone running the last release and refusing to start over a color

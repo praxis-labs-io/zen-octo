@@ -22,7 +22,6 @@ var setters = map[string]func(*Theme, color.Color){
 	"warning":            func(t *Theme, c color.Color) { t.Warning = c },
 	"error":              func(t *Theme, c color.Color) { t.Error = c },
 	"actor":              func(t *Theme, c color.Color) { t.Actor = c },
-	"background":         func(t *Theme, c color.Color) { t.Background = c },
 	"selectedBackground": func(t *Theme, c color.Color) { t.SelectedBackground = c },
 	"addedBackground":    func(t *Theme, c color.Color) { t.AddedBackground = c },
 	"removedBackground":  func(t *Theme, c color.Color) { t.RemovedBackground = c },
@@ -31,13 +30,21 @@ var setters = map[string]func(*Theme, color.Color){
 	"borderMuted":        func(t *Theme, c color.Color) { t.BorderMuted = c },
 }
 
+// backgroundKey is a derivation input rather than a color to paint, which is
+// why it is known here and absent from setters. What it answers is "what is
+// already behind the page", so the shades and the syntax pairing are built from
+// it; writing it into Theme.Background would instead be an instruction to fill
+// the terminal in, which is the opposite of what a reader asking for it wants.
+const backgroundKey = "background"
+
 // Keys lists the override vocabulary in a stable order, for the message that
 // follows a key nobody recognised.
 func Keys() []string {
-	keys := make([]string, 0, len(setters))
+	keys := make([]string, 0, len(setters)+1)
 	for k := range setters {
 		keys = append(keys, k)
 	}
+	keys = append(keys, backgroundKey)
 	sort.Strings(keys)
 	return keys
 }
@@ -71,11 +78,35 @@ func (o *Overrides) UnmarshalYAML(b []byte) error {
 	return nil
 }
 
+// Background is the background to derive from, where config named one. It
+// outranks whatever the terminal reported: it is written down because that
+// answer was wrong, or because nothing answered at all.
+func (o Overrides) Background() color.Color {
+	c, ok := parse(o.raw[backgroundKey])
+	if !ok {
+		return nil
+	}
+	return c
+}
+
+// Resolve builds the theme. The named background outranks the reported one, and
+// the rest of the overrides land on what is derived from whichever won. The
+// order is the whole of the point: a background written down after derivation
+// would correct one field where the shades, the surfaces and the syntax pairing
+// all hang off it.
+func (o Overrides) Resolve(reported color.Color, transparent bool) Theme {
+	bg := reported
+	if named := o.Background(); named != nil {
+		bg = named
+	}
+	return o.Apply(Terminal(bg, transparent))
+}
+
 // Validate reports the first key or value it cannot use, naming it. Colors are
 // hex, or an ANSI index as a bare number the way lipgloss spells one.
 func (o Overrides) Validate() error {
 	for _, key := range sorted(o.raw) {
-		if _, ok := setters[key]; !ok {
+		if _, ok := setters[key]; !ok && key != backgroundKey {
 			return fmt.Errorf("theme: unknown color %q. Known: %v", key, Keys())
 		}
 		if _, ok := parse(o.raw[key]); !ok {

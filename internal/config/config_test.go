@@ -106,6 +106,26 @@ func TestThemeOverridesLoad(t *testing.T) {
 	}
 }
 
+// The escape hatch for a terminal that cannot answer the background query, or
+// answers it wrong. It has to reach Load intact, since that is the only path.
+func TestANamedBackgroundLoadsAndDrivesTheDerivation(t *testing.T) {
+	writeConfig(t, "theme:\n  background: \"#faf4ed\"\n")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	// Resolved against nothing reported, which is the case it exists for.
+	th := got.Theme.Resolve(nil, false)
+	if th.SelectedBackground == nil {
+		t.Error("SelectedBackground is nil, want the named background to restore the surfaces")
+	}
+	if th.Syntax != theme.SyntaxLight {
+		t.Errorf("Syntax = %q, want the pairing to follow the named background", th.Syntax)
+	}
+}
+
 // A color that cannot be used is worth refusing by name. Written through, it
 // reaches the screen as the absence of a color, which reads as a broken app
 // rather than a typo.

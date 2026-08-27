@@ -328,7 +328,9 @@ const (
 // New builds the root model over the configured PR sections. bg is the
 // background the terminal reported, or nil where nothing answered.
 func New(cfg *config.Config, client GitHub, bg color.Color) Model {
-	th := cfg.Theme.Apply(theme.Terminal(bg, cfg.Transparent))
+	// Resolve, not Terminal: a background named in config outranks the reported
+	// one, and everything else hangs off whichever won.
+	th := cfg.Theme.Resolve(bg, cfg.Transparent)
 
 	// The syntax palette is a separate question from the chrome's. The chrome
 	// follows the terminal and Chroma's styles cannot, so the theme pairs one

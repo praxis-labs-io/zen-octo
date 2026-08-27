@@ -2,6 +2,7 @@ package theme_test
 
 import (
 	"image/color"
+	"slices"
 	"testing"
 
 	"charm.land/lipgloss/v2"
@@ -344,5 +345,71 @@ func TestKeysAreStable(t *testing.T) {
 		if keys[i-1] >= keys[i] {
 			t.Fatalf("Keys() = %v, want a stable sorted order", keys)
 		}
+	}
+}
+
+// A terminal that answers nothing, or answers wrong, leaves the reader with no
+// way to correct it. Naming the background is that way, and it has to reach the
+// derivation rather than one field: the shades, the surfaces and the syntax
+// pairing all hang off it.
+func TestANamedBackgroundDrivesTheDerivation(t *testing.T) {
+	o := overrides(t, "background: \"#faf4ed\"\n")
+
+	// Nothing answered, which is the case this exists for.
+	got := o.Resolve(nil, false)
+
+	if got.SelectedBackground == nil {
+		t.Error("SelectedBackground is nil, want the named background to restore the surfaces")
+	}
+	if got.Syntax != theme.SyntaxLight {
+		t.Errorf("Syntax = %q, want the pairing to follow the named background", got.Syntax)
+	}
+	if luma(got.Subtle) >= luma(lightBG) {
+		t.Error("Subtle is not darker than the named background, want it derived against it")
+	}
+}
+
+func TestANamedBackgroundOutranksTheReportedOne(t *testing.T) {
+	// The reported one is what was wrong, so it has to lose.
+	o := overrides(t, "background: \"#faf4ed\"\n")
+	got := o.Resolve(darkBG, false)
+
+	if got.Syntax != theme.SyntaxLight {
+		t.Errorf("Syntax = %q, want the named background to win over the reported one", got.Syntax)
+	}
+	if want := theme.Terminal(lightBG, false); got.Subtle != want.Subtle {
+		t.Errorf("Subtle = %v, want %v, derived from the named background", got.Subtle, want.Subtle)
+	}
+}
+
+// It says what is already behind the page, never that the page should be filled
+// in. Painting it would fill a translucent terminal in solid, which is the
+// opposite of what somebody writing it down is asking for.
+func TestANamedBackgroundIsNeverPainted(t *testing.T) {
+	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(nil, false)
+	if got.Background != nil {
+		t.Errorf("Background = %v, want nil so the terminal's own still shows", got.Background)
+	}
+}
+
+func TestBackgroundIsAKnownKey(t *testing.T) {
+	if err := overrides(t, "background: \"#faf4ed\"\n").Validate(); err != nil {
+		t.Errorf("Validate() = %v, want background accepted", err)
+	}
+	if err := overrides(t, "background: \"nonsense\"\n").Validate(); err == nil {
+		t.Error("Validate() = nil for an unparseable background, want an error")
+	}
+	if !slices.Contains(theme.Keys(), "background") {
+		t.Errorf("Keys() = %v, want it to name background", theme.Keys())
+	}
+}
+
+// Resolve with nothing named is Terminal, so the ordinary path gains no
+// behaviour from the escape hatch existing.
+func TestResolveWithoutANamedBackgroundIsTheReportedOne(t *testing.T) {
+	var o theme.Overrides
+	got, want := o.Resolve(darkBG, false), theme.Terminal(darkBG, false)
+	if got.Subtle != want.Subtle || got.Syntax != want.Syntax || got.SelectedBackground != want.SelectedBackground {
+		t.Error("Resolve changed the derivation when config named no background")
 	}
 }

@@ -80,9 +80,25 @@ a hex pins the color to itself. A key that is not a color, or a color that will
 not parse, is reported with its name.
 
 The keys are `text`, `accent`, `subtle`, `muted`, `inverted`, `success`,
-`warning`, `error`, `actor`, `background`, `selectedBackground`,
-`addedBackground`, `removedBackground`, `border`, `borderSubtle` and
-`borderMuted`.
+`warning`, `error`, `actor`, `selectedBackground`, `addedBackground`,
+`removedBackground`, `border`, `borderSubtle` and `borderMuted`.
+
+`background` is the sixteenth and it does not work like the others. It is not a
+color to paint — nothing ever paints the background — it is what zen-octo should
+believe is already behind the page, and everything else is derived from it:
+
+```yaml
+theme:
+  background: "#eff1f5"
+```
+
+Reach for it when your terminal cannot answer the query or answers it wrong.
+`screen`, and some `tmux` and `ssh` setups, do not reply; without an answer
+zen-octo paints no cursor line and no diff wash, and naming the background here
+brings all of it back. It beats whatever the terminal reported, so it also
+fixes an answer that was simply incorrect. One line does the shades, the
+surfaces and the light-or-dark syntax pairing together, which is why it is
+worth preferring over pinning half a dozen colors by hand.
 
 `theme` used to be a name. If yours still says `theme: rose-pine-moon`, zen-octo
 starts and says so rather than refusing; there is one theme now and it is yours.
@@ -97,7 +113,8 @@ and the `+` and `−` markers are what carry it once the wash is gone.
 
 This is also what happens when a terminal does not answer the background query
 at all, since a surface guessed against an unknown background lands invisible
-about as often as not.
+about as often as not. If that is your terminal and you wanted the surfaces,
+name the background above rather than turning this on.
 
 ### Syntax
 
