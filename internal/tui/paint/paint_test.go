@@ -2,6 +2,7 @@ package paint_test
 
 import (
 	"image/color"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -139,16 +140,43 @@ func TestFillBeatsTheKindTint(t *testing.T) {
 }
 
 // A theme leaving a surface nil means "leave the terminal's own showing", and
-// handing that to Lipgloss is what breaks a transparent background.
+// handing that to Lipgloss is what breaks a transparent background. It is what
+// transparent: true asks for and what an unanswered background query gets, so a
+// row painting anything here fills a translucent terminal in solid.
 func TestARowTakesNoBackgroundFromAThemeThatDefinesNone(t *testing.T) {
-	bare := theme.Theme{Text: testTheme.Text, Subtle: testTheme.Subtle}
-	p := paint.Painter{Theme: bare}
-	row := p.Line(paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}, 2, 40)
+	for _, tc := range []struct {
+		name string
+		th   theme.Theme
+	}{
+		{"transparent", theme.Terminal(lipgloss.Color("#232136"), true)},
+		{"undetected", theme.Terminal(nil, false)},
+		{"bare", theme.Theme{Text: testTheme.Text, Subtle: testTheme.Subtle}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := paint.Painter{Theme: tc.th}
+			row := p.Line(paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}, 2, 40)
 
-	if strings.Contains(row, "48;2;") {
-		t.Errorf("row set a background the theme does not define: %q", row)
+			// Every background form, not the truecolor one alone: the fallback
+			// reaches for slots, which go over the wire as 40-47 and 100-107.
+			for _, m := range sgrParts.FindAllStringSubmatch(row, -1) {
+				for _, part := range strings.Split(m[1], ";") {
+					if part == "48" || backgroundSlot(part) {
+						t.Fatalf("row set a background the theme does not define: %q", row)
+					}
+				}
+			}
+		})
 	}
 }
+
+func backgroundSlot(p string) bool {
+	if len(p) == 2 && p[0] == '4' && p[1] >= '0' && p[1] <= '7' {
+		return true
+	}
+	return len(p) == 3 && p[0] == '1' && p[1] == '0' && p[2] >= '0' && p[2] <= '7'
+}
+
+var sgrParts = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 
 func TestTabsExpandToTheTabWidth(t *testing.T) {
 	row := func(p paint.Painter, code string) string {
