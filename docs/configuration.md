@@ -83,38 +83,49 @@ The keys are `text`, `accent`, `subtle`, `muted`, `inverted`, `success`,
 `warning`, `error`, `actor`, `selectedBackground`, `addedBackground`,
 `removedBackground`, `border`, `borderSubtle` and `borderMuted`.
 
-`background` is the sixteenth and it does not work like the others. It is not a
-color to paint — nothing ever paints the background — it is what zen-octo should
-believe is already behind the page, and everything else is derived from it:
+`background` is the sixteenth and it does not work like the others. It is not
+layered over a derived color, it is the color everything else is derived *from*,
+and zen-octo paints it:
 
 ```yaml
 theme:
   background: "#eff1f5"
 ```
 
-Reach for it when your terminal cannot answer the query or answers it wrong.
-`screen`, and some `tmux` and `ssh` setups, do not reply; without an answer
-zen-octo paints no cursor line and no diff wash, and naming the background here
-brings all of it back. It beats whatever the terminal reported, so it also
-fixes an answer that was simply incorrect. One line does the shades, the
-surfaces and the light-or-dark syntax pairing together, which is why it is
-worth preferring over pinning half a dozen colors by hand.
+Two reasons to reach for it. The first is wanting zen-octo to look different
+from the terminal you run it in — a dark client in a light terminal, say. The
+second is a terminal that cannot answer the background query: `screen`, and some
+`tmux` and `ssh` setups, do not reply, and without an answer zen-octo paints no
+cursor line and no diff wash. Naming it brings all of that back.
+
+It beats whatever the terminal reported, so it also fixes an answer that was
+simply wrong. One line moves the shades, the surfaces and the light-or-dark
+syntax pairing together, which is why it is worth preferring over pinning half a
+dozen colors by hand.
 
 `theme` used to be a name. If yours still says `theme: rose-pine-moon`, zen-octo
 starts and says so rather than refusing; there is one theme now and it is yours.
 
 ### Transparency
 
-`transparent: true` stops zen-octo painting the cursor line and the diff's green
-and red washes, for a terminal running translucent where an opaque row is the
-thing that spoils it. The background is never painted either way. What you give
-up is real: a changed line is read as a block, and the bar in the leading cell
-and the `+` and `−` markers are what carry it once the wash is gone.
+By default zen-octo paints a background: the one your terminal reported, or the
+one you named above. Painting the reported one changes nothing you can see, and
+it is what keeps every shade sitting on exactly the base it was derived against.
 
-This is also what happens when a terminal does not answer the background query
-at all, since a surface guessed against an unknown background lands invisible
-about as often as not. If that is your terminal and you wanted the surfaces,
-name the background above rather than turning this on.
+`transparent: true` is the opt-out, and it is one rule — paint nothing. No
+background, no cursor line, no green and red diff washes. It is for a terminal
+running translucent, where a filled window is the thing that spoils the effect.
+What you give up is real: a changed line is read as a block, and once the wash
+is gone the bar in the leading cell and the `+` and `−` markers are all that
+carry it.
+
+The two combine. Naming a background under `transparent: true` means "derive
+against this, paint nothing" — which is the answer for a translucent terminal
+that also cannot answer the query.
+
+A terminal that never answers and names nothing paints nothing either, since a
+surface guessed against an unknown background lands invisible about as often as
+not.
 
 ### Syntax
 

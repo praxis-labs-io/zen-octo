@@ -73,21 +73,38 @@ func TestTextIsTheTerminalsOwn(t *testing.T) {
 	}
 }
 
-func TestBackgroundIsNeverPainted(t *testing.T) {
-	// Transparency is not a mode for this one field. Painting it would fill a
-	// translucent terminal in whatever it reported a moment earlier.
+// A theme carries the background its every shade was derived against, so the
+// two cannot disagree. It is also what a config naming a different background
+// is asking to have painted.
+func TestAThemeCarriesItsBackground(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		th   theme.Theme
+		bg   color.Color
 	}{
-		{"dark", theme.Terminal(darkBG, false)},
-		{"light", theme.Terminal(lightBG, false)},
-		{"undetected", theme.Terminal(nil, false)},
-		{"transparent", theme.Terminal(darkBG, true)},
+		{"dark", darkBG},
+		{"light", lightBG},
 	} {
-		if tc.th.Background != nil {
-			t.Errorf("%s: Background = %v, want nil", tc.name, tc.th.Background)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := theme.Terminal(tc.bg, false).Background; got != tc.bg {
+				t.Errorf("Background = %v, want the %v it was derived from", got, tc.bg)
+			}
+		})
+	}
+}
+
+// Nothing established a background, so there is none to carry and none to
+// paint. The terminal's own goes on showing through.
+func TestNoBackgroundCarriesNone(t *testing.T) {
+	if got := theme.Terminal(nil, false).Background; got != nil {
+		t.Errorf("Background = %v, want nil when nothing answered", got)
+	}
+}
+
+// transparent is one rule: paint nothing. The background goes with the surfaces,
+// or a translucent terminal is filled in solid by the thing meant to spare it.
+func TestTransparentCarriesNoBackground(t *testing.T) {
+	if got := theme.Terminal(darkBG, true).Background; got != nil {
+		t.Errorf("Background = %v, want nil under transparent", got)
 	}
 }
 
@@ -382,13 +399,24 @@ func TestANamedBackgroundOutranksTheReportedOne(t *testing.T) {
 	}
 }
 
-// It says what is already behind the page, never that the page should be filled
-// in. Painting it would fill a translucent terminal in solid, which is the
-// opposite of what somebody writing it down is asking for.
-func TestANamedBackgroundIsNeverPainted(t *testing.T) {
-	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(nil, false)
+// Naming one is how a reader asks for a chrome that disagrees with their
+// terminal, so it has to be carried and painted rather than only derived from.
+func TestANamedBackgroundIsPainted(t *testing.T) {
+	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(darkBG, false)
+	if r, g, b := rgb(got.Background); r != 0xfa || g != 0xf4 || b != 0xed {
+		t.Errorf("Background = %d,%d,%d, want the named fa,f4,ed painted", r, g, b)
+	}
+}
+
+// Named and translucent together is the reader who wrote it down only because
+// their terminal could not answer. They get the derivation and no fill.
+func TestANamedBackgroundIsNotPaintedUnderTransparent(t *testing.T) {
+	got := overrides(t, "background: \"#faf4ed\"\n").Resolve(nil, true)
 	if got.Background != nil {
 		t.Errorf("Background = %v, want nil so the terminal's own still shows", got.Background)
+	}
+	if want := theme.Terminal(lightBG, true); got.Subtle != want.Subtle {
+		t.Error("the named background stopped driving the shades under transparent")
 	}
 }
 

@@ -1143,16 +1143,29 @@ drawn runes rather than fills, so those do fall back to a slot. `paint` and
 lipgloss both treat a nil background as "paint none", so this needed no work at
 any of the sixteen call sites.
 
+**A theme carries the background it was derived against, and the root paints
+it**, through `tea.View.BackgroundColor`, which writes OSC 11 once and resets on
+the way out. Painting the reported background is invisible and costs nothing
+where a terminal ignores the request; what it buys is that the shades and the
+tints can never sit on a base other than the one they were computed from. It is
+also what makes a chrome that disagrees with the terminal possible at all.
+
 **`background` in config is a derivation input rather than a token**, which is
-why it is absent from `setters` and handled beside them. It answers "what is
-already behind the page", so `Overrides.Resolve` puts it in front of the
-reported one and derives everything from whichever won; written into
-`Theme.Background` instead it would be an instruction to fill the terminal in,
-which is the opposite of what somebody reaching for it wants, and it would paint
-over a translucent terminal. The ordering is the whole of its value: applied
-after derivation it would correct one field, where the shades, the surfaces and
-the syntax pairing all hang off it. It is the answer for `screen` and the ssh
-and tmux setups that never reply, which otherwise get no painted surface at all.
+why it is absent from `setters` and handled beside them. `Overrides.Resolve`
+puts it in front of the reported one and derives everything from whichever won.
+The ordering is the whole of its value: applied after derivation it would
+correct one field, where the shades, the surfaces and the syntax pairing all
+hang off it. It answers two readers at once — the one who wants a dark client in
+a light terminal, and `screen` and the ssh and tmux setups that never reply,
+which otherwise get no painted surface at all.
+
+**`transparent` is one rule: paint nothing.** The background goes with the three
+surfaces rather than being a separate switch, because the reader it exists for
+is running translucent and a filled window is the thing that spoils it — sparing
+the cursor line while filling the whole terminal behind it would be the setting
+defeating itself. It stays a derivation input under the flag, so naming a
+background and asking for transparency together means "derive against this,
+paint nothing", which is the translucent terminal that also cannot answer.
 
 `theme:` in config is a set of token overrides layered on the derived theme
 rather than a name. It tolerates a scalar, because `theme: rose-pine-moon` is on

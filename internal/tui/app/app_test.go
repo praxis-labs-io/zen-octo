@@ -1950,6 +1950,50 @@ func TestAnOverrideReachesTheScreen(t *testing.T) {
 	}
 }
 
+// The theme carrying a background proves nothing on its own: the root has to
+// hand it to Bubble Tea, which is the only thing that paints it.
+func TestTheRootPaintsTheThemesBackground(t *testing.T) {
+	m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testBG), tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	got := m.View().BackgroundColor
+	if got == nil {
+		t.Fatal("View().BackgroundColor is nil, want the background the shades were derived against")
+	}
+	if r, g, b, _ := got.RGBA(); r>>8 != 0x23 || g>>8 != 0x21 || b>>8 != 0x36 {
+		t.Errorf("BackgroundColor = %d,%d,%d, want the reported 23,21,36", r>>8, g>>8, b>>8)
+	}
+}
+
+// A reader on a translucent terminal asked for nothing to be painted, and the
+// background is the one that would fill the whole window.
+func TestTransparentPaintsNoBackground(t *testing.T) {
+	cfg := testConfig()
+	cfg.Transparent = true
+
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testBG), tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	if got := m.View().BackgroundColor; got != nil {
+		t.Errorf("View().BackgroundColor = %v, want nil under transparent", got)
+	}
+}
+
+// Config naming a background is how a reader asks for a chrome that disagrees
+// with their terminal, so that is the one that has to reach the paint.
+func TestANamedBackgroundReachesThePaint(t *testing.T) {
+	cfg := testConfig()
+	cfg.Theme = overridesFor(t, "background: \"#faf4ed\"\n")
+
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testBG), tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	got := m.View().BackgroundColor
+	if got == nil {
+		t.Fatal("View().BackgroundColor is nil, want the named background")
+	}
+	if r, g, b, _ := got.RGBA(); r>>8 != 0xfa || g>>8 != 0xf4 || b>>8 != 0xed {
+		t.Errorf("BackgroundColor = %d,%d,%d, want the named fa,f4,ed", r>>8, g>>8, b>>8)
+	}
+}
+
 func overridesFor(t *testing.T, doc string) theme.Overrides {
 	t.Helper()
 	var o theme.Overrides

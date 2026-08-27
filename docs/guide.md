@@ -120,6 +120,12 @@ your terminal reports when it starts, so they sit just above it whether it is
 light or dark. Nothing needs configuring for this, and there is no theme to
 pick.
 
+zen-octo paints that background rather than leaving it to show through, so
+nothing it draws can sit on a surface it was not built against. If you would
+rather it left your terminal alone — a translucent window, say — or you want a
+client that deliberately disagrees with the terminal around it, both are one
+line in [Configuration](configuration.md).
+
 Code is the exception. Syntax palettes are all fixed colors and none of them is
 yours, so the diff is highlighted in GitHub's, paired light or dark against the
 same background. [Configuration](configuration.md) covers overriding a color it

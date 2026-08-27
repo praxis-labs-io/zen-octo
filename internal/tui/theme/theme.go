@@ -37,8 +37,10 @@ type Theme struct {
 	Error   color.Color
 	Actor   color.Color
 
-	// Surfaces. A nil Background means "leave the terminal's own background
-	// alone", which is what keeps transparency working.
+	// Surfaces. A theme carries its background: every shade and tint here was
+	// derived against it, so painting it is what guarantees the two agree. Nil
+	// is the opt-out, and it means "leave the terminal's own alone" — which is
+	// what transparent asks for, and all a theme with no background can offer.
 	Background         color.Color
 	SelectedBackground color.Color
 
@@ -112,8 +114,9 @@ const (
 )
 
 // Terminal derives the theme from the background the terminal reported, which
-// is nil when nothing answered the query. transparent asks for the painted
-// surfaces to be dropped, for a terminal running translucent.
+// is nil when nothing answered the query. transparent asks for nothing to be
+// painted at all, for a terminal running translucent: neither the background
+// the theme would otherwise carry nor the three surfaces over it.
 func Terminal(bg color.Color, transparent bool) Theme {
 	t := Theme{
 		Syntax: SyntaxDark,
@@ -128,8 +131,7 @@ func Terminal(bg color.Color, transparent bool) Theme {
 		Error:   slotRed,
 		Actor:   slotFoam,
 
-		// Never painted. The terminal's own shows through, which is what a
-		// translucent one needs and what every other one is happy with.
+		// Filled in below, once there is a background to carry.
 		Background: nil,
 	}
 
@@ -166,6 +168,13 @@ func Terminal(bg color.Color, transparent bool) Theme {
 	if transparent {
 		return t
 	}
+
+	// The theme carries the background it was derived from. Where that is the
+	// one the terminal reported, painting it changes nothing a reader can see
+	// and costs nothing if the terminal ignores the request; where config named
+	// a different one, it is the whole of the ask. Either way the shades and the
+	// tints then sit on exactly the base they were computed against.
+	t.Background = bg
 
 	t.SelectedBackground = mix(bg, away, 0.10)
 

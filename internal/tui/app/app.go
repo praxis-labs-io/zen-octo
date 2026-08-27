@@ -1581,6 +1581,13 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.Cursor = m.cursor()
+
+	// The theme carries the background every shade in it was derived against,
+	// so painting it is what keeps the two from disagreeing. Bubble Tea writes
+	// it once and resets it on the way out. Nil under transparent, and nil where
+	// no background was ever established, and then the terminal's own shows
+	// through the way it always did.
+	v.BackgroundColor = m.theme.Background
 	return v
 }
 
