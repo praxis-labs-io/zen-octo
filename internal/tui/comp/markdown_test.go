@@ -7,15 +7,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
-
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // These reach into the cache map, which has no interface of its own: the whole
 // point of a cache is that the caller cannot tell it is there.
 
 func TestTheSameBodyIsOnlyRenderedOnce(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 
 	first := m.Render("# One", 60)
 	if m.Render("# One", 60) != first {
@@ -35,7 +33,7 @@ func TestTheSameBodyIsOnlyRenderedOnce(t *testing.T) {
 // stale. Dropping the map beats keeping one dead entry per column a drag-resize
 // passed through.
 func TestAWidthChangeDropsWhatWasCached(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 
 	m.Render("# One", 60)
 	m.Render("# Two", 60)
@@ -47,7 +45,7 @@ func TestAWidthChangeDropsWhatWasCached(t *testing.T) {
 }
 
 func TestOutputWrapsAtTheWidthItWasGiven(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 	body := strings.Repeat("some words that have to go somewhere ", 10)
 
 	for _, width := range []int{40, 60, 100} {
@@ -64,20 +62,24 @@ func TestOutputWrapsAtTheWidthItWasGiven(t *testing.T) {
 // Glamour ships its own palette. A heading in a color nobody configured is the
 // whole reason this file builds a style config rather than patching one.
 func TestHeadingsTakeTheThemeAndNotGlamoursOwn(t *testing.T) {
-	th := theme.RosePineMoon
+	th := testTheme
 	m := NewMarkdown(th)
 
 	out := m.Render("# Heading\n\nA paragraph.", 60)
 
-	r, g, b, _ := th.Accent.RGBA()
-	want := fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-	if !strings.Contains(out, want) {
+	// Read off a rendered cell rather than rebuilt from the color: the accent is
+	// an ANSI slot, which goes over the wire as its own SGR code. Glamour takes
+	// the slot's index as a string, which is what keeps the palette reaching
+	// rendered markdown instead of being pinned to a canonical hex.
+	styled := lipgloss.NewStyle().Foreground(th.Accent).Render("x")
+	want := styled[:strings.Index(styled, "m")+1]
+	if !strings.Contains(out, strings.TrimSuffix(want, "m")) {
 		t.Errorf("no heading in the theme's accent: %q", out)
 	}
 }
 
 func TestNothingToRenderComesBackEmpty(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 
 	tests := []struct {
 		name  string
@@ -104,7 +106,7 @@ func TestNothingToRenderComesBackEmpty(t *testing.T) {
 // two lines somebody typed onto one and made a comment read differently here
 // from the way it reads in the browser it was written for.
 func TestASingleNewlineIsALineBreak(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 
 	lines := body(m.Render("this is a sentence\nand this is another", 60))
 	if len(lines) != 2 {
@@ -121,7 +123,7 @@ func TestASingleNewlineIsALineBreak(t *testing.T) {
 // A blank line is still a paragraph break, so the two are told apart rather
 // than every newline becoming the same thing.
 func TestABlankLineStillSeparatesParagraphs(t *testing.T) {
-	m := NewMarkdown(theme.RosePineMoon)
+	m := NewMarkdown(testTheme)
 
 	if got := body(m.Render("one\n\ntwo", 60)); len(got) != 3 {
 		t.Errorf("rendered %d lines, want two paragraphs with a blank between:\n%q", len(got), got)

@@ -15,7 +15,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // sampleFiles covers what the tab has to tell apart: nesting deep enough to
@@ -80,7 +79,7 @@ func onFiles(width, height int) prview.Model {
 // order have to reach the screen. The threads come from the detail and the
 // lines they hang off from the diff.
 func TestThreadsLandingAfterTheDiffStillRender(t *testing.T) {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetSize(200, 60)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 	m = press(m, "]", "]", "]")
@@ -380,7 +379,7 @@ func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 
 // litHunk is the @@ row the ring is on, read off the fill the cursor paints.
 func litHunk(frame string) string {
-	fill := bgSeq(theme.RosePineMoon.SelectedBackground)
+	fill := bgSeq(testTheme.SelectedBackground)
 	for _, line := range strings.Split(frame, "\n") {
 		if strings.Contains(line, fill) && strings.Contains(stripANSI(line), "@@") {
 			return strings.TrimSpace(stripANSI(line))
@@ -1198,7 +1197,7 @@ func TestTheSelectedFileIsPaintedCellByCell(t *testing.T) {
 }
 
 func selectionSeq() string {
-	r, g, b, _ := theme.RosePineMoon.SelectedBackground.RGBA()
+	r, g, b, _ := testTheme.SelectedBackground.RGBA()
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
@@ -1211,9 +1210,9 @@ func TestAChangedLineIsTintedEdgeToEdge(t *testing.T) {
 	added, removed := "", ""
 	for _, line := range strings.Split(frame, "\n") {
 		switch {
-		case strings.Contains(line, bgSeq(theme.RosePineMoon.AddedBackground)) && added == "":
+		case strings.Contains(line, bgSeq(testTheme.AddedBackground)) && added == "":
 			added = line
-		case strings.Contains(line, bgSeq(theme.RosePineMoon.RemovedBackground)) && removed == "":
+		case strings.Contains(line, bgSeq(testTheme.RemovedBackground)) && removed == "":
 			removed = line
 		}
 	}
@@ -1226,8 +1225,8 @@ func TestAChangedLineIsTintedEdgeToEdge(t *testing.T) {
 		line string
 		seq  string
 	}{
-		{"added", added, bgSeq(theme.RosePineMoon.AddedBackground)},
-		{"removed", removed, bgSeq(theme.RosePineMoon.RemovedBackground)},
+		{"added", added, bgSeq(testTheme.AddedBackground)},
+		{"removed", removed, bgSeq(testTheme.RemovedBackground)},
 	} {
 		if got := strings.Count(tt.line, tt.seq); got < 5 {
 			t.Errorf("the %s tint appears %d times, want it on every cell", tt.name, got)
@@ -1249,7 +1248,7 @@ func TestAContextLineIsNotTinted(t *testing.T) {
 		if !strings.Contains(line, "40 40   ") {
 			continue
 		}
-		if strings.Contains(line, bgSeq(theme.RosePineMoon.AddedBackground)) {
+		if strings.Contains(line, bgSeq(testTheme.AddedBackground)) {
 			t.Error("a context line came back tinted")
 		}
 		return
@@ -1332,10 +1331,7 @@ func tinted(line, seq string) string {
 	return out.String()
 }
 
-func bgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func bgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Background(c)) }
 
 // Reading a diff is reading one file after another, and doing that by the line
 // takes as many keystrokes as the file is long.

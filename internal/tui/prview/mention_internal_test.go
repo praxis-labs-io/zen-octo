@@ -13,7 +13,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // mentionModalChrome is what comp.Modal spends around the rows: a border and a
@@ -190,7 +189,7 @@ func TestALongHandleIsClippedOnceAndKeepsThePopupInItsWidth(t *testing.T) {
 	const width = 20
 	n := mentionRow(strings.Repeat("z", 60), "Somebody With A Name")
 
-	out := n.render(theme.RosePineMoon, "", 1, width)
+	out := n.render(testTheme, "", 1, width)
 	if got := lipgloss.Width(out); got > width+mentionModalChrome {
 		t.Errorf("the popup is %d cells wide against a budget of %d:\n%s",
 			got, width+mentionModalChrome, stripSeqs(out))
@@ -207,7 +206,7 @@ func TestALongNoteIsClippedToTheSameWidth(t *testing.T) {
 	const width = 12
 	n := mention{open: true}
 
-	out := n.render(theme.RosePineMoon, "Could not read the repository", 0, width)
+	out := n.render(testTheme, "Could not read the repository", 0, width)
 	if got := lipgloss.Width(out); got > width+mentionModalChrome {
 		t.Errorf("the note makes the popup %d cells wide against a budget of %d:\n%s",
 			got, width+mentionModalChrome, stripSeqs(out))
@@ -220,7 +219,7 @@ func TestANoteUnderTheRowsIsClippedWithThem(t *testing.T) {
 	const width = 14
 	n := mentionRow("nkr", "Nikita Rushmanov")
 
-	out := n.render(theme.RosePineMoon, "Could not read the repository", 1, width)
+	out := n.render(testTheme, "Could not read the repository", 1, width)
 	if got := lipgloss.Width(out); got > width+mentionModalChrome {
 		t.Errorf("the popup is %d cells wide against a budget of %d:\n%s",
 			got, width+mentionModalChrome, stripSeqs(out))

@@ -19,7 +19,6 @@ func recentConfig() *config.Config {
 			{Title: "Recently Closed", Filters: "is:pr is:closed author:@me closed:>={{since:24h}}"},
 		},
 		Defaults: config.Defaults{PRsLimit: 20, IssuesLimit: 20},
-		Theme:    "rose-pine-moon",
 	}
 }
 
@@ -45,7 +44,7 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	before := time.Now().UTC()
 
-	drive(t, app.New(recentConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40})
+	drive(t, app.New(recentConfig(), client, testBG), tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	asked := client.asked()
 	if len(asked) == 0 {
@@ -67,7 +66,7 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 func TestEveryFetchRendersItsOwnWindow(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m := drive(t, app.New(recentConfig(), client), tea.WindowSizeMsg{Width: 120, Height: 40})
+	m := drive(t, app.New(recentConfig(), client, testBG), tea.WindowSizeMsg{Width: 120, Height: 40})
 	settle(m, list.RefreshMsg{})
 
 	asked := client.asked()

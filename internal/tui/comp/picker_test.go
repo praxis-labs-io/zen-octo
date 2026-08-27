@@ -10,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func items(names ...string) []comp.PickerItem {
@@ -40,7 +39,7 @@ func typeInto(t *testing.T, p *comp.Picker, text string) {
 	}
 }
 
-func render(p comp.Picker) string { return p.Render(theme.RosePineMoon, 80) }
+func render(p comp.Picker) string { return p.Render(testTheme, 80) }
 
 func TestAMultiPickerAppliesTheWholeCheckedSet(t *testing.T) {
 	p := comp.NewPicker("Labels", items("bug", "docs", "urgent"), []string{"id-bug"}, true)
@@ -255,7 +254,7 @@ func TestThePickerFitsTheFrameItIsGiven(t *testing.T) {
 	p := comp.NewPicker("Labels", long, nil, true)
 
 	for _, width := range []int{20, 40, 80} {
-		got := p.Render(theme.RosePineMoon, width)
+		got := p.Render(testTheme, width)
 		if w := lipgloss.Width(got); w > width {
 			t.Errorf("at frame width %d the picker rendered %d columns wide", width, w)
 		}
@@ -318,7 +317,7 @@ func TestTheHintIsNotClippedOnAListWithACounter(t *testing.T) {
 // bodyRows is the modal's interior, borders and title stripped, so a test can
 // say what sits on which row.
 func bodyRows(p comp.Picker) []string {
-	lines := strings.Split(stripANSI(p.Render(theme.RosePineMoon, 200)), "\n")
+	lines := strings.Split(stripANSI(p.Render(testTheme, 200)), "\n")
 	if len(lines) < 3 {
 		return nil
 	}

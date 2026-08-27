@@ -37,9 +37,6 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if len(got.PRSections) != len(want.PRSections) {
 		t.Errorf("PRSections = %d, want %d", len(got.PRSections), len(want.PRSections))
 	}
-	if got.Theme != want.Theme {
-		t.Errorf("Theme = %q, want %q", got.Theme, want.Theme)
-	}
 	if got.Defaults.PRsLimit != want.Defaults.PRsLimit {
 		t.Errorf("PRsLimit = %d, want %d", got.Defaults.PRsLimit, want.Defaults.PRsLimit)
 	}
@@ -69,17 +66,14 @@ defaults:
 	if got.Defaults.IssuesLimit != 20 {
 		t.Errorf("IssuesLimit = %d, want 20", got.Defaults.IssuesLimit)
 	}
-	if got.Theme != "rose-pine-moon" {
-		t.Errorf("Theme = %q, want rose-pine-moon", got.Theme)
-	}
 	if len(got.IssueSections) == 0 {
 		t.Error("IssueSections is empty, want defaults")
 	}
 }
 
-// The syntax palette stays empty unless it is asked for. A theme already names
-// the Chroma style that matches it, and filling one in here would override
-// every theme with the default's.
+// The syntax palette stays empty unless it is asked for. The theme pairs a
+// Chroma style against the background it read, and filling one in here would
+// override that pairing with the default's on every terminal.
 func TestSyntaxThemeIsEmptyUntilItIsSet(t *testing.T) {
 	writeConfig(t, "theme: rose-pine-moon\n")
 

@@ -35,14 +35,14 @@ func filteringPicker(t *testing.T, client *fakeSearcher) tea.Model {
 }
 
 // noticing is the app with the config notice up, which is the one thing that
-// puts a row above the screen. An unknown theme name is what raises it.
+// puts a row above the screen. A leftover theme name is what raises it.
 func noticing(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	t.Helper()
 
 	cfg := testConfig()
-	cfg.Theme = "not-a-theme"
-	m := drive(t, app.New(cfg, client), tea.WindowSizeMsg{Width: width, Height: height})
-	if out := stripANSI(render(t, m)); !strings.Contains(out, "Unknown theme") {
+	cfg.Theme = theme.Overrides{Named: "rose-pine-moon"}
+	m := drive(t, app.New(cfg, client, testBG), tea.WindowSizeMsg{Width: width, Height: height})
+	if out := stripANSI(render(t, m)); !strings.Contains(out, "Theme names are gone") {
 		t.Fatalf("no notice on the frame\n%s", out)
 	}
 	return m
@@ -197,7 +197,7 @@ func TestTheCursorIsMutedAndBlinks(t *testing.T) {
 	if !c.Blink {
 		t.Error("the cursor does not blink")
 	}
-	if c.Color != theme.RosePineMoon.MutedOrSubtle() {
+	if c.Color != testTheme.MutedOrSubtle() {
 		t.Errorf("cursor colour is %v, want the theme's muted", c.Color)
 	}
 }

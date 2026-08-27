@@ -10,7 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // repoLabels is the repository's whole set. The first is the one the fixture
@@ -278,7 +277,7 @@ func TestThePickerDoesNotGrowTheFrame(t *testing.T) {
 
 // The picker reads the same as the rows it writes.
 func TestThePickerColorsLabelsFromTheTheme(t *testing.T) {
-	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(openPicker(t, "bug").View(), fgSeq(testTheme.Accent)) {
 		t.Error("the picker does not color its labels from the theme")
 	}
 }
@@ -341,7 +340,7 @@ func TestTheRailKeepsItsCursorPaintedUnderThePicker(t *testing.T) {
 }
 
 func TestTheSelectedBackgroundIsTheThemes(t *testing.T) {
-	if theme.RosePineMoon.SelectedBackground == nil {
+	if testTheme.SelectedBackground == nil {
 		t.Fatal("the theme has no selected background for the picker to paint with")
 	}
 }

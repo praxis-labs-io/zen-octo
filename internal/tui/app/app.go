@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"image/color"
 	"slices"
 	"strconv"
 	"strings"
@@ -324,13 +325,14 @@ const (
 	legCommit
 )
 
-// New builds the root model over the configured PR sections.
-func New(cfg *config.Config, client GitHub) Model {
-	th, ok := theme.Get(cfg.Theme)
+// New builds the root model over the configured PR sections. bg is the
+// background the terminal reported, or nil where nothing answered.
+func New(cfg *config.Config, client GitHub, bg color.Color) Model {
+	th := cfg.Theme.Apply(theme.Terminal(bg, cfg.Transparent))
 
-	// The syntax palette is a separate question from the chrome's. A theme
-	// names the Chroma style that matches it, and config overrides that for a
-	// theme with no counterpart.
+	// The syntax palette is a separate question from the chrome's. The chrome
+	// follows the terminal and Chroma's styles cannot, so the theme pairs one
+	// against the background it read and config overrides that pairing.
 	syntaxName := cmp.Or(cfg.SyntaxTheme, th.Syntax)
 	syn, syntaxOK := syntax.New(syntaxName)
 
@@ -355,9 +357,10 @@ func New(cfg *config.Config, client GitHub) Model {
 	m.list.SetSections(m.store.Sections())
 
 	switch {
-	case !ok:
-		m.notice = fmt.Sprintf("Unknown theme %q, using %s. Known: %s",
-			cfg.Theme, th.Name, strings.Join(theme.Names(), ", "))
+	case cfg.Theme.Named != "":
+		m.notice = fmt.Sprintf("Theme names are gone: the chrome now follows your terminal. "+
+			"Drop %q, or set colors under theme: to pin any it gets wrong. Known: %s",
+			cfg.Theme.Named, strings.Join(theme.Keys(), ", "))
 	case !syntaxOK:
 		m.notice = fmt.Sprintf("Unknown syntax theme %q, using Chroma's default. Known: %s",
 			syntaxName, strings.Join(syntax.Names(), ", "))

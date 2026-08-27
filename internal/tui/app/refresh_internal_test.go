@@ -70,7 +70,7 @@ func onADetail(t *testing.T) Model {
 		Commits:     []gh.Commit{{SHA: "9f1c2b7", Short: "9f1c2b7", Headline: "Cap the backoff"}},
 	}}
 
-	m := New(pollConfig(), Mock{})
+	m := New(pollConfig(), Mock{}, testBG)
 	m.width, m.height = 160, 44
 	m.store.DetailApplied("PR_1", landed)
 

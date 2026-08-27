@@ -1,7 +1,6 @@
 package paint_test
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 	"testing"
@@ -41,7 +40,7 @@ func TestGutterHoldsTwoColumnsUntilThereAreMoreDigits(t *testing.T) {
 // disagreeing misaligns every row in a long file. Three digits proves nothing:
 // the floor of two hides the arithmetic until the fourth.
 func TestEveryRowIsTheSameWidthUpToTheGutterWhateverTheNumber(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	for _, widest := range []int{4, 42, 421, 4210, 42100} {
 		gutter := paint.Gutter(widest)
@@ -59,7 +58,7 @@ func TestEveryRowIsTheSameWidthUpToTheGutterWhateverTheNumber(t *testing.T) {
 // A caller indents its own block to CodeColumn, so the number it is handed has
 // to be where Line actually puts the source rather than a second guess at it.
 func TestCodeColumnIsWhereTheSourceStarts(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	const code = "n = 4"
 
 	for _, widest := range []int{9, 120, 4210, 42100} {
@@ -94,7 +93,7 @@ func markerColumn(t *testing.T, p paint.Painter, l paint.Line, gutter int) int {
 // carrying a tint has to be painted to the last cell. Short of the width, the
 // block reads ragged down its right edge.
 func TestARowWithATintIsPaintedToTheFullWidth(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	tests := []struct {
 		name string
@@ -102,7 +101,7 @@ func TestARowWithATintIsPaintedToTheFullWidth(t *testing.T) {
 	}{
 		{"added", paint.Line{Kind: paint.Added, New: 12}},
 		{"removed", paint.Line{Kind: paint.Removed, Old: 11}},
-		{"context under a fill", paint.Line{Kind: paint.Context, Old: 11, New: 12, Fill: theme.RosePineMoon.SelectedBackground}},
+		{"context under a fill", paint.Line{Kind: paint.Context, Old: 11, New: 12, Fill: testTheme.SelectedBackground}},
 	}
 
 	for _, tt := range tests {
@@ -118,7 +117,7 @@ func TestARowWithATintIsPaintedToTheFullWidth(t *testing.T) {
 // A context line has no background to run out, and padding it would hand the
 // caller trailing cells it has to reason about.
 func TestAContextRowIsLeftShort(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	row := p.Line(paint.Line{Kind: paint.Context, Old: 11, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}, 2, 40)
 
 	if got := lipgloss.Width(row); got >= 40 {
@@ -127,14 +126,14 @@ func TestAContextRowIsLeftShort(t *testing.T) {
 }
 
 func TestFillBeatsTheKindTint(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
-	line := paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}, Fill: theme.RosePineMoon.SelectedBackground}
+	p := paint.Painter{Theme: testTheme}
+	line := paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}, Fill: testTheme.SelectedBackground}
 	row := p.Line(line, 2, 40)
 
-	if !strings.Contains(row, bgSeq(theme.RosePineMoon.SelectedBackground)) {
+	if !strings.Contains(row, bgSeq(testTheme.SelectedBackground)) {
 		t.Error("the fill is not on the row")
 	}
-	if strings.Contains(row, bgSeq(theme.RosePineMoon.AddedBackground)) {
+	if strings.Contains(row, bgSeq(testTheme.AddedBackground)) {
 		t.Error("the added tint painted over the fill")
 	}
 }
@@ -142,7 +141,7 @@ func TestFillBeatsTheKindTint(t *testing.T) {
 // A theme leaving a surface nil means "leave the terminal's own showing", and
 // handing that to Lipgloss is what breaks a transparent background.
 func TestARowTakesNoBackgroundFromAThemeThatDefinesNone(t *testing.T) {
-	bare := theme.Theme{Name: "bare", Text: theme.RosePineMoon.Text, Subtle: theme.RosePineMoon.Subtle}
+	bare := theme.Theme{Text: testTheme.Text, Subtle: testTheme.Subtle}
 	p := paint.Painter{Theme: bare}
 	row := p.Line(paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}, 2, 40)
 
@@ -170,7 +169,7 @@ func TestTabsExpandToTheTabWidth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := paint.Painter{Theme: theme.RosePineMoon, TabWidth: tt.width}
+			p := paint.Painter{Theme: testTheme, TabWidth: tt.width}
 			tabbed := row(p, "\tn")
 
 			if strings.Contains(tabbed, "\t") {
@@ -186,7 +185,7 @@ func TestTabsExpandToTheTabWidth(t *testing.T) {
 // A wrapped row of code puts its tail under the gutter and every row below it
 // out of step, so overflow is cut instead.
 func TestARowWiderThanThePaneIsClippedNotWrapped(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	long := strings.Repeat("n = 4; ", 20)
 	row := p.Line(paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: long}}}, 2, 24)
 
@@ -206,7 +205,7 @@ func TestARowWiderThanThePaneIsClippedNotWrapped(t *testing.T) {
 // rune and comes back a column short. Every odd width is a separate case,
 // because whether the remainder is one cell or two decides it.
 func TestAClippedRowWithWideRunesStillFillsTheWidth(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	for _, code := range []string{"日本語のコメントです", "🌱 seedling 🌱 seedling"} {
 		for width := 18; width <= 25; width++ {
@@ -256,7 +255,7 @@ func TestClipAlwaysMarksTheCut(t *testing.T) {
 // A marker holds its own column, so a marked heading and a bare one start their
 // text in the same place.
 func TestTheHunkHeaderStartsAtTheCodeColumn(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	// An emoji is two cells. Each slot takes the space after its glyph rather
 	// than a column of its own, or every row under the heading reads shifted.
@@ -280,20 +279,20 @@ func TestTheHunkHeaderStartsAtTheCodeColumn(t *testing.T) {
 // A badge takes a colour of its own, so a caller can run a ladder of states
 // where the quiet end is quiet. nil keeps the marker's accent.
 func TestABadgeTakesItsOwnColour(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	gutter := paint.Gutter(9)
 
 	// The text is already accent, so subtle appearing at all is the badge and
 	// nothing else. That is what makes either direction here worth asserting.
 	plain := p.HunkHeader(paint.Header{Text: "@@ -1,2 +1,3 @@", Badge: "○"}, gutter, 60)
-	if strings.Contains(plain, fgSeq(theme.RosePineMoon.Subtle)) {
+	if strings.Contains(plain, fgSeq(testTheme.Subtle)) {
 		t.Errorf("a badge with no colour took one anyway: %q", plain)
 	}
 
 	own := p.HunkHeader(paint.Header{
-		Text: "@@ -1,2 +1,3 @@", Badge: "○", BadgeColor: theme.RosePineMoon.Subtle,
+		Text: "@@ -1,2 +1,3 @@", Badge: "○", BadgeColor: testTheme.Subtle,
 	}, gutter, 60)
-	if !strings.Contains(own, fgSeq(theme.RosePineMoon.Subtle)) {
+	if !strings.Contains(own, fgSeq(testTheme.Subtle)) {
 		t.Errorf("the badge does not carry its own colour: %q", own)
 	}
 	if !strings.Contains(xansi.Strip(own), "○") {
@@ -304,23 +303,23 @@ func TestABadgeTakesItsOwnColour(t *testing.T) {
 // A heading the reader is not in is dimmed, so the column says which one they
 // are in rather than only which hunk is which.
 func TestAHeaderTakesItsOwnTextColour(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	gutter := paint.Gutter(9)
 
 	plain := p.HunkHeader(paint.Header{Text: "@@ -1,2 +1,3 @@", Marker: "\u25b8"}, gutter, 60)
-	if !strings.Contains(plain, fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(plain, fgSeq(testTheme.Accent)) {
 		t.Errorf("a header with no colour of its own is not accent: %q", plain)
 	}
 
 	// The marker goes with the text. A lit caret on a dimmed line reads as two
 	// things disagreeing about whether the reader is here.
 	own := p.HunkHeader(paint.Header{
-		Text: "@@ -1,2 +1,3 @@", Marker: "\u25b8", TextColor: theme.RosePineMoon.Muted,
+		Text: "@@ -1,2 +1,3 @@", Marker: "\u25b8", TextColor: testTheme.Muted,
 	}, gutter, 60)
-	if strings.Contains(own, fgSeq(theme.RosePineMoon.Accent)) {
+	if strings.Contains(own, fgSeq(testTheme.Accent)) {
 		t.Errorf("a dimmed header still paints accent somewhere: %q", own)
 	}
-	if !strings.Contains(own, fgSeq(theme.RosePineMoon.Muted)) {
+	if !strings.Contains(own, fgSeq(testTheme.Muted)) {
 		t.Errorf("the header does not carry its own colour: %q", own)
 	}
 	if !strings.Contains(xansi.Strip(own), "@@ -1,2 +1,3 @@") {
@@ -331,7 +330,7 @@ func TestAHeaderTakesItsOwnTextColour(t *testing.T) {
 // The badge sits in the two blank columns before the marker, so a heading says
 // what the cursor is on and what has been read without moving its text.
 func TestABadgeSitsLeftOfTheMarker(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	for _, widest := range []int{9, 120, 4210} {
 		gutter := paint.Gutter(widest)
@@ -356,7 +355,7 @@ func TestABadgeSitsLeftOfTheMarker(t *testing.T) {
 // A heading's marker goes in the column Line puts + and − in, so a mark on a
 // hunk lines up with the change marks under it.
 func TestAHeadersMarkerSitsInTheMarkerColumn(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	for _, widest := range []int{9, 120, 4210} {
 		gutter := paint.Gutter(widest)
@@ -372,15 +371,15 @@ func TestAHeadersMarkerSitsInTheMarkerColumn(t *testing.T) {
 // A filled heading is a block the same as a tinted row, and every styled run
 // ends in a reset that clears the background with it.
 func TestAFilledHeaderIsPaintedToTheFullWidth(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	header := p.HunkHeader(paint.Header{
-		Text: "@@ -11,4 +12,6 @@", Fill: theme.RosePineMoon.SelectedBackground,
+		Text: "@@ -11,4 +12,6 @@", Fill: testTheme.SelectedBackground,
 	}, 2, 40)
 
 	if got := lipgloss.Width(header); got != 40 {
 		t.Errorf("header width = %d, want the full 40", got)
 	}
-	if !strings.Contains(header, bgSeq(theme.RosePineMoon.SelectedBackground)) {
+	if !strings.Contains(header, bgSeq(testTheme.SelectedBackground)) {
 		t.Error("the fill is not on the heading")
 	}
 }
@@ -388,7 +387,7 @@ func TestAFilledHeaderIsPaintedToTheFullWidth(t *testing.T) {
 // A heading with no fill has no background to run out, the same as a context
 // row, and padding it would hand the caller trailing cells to reason about.
 func TestAHeaderWithNoFillIsLeftShort(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 
 	if got := lipgloss.Width(p.HunkHeader(paint.Header{Text: "@@ -11,4 +12,6 @@"}, 2, 40)); got >= 40 {
 		t.Errorf("header width = %d, want it to stop at the text", got)
@@ -412,7 +411,7 @@ func codeColumn(t *testing.T, p paint.Painter, gutter int) int {
 }
 
 func TestAHunkHeaderWiderThanThePaneIsClipped(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	header := p.HunkHeader(paint.Header{Text: "@@ -1,200 +1,240 @@ func AVeryLongEnclosingSymbolName()"}, 2, 24)
 
 	if got := lipgloss.Width(header); got != 24 {
@@ -426,11 +425,11 @@ func TestAHunkHeaderWiderThanThePaneIsClipped(t *testing.T) {
 // The cut takes the fill with it, or the block stops one cell short of the pane
 // edge and the row reads ragged where it was clipped.
 func TestAFilledHeaderWiderThanThePaneKeepsItsFillToTheEdge(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	header := p.HunkHeader(paint.Header{
 		Text:   "@@ -1,200 +1,240 @@ func AVeryLongEnclosingSymbolName()",
 		Marker: "▸",
-		Fill:   theme.RosePineMoon.SelectedBackground,
+		Fill:   testTheme.SelectedBackground,
 	}, 2, 24)
 
 	if got := lipgloss.Width(header); got != 24 {
@@ -448,7 +447,7 @@ func TestAFilledHeaderWiderThanThePaneKeepsItsFillToTheEdge(t *testing.T) {
 	if open < 0 {
 		t.Fatalf("the cut mark carries no style: %q", header)
 	}
-	if !strings.Contains(header[open:cut], bgSeq(theme.RosePineMoon.SelectedBackground)) {
+	if !strings.Contains(header[open:cut], bgSeq(testTheme.SelectedBackground)) {
 		t.Errorf("the cut mark lost the fill: %q", header)
 	}
 }
@@ -456,16 +455,16 @@ func TestAFilledHeaderWiderThanThePaneKeepsItsFillToTheEdge(t *testing.T) {
 // paint and syntax compose or neither is worth having: Chroma's colors have to
 // arrive as foregrounds over the row's own background.
 func TestRealChromaTokensPaintOverTheRowsBackground(t *testing.T) {
-	s, ok := syntax.New(theme.RosePineMoon.Syntax)
+	s, ok := syntax.New(testTheme.Syntax)
 	if !ok {
-		t.Fatalf("Chroma does not know %q", theme.RosePineMoon.Syntax)
+		t.Fatalf("Chroma does not know %q", testTheme.Syntax)
 	}
 
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	lines := s.Lines("a.go", "const n = 4")
 	row := p.Line(paint.Line{Kind: paint.Added, New: 12, Tokens: lines[0]}, 2, 40)
 
-	if got := strings.Count(row, bgSeq(theme.RosePineMoon.AddedBackground)); got < 3 {
+	if got := strings.Count(row, bgSeq(testTheme.AddedBackground)); got < 3 {
 		t.Errorf("the tint survives %d runs, want it under every token", got)
 	}
 	if got := xansi.Strip(row); !strings.Contains(got, "const n = 4") {
@@ -473,24 +472,18 @@ func TestRealChromaTokensPaintOverTheRowsBackground(t *testing.T) {
 	}
 }
 
-func bgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func bgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Background(c)) }
 
-func fgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
 // The bar takes the cell every row already holds open. A row that grew or
 // shifted under the cursor would move the source sideways as it passed.
 func TestTheBarCostsARowNoWidth(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	line := paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{{Text: "n = 4"}}}
 
 	plain := xansi.Strip(p.Line(line, 2, 40))
-	line.Bar = theme.RosePineMoon.Accent
+	line.Bar = testTheme.Accent
 	barred := xansi.Strip(p.Line(line, 2, 40))
 
 	if len([]rune(plain)) != len([]rune(barred)) {
@@ -504,11 +497,11 @@ func TestTheBarCostsARowNoWidth(t *testing.T) {
 // A heading takes the bar at the pane edge, and its marker stays in the column
 // the change marks under it use.
 func TestABarOnAHeadingLeavesTheMarkerColumnAlone(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	h := paint.Header{Text: "@@ -1,2 +1,3 @@", Marker: "▸"}
 
 	plain := xansi.Strip(p.HunkHeader(h, 2, 40))
-	h.Bar = theme.RosePineMoon.Accent
+	h.Bar = testTheme.Accent
 	barred := xansi.Strip(p.HunkHeader(h, 2, 40))
 
 	if want := "▌" + strings.TrimPrefix(plain, " "); barred != want {
@@ -519,7 +512,7 @@ func TestABarOnAHeadingLeavesTheMarkerColumnAlone(t *testing.T) {
 // A Half is always exactly its width, tinted or not. Line leaves that to the
 // pane; a half short of its width puts the column beside it out of step.
 func TestEveryHalfIsExactlyItsWidth(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	long := []syntax.Token{{Text: strings.Repeat("n = 4; ", 20)}}
 
 	lines := []paint.Line{
@@ -542,7 +535,7 @@ func TestEveryHalfIsExactlyItsWidth(t *testing.T) {
 // HalfColumn is where Half actually puts the source, the way CodeColumn is for
 // Line. A caller hanging a heading or a card off it indents to the number.
 func TestHalfColumnIsWhereAHalfsSourceStarts(t *testing.T) {
-	p := paint.Painter{Theme: theme.RosePineMoon}
+	p := paint.Painter{Theme: testTheme}
 	const code = "n = 4"
 
 	for _, widest := range []int{9, 120, 4210, 42100} {
@@ -559,4 +552,18 @@ func TestHalfColumnIsWhereAHalfsSourceStarts(t *testing.T) {
 				gutter, at, paint.HalfColumn(gutter))
 		}
 	}
+}
+
+// sgrParams is the parameter run lipgloss emits for a style, read back off a
+// rendered cell rather than rebuilt from the color. A slot goes over the wire as
+// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
+// doing the arithmetic itself asserts against a sequence the app never writes.
+func sgrParams(s lipgloss.Style) string {
+	out := s.Render("x")
+	end := strings.Index(out, "m")
+	if end < 0 {
+		// NoColor is the terminal's own, and nothing is written for it.
+		return ""
+	}
+	return out[len("\x1b["):end]
 }

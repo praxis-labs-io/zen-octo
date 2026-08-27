@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"hash/fnv"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
+	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
@@ -169,9 +171,25 @@ func markdownStyle(th theme.Theme) ansi.StyleConfig {
 
 // hex renders a theme color the way glamour wants it. Its style config is JSON
 // shaped, so colors arrive as strings rather than as color.Color.
+//
+// A slot goes over as its index rather than as a hex. Glamour feeds the string
+// straight to lipgloss.Color, which reads a bare number back into the same slot,
+// where a hex would pin it to the canonical value and stop the palette reaching
+// rendered markdown. NoColor is the terminal's own foreground and has no
+// spelling here at all: its RGBA is black, so writing it out would render every
+// paragraph in the app black.
 func hex(c color.Color) *string {
-	if c == nil {
+	switch c := c.(type) {
+	case nil:
 		return nil
+	case lipgloss.NoColor:
+		return nil
+	case xansi.BasicColor:
+		s := strconv.Itoa(int(c))
+		return &s
+	case xansi.IndexedColor:
+		s := strconv.Itoa(int(c))
+		return &s
 	}
 	r, g, b, _ := c.RGBA()
 	s := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)

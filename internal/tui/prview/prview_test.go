@@ -19,7 +19,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 const sampleURL = "https://github.com/praxis-labs-io/zen-octo/pull/412"
@@ -40,7 +39,7 @@ func samplePR() gh.PullRequest {
 // default theme names, so the colors a diff test asserts are the ones a reader
 // sees.
 func colorizer() syntax.Syntax {
-	s, _ := syntax.New(theme.RosePineMoon.Syntax)
+	s, _ := syntax.New(testTheme.Syntax)
 	return s
 }
 
@@ -56,7 +55,7 @@ func screen(width, height int) prview.Model { return press(onOpen(width, height)
 func onOpen(width, height int) prview.Model { return sized(samplePR(), width, height) }
 
 func sized(pr gh.PullRequest, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, pr, prview.RailPreference{}, colorizer())
 	m.SetSize(width, height)
 	return m
 }
@@ -68,10 +67,7 @@ func press(m prview.Model, keys ...string) prview.Model {
 	return m
 }
 
-func fgSeq(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-}
+func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
 func TestTheFrameFillsItsSizeExactly(t *testing.T) {
 	sizes := []struct{ width, height int }{
@@ -215,8 +211,8 @@ func TestTheHeaderCarriesChecksAndReviewWhateverTheRailDoes(t *testing.T) {
 // unambiguous place to read it.
 func TestFocusMovesBetweenThePanes(t *testing.T) {
 	var (
-		focused = fgSeq(theme.RosePineMoon.Accent)
-		idle    = fgSeq(theme.RosePineMoon.BorderSubtle)
+		focused = fgSeq(testTheme.Accent)
+		idle    = fgSeq(testTheme.BorderSubtle)
 	)
 
 	m := screen(200, 30)
@@ -240,7 +236,7 @@ func TestFocusMovesBetweenThePanes(t *testing.T) {
 func TestFocusLeavesTheRailWhenTheRailDoes(t *testing.T) {
 	hidden := press(screen(200, 30), "h", "d") // focus the rail, then hide it
 
-	if got := conversationBorder(t, hidden.View()); got != fgSeq(theme.RosePineMoon.Accent) {
+	if got := conversationBorder(t, hidden.View()); got != fgSeq(testTheme.Accent) {
 		t.Errorf("conversation border = %s, want focus back on it once the rail went away", got)
 	}
 }
@@ -320,7 +316,7 @@ func TestTheBranchLineClipsTheHeadRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 
 	// Narrow enough that this branch overruns the header. The header measures
@@ -718,7 +714,7 @@ func detailed(d store.Detail, width, height int) prview.Model {
 
 // opened is the screen as a reader meets it: the leading pane has the keys.
 func opened(d store.Detail, width, height int) prview.Model {
-	m := prview.New(theme.RosePineMoon, samplePR(), prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetDetail(d)
 	m.SetSize(width, height)
 	return m
@@ -1011,9 +1007,9 @@ func TestTheRailNamesEveryCheck(t *testing.T) {
 		state string
 		color color.Color
 	}{
-		{state: "passing", color: theme.RosePineMoon.Success},
-		{state: "running", color: theme.RosePineMoon.Warning},
-		{state: "skipped", color: theme.RosePineMoon.Subtle},
+		{state: "passing", color: testTheme.Success},
+		{state: "running", color: testTheme.Warning},
+		{state: "skipped", color: testTheme.Subtle},
 	} {
 		if !marks[fgSeq(want.color)] {
 			t.Errorf("no %s check is marked in its own color", want.state)
@@ -1056,7 +1052,7 @@ func TestTheChangesRowIsOneLineMarkedWithAGlyph(t *testing.T) {
 // chosen against a white browser page, so a pale label vanishes on a dark
 // terminal and no theme can reach it.
 func TestALabelTakesTheThemesAccent(t *testing.T) {
-	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(detailed(held(sampleDetail()), 200, 40).View(), fgSeq(testTheme.Accent)) {
 		t.Error("the label is not in the theme's accent")
 	}
 }
@@ -1248,7 +1244,7 @@ func TestALongHeaderHoldsItsMeasure(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 	m.SetSize(150, 30)
 
@@ -1270,7 +1266,7 @@ func TestALongHeaderHoldsItsMeasure(t *testing.T) {
 func TestTheNumberLeadsTheTitleInTheAccent(t *testing.T) {
 	out := detailed(held(sampleDetail()), 200, 30).View()
 
-	if !strings.Contains(out, "1;"+fgSeq(theme.RosePineMoon.Accent)+"m#412") {
+	if !strings.Contains(out, "1;"+fgSeq(testTheme.Accent)+"m#412") {
 		t.Error("the number does not lead the title in the accent")
 	}
 	if !strings.Contains(stripANSI(out), "#412 Fix the auth retry backoff loop") {
@@ -1487,10 +1483,10 @@ func TestTheChurnSitsAtTheEndOfTheTitleLine(t *testing.T) {
 	if got := titleRow(t, out); !strings.HasSuffix(got, "+42 −7") {
 		t.Errorf("title line = %q, want the churn pushed to the far edge", got)
 	}
-	if !strings.Contains(out, fgSeq(theme.RosePineMoon.Success)+"m+42") {
+	if !strings.Contains(out, fgSeq(testTheme.Success)+"m+42") {
 		t.Error("additions are not in the success color")
 	}
-	if !strings.Contains(out, fgSeq(theme.RosePineMoon.Error)+"m−7") {
+	if !strings.Contains(out, fgSeq(testTheme.Error)+"m−7") {
 		t.Error("deletions are not in the error color")
 	}
 
@@ -1510,7 +1506,7 @@ func TestALongTitleClipsRatherThanPushingTheChurnOff(t *testing.T) {
 	d := sampleDetail()
 	d.PullRequest = pr
 
-	m := prview.New(theme.RosePineMoon, pr, prview.RailPreference{}, colorizer())
+	m := prview.New(testTheme, pr, prview.RailPreference{}, colorizer())
 	m.SetDetail(held(d))
 	m.SetSize(200, 30)
 
@@ -2061,9 +2057,9 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 		state string
 		color color.Color
 	}{
-		{row: "● @nkr", state: "waiting on a change", color: theme.RosePineMoon.Error},
-		{row: "● @octobot", state: "done with it", color: theme.RosePineMoon.Success},
-		{row: "● @zen-octo/maintainers", state: "in flight", color: theme.RosePineMoon.Warning},
+		{row: "● @nkr", state: "waiting on a change", color: testTheme.Error},
+		{row: "● @octobot", state: "done with it", color: testTheme.Success},
+		{row: "● @zen-octo/maintainers", state: "in flight", color: testTheme.Warning},
 	}
 	for i, w := range want {
 		if got := rows[at+1+i]; got != w.row {
@@ -2088,22 +2084,22 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 		{
 			name:     "commented with nothing outstanding",
 			reviewer: gh.Reviewer{State: gh.ReviewStateCommented},
-			color:    theme.RosePineMoon.Subtle,
+			color:    testTheme.Subtle,
 		},
 		{
 			name:     "commented with a thread still open",
 			reviewer: gh.Reviewer{State: gh.ReviewStateCommented, Unresolved: 2},
-			color:    theme.RosePineMoon.Error,
+			color:    testTheme.Error,
 		},
 		{
 			name:     "approved",
 			reviewer: gh.Reviewer{State: gh.ReviewStateApproved},
-			color:    theme.RosePineMoon.Success,
+			color:    testTheme.Success,
 		},
 		{
 			name:     "asked and silent",
 			reviewer: gh.Reviewer{},
-			color:    theme.RosePineMoon.Subtle,
+			color:    testTheme.Subtle,
 		},
 	}
 
@@ -2362,4 +2358,18 @@ func TestALongThreadHunkIsCutToItsTail(t *testing.T) {
 	if !strings.Contains(out, "line30") {
 		t.Error("the line the comment is about is missing")
 	}
+}
+
+// sgrParams is the parameter run lipgloss emits for a style, read back off a
+// rendered cell rather than rebuilt from the color. A slot goes over the wire as
+// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
+// doing the arithmetic itself asserts against a sequence the app never writes.
+func sgrParams(s lipgloss.Style) string {
+	out := s.Render("x")
+	end := strings.Index(out, "m")
+	if end < 0 {
+		// NoColor is the terminal's own, and nothing is written for it.
+		return ""
+	}
+	return out[len("\x1b["):end]
 }

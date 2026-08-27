@@ -7,7 +7,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/golden"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // These goldens keep their escapes, where the frame ones are stripped: what a
@@ -21,15 +20,15 @@ func compare(t *testing.T, name, got string) {
 // what the painter did and not what a lexer version thought of a line.
 func tokens() []syntax.Token {
 	return []syntax.Token{
-		{Text: "const ", Color: theme.RosePineMoon.Accent},
-		{Text: "n", Color: theme.RosePineMoon.Text},
+		{Text: "const ", Color: testTheme.Accent},
+		{Text: "n", Color: testTheme.Text},
 		{Text: " = "},
-		{Text: "4", Color: theme.RosePineMoon.Warning},
+		{Text: "4", Color: testTheme.Warning},
 	}
 }
 
 func painter() paint.Painter {
-	return paint.Painter{Theme: theme.RosePineMoon}
+	return paint.Painter{Theme: testTheme}
 }
 
 func TestGoldenLines(t *testing.T) {
@@ -45,7 +44,7 @@ func TestGoldenLines(t *testing.T) {
 			"tabs",
 			paint.Line{Kind: paint.Context, Old: 11, New: 12, Tokens: []syntax.Token{
 				{Text: "\t"},
-				{Text: "return", Color: theme.RosePineMoon.Accent},
+				{Text: "return", Color: testTheme.Accent},
 				{Text: "\tnil"},
 			}},
 			40,
@@ -53,7 +52,7 @@ func TestGoldenLines(t *testing.T) {
 		{
 			"clipped",
 			paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{
-				{Text: "if err != nil { return fmt.Errorf(\"painting: %w\", err) }", Color: theme.RosePineMoon.Text},
+				{Text: "if err != nil { return fmt.Errorf(\"painting: %w\", err) }", Color: testTheme.Text},
 			}},
 			24,
 		},
@@ -62,13 +61,13 @@ func TestGoldenLines(t *testing.T) {
 		{
 			"clipped_wide",
 			paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{
-				{Text: "// 日本語のコメント", Color: theme.RosePineMoon.Subtle},
+				{Text: "// 日本語のコメント", Color: testTheme.Subtle},
 			}},
 			21,
 		},
 		{
 			"fill_override",
-			paint.Line{Kind: paint.Added, New: 12, Tokens: tokens(), Fill: theme.RosePineMoon.SelectedBackground},
+			paint.Line{Kind: paint.Added, New: 12, Tokens: tokens(), Fill: testTheme.SelectedBackground},
 			40,
 		},
 		{"wide_gutter", paint.Line{Kind: paint.Context, Old: 1234, New: 1235, Tokens: tokens()}, 40},
@@ -80,8 +79,8 @@ func TestGoldenLines(t *testing.T) {
 				Kind:   paint.Added,
 				New:    12,
 				Tokens: tokens(),
-				Fill:   theme.RosePineMoon.SelectedBackground,
-				Bar:    theme.RosePineMoon.Accent,
+				Fill:   testTheme.SelectedBackground,
+				Bar:    testTheme.Accent,
 			},
 			40,
 		},
@@ -128,13 +127,13 @@ func TestGoldenHalves(t *testing.T) {
 		{
 			"half_clipped",
 			paint.Line{Kind: paint.Added, New: 120, Tokens: []syntax.Token{
-				{Text: "if err != nil { return err }", Color: theme.RosePineMoon.Text},
+				{Text: "if err != nil { return err }", Color: testTheme.Text},
 			}},
 			14,
 		},
 		{
 			"half_filled",
-			paint.Line{Kind: paint.Context, New: 120, Tokens: tokens(), Fill: theme.RosePineMoon.SelectedBackground},
+			paint.Line{Kind: paint.Context, New: 120, Tokens: tokens(), Fill: testTheme.SelectedBackground},
 			26,
 		},
 		{
@@ -143,8 +142,8 @@ func TestGoldenHalves(t *testing.T) {
 				Kind:   paint.Added,
 				New:    120,
 				Tokens: tokens(),
-				Fill:   theme.RosePineMoon.SelectedBackground,
-				Bar:    theme.RosePineMoon.Accent,
+				Fill:   testTheme.SelectedBackground,
+				Bar:    testTheme.Accent,
 			},
 			26,
 		},
@@ -170,8 +169,8 @@ func TestGoldenHalfHeader(t *testing.T) {
 	compare(t, "half_header", painter().HalfHeader(paint.Header{
 		Text:  "@@ -11,4 +12,6 @@ func Paint()",
 		Badge: "○",
-		Fill:  theme.RosePineMoon.SelectedBackground,
-		Bar:   theme.RosePineMoon.Accent,
+		Fill:  testTheme.SelectedBackground,
+		Bar:   testTheme.Accent,
 	}, paint.Gutter(120), 40))
 }
 
@@ -185,7 +184,7 @@ func TestGoldenHunkHeaderMarked(t *testing.T) {
 	compare(t, "hunk_header_marked", painter().HunkHeader(paint.Header{
 		Text:   "@@ -11,4 +12,6 @@ func Paint()",
 		Marker: "▸",
-		Fill:   theme.RosePineMoon.SelectedBackground,
+		Fill:   testTheme.SelectedBackground,
 	}, paint.Gutter(1235), 40))
 }
 
@@ -195,8 +194,8 @@ func TestGoldenHunkHeaderBarred(t *testing.T) {
 	compare(t, "hunk_header_barred", painter().HunkHeader(paint.Header{
 		Text:  "@@ -11,4 +12,6 @@ func Paint()",
 		Badge: "●",
-		Fill:  theme.RosePineMoon.SelectedBackground,
-		Bar:   theme.RosePineMoon.Accent,
+		Fill:  testTheme.SelectedBackground,
+		Bar:   testTheme.Accent,
 	}, paint.Gutter(1235), 40))
 }
 
@@ -206,6 +205,6 @@ func TestGoldenHunkHeaderBadged(t *testing.T) {
 		Text:   "@@ -11,4 +12,6 @@ func Paint()",
 		Marker: "▸",
 		Badge:  "●",
-		Fill:   theme.RosePineMoon.SelectedBackground,
+		Fill:   testTheme.SelectedBackground,
 	}, paint.Gutter(1235), 40))
 }

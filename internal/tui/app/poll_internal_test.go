@@ -16,7 +16,7 @@ const settleBudget = time.Second
 // The chain is invisible from outside this package, which drops a tea.Tick: from
 // there an armed beat and one never armed look exactly the same.
 func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
-	m := New(pollConfig(), Mock{})
+	m := New(pollConfig(), Mock{}, testBG)
 
 	if !carries[pollTickMsg](m.Init(), pollBeat+time.Second) {
 		t.Error("nothing at startup arms the background beat, so nothing ever polls")
@@ -26,7 +26,7 @@ func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
 // Every beat arms the next, and this beat asks for nothing: no section has
 // answered yet. A chain that ended where it found no work would never restart.
 func TestABeatArmsTheNextEvenHavingAskedForNothing(t *testing.T) {
-	m := New(pollConfig(), Mock{})
+	m := New(pollConfig(), Mock{}, testBG)
 
 	_, cmd := m.Update(pollTickMsg{at: time.Now()})
 	if cmd == nil {
@@ -172,5 +172,5 @@ func onTheChecksTab(t *testing.T) Model {
 }
 
 func pollConfig() *config.Config {
-	return &config.Config{Defaults: config.Defaults{PRsLimit: 20}, Theme: "rose-pine-moon"}
+	return &config.Config{Defaults: config.Defaults{PRsLimit: 20}}
 }

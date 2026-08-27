@@ -19,7 +19,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // editorFixture is a detail screen with one answerable thread on it.
@@ -42,8 +41,8 @@ func editorFixture(t *testing.T) Model {
 		}},
 	}
 
-	syn, _ := syntax.New(theme.RosePineMoon.Syntax)
-	m := New(theme.RosePineMoon, d.PullRequest, RailPreference{}, syn)
+	syn, _ := syntax.New(testTheme.Syntax)
+	m := New(testTheme, d.PullRequest, RailPreference{}, syn)
 	m.SetDetail(store.Detail{Detail: d, Status: store.StatusReady, Loaded: true})
 	m.SetSize(200, 60)
 	// The rail leads on arrival; these tests are about the page beside it.

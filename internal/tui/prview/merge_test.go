@@ -10,7 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // mergeableDetail is the sample with a merge on offer: clean, with the head
@@ -592,7 +591,7 @@ func boxWidth(box string) int {
 func TestOnlyTheChosenMethodIsNotMuted(t *testing.T) {
 	frame := openMerge(t).View()
 
-	faint, primary := fgSeq(theme.RosePineMoon.Subtle), fgSeq(theme.RosePineMoon.Text)
+	faint, primary := fgSeq(testTheme.Subtle), fgSeq(testTheme.Text)
 
 	if got := colorBefore(t, frame, "Squash and merge"); got != primary {
 		t.Errorf("the chosen method renders in %s, want the primary colour %s", got, primary)
@@ -622,17 +621,28 @@ func colorBefore(t *testing.T, frame, needle string) string {
 
 	var color string
 	for _, m := range sgr.FindAllStringSubmatch(frame[:at], -1) {
-		for _, part := range strings.Split(m[1], ";") {
-			if part == "0" {
-				color = ""
-			}
+		// A bare CSI m is a reset, and it is the one lipgloss actually writes.
+		// Reading only "0" left the previous run's colour standing, which went
+		// unnoticed while every colour here was a truecolor that overwrote it.
+		if m[1] == "" {
+			color = ""
 		}
-		// The five parts of the colour and no more. Lipgloss packs bold into the
-		// same escape, and a heading that is bold as well as coloured must not
-		// read as a different colour for it.
-		if at := strings.Index(m[1], "38;2;"); at >= 0 {
-			if parts := strings.Split(m[1][at:], ";"); len(parts) >= 5 {
-				color = strings.Join(parts[:5], ";")
+		parts := strings.Split(m[1], ";")
+		for i := 0; i < len(parts); i++ {
+			switch p := parts[i]; {
+			case p == "0", p == "39":
+				// 39 is the terminal's own foreground, which is what a theme
+				// leaving Text unset asks for, so it reads as no colour at all.
+				color = ""
+			case p == "38" && i+4 < len(parts) && parts[i+1] == "2":
+				color = strings.Join(parts[i:i+5], ";")
+				i += 4
+			case p == "38" && i+2 < len(parts) && parts[i+1] == "5":
+				color = strings.Join(parts[i:i+3], ";")
+				i += 2
+			case len(p) == 2 && (p[0] == '3' || p[0] == '9') && p[1] >= '0' && p[1] <= '7':
+				// A slot, which is how every hue reaches the terminal now.
+				color = p
 			}
 		}
 	}

@@ -59,19 +59,53 @@ How many rows a section fetches. The ceiling is 100.
 
 ## Theme
 
+The chrome is derived from your terminal rather than picked from a list. The
+hues are ANSI slots, so they are whatever your palette maps them to; the
+shades and surfaces are blended from the background your terminal reports when
+zen-octo starts, so they sit just above it whether it is light or dark. There
+is nothing to configure to get this.
+
 ```yaml
-theme: rose-pine-moon
+theme:
+  accent: "#c4a7e7"
+  error: "1"
+transparent: false
 syntaxTheme: ""
 ```
 
-`theme` is the palette the chrome is drawn in. One ships today,
-`rose-pine-moon`, which is also the default. A name that is not registered
-degrades to the default rather than failing to start, so a typo leaves you with
-a working app.
+`theme` is a set of overrides for the colors it got wrong, every key optional
+and layered over what was derived. A value is a hex like `"#c4a7e7"` or an ANSI
+index like `"5"`, which is worth preferring: an index follows your palette where
+a hex pins the color to itself. A key that is not a color, or a color that will
+not parse, is reported with its name.
 
-`syntaxTheme` is a separate question: the palette code is highlighted with. It
-stays empty by default, because a theme already names the one that matches it.
-Set it only to override that pairing.
+The keys are `text`, `accent`, `subtle`, `muted`, `inverted`, `success`,
+`warning`, `error`, `actor`, `background`, `selectedBackground`,
+`addedBackground`, `removedBackground`, `border`, `borderSubtle` and
+`borderMuted`.
+
+`theme` used to be a name. If yours still says `theme: rose-pine-moon`, zen-octo
+starts and says so rather than refusing; there is one theme now and it is yours.
+
+### Transparency
+
+`transparent: true` stops zen-octo painting the cursor line and the diff's green
+and red washes, for a terminal running translucent where an opaque row is the
+thing that spoils it. The background is never painted either way. What you give
+up is real: a changed line is read as a block, and the bar in the leading cell
+and the `+` and `−` markers are what carry it once the wash is gone.
+
+This is also what happens when a terminal does not answer the background query
+at all, since a surface guessed against an unknown background lands invisible
+about as often as not.
+
+### Syntax
+
+`syntaxTheme` is a separate question: the palette code is highlighted with.
+Chroma's styles are all truecolor and none of them is your terminal, so this is
+the one thing that cannot follow your palette. Left empty it pairs against your
+background, `github-dark` on a dark terminal and `github` on a light one. Set it
+to any Chroma style name to override that.
 
 ## A bad config
 

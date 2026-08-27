@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func tick(t *testing.T, cmd tea.Cmd) spinner.TickMsg {
@@ -27,7 +26,7 @@ func tick(t *testing.T, cmd tea.Cmd) spinner.TickMsg {
 // The chain has to end itself. Nothing else stops it, and a spinner turning
 // over a screen that already has its answer is a lie about what is happening.
 func TestTheChainRunsWhileLoadingAndStopsWhenItIsNot(t *testing.T) {
-	s := comp.NewSpinner(theme.RosePineMoon)
+	s := comp.NewSpinner(testTheme)
 
 	first := s.Render("")
 	next := s.Advance(tick(t, s.Tick()), true)
@@ -47,8 +46,8 @@ func TestTheChainRunsWhileLoadingAndStopsWhenItIsNot(t *testing.T) {
 // Without the tag check each would advance the other and the pair would run at
 // double speed.
 func TestASpinnerIgnoresAnotherSpinnersTick(t *testing.T) {
-	mine := comp.NewSpinner(theme.RosePineMoon)
-	theirs := comp.NewSpinner(theme.RosePineMoon)
+	mine := comp.NewSpinner(testTheme)
+	theirs := comp.NewSpinner(testTheme)
 
 	before := mine.Render("")
 	if cmd := mine.Advance(tick(t, theirs.Tick()), true); cmd != nil {
@@ -60,7 +59,7 @@ func TestASpinnerIgnoresAnotherSpinnersTick(t *testing.T) {
 }
 
 func TestALabelSitsBesideTheGlyph(t *testing.T) {
-	s := comp.NewSpinner(theme.RosePineMoon)
+	s := comp.NewSpinner(testTheme)
 
 	bare := s.Render("")
 	labelled := s.Render("Loading pull requests")
@@ -77,16 +76,16 @@ func TestALabelSitsBesideTheGlyph(t *testing.T) {
 // those are rendered in reads as one more hint rather than as something
 // happening.
 func TestTheAccentLabelIsNotTheMutedOne(t *testing.T) {
-	s := comp.NewSpinner(theme.RosePineMoon)
+	s := comp.NewSpinner(testTheme)
 
 	accent := s.RenderAccent("Refreshing")
-	if !strings.Contains(accent, fgSeq(theme.RosePineMoon.Accent)) {
+	if !strings.Contains(accent, fgSeq(testTheme.Accent)) {
 		t.Errorf("RenderAccent() = %q, want the label in the accent", accent)
 	}
-	if strings.Contains(accent, fgSeq(theme.RosePineMoon.Subtle)) {
+	if strings.Contains(accent, fgSeq(testTheme.Subtle)) {
 		t.Errorf("RenderAccent() = %q, want nothing left in the muted grey", accent)
 	}
-	if got := s.Render("Refreshing"); !strings.Contains(got, fgSeq(theme.RosePineMoon.Subtle)) {
+	if got := s.Render("Refreshing"); !strings.Contains(got, fgSeq(testTheme.Subtle)) {
 		t.Errorf("Render() = %q, want the label still receding", got)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 // filled builds a base frame of a single repeated rune, so anything of that
@@ -21,7 +20,7 @@ func filled(r string, width, height int) string {
 }
 
 func TestOverKeepsTheFrameSize(t *testing.T) {
-	got := comp.Over(filled("X", 60, 20), comp.Modal(theme.RosePineMoon, "Help", "j  down\nk  up"), 60, 20)
+	got := comp.Over(filled("X", 60, 20), comp.Modal(testTheme, "Help", "j  down\nk  up"), 60, 20)
 
 	lines := strings.Split(got, "\n")
 	if len(lines) != 20 {
@@ -36,7 +35,7 @@ func TestOverKeepsTheFrameSize(t *testing.T) {
 
 func TestOverDoesNotLetTheLayerBeneathShowThrough(t *testing.T) {
 	const w, h = 60, 20
-	modal := comp.Modal(theme.RosePineMoon, "Help", "j  down\nk  up\nq  quit")
+	modal := comp.Modal(testTheme, "Help", "j  down\nk  up\nq  quit")
 	mw, mh := lipgloss.Size(modal)
 
 	got := comp.Over(filled("X", w, h), modal, w, h)
@@ -56,7 +55,7 @@ func TestOverDoesNotLetTheLayerBeneathShowThrough(t *testing.T) {
 }
 
 func TestOverLeavesTheBaseVisibleAroundTheModal(t *testing.T) {
-	got := comp.Over(filled("X", 60, 20), comp.Modal(theme.RosePineMoon, "Help", "j  down"), 60, 20)
+	got := comp.Over(filled("X", 60, 20), comp.Modal(testTheme, "Help", "j  down"), 60, 20)
 
 	if !strings.Contains(stripANSI(strings.Split(got, "\n")[0]), "XXXX") {
 		t.Error("the top row lost the base, want the modal to cover only its own rectangle")
@@ -65,7 +64,7 @@ func TestOverLeavesTheBaseVisibleAroundTheModal(t *testing.T) {
 
 func TestOverCentersTheModal(t *testing.T) {
 	const w, h = 60, 20
-	modal := comp.Modal(theme.RosePineMoon, "Help", "j  down\nk  up")
+	modal := comp.Modal(testTheme, "Help", "j  down\nk  up")
 	mw, mh := lipgloss.Size(modal)
 
 	lines := strings.Split(comp.Over(filled("·", w, h), modal, w, h), "\n")

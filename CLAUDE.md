@@ -1107,7 +1107,60 @@ A reaction is a fourth kind of write rather than a `CommentWrite` carrying one, 
 
 An `Edit` settles by writing GitHub's answer into the held detail and then dropping itself, and the answer is stale only against a later write on the same field: `editField` is what keeps a label set landing mid-lifecycle-change from being thrown away. The reviewer panel is the exception, and `dropEdit` hands the write back for it. There is no answer worth taking, because the endpoint reports the outstanding requests and nothing about who has already reviewed, so the write's own optimistic panel is promoted into the held detail instead. Dropping it and waiting for the refetch would put the fetched panel back for the length of a round trip, which reads as the write undoing itself.
 
-Code is highlighted from a Chroma style named by the theme (`Theme.Syntax`), overridable with `syntaxTheme` in config. `internal/tui/comp.Syntax` returns colored tokens rather than rendered text: Chroma's own terminal formatter writes resets that would tear a row's background open.
+**There is one theme and it is derived, not written down.** `theme.Terminal`
+takes the background the terminal reported and builds every token from it. The
+hues are ANSI slots, so they are whatever the reader's palette maps them to,
+which is the whole of the feature: the client matches the terminal without being
+configured. The shades and the surfaces are blended off the background instead,
+and the split is deliberate. A palette's identity lives in its hues; greys are
+structural and only have to stay legible, which a slot cannot promise. A
+terminal is free to map slot 8 onto slot 0, and nothing here could tell, because
+**a slot's `RGBA()` is the canonical value rather than what the terminal did with
+it.** So a slot may be painted and must not be blended. The two diff tints are
+the one place that bites: they are a standard-green and standard-red wash over
+the real background rather than a wash in the reader's own, and no arithmetic on
+this side can fix it. Reading the true palette would take an OSC 4 query per
+slot, which is not worth it for a tint.
+
+`Text` is `NoColor{}`, the terminal's own foreground, because nothing matches a
+reader's palette as exactly as the palette. It writes no escape at all, which is
+worth knowing before a test asserts a sequence for it.
+
+**The background is asked for once, synchronously, before Bubble Tea takes the
+tty.** `lipgloss.BackgroundColor` in `run` already does the raw-mode dance and
+already ends on the terminal's device-attributes reply, so anything that answers
+answers at once. That timing is what keeps the theme built once in `app.New` and
+threaded by value: no screen gains a `SetTheme`, and the first frame is already
+the right colors. The async route through `tea.RequestBackgroundColor` would also
+supply the foreground, but the foreground is never needed, and it would cost four
+setters and a visible repaint.
+
+**Nothing answering means no painted surface, not a guessed one**, which is the
+same path `transparent: true` takes. Slot 0 is the background on a great many
+dark palettes, so a selection painted in it is invisible exactly where it was
+needed; the bar glyph and the `+` and `−` markers carry it instead. Borders are
+drawn runes rather than fills, so those do fall back to a slot. `paint` and
+lipgloss both treat a nil background as "paint none", so this needed no work at
+any of the sixteen call sites.
+
+`theme:` in config is a set of token overrides layered on the derived theme
+rather than a name. It tolerates a scalar, because `theme: rose-pine-moon` is on
+disk for anyone running the last release and refusing to start over a color
+scheme is the wrong trade; `Overrides.Named` carries it up to the notice.
+
+Code is the exception and cannot follow the palette: Chroma's styles are all
+truecolor and none of them is the terminal's. `Theme.Syntax` pairs one against
+the background instead, `github-dark` on a dark terminal and `github` on a
+light one, overridable with `syntaxTheme` in config. `internal/tui/syntax`
+returns colored tokens rather than rendered text: Chroma's own terminal
+formatter writes resets that would tear a row's background open.
+
+**Anything spelling a theme color out for a third party has to keep a slot a
+slot.** `comp.hex` feeds glamour, whose style config is JSON-shaped, and glamour
+passes the string to `lipgloss.Color`, which reads a bare number back into the
+same slot. A hex there would pin the color and stop the palette reaching
+rendered markdown. `NoColor` gets no spelling at all, since its `RGBA()` is
+black and writing it out renders every paragraph in the app black.
 
 **There is one cursor, and the terminal draws it.** Every text input reports
 where the next character lands and none of them draws a caret: `tea.View`
