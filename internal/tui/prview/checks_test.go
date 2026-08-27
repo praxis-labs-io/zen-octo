@@ -838,3 +838,36 @@ func TestTheChecksTabHasNoCursorUntilTheSearchOpens(t *testing.T) {
 		t.Error("no cursor once the search has the keyboard")
 	}
 }
+
+// A status context carries no job, so a failing one has no log to jump into and
+// f never answers on it. The check's own state says it failed, which is half
+// the question; a line built on that half alone named a key that was inert for
+// the rest of the session rather than for the length of a fetch.
+func TestFirstFailureIsOfferedOnlyWhereThereIsALogToJumpInto(t *testing.T) {
+	r := checkRollup()
+	r.Checks[3].State = gh.CheckStateFailure // codecov, a status context: no JobID
+
+	tests := []struct {
+		name string
+		to   []string
+		want bool
+	}{
+		{name: "a failed job", to: []string{"j", "j", "j"}, want: true},
+		{name: "a failed status context", to: []string{"j", "j", "j", "j"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(overRollup(r, 160, 24), tt.to...)
+			found := false
+			for _, binding := range m.ShortHelp() {
+				if binding.Help().Desc == "first failure" {
+					found = true
+				}
+			}
+			if found != tt.want {
+				t.Errorf("first failure offered = %v, want %v", found, tt.want)
+			}
+		})
+	}
+}

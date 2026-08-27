@@ -49,20 +49,45 @@ func (s StatusBar) Render(left, right string) string { return s.render(left, rig
 // reminder of keys that go on working whether or not they are on the line.
 func (s StatusBar) RenderMessage(left, right string) string { return s.render(left, right, true) }
 
+// barPad is the space held either side of the line, and barGap the least the
+// bar keeps between its two halves.
+const (
+	barPad = 1
+	barGap = 2
+)
+
+// Room is how wide the left side may be under Render, and MessageRoom the same
+// under RenderMessage. They are the caller's to ask because the left has to be
+// built to fit before the bar sees it: render takes two finished strings, so by
+// the time it can measure an overrun the only cut left to it is through the
+// middle of a word.
+//
+// Two methods rather than one taking the other side, because the two calls do
+// not weigh the sides the same way and a single answer would be wrong for one
+// of them. Under Render the left wins outright and the readout is clipped to
+// whatever is left over, so what is beside it does not enter into it. Under
+// RenderMessage the message wins, and the left pays for it and for the gap.
+func (s StatusBar) Room() int { return max(0, s.width-2*barPad) }
+
+// MessageRoom is Room for the call where the right side wins.
+func (s StatusBar) MessageRoom(message string) int {
+	return max(0, s.Room()-lipgloss.Width(message)-barGap)
+}
+
 func (s StatusBar) render(left, right string, rightWins bool) string {
 	if s.width <= 2 {
 		return ""
 	}
-	inner := s.width - 2
+	inner := s.width - 2*barPad
 	clip := lipgloss.NewStyle().Foreground(s.theme.MutedOrSubtle())
 
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
 	if rightWins {
-		if room := inner - rw - 2; lw > room {
+		if room := inner - rw - barGap; lw > room {
 			left = paint.Clip(left, max(0, room), clip)
 			lw = lipgloss.Width(left)
 		}
-	} else if room := inner - lw - 2; rw > room {
+	} else if room := inner - lw - barGap; rw > room {
 		right = paint.Clip(right, max(0, room), clip)
 		rw = lipgloss.Width(right)
 	}
@@ -82,7 +107,8 @@ func (s StatusBar) render(left, right string, rightWins bool) string {
 	}
 
 	gap := max(0, inner-lw-rw)
-	return " " + left + strings.Repeat(" ", gap) + right + " "
+	pad := strings.Repeat(" ", barPad)
+	return pad + left + strings.Repeat(" ", gap) + right + pad
 }
 
 // Budget renders the remaining GraphQL points, and only once the pool has run

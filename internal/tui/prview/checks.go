@@ -342,8 +342,35 @@ func (m Model) canRerunCheck() bool {
 	if m.tab != tabChecks || m.checkRerunning(m.check.selected) {
 		return false
 	}
+	return m.checkHasJob() && m.checkFailed()
+}
+
+// checkHasJob is whether the check under the cursor has an Actions job behind
+// it, which is what the log keys act on.
+//
+// It reads the rollup rather than the fetched job, and that is the whole point.
+// Moving the cursor empties that job and refills it a debounce and a round trip
+// later, so a line derived from it dropped the log keys on every step through
+// the column and put them back when the reader stopped, which on a held j is
+// the line gone for the length of the walk. The rollup has the answer the whole
+// time, the way the list keeps its rows through a reload. The other three tabs
+// build their line from the tab; this was the one building it from a fetch.
+func (m *Model) checkHasJob() bool {
 	check := m.selectedCheck()
-	return check != nil && check.JobID != 0 &&
+	return check != nil && check.JobID != 0
+}
+
+// checkFailed is whether the check under the cursor failed, which is half of
+// what f jumps into and what r may rerun. The check's own state answers before
+// its log has arrived, where walking the fetched steps for a failing one
+// cannot.
+//
+// It is only ever half. A status context carries no job at all, so a failing
+// Codecov or Vercel row is a failure with nothing to jump into and nothing to
+// rerun, and both keys read checkHasJob beside this.
+func (m *Model) checkFailed() bool {
+	check := m.selectedCheck()
+	return check != nil &&
 		(check.State == gh.CheckStateFailure || check.State == gh.CheckStateError)
 }
 

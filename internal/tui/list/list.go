@@ -489,9 +489,16 @@ func (m Model) Capturing() bool { return m.searching }
 // ShortHelp is the line the status bar carries for this screen. The bar names
 // the two keys that answer while it is taking text, because the rest of the
 // screen's keys are characters in it.
+//
+// Past that it names what the section under the strip can answer. Rows follows
+// the guard in handleKey rather than restating it, so the line and the keyboard
+// cannot disagree about which keys are live.
 func (m Model) ShortHelp() []key.Binding {
 	if m.searching {
 		return keys.List.SearchHelp()
 	}
-	return keys.List.ShortHelp()
+	return keys.List.ShortHelp(keys.ListContext{
+		Rows:   showsRows(m.activeSection()),
+		Search: m.searchOpen(),
+	})
 }

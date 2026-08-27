@@ -333,7 +333,50 @@ The rail is the exception, and the braces are dead on it. Its rows are a list of
 
 **The rail's cursor line carries the bar as well as the fill**, which is a second mark the conversation's cards were refused. It earns it where they do not: the ring walks the rail's controls and steps over the headings between them, so the cursor lands on rows that are not neighbours, and a reader tracking it is looking for where it went rather than watching it move. The columns beside the other three tabs are flat, every row a stop, so the fill alone says everything there and none of them takes a bar. It is `paint.Lead` and `paint.BarGlyph`, the diff's own, in the cell `railGutter` already holds open: one glyph for one fact, and no row gains width by being the one under the cursor.
 
-The bar's hints are the detail screen's own, built per tab from what that tab can do. The keymap is the same on all four and the tabs are not: Checks has no blocks to walk, Commits and Checks have nothing to expand, and the three with a column have no rail to toggle. A hint for a key that is inert under it is worse than no hint, since the reader presses it, nothing happens, and the line stops being worth reading. The same rule takes the hints off entirely while a picker or a form is up: it has the keys they name and carries a hint line of its own.
+**The hints are each screen's own**, built from what answers where the reader
+is standing. The keymap is the same everywhere and the screens are not: Checks
+has no blocks to walk, Commits and Checks have nothing to expand, the three with
+a column have no rail to toggle, and a list section that has never answered or
+that failed refuses every key that acts on a row. A hint for a key that is inert
+under it is worse than no hint, since the reader presses it, nothing happens,
+and the line stops being worth reading. The same rule takes the hints off
+entirely while a picker, the merge form or a compose box is up: each has the
+keys they name and carries a hint line of its own. Which of them goes quiet is
+the screen's own answer rather than the root's, next to the widgets drawing what
+replaces it. The job log's search bar is the one thing holding the keyboard that
+still needs the bar, having no frame to draw in, so it gets the same two keys
+the list's search bar gets one screen over. It is named in `Capturing()` with
+them, which is what stopped the root eating a `q` and a `?` out of a query they
+were being typed into.
+
+The rail is the one focus that changes the line rather than the tab. Its rows
+are controls, so the braces are dead on it and space folds nothing, and a line
+built off the tab alone named two keys it refuses. What it answers instead is
+enter, and the pane step goes on beside it: the rail is the one pane where every
+key that acts on the page is inert, so the line would otherwise leave a reader
+on a list of controls with no way named to the words next to it.
+
+**The line sheds whole hints from the right and never clips.** It was cut with
+`lipgloss.MaxWidth`, mid-word and unmarked, so at eighty columns it looked
+complete and was not. `bubbles/help` sheds by binding already, but it was handed
+the whole terminal where the bar's room is `width-2` less the other half, so the
+graceful cut never fired and the hard one always did. `app.shedHints` is the
+answer, and it measures the rendered line rather than the declarations, since
+the separator and the styles belong to the help bubble. It is `prview.hintLine`
+one screen over, which sheds a card's footer the same way and for the same
+reason.
+
+That makes the reading order the priority order, which is what the tail being
+clipped never enforced. The keys that move around the screen come first and the
+keys that act on what is in it come after: a reader who cannot see how to leave,
+change tab or reach the rail is stuck, where one who cannot see the brace has
+lost a way of walking a page `j` and `k` already walk. **Help is last and is
+never shed**, being the way to every key the room could not hold, so a line cut
+short with it still on the end says there is more where the same line without it
+says there is nothing. That is also why there is no ellipsis: the hint that
+survives is the mark. **Quit is not on the line at all.** It is the most
+guessable key in a terminal program, it is on the overlay and in the keymap, and
+the nine cells it took were spent saying something the reader already knew.
 
 The status bar carries the hints on the left in every state. A toast or the refresh spinner lands on the right and wins a narrow line, which is the opposite of the readout that sits there otherwise: a toast may be the only account of a write that failed, and a key works whether or not it is on the line. `RenderMessage` is that priority, beside `Render`. The readout under those is the remaining budget while it is low enough to be worth reading, and under that whatever the screen in front of the reader has to say: on the detail, who raised the pull request and how long ago, as `@handle · 2d`. The budget outranks it, being a number that runs out where the other is a fact that does not change. Neither screen names *itself* there: the list's section is the current tab in the top border and the detail's pull request is in its own header, so both were spending the line on something already on the screen, and spending it on the side a toast lands on. Who opened it stopped being one of those when the header went to two lines. The compact form is the bar's alone, because the left half is a line of key hints running most of the width and a clause spelled out is one clipped mid-handle.
 

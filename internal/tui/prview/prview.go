@@ -1609,20 +1609,46 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 //
 // Checks has a fold only while its cursor is on a multi-job workflow parent.
 // It has no rail because it already has a column.
+//
+// The rail is the one focus that changes the line rather than the tab. Its rows
+// are controls: the braces are dead on it and space folds nothing, so a line
+// built off the tab alone named two keys the rail refuses. What it does answer
+// is enter, which the page under it does not.
 func (m Model) ShortHelp() []key.Binding {
+	// A picker, the merge form and a compose box each carry a hint line inside
+	// their own frame, so the bar goes quiet rather than spending its width on
+	// keys that stopped answering when the modal opened. The search bar has no
+	// frame of its own and is the one thing holding the keyboard that still
+	// needs the bar to say what the two keys left do.
+	if m.Composing() || m.picking.open() || m.merging.open {
+		return nil
+	}
+	if m.check.searching {
+		return keys.Detail.SearchHelp()
+	}
 	file := m.fileViewTarget()
+	rail := m.railDriving()
+
+	// Loaded or on its way: a job the cursor just landed on is neither, for a
+	// debounce and a round trip, and the keys it answers are the tab's rather
+	// than that fetch's.
+	job := m.check.job.Loaded || m.checkHasJob()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks:     m.tab != tabChecks || m.check.job.Loaded,
-		Expand:     m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable(),
+		Blocks:     !rail && (m.tab != tabChecks || job),
+		Expand:     !rail && (m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable()),
+		Activate:   rail,
+		Panes:      rail,
 		Rail:       m.railTab(),
 		Column:     m.columnNoun(),
 		Split:      m.tab == tabFiles && m.files.Loaded,
 		FileView:   file != nil && !file.Viewing,
 		FileViewed: file != nil && file.Viewed == gh.FileViewed,
-		JobLog:     m.tab == tabChecks && m.check.job.Loaded,
-		JobFailure: m.tab == tabChecks && m.checkHasFailure(),
+		JobLog:     m.tab == tabChecks && job,
+		JobFailure: m.tab == tabChecks && job && m.checkFailed(),
 		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
 		JobRerun:   m.canRerunCheck(),
+
+		SearchStanding: m.tab == tabChecks && !m.check.search.Empty(),
 	})
 }
 

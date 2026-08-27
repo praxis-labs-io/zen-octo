@@ -120,8 +120,15 @@ type SetLabelsMsg struct {
 // Capturing is whether something on this screen owns the keyboard. The root
 // stands aside when it does, because a picker's filter takes q as a letter the
 // same way a comment box does, and so does a commit message.
+//
+// The job log's search bar is one of them. It preempts every binding on this
+// screen the way the others do, but it was not named here, so the root went on
+// eating q and ? out of a query the reader was typing them into.
+//
+// It reaches the two callers below it only in principle: both want the rail,
+// and the search bar lives on the one tab that has a column instead of one.
 func (m Model) Capturing() bool {
-	return m.Composing() || m.picking.open() || m.merging.open
+	return m.Composing() || m.picking.open() || m.merging.open || m.check.searching
 }
 
 // SetRepo hands the screen the choices its pickers draw from, and opens the one

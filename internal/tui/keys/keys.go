@@ -250,19 +250,48 @@ func hint(b key.Binding, keys, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(b.Keys()...), key.WithHelp(keys, desc))
 }
 
+// ListContext is what the list screen can do where the reader is standing. The
+// section under the strip is not always showing its rows: one that has never
+// answered is drawing a spinner and one that failed is drawing its error, and
+// every key that acts on a row is refused over both.
+//
+// That is the screen where a wrong line costs most. The rows are gone, so the
+// hints are the only thing left explaining what the keyboard still does, and
+// five of the nine used to be keys that did nothing.
+type ListContext struct {
+	// Rows is whether the section's rows are on the screen rather than a block
+	// standing in for them, which is what the keys that act on one are gated on.
+	Rows bool
+
+	// Search is whether a query stands, so esc has a filter to let go of.
+	Search bool
+}
+
 // ShortHelp is the one line the status bar carries.
-func (k ListMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		hint(k.Down, "j/k", "move"),
-		k.Open,
-		hint(k.NextSection, "[/]", "tab"),
-		k.Search,
-		k.CopyLink,
-		hint(k.Browse, "O", "browser"),
-		k.Sync,
-		Global.Help,
-		Global.Quit,
+//
+// Quit is not on it. It is the most guessable key in a terminal program, it is
+// on the overlay and in the keymap, and the nine cells it took were spent
+// telling the reader something they already knew.
+//
+// Help is last, and the bar never sheds it. It is the way to every key the line
+// has no room for, so a line cut short with it still on the end says there is
+// more, where the same line without it says there is nothing.
+func (k ListMap) ShortHelp(c ListContext) []key.Binding {
+	out := make([]key.Binding, 0, 9)
+	if c.Rows {
+		out = append(out, hint(k.Down, "j/k", "move"), k.Open)
 	}
+	out = append(out, hint(k.NextSection, "[/]", "tab"))
+	if c.Rows {
+		out = append(out, k.Search)
+	}
+	if c.Search {
+		out = append(out, k.ClearSearch)
+	}
+	if c.Rows {
+		out = append(out, k.CopyLink, hint(k.Browse, "O", "browser"))
+	}
+	return append(out, k.Sync, Global.Help)
 }
 
 // SearchHelp is the line the list's search bar carries while it has the
@@ -306,6 +335,19 @@ type DetailContext struct {
 	// have no room for.
 	Rail bool
 
+	// Activate is whether enter opens what the focused row holds, which is the
+	// rail's own answer. It is read off the focus rather than off the row under
+	// the cursor: a rail row stating a fact refuses the key, but a hint coming
+	// and going as the cursor walks past those rows would flicker for a refusal
+	// that costs the reader nothing.
+	Activate bool
+
+	// Panes is whether to name the step between panes. It is live wherever there
+	// are two, and named only on the rail, which is the one pane where every key
+	// that acts on the page is dead: the line would otherwise put the reader on
+	// a list of controls with no way to the words beside it.
+	Panes bool
+
 	// Column names what the driving column holds, and is empty where the tab has
 	// none. It is the noun rather than a flag because the bar says "tab file" on
 	// one tab and "tab commit" on the next, off one declaration.
@@ -324,17 +366,46 @@ type DetailContext struct {
 	JobFailure bool
 	JobMatches bool
 	JobRerun   bool
+
+	// SearchStanding is whether a settled query is still filtering the job log.
+	// Esc clears that before it will leave the screen, so the line saying "back"
+	// names the second press rather than the one the reader is about to make.
+	SearchStanding bool
 }
 
 // ShortHelp is the one line the status bar carries. Sync is in the overlay
 // only, to keep the line inside a hundred columns.
 func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	out := []key.Binding{hint(k.Down, "j/k", "move")}
+	if c.Activate {
+		out = append(out, hint(k.Activate, "⏎", "open"))
+	}
+	if c.Panes {
+		out = append(out, hint(k.PaneRight, "h/l", "panes"))
+	}
+
+	// The keys that move around the screen come before the keys that act on
+	// what is in it, because the bar sheds from the right and this is the order
+	// that survives being cut. A reader who cannot see how to leave, change tab
+	// or reach the rail is stuck; one who cannot see the brace has lost a way of
+	// walking a page j and k already walk.
+	back := k.Back
+	if c.SearchStanding {
+		back = hint(k.Back, "esc", "clear search")
+	}
+	out = append(out, back, hint(k.NextTab, "[/]", "tab"))
+	if c.Rail {
+		out = append(out, k.ToggleRail)
+	}
+
 	if c.Blocks {
 		out = append(out, hint(k.NextBlock, "{/}", "block"))
 	}
 	if c.Column != "" {
 		out = append(out, hint(k.NextInColumn, "⇥/⇧⇥", c.Column))
+	}
+	if c.Expand {
+		out = append(out, k.Expand)
 	}
 	if c.FileView {
 		action := "mark viewed"
@@ -343,8 +414,8 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 		}
 		out = append(out, hint(k.ToggleViewed, "m", action))
 	}
-	if c.Expand {
-		out = append(out, k.Expand)
+	if c.Split {
+		out = append(out, k.SplitView)
 	}
 	if c.JobLog {
 		out = append(out, k.Search)
@@ -358,13 +429,18 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	if c.JobRerun {
 		out = append(out, hint(k.Reply, "r", "rerun"))
 	}
-	if c.Split {
-		out = append(out, k.SplitView)
+	return append(out, Global.Help)
+}
+
+// SearchHelp is the line the job log's search bar carries while it has the
+// keyboard, the same answer the list's bar gets one screen over. Every other
+// key on this screen is a character in the query, so naming one would be naming
+// a key that does not answer.
+func (k DetailMap) SearchHelp() []key.Binding {
+	return []key.Binding{
+		hint(k.Activate, "⏎", "apply"),
+		hint(k.Back, "esc", "clear"),
 	}
-	if c.Rail {
-		out = append(out, k.ToggleRail)
-	}
-	return append(out, hint(k.NextTab, "[/]", "tab"), k.Back, Global.Help)
 }
 
 // FullHelp is the overlay. The form keys are on it as well: they are live only
