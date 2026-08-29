@@ -128,6 +128,12 @@ What you give up is real: a changed line is read as a block, and once the wash
 is gone the bar in the leading cell and the `+` and `−` markers are all that
 carry it.
 
+It costs more than the diff. The bar is drawn on the diff and the rail, so those
+keep a cursor; the pull request list, the pickers, the file, commit and check
+columns, the merge form and the job log were marked by the wash alone and are
+left with nothing under it. Until that is fixed, `transparent: true` is a client
+you navigate by memory outside the diff.
+
 The two combine. Naming a background under `transparent: true` means "derive
 against this, paint nothing" — which is the answer for a translucent terminal
 that also cannot answer the query.
