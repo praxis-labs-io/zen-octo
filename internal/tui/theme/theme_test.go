@@ -450,6 +450,44 @@ func TestANamedBackgroundIsPainted(t *testing.T) {
 	}
 }
 
+// Naming a background corrects the page and says nothing about the palette, so
+// the reported slots have to survive the correction.
+func TestANamedBackgroundKeepsTheReportedPalette(t *testing.T) {
+	got := overrides("background", "#faf4ed").Resolve(mocha, false)
+	blind := overrides("background", "#faf4ed").
+		Resolve(theme.Surface{Background: mocha.Background, Foreground: mocha.Foreground}, false)
+
+	if got.AddedBackground == blind.AddedBackground {
+		t.Error("AddedBackground fell back to the slot, want the reported green carried through Resolve")
+	}
+	if got.RemovedBackground == blind.RemovedBackground {
+		t.Error("RemovedBackground fell back to the slot, want the reported red carried through Resolve")
+	}
+}
+
+// The three surfaces are derived now rather than mixed at a fixed ratio, and a
+// reader who wrote one down has to go on outranking whatever replaced it.
+func TestTheSurfaceOverridesWinOverTheDerivedOnes(t *testing.T) {
+	o := overrides("addedBackground", "#123456", "removedBackground", "#654321",
+		"selectedBackground", "#2a283e")
+	got := o.Resolve(mocha, false)
+
+	for _, tc := range []struct {
+		name string
+		got  color.Color
+		want string
+	}{
+		{"AddedBackground", got.AddedBackground, "#123456"},
+		{"RemovedBackground", got.RemovedBackground, "#654321"},
+		{"SelectedBackground", got.SelectedBackground, "#2a283e"},
+	} {
+		wr, wg, wb := rgb(lipgloss.Color(tc.want))
+		if r, g, b := rgb(tc.got); r != wr || g != wg || b != wb {
+			t.Errorf("%s = %d,%d,%d, want the named %s", tc.name, r, g, b, tc.want)
+		}
+	}
+}
+
 // Named and translucent together is the reader who wrote it down only because
 // their terminal could not answer. They get the derivation and no fill.
 func TestANamedBackgroundIsNotPaintedUnderTransparent(t *testing.T) {
