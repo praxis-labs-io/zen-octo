@@ -336,7 +336,7 @@ is where the rail comes up unasked, and between the two the reader asks.
 
 The rail is the exception, and the braces are dead on it. Its rows are a list of controls rather than blocks of prose, so it answers to the movement keys the way the file column does: `railDriving` sends `j` and `k` to the cursor, and taking the pane lands the cursor on its first control rather than waiting to be pressed once before it will say where the keys go. Two things fall out of it being a list with facts in it. The cursor stops at each end rather than coming back round, which the conversation's ring does too: that one lapped once, on the argument that the ring is the whole of the content and there is nothing past the last card, but a real pull request is a page deep and the wrap is then the longest throw either key can make, arriving at the end the reader was walking away from. Both report the key untaken there, which is what lets the pane scroll to whatever sits under the last stop. And `g`, `G` and the page keys never move the cursor, because those go to the ends of a pane and the rail's ends are past its last stop.
 
-**The rail's cursor line carries the bar as well as the fill**, which is a second mark the conversation's cards were refused. It earns it where they do not: the ring walks the rail's controls and steps over the headings between them, so the cursor lands on rows that are not neighbours, and a reader tracking it is looking for where it went rather than watching it move. The columns beside the other three tabs are flat, every row a stop, so the fill alone says everything there and none of them takes a bar. It is `paint.Lead` and `paint.BarGlyph`, the diff's own, in the cell `railGutter` already holds open: one glyph for one fact, and no row gains width by being the one under the cursor.
+**The rail's cursor line carries the bar as well as the fill**, which is a second mark the conversation's cards were refused. It earns it where they do not: the ring walks the rail's controls and steps over the headings between them, so the cursor lands on rows that are not neighbours, and a reader tracking it is looking for where it went rather than watching it move. The columns beside the other three tabs are flat, every row a stop, so the fill alone says everything there and none of them takes a bar — which holds only for as long as there is a fill, and under `transparent: true` there is not. It is `paint.Lead` and `paint.BarGlyph`, the diff's own, in the cell `railGutter` already holds open: one glyph for one fact, and no row gains width by being the one under the cursor.
 
 **The hints are each screen's own**, built from what answers where the reader
 is standing. The keymap is the same everywhere and the screens are not: Checks
@@ -1159,10 +1159,25 @@ setters and a visible repaint.
 **Nothing answering means no painted surface, not a guessed one**, which is the
 same path `transparent: true` takes. Slot 0 is the background on a great many
 dark palettes, so a selection painted in it is invisible exactly where it was
-needed; the bar glyph and the `+` and `−` markers carry it instead. Borders are
-drawn runes rather than fills, so those do fall back to a slot. `paint` and
-lipgloss both treat a nil background as "paint none", so this needed no work at
-any of the sixteen call sites.
+needed. Borders are drawn runes rather than fills, so those do fall back to a
+slot.
+
+**What carries the mark once the fill is gone is answered per site, and at most
+of them the answer is nothing.** The diff and the rail carry a bar, so `litRun`,
+`hunkHead` and `railRow` still say where the cursor is. Everywhere else the fill
+was the whole of it: the list rows, the picker, the file, commit and check
+columns, and the merge form's method and delete rows go unmarked, and the two
+buttons and the mention list keep a focused state and lose their resting one.
+The glyphs those rows already carry are state rather than focus — a tick reads
+`checked`, a fold marker reads open, and both are drawn the same on the row
+above. That is ZNO-99, and until it lands `transparent: true` is a client whose
+cursor is invisible outside the diff.
+
+`paint` and lipgloss both treat a nil background as "paint none", so the
+sixteen call sites need no guard for the *painting*. `selectedJobLogLine` was
+the one exception and the one crash: it weaves the fill in by hand and read it
+through `RGBA()`, which panics on a nil, so opening a job log under either path
+took the client down.
 
 **A theme carries the background it was derived against, and the root paints
 it**, through `tea.View.BackgroundColor`, which writes OSC 11 once and resets on
