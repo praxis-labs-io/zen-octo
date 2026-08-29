@@ -118,6 +118,21 @@ const (
 // a hair and is no direction to travel in either.
 const minSeparation = 48
 
+// How far off the background a filled row sits, in luma. A distance rather than
+// a ratio: a ratio toward a hue the reader chose is not a fixed step.
+const (
+	tintLift      = 16
+	selectionLift = 12
+)
+
+// The floor keeps a pale hue from reaching the distance in so few percent that
+// the row reads grey. The ceiling binds where a hue sits at the background's own
+// weight, canonical red over a dark page being the case that matters.
+const (
+	minHueLift = 0.14
+	maxLift    = 0.5
+)
+
 // Terminal derives the theme from what the terminal reported. Either field of
 // the surface is nil where nothing answered. transparent asks for nothing to be
 // painted at all, for a terminal running translucent: neither the background
@@ -192,17 +207,49 @@ func Terminal(s Surface, transparent bool) Theme {
 	// tints then sit on exactly the base they were computed against.
 	t.Background = bg
 
-	t.SelectedBackground = mix(bg, away, 0.10)
+	// Neutral: along the shade axis it took the foreground's tint.
+	t.SelectedBackground = lift(bg, nil, selectionLift)
 
-	// A slot's RGBA() is the canonical value, never what the terminal mapped it
-	// to, so these two are a standard-green and standard-red wash over the real
-	// background rather than a wash in the reader's own green and red. Painting
-	// a slot follows the palette; blending one cannot. Reading the true palette
-	// would take an OSC 4 query per slot, which is not worth it for a tint.
-	t.AddedBackground = mix(bg, slotGreen, 0.18)
-	t.RemovedBackground = mix(bg, slotRed, 0.18)
+	// A slot's RGBA() is its canonical value, so blending one washes the row in
+	// xterm's system red rather than the red in the marker column beside it.
+	t.AddedBackground = lift(bg, hueOr(s.Green, slotGreen), tintLift)
+	t.RemovedBackground = lift(bg, hueOr(s.Red, slotRed), tintLift)
 
 	return t
+}
+
+// The reported slot, or its canonical value. The one place a slot is blended:
+// a tint has to lean its own way, or added and removed are the same wash.
+func hueOr(reported, canonical color.Color) color.Color {
+	if reported != nil {
+		return reported
+	}
+	return canonical
+}
+
+// lift places a color a fixed luma distance off the background, toward hue or
+// neutrally where there is none.
+func lift(bg, hue color.Color, distance float64) color.Color {
+	// Brighter on a dark background, darker on a light one.
+	sign := 1.0
+	if !isDark(bg) {
+		sign = -1
+	}
+
+	if hue == nil {
+		toward := contrast(bg)
+		span := (luma(toward) - luma(bg)) * sign
+		return mix(bg, toward, min(distance/span, maxLift))
+	}
+
+	span := (luma(hue) - luma(bg)) * sign
+	if span <= 0 {
+		// No amount of this hue lifts the row, so keep the lean rather than
+		// trade it for a grey the other tint is indistinguishable from.
+		return mix(bg, hue, minHueLift)
+	}
+
+	return mix(bg, hue, min(max(distance/span, minHueLift), maxLift))
 }
 
 // mix blends ratio of b into a, per channel. Both are read at 8 bits, which is

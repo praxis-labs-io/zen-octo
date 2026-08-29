@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
+	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
 func TestJobLogSanitizingKeepsSGRAndDropsTerminalControls(t *testing.T) {
@@ -74,5 +76,30 @@ func TestLogLinesSkipAStatusOnlyStepAndReachTheOneAfterIt(t *testing.T) {
 	}
 	if len(sections[2].lines) != 1 || sections[2].lines[0] != "third" {
 		t.Errorf("third = %q", sections[2].lines)
+	}
+}
+
+// Under transparent: true the fill is nil, and RGBA() on one panics: opening a
+// job log took the client down.
+func TestASelectedJobLogLineSurvivesAThemeWithNoSurface(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		th   theme.Theme
+	}{
+		{"palette reported", testTheme},
+		{"transparent", theme.Terminal(testSurface, true)},
+		{"nothing answered", theme.Terminal(theme.Surface{}, false)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			faint := lipgloss.NewStyle().Foreground(tc.th.Subtle)
+			got := selectedJobLogLine("go test ./...", 40, tc.th.SelectedBackground, faint)
+
+			if plain := xansi.Strip(got); !strings.HasPrefix(plain, "go test ./...") {
+				t.Errorf("the line reads %q, want the log line it was given", plain)
+			}
+			if tc.th.SelectedBackground == nil && strings.Contains(got, "\x1b[48;2;") {
+				t.Errorf("a theme with no surface painted a background: %q", got)
+			}
+		})
 	}
 }
