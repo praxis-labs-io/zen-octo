@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // reply drives the decode half of Query over a canned terminal answer, which is
@@ -21,24 +19,12 @@ func reply(t *testing.T, answer string) Surface {
 
 // collect is reply over any reader, for the cases that need one that does not
 // hand its whole answer over at once.
+//
+// It drives Query's own dispatch rather than a copy of it. Reimplemented here,
+// the copy stayed green while the app read 10 for 11.
 func collect(in io.Reader, timeout time.Duration) Surface {
 	var s Surface
-	read(in, &bytes.Buffer{}, "", timeout, func(seq string, pa *ansi.Parser) bool {
-		switch {
-		case ansi.HasOscPrefix(seq):
-			switch pa.Command() {
-			case 10:
-				s.Foreground = oscColor(pa)
-			case 11:
-				s.Background = oscColor(pa)
-			}
-		case ansi.HasCsiPrefix(seq):
-			if pa.Command() == ansi.Command('?', 0, 'c') {
-				return false
-			}
-		}
-		return true
-	})
+	read(in, &bytes.Buffer{}, "", timeout, s.take)
 	return s
 }
 
@@ -163,4 +149,37 @@ func (c *chunked) Read(p []byte) (int, error) {
 	n := copy(p, c.parts[0])
 	c.parts = c.parts[1:]
 	return n, nil
+}
+
+func TestQueryReadsThePaletteSlots(t *testing.T) {
+	got := reply(t, "\x1b]4;1;rgb:cccc/2424/1d1d\x1b\\\x1b]4;2;rgb:9898/9797/1a1a\x1b\\\x1b[?62;c")
+
+	if want := "#cc241d"; hexOf(t, got.Red) != want {
+		t.Errorf("Red = %s, want %s", hexOf(t, got.Red), want)
+	}
+	if want := "#98971a"; hexOf(t, got.Green) != want {
+		t.Errorf("Green = %s, want %s", hexOf(t, got.Green), want)
+	}
+}
+
+// A terminal may answer for slots nobody asked about.
+func TestQueryIgnoresPaletteSlotsItDidNotAskFor(t *testing.T) {
+	got := reply(t, "\x1b]4;4;rgb:0000/0000/ffff\x1b\\\x1b[?62;c")
+
+	if got.Red != nil || got.Green != nil {
+		t.Errorf("Red = %v and Green = %v, want an unasked-for slot to land nowhere", got.Red, got.Green)
+	}
+}
+
+// A terminal that reports its background may still say nothing about slot 1, and
+// the half that answered has to survive the half that did not.
+func TestQueryTakesTheSurfaceWithoutThePalette(t *testing.T) {
+	got := reply(t, "\x1b]11;rgb:2323/2121/3636\x1b\\\x1b[?62;c")
+
+	if got.Background == nil {
+		t.Error("Background is nil, want the report that did arrive")
+	}
+	if got.Red != nil || got.Green != nil {
+		t.Errorf("Red = %v and Green = %v, want nil when the palette went unanswered", got.Red, got.Green)
+	}
 }

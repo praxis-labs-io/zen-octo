@@ -19,6 +19,17 @@ var (
 	// most of these assertions need both halves.
 	dark  = theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0def4")}
 	light = theme.Surface{Background: lightBG, Foreground: lipgloss.Color("#575279")}
+
+	// Real palettes: a background bluer than its own green, olive hues, a light
+	// one, and one with almost no room between its ends.
+	mocha = theme.Surface{Background: lipgloss.Color("#1e1e2e"), Foreground: lipgloss.Color("#cdd6f4"),
+		Red: lipgloss.Color("#f38ba8"), Green: lipgloss.Color("#a6e3a1")}
+	gruvbox = theme.Surface{Background: lipgloss.Color("#282828"), Foreground: lipgloss.Color("#ebdbb2"),
+		Red: lipgloss.Color("#cc241d"), Green: lipgloss.Color("#98971a")}
+	solarizedLight = theme.Surface{Background: lipgloss.Color("#fdf6e3"), Foreground: lipgloss.Color("#657b83"),
+		Red: lipgloss.Color("#dc322f"), Green: lipgloss.Color("#859900")}
+	lowContrast = theme.Surface{Background: lipgloss.Color("#2b2b2b"), Foreground: lipgloss.Color("#8a8a8a"),
+		Red: lipgloss.Color("#5c3030"), Green: lipgloss.Color("#305c30")}
 )
 
 // rgb reads a color the way a terminal will, so a test compares what is painted
@@ -563,5 +574,193 @@ func separationOf(a, b color.Color) float64 {
 		return -d
 	} else {
 		return d
+	}
+}
+
+// Which channel leads is the palette's business: over a background as blue as
+// Catppuccin's, a wash of a real green is still bluer than green.
+func TestATintLiesBetweenTheBackgroundAndItsHue(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    theme.Surface
+	}{
+		{"dark", withPalette(dark, "#eb6f92", "#3e8fb0")},
+		{"blue-heavy background", mocha},
+		{"olive hues", gruvbox},
+		{"light", solarizedLight},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := theme.Terminal(tc.s, false)
+			between(t, "AddedBackground", tc.s.Background, th.AddedBackground, tc.s.Green)
+			between(t, "RemovedBackground", tc.s.Background, th.RemovedBackground, tc.s.Red)
+		})
+	}
+}
+
+// between holds a tint to the run from the background to its hue, at the nearer
+// end of it: past the middle the code sitting on the tint goes under.
+func between(t *testing.T, name string, bg, tint, hue color.Color) {
+	t.Helper()
+
+	br, bgr, bb := rgb(bg)
+	tr, tg, tb := rgb(tint)
+	hr, hg, hb := rgb(hue)
+
+	for _, c := range []struct {
+		channel        string
+		base, got, end int
+	}{
+		{"red", br, tr, hr},
+		{"green", bgr, tg, hg},
+		{"blue", bb, tb, hb},
+	} {
+		if c.got < min(c.base, c.end) || c.got > max(c.base, c.end) {
+			t.Errorf("%s %s = %d, want it between the background's %d and the hue's %d",
+				name, c.channel, c.got, c.base, c.end)
+		}
+		if abs(c.got-c.base) > abs(c.got-c.end) {
+			t.Errorf("%s %s = %d, nearer the hue's %d than the background's %d: the code on it goes under",
+				name, c.channel, c.got, c.end, c.base)
+		}
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func withPalette(s theme.Surface, red, green string) theme.Surface {
+	s.Red, s.Green = lipgloss.Color(red), lipgloss.Color(green)
+	return s
+}
+
+// Blending a slot takes its canonical value, which is a color nobody is looking
+// at: xterm's dark system palette rather than the reader's own.
+func TestATintTakesTheReportedHueOverTheSlot(t *testing.T) {
+	reported := theme.Terminal(withPalette(dark, "#f38ba8", "#a6e3a1"), false)
+	canonical := theme.Terminal(dark, false)
+
+	if reported.AddedBackground == canonical.AddedBackground {
+		t.Error("AddedBackground ignored the reported green, want it derived from the palette")
+	}
+	if reported.RemovedBackground == canonical.RemovedBackground {
+		t.Error("RemovedBackground ignored the reported red, want it derived from the palette")
+	}
+}
+
+// The same fraction that clears one palette's green leaves the row flat against
+// another's, which is why the lift solves for a distance.
+func TestATintClearsTheBackgroundOnEverySurface(t *testing.T) {
+	const least = 8
+
+	for _, tc := range []struct {
+		name string
+		s    theme.Surface
+	}{
+		{"blue-heavy background", mocha},
+		{"olive hues", gruvbox},
+		{"light palette", solarizedLight},
+		{"low contrast", lowContrast},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := theme.Terminal(tc.s, false)
+			base := luma(tc.s.Background)
+
+			for _, tint := range []struct {
+				name string
+				c    color.Color
+			}{
+				{"AddedBackground", th.AddedBackground},
+				{"RemovedBackground", th.RemovedBackground},
+				{"SelectedBackground", th.SelectedBackground},
+			} {
+				if got := luma(tint.c) - base; got < least && got > -least {
+					t.Errorf("%s luma = %.1f against a background of %.1f, want it clear by %d",
+						tint.name, luma(tint.c), base, least)
+				}
+			}
+		})
+	}
+}
+
+// A hue at the background's own weight cannot lift the row but moves a long way
+// in color, so the floor every surface meets is a channel distance.
+func TestATintIsPerceptibleOnEverySurface(t *testing.T) {
+	const least = 10
+
+	for _, tc := range []struct {
+		name string
+		s    theme.Surface
+	}{
+		{"dark", dark},
+		{"light", light},
+		{"blue-heavy background", mocha},
+		{"olive hues", gruvbox},
+		{"light palette", solarizedLight},
+		{"low contrast", lowContrast},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := theme.Terminal(tc.s, false)
+			br, bg, bb := rgb(tc.s.Background)
+
+			for _, tint := range []struct {
+				name string
+				c    color.Color
+			}{
+				{"AddedBackground", th.AddedBackground},
+				{"RemovedBackground", th.RemovedBackground},
+				{"SelectedBackground", th.SelectedBackground},
+			} {
+				r, g, b := rgb(tint.c)
+				if got := max(abs(r-br), abs(g-bg), abs(b-bb)); got < least {
+					t.Errorf("%s is %d,%d,%d over a %d,%d,%d background, no channel moving more than %d",
+						tint.name, r, g, b, br, bg, bb, got)
+				}
+			}
+		})
+	}
+}
+
+// A reader scanning a hunk reads the block before the marker in it, so the two
+// tints have to stay apart even where neither can lift.
+func TestTheTwoTintsNeverCollapseTogether(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    theme.Surface
+	}{
+		{"dark", dark},
+		{"light", light},
+		{"blue-heavy background", mocha},
+		{"olive hues", gruvbox},
+		{"low contrast", lowContrast},
+		{"no palette reported", dark},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := theme.Terminal(tc.s, false)
+			ar, ag, ab := rgb(th.AddedBackground)
+			rr, rg, rb := rgb(th.RemovedBackground)
+
+			if ar == rr && ag == rg && ab == rb {
+				t.Errorf("both tints are %d,%d,%d, so a changed block cannot say which way it went", ar, ag, ab)
+			}
+		})
+	}
+}
+
+// Along the shade axis a selection took the foreground's tint, which is a color
+// the reader never chose.
+func TestTheSelectionIsANeutralLift(t *testing.T) {
+	warm := theme.Surface{Background: darkBG, Foreground: lipgloss.Color("#e0c0a0")}
+	th := theme.Terminal(warm, false)
+
+	br, bg, bb := rgb(darkBG)
+	sr, sg, sb := rgb(th.SelectedBackground)
+
+	dr, dg, db := sr-br, sg-bg, sb-bb
+	if spread := max(dr, dg, db) - min(dr, dg, db); spread > 2 {
+		t.Errorf("SelectedBackground moves %d,%d,%d off the background, want an even lift", dr, dg, db)
 	}
 }

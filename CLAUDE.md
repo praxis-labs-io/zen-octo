@@ -1122,10 +1122,26 @@ structural and only have to stay legible, which a slot cannot promise. A
 terminal is free to map slot 8 onto slot 0, and nothing here could tell, because
 **a slot's `RGBA()` is the canonical value rather than what the terminal did with
 it.** So a slot may be painted and must not be blended. The two diff tints are
-the one place that bites: they are a standard-green and standard-red wash over
-the real background rather than a wash in the reader's own, and no arithmetic on
-this side can fix it. Reading the true palette would take an OSC 4 query per
-slot, which is not worth it for a tint.
+the one place that has to blend one, which is why slots 1 and 2 are asked for by
+name: blending the slot washed the row in xterm's dark system red rather than in
+the red beside it in the marker column, and the two came out a murky teal and a
+muddy plum agreeing with nothing. `requestPalette` puts them in the write and
+the read that already run, so the cost is a longer query string and nothing
+else, and `hueOr` is the one sanctioned place a slot is blended: the canonical
+value is the fallback where the terminal answered for neither.
+
+**A filled row is placed at a luma distance rather than at a ratio.** A ratio
+toward a hue the reader chose is not a fixed step: the same fraction that clears
+one palette's green leaves the row flat against another's. `lift` solves for the
+distance instead, held between a floor and a ceiling, because the two ends fail
+in opposite directions — a pale green reaches the distance in a few percent and
+a few percent of a color reads grey, while a green sitting at the background's
+own weight never reaches it at all and keeps its lean instead, since the marker
+column carries what the luma cannot.
+
+**A selection is a lift and not a color, so it travels neutrally.** Along the
+shade axis it took the reported foreground's tint, which on a palette with a
+warm or a violet foreground is a color the reader never chose.
 
 `Text` is `NoColor{}`, the terminal's own foreground, because nothing matches a
 reader's palette as exactly as the palette. It writes no escape at all, which is
