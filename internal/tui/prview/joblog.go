@@ -610,10 +610,15 @@ func (m Model) paintCheckCursor(view string) string {
 // selectedJobLogLine reapplies the cursor background after every SGR run. A
 // log line may reset or set its own colours, so wrapping the finished string in
 // a background style would paint only as far as its first reset.
+//
+// A nil fill is a theme that could offer no surface, and RGBA() panics on one.
 func selectedJobLogLine(line string, width int, fill color.Color, faint lipgloss.Style) string {
 	line = clipTo(line, width, faint)
 	if pad := width - lipgloss.Width(line); pad > 0 {
 		line += strings.Repeat(" ", pad)
+	}
+	if fill == nil {
+		return line
 	}
 	r, g, b, _ := fill.RGBA()
 	background := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
