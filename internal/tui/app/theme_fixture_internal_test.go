@@ -1,14 +1,7 @@
 package app
 
-import (
-	"charm.land/lipgloss/v2"
+import "github.com/praxis-labs-io/zen-octo/internal/tui/testtheme"
 
-	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
-)
-
-// testSurface stands in for what a terminal would report, so New has something
-// to derive from without one of these tests reaching for the real one.
-var testSurface = theme.Surface{
-	Background: lipgloss.Color("#232136"),
-	Foreground: lipgloss.Color("#e0def4"),
-}
+// testSurface is the one surface every render test in this repo paints against,
+// under the name these tests already read it by.
+var testSurface = testtheme.Surface
