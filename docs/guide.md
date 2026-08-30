@@ -50,7 +50,9 @@ puts the two sides in two columns, where `h` and `l` step between them.
 **Commits** lists them, walked whole rather than by hunk.
 
 **Checks** is CI. `/` searches a job's log, `n` and `N` walk the matches, `f`
-jumps to the first failure, and `r` reruns a job.
+jumps to the first failure, and `r` reruns a job. On a workflow's own row `r`
+reruns what failed in it and `R` reruns all of it. Enter on a check in the
+details rail opens it here.
 
 Whatever the tab, `}` and `{` mean the same thing: go to the next block. What a
 block is belongs to the tab.

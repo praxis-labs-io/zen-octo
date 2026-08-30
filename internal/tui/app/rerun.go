@@ -50,3 +50,50 @@ func (m Model) checkRerunFailed(msg checkRerunFailedMsg) (tea.Model, tea.Cmd) {
 	m.detail.RerunSettled(msg.jobID)
 	return m, m.toasts.Show(comp.ToastError, "Could not rerun "+msg.name+": "+msg.err.Error())
 }
+
+type runRerunMsg struct {
+	jobIDs     []int64
+	name       string
+	all        bool
+	acceptedAt time.Time
+}
+
+type runRerunFailedMsg struct {
+	jobIDs []int64
+	name   string
+	err    error
+}
+
+func (m Model) rerunRun(msg prview.RerunRunMsg) (tea.Model, tea.Cmd) {
+	client := m.client
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		rerun := client.RerunFailedJobs
+		if msg.All {
+			rerun = client.RerunAllJobs
+		}
+		if err := rerun(ctx, msg.Repo, msg.RunID); err != nil {
+			return runRerunFailedMsg{jobIDs: msg.JobIDs, name: msg.Name, err: err}
+		}
+		// Neither bulk call reports an instant, where the one-job endpoint
+		// answers with a Date header. Now is what the marks are stamped with,
+		// and it is only ever read as "this write has landed".
+		return runRerunMsg{jobIDs: msg.JobIDs, name: msg.Name, all: msg.All, acceptedAt: time.Now()}
+	}
+}
+
+func (m Model) runRerunLanded(msg runRerunMsg) (tea.Model, tea.Cmd) {
+	m.detail.RunRerunAccepted(msg.jobIDs, msg.acceptedAt)
+	what := "failed jobs"
+	if msg.all {
+		what = "all jobs"
+	}
+	return m, m.toasts.Show(comp.ToastSuccess, "Rerunning "+what+" in "+msg.name)
+}
+
+func (m Model) runRerunFailed(msg runRerunFailedMsg) (tea.Model, tea.Cmd) {
+	m.detail.RunRerunSettled(msg.jobIDs)
+	return m, m.toasts.Show(comp.ToastError, "Could not rerun "+msg.name+": "+msg.err.Error())
+}

@@ -43,6 +43,7 @@ type fakeSearcher struct {
 	jobAsks     []int64
 	jobLogAsks  []int64
 	reruns      []int64
+	runReruns   []runRerun
 	details     map[string]gh.PullRequestDetail
 	files       map[int][]gh.ChangedFile
 	commitFiles map[string][]gh.ChangedFile
@@ -85,6 +86,7 @@ type fakeSearcher struct {
 	jobErr          error
 	jobLogErr       error
 	rerunErr        error
+	runRerunErr     error
 	postErr         error
 	// requestErr fails the second half of a reviewer write alone, which is the
 	// one shape postErr cannot stage: the cancellation has already landed by
@@ -341,6 +343,27 @@ func (f *fakeSearcher) RerunJob(_ context.Context, _ string, id int64) (time.Tim
 	defer f.mu.Unlock()
 	f.reruns = append(f.reruns, id)
 	return time.Now(), f.rerunErr
+}
+
+func (f *fakeSearcher) RerunFailedJobs(_ context.Context, _ string, runID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runReruns = append(f.runReruns, runRerun{runID: runID})
+	return f.runRerunErr
+}
+
+func (f *fakeSearcher) RerunAllJobs(_ context.Context, _ string, runID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runReruns = append(f.runReruns, runRerun{runID: runID, all: true})
+	return f.runRerunErr
+}
+
+// runRerun is one bulk call the fake was asked to make, so a test can say
+// which run was named and which of the two endpoints answered it.
+type runRerun struct {
+	runID int64
+	all   bool
 }
 
 func (f *fakeSearcher) servedJob(id int64, job gh.Job, log string) {
@@ -998,6 +1021,9 @@ func (f *querySearcher) JobLogs(_ context.Context, _ string, _ int64) ([]byte, e
 func (f *querySearcher) RerunJob(context.Context, string, int64) (time.Time, error) {
 	return time.Now(), nil
 }
+
+func (f *querySearcher) RerunFailedJobs(context.Context, string, int64) error { return nil }
+func (f *querySearcher) RerunAllJobs(context.Context, string, int64) error    { return nil }
 
 func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
@@ -4091,4 +4117,76 @@ func sgrParams(s lipgloss.Style) string {
 		return ""
 	}
 	return out[len("\x1b["):end]
+}
+
+func (f *fakeSearcher) askedRunReruns() []runRerun {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.runReruns)
+}
+
+// bulkChecksClient is a pull request whose CI workflow ran two jobs and failed
+// one, which is the shape the workflow row's two keys differ over.
+func bulkChecksClient(t *testing.T, runErr error) *fakeSearcher {
+	t.Helper()
+
+	client := &fakeSearcher{prs: samplePRs(), runRerunErr: runErr}
+	client.serveDetail("PR_412", "body")
+	client.mu.Lock()
+	d := client.details["PR_412"]
+	d.Rollup = gh.CheckRollup{Checks: []gh.Check{
+		{Name: "lint", Workflow: "CI", State: gh.CheckStateSuccess, JobID: 9001, RunID: 77},
+		{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 9002, RunID: 77},
+	}}
+	client.details["PR_412"] = d
+	client.mu.Unlock()
+	return client
+}
+
+// r on the workflow row sends the run to the failed-jobs endpoint, and the
+// column carries the write the way a one-job rerun does.
+func TestRerunningAWorkflowsFailedJobsGoesOutAndReportsItself(t *testing.T) {
+	client := bulkChecksClient(t, nil)
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "k", "r")
+
+	got := client.askedRunReruns()
+	if len(got) != 1 || got[0].runID != 77 || got[0].all {
+		t.Fatalf("run reruns = %+v, want one failed-jobs call on run 77", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Rerunning failed jobs in CI") {
+		t.Errorf("the bulk rerun said nothing about what it did:\n%s", out)
+	}
+}
+
+// R is the same row's other endpoint, and the toast has to tell the two apart:
+// they are one keystroke and one word from each other.
+func TestRerunningEveryJobInAWorkflowGoesOutAndReportsItself(t *testing.T) {
+	client := bulkChecksClient(t, nil)
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "k", "R")
+
+	got := client.askedRunReruns()
+	if len(got) != 1 || got[0].runID != 77 || !got[0].all {
+		t.Fatalf("run reruns = %+v, want one all-jobs call on run 77", got)
+	}
+	if out := render(t, m); !strings.Contains(out, "Rerunning all jobs in CI") {
+		t.Errorf("the bulk rerun did not name which of the two it made:\n%s", out)
+	}
+}
+
+// A refused bulk write has to release every mark it made, or the column claims
+// jobs are rerunning that GitHub never accepted.
+func TestARefusedWorkflowRerunReleasesEveryMarkItMade(t *testing.T) {
+	client := bulkChecksClient(t, errors.New("actions write denied"))
+
+	m := press(loaded(t, client, 160, 40), "enter", "]", "]", "k", "R")
+
+	out := render(t, m)
+	if !strings.Contains(out, "Could not rerun CI") {
+		t.Errorf("the refusal said nothing:\n%s", out)
+	}
+	if strings.Contains(out, "rerunning") {
+		t.Errorf("a refused bulk rerun left its marks on the column:\n%s", out)
+	}
 }

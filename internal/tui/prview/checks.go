@@ -28,6 +28,18 @@ type RerunCheckMsg struct {
 	Name  string
 }
 
+// RerunRunMsg asks the root to rerun a whole workflow run, either its failed
+// jobs or all of them. It carries the job ids it marked rather than deriving
+// them again on the way back: the rollup can be replaced while the write is
+// out, and a refusal has to release the marks it actually made.
+type RerunRunMsg struct {
+	Repo   string
+	RunID  int64
+	Name   string
+	All    bool
+	JobIDs []int64
+}
+
 // checkGroup is one workflow and the jobs that ran under it. A group with no
 // workflow is the status contexts posted directly against the commit.
 type checkGroup struct {
@@ -57,6 +69,11 @@ type checkTreeRow struct {
 	depth    int
 	parent   bool
 	folded   bool
+
+	// runID is the workflow run behind a parent row, which is what the bulk
+	// rerun endpoints take. Job rows leave it zero: those reach their run
+	// through the check the selection already names.
+	runID int64
 }
 
 // checks owns the stable logical selection and the concrete attempt loaded for
@@ -174,6 +191,7 @@ func flattenChecks(groups []checkGroup, folded map[string]bool) []checkTreeRow {
 			closed := folded[key]
 			out = append(out, checkTreeRow{
 				key: key, label: g.name, state: g.state, count: len(g.checks), parent: true, folded: closed,
+				runID: g.checks[0].RunID,
 			})
 			if closed {
 				continue
@@ -392,6 +410,118 @@ func (m *Model) rerunCheck() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return RerunCheckMsg{Repo: m.pr.Repository, JobID: check.JobID, Name: name}
+	}
+}
+
+// selectedRun is the workflow run under the cursor, and it answers only on a
+// parent row. flattenChecks gives a parent to multi-job workflows alone, so a
+// single-job run is a job row and r there is the one-job rerun: the two calls
+// do the same thing to a run of one, and the key that is already there is the
+// one the reader has.
+func (m *Model) selectedRun() (checkTreeRow, bool) {
+	if m.tab != tabChecks || m.check.cursor >= len(m.check.rows) {
+		return checkTreeRow{}, false
+	}
+	row := m.check.rows[m.check.cursor]
+	if !row.parent || row.runID == 0 {
+		return checkTreeRow{}, false
+	}
+	return row, true
+}
+
+// runRerunTargets is which jobs of the run a rerun would replace: the failed
+// ones, or every one that has a job behind it. A status context has no job and
+// is never a target, the way it is never one for the single-job key.
+func (m *Model) runRerunTargets(row checkTreeRow, all bool) []gh.Check {
+	var out []gh.Check
+	for _, g := range m.check.groups {
+		if checkParentKey(g.name) != row.key {
+			continue
+		}
+		for _, c := range g.checks {
+			if c.JobID == 0 {
+				continue
+			}
+			if all || c.State == gh.CheckStateFailure || c.State == gh.CheckStateError {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// canRerunRun is whether the run under the cursor has anything the key would
+// replace. Rerunning failed jobs where none failed is a call GitHub answers
+// with a refusal, so the key goes quiet rather than spending a request to be
+// told there was nothing to do.
+func (m *Model) canRerunRun(all bool) bool {
+	row, ok := m.selectedRun()
+	if !ok {
+		return false
+	}
+	targets := m.runRerunTargets(row, all)
+	if len(targets) == 0 {
+		return false
+	}
+	// A second press while the first is out settles in whatever order the
+	// responses arrive, which is the rule one key over.
+	for _, c := range targets {
+		if m.checkRerunning(c.Key()) {
+			return false
+		}
+	}
+	return true
+}
+
+// rerunRun marks every job the write will replace and asks the root for the
+// call. The marks are the same ones the single-job key makes, so a bulk rerun
+// reads on the column exactly the way one job's does.
+func (m *Model) rerunRun(all bool) tea.Cmd {
+	if !m.canRerunRun(all) {
+		return nil
+	}
+	row, _ := m.selectedRun()
+	targets := m.runRerunTargets(row, all)
+
+	if m.check.reruns == nil {
+		m.check.reruns = make(map[string]rerunPending)
+	}
+	ids := make([]int64, 0, len(targets))
+	for _, c := range targets {
+		m.check.reruns[c.LogicalKey()] = rerunPending{
+			jobID: c.JobID, startedAt: c.StartedAt, completedAt: c.CompletedAt,
+		}
+		ids = append(ids, c.JobID)
+	}
+	m.syncContent()
+
+	msg := RerunRunMsg{
+		Repo: m.pr.Repository, RunID: row.runID, Name: cleanJobLabel(row.label),
+		All: all, JobIDs: ids,
+	}
+	return func() tea.Msg { return msg }
+}
+
+// RunRerunSettled releases every mark a refused bulk write made. The ids come
+// back from the write rather than off the rollup, which may have been replaced
+// under it while the call was out.
+func (m *Model) RunRerunSettled(jobIDs []int64) {
+	for _, id := range jobIDs {
+		for key, pending := range m.check.reruns {
+			if pending.jobID == id {
+				delete(m.check.reruns, key)
+			}
+		}
+	}
+	m.syncContent()
+}
+
+// RunRerunAccepted stamps every mark the bulk write made, the way the one-job
+// answer stamps its own. They stay marked until polling publishes the
+// replacements.
+func (m *Model) RunRerunAccepted(jobIDs []int64, acceptedAt time.Time) {
+	for _, id := range jobIDs {
+		m.RerunAccepted(id, acceptedAt)
 	}
 }
 

@@ -870,3 +870,106 @@ func TestFirstFailureIsOfferedOnlyWhereThereIsALogToJumpInto(t *testing.T) {
 		})
 	}
 }
+
+// bulkRollup gives the Build workflow a run id and a second failure, so the
+// two bulk keys have different answers to give: r takes what failed, R takes
+// the passing job with them.
+func bulkRollup() gh.CheckRollup {
+	r := checkRollup()
+	for i := range r.Checks {
+		if r.Checks[i].Workflow == "Build" {
+			r.Checks[i].RunID = 555200001
+		}
+	}
+	return r
+}
+
+// The parent row is a workflow run rather than a job, so r there means the run.
+// It marks only what it will replace: the passing job in the same workflow is
+// left alone.
+func TestROnAWorkflowRowRerunsOnlyItsFailedJobs(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j")
+
+	var cmd tea.Cmd
+	m, cmd = key(m, "r")
+	if cmd == nil {
+		t.Fatal("r on the workflow row did not ask for a rerun")
+	}
+	raw := cmd()
+	msg, ok := raw.(prview.RerunRunMsg)
+	if !ok {
+		t.Fatalf("r sent %T, want a RerunRunMsg", raw)
+	}
+	if msg.All {
+		t.Error("r asked for every job, want the failed ones")
+	}
+	if msg.RunID != 555200001 || msg.Name != "Build" || msg.Repo == "" {
+		t.Errorf("rerun = %+v", msg)
+	}
+	if !slices.Equal(msg.JobIDs, []int64{103}) {
+		t.Errorf("JobIDs = %v, want the failed job alone", msg.JobIDs)
+	}
+
+	if _, again := key(m, "r"); again != nil {
+		t.Error("a second r started another rerun while the first was in flight")
+	}
+
+	m.RunRerunSettled(msg.JobIDs)
+	if out := stripANSI(m.View()); strings.Contains(out, "rerunning") {
+		t.Error("a refused bulk rerun left its marks on the column")
+	}
+}
+
+// R is the same row's other key. It takes the passing job as well, which is the
+// whole of the difference between the two endpoints.
+func TestROnAWorkflowRowRerunsEveryJobInIt(t *testing.T) {
+	_, cmd := key(press(overRollup(bulkRollup(), 160, 24), "j"), "R")
+	if cmd == nil {
+		t.Fatal("R on the workflow row did not ask for a rerun")
+	}
+	msg, ok := cmd().(prview.RerunRunMsg)
+	if !ok {
+		t.Fatal("R did not send a RerunRunMsg")
+	}
+	if !msg.All {
+		t.Error("R asked for the failed jobs, want every one")
+	}
+	if !slices.Equal(msg.JobIDs, []int64{102, 103}) {
+		t.Errorf("JobIDs = %v, want both jobs in the workflow", msg.JobIDs)
+	}
+}
+
+// Rerunning what failed where nothing did is a call GitHub refuses, so the key
+// goes quiet rather than spending a request to be told there was nothing to do.
+// R still answers, because rerunning a green workflow is a thing to want.
+func TestRIsQuietOnAWorkflowWithNothingFailed(t *testing.T) {
+	r := bulkRollup()
+	for i := range r.Checks {
+		if r.Checks[i].Workflow == "Build" {
+			r.Checks[i].State = gh.CheckStateSuccess
+		}
+	}
+	r.State = gh.CheckStateSuccess
+
+	m := press(overRollup(r, 160, 24), "j")
+	if _, cmd := key(m, "r"); cmd != nil {
+		t.Error("r asked to rerun failed jobs in a workflow where none failed")
+	}
+	if _, cmd := key(m, "R"); cmd == nil {
+		t.Error("R refused a passing workflow, which is still a run to rerun")
+	}
+}
+
+// A single-job workflow is one flat row rather than a parent, so the run keys
+// have nothing to act on there and r is the one-job rerun it already was.
+func TestTheBulkKeysAreDeadOnAJobRow(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j", "j")
+
+	_, cmd := key(m, "R")
+	if cmd == nil {
+		return
+	}
+	if _, ok := cmd().(prview.RerunRunMsg); ok {
+		t.Error("R on a job row asked to rerun the whole run")
+	}
+}

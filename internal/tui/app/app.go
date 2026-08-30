@@ -42,6 +42,12 @@ type GitHub interface {
 	Job(ctx context.Context, repo string, jobID int64) (gh.Job, error)
 	JobLogs(ctx context.Context, repo string, jobID int64) ([]byte, error)
 	RerunJob(ctx context.Context, repo string, jobID int64) (time.Time, error)
+
+	// The bulk pair takes a run where RerunJob takes a job, and neither
+	// reports when GitHub accepted it: the 201 body is undocumented, so the
+	// toast is the whole of the answer.
+	RerunFailedJobs(ctx context.Context, repo string, runID int64) error
+	RerunAllJobs(ctx context.Context, repo string, runID int64) error
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
@@ -1262,6 +1268,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case checkRerunFailedMsg:
 		return m.checkRerunFailed(msg)
+
+	case prview.RerunRunMsg:
+		return m.rerunRun(msg)
+
+	case runRerunMsg:
+		return m.runRerunLanded(msg)
+
+	case runRerunFailedMsg:
+		return m.runRerunFailed(msg)
 
 	case prview.RefreshMsg:
 		return m.refreshDetail(msg)

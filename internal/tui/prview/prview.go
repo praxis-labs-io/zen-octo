@@ -782,6 +782,15 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Reply) && m.canRerunCheck():
 		return m, m.rerunCheck()
 
+	// A parent row is a workflow run rather than a job, so the same key means
+	// the run: r takes what failed in it and R takes all of it. Both sit above
+	// the reply keys the way the job rerun does, and both are dead everywhere
+	// else, which is what keeps R meaning quote reply on the conversation.
+	case key.Matches(keyMsg, k.Reply) && m.canRerunRun(false):
+		return m, m.rerunRun(false)
+	case key.Matches(keyMsg, k.QuoteReply) && m.canRerunRun(true):
+		return m, m.rerunRun(true)
+
 	// A reply answers the comment the ring is on, so both keys read the focus
 	// and do nothing without one. The gate is inside: whether GitHub will take
 	// a reply is the thread's answer, not this screen's.
@@ -1634,19 +1643,21 @@ func (m Model) ShortHelp() []key.Binding {
 	// than that fetch's.
 	job := m.check.job.Loaded || m.checkHasJob()
 	return keys.Detail.ShortHelp(keys.DetailContext{
-		Blocks:     !rail && (m.tab != tabChecks || job),
-		Expand:     !rail && (m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable()),
-		Activate:   rail,
-		Panes:      rail,
-		Rail:       m.railTab(),
-		Column:     m.columnNoun(),
-		Split:      m.tab == tabFiles && m.files.Loaded,
-		FileView:   file != nil && !file.Viewing,
-		FileViewed: file != nil && file.Viewed == gh.FileViewed,
-		JobLog:     m.tab == tabChecks && job,
-		JobFailure: m.tab == tabChecks && job && m.checkFailed(),
-		JobMatches: m.tab == tabChecks && len(m.check.matchLines) > 0,
-		JobRerun:   m.canRerunCheck(),
+		Blocks:      !rail && (m.tab != tabChecks || job),
+		Expand:      !rail && (m.tab == tabFiles || m.railTab() || m.checkFoldable() || m.checkStepFoldable()),
+		Activate:    rail,
+		Panes:       rail,
+		Rail:        m.railTab(),
+		Column:      m.columnNoun(),
+		Split:       m.tab == tabFiles && m.files.Loaded,
+		FileView:    file != nil && !file.Viewing,
+		FileViewed:  file != nil && file.Viewed == gh.FileViewed,
+		JobLog:      m.tab == tabChecks && job,
+		JobFailure:  m.tab == tabChecks && job && m.checkFailed(),
+		JobMatches:  m.tab == tabChecks && len(m.check.matchLines) > 0,
+		JobRerun:    m.canRerunCheck(),
+		RunRerun:    m.canRerunRun(false),
+		RunRerunAll: m.canRerunRun(true),
 
 		SearchStanding: m.tab == tabChecks && !m.check.search.Empty(),
 	})
