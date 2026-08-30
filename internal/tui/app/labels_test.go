@@ -235,3 +235,17 @@ func TestSyncingLetsThePickerSeeANewLabel(t *testing.T) {
 		t.Errorf("asked for metadata %d times, want the sync to have dropped the first answer", len(got))
 	}
 }
+
+// The list sorts byRepoThenRecency, and TestEachRepositoryGetsItsOwnChoices
+// walks to the second pull request by pressing j a fixed number of times. That
+// walk is only right while the other repository sorts before the main fixture's,
+// which is a premise the walk itself does not state. ZNO-79 broke it once by
+// renaming both.
+func TestTheTwoRepoFixtureSortsInTheOrderTheWalkAssumes(t *testing.T) {
+	const main, other = "acme/rocket", "acme/landing"
+
+	if other >= main {
+		t.Errorf("%q sorts at or after %q, so the pull request the test opens first "+
+			"is no longer the one it asserts on", other, main)
+	}
+}

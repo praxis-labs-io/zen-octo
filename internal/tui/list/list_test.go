@@ -1109,3 +1109,28 @@ func sgrParams(s lipgloss.Style) string {
 	}
 	return out[len("\x1b["):end]
 }
+
+// Rows sort byRepoThenRecency, so a fixture's repository name decides the order
+// the rows come out in, and the cursor tests in search_test.go navigate by that
+// order without saying so. ZNO-79 renamed the fixtures and flipped it: two of
+// them failed with messages about the wrong row being selected, and nothing
+// pointed at why.
+//
+// This is the premise, stated once and read off the fixtures themselves. A
+// rename that breaks it fails here, naming what it broke, rather than in the
+// tests that stand on it.
+func TestTheFixtureReposSortInTheOrderTheFixturesAssume(t *testing.T) {
+	main := pr("Fix auth retry").Repository
+
+	// mixed gives one row its own repository so a query can aim at it, and it is
+	// written expecting that row to sort first.
+	odd := mixed()[1].Repository
+	if odd == main {
+		t.Fatalf("setup: the odd row shares %q with the rest, so it aims at nothing", main)
+	}
+	if odd >= main {
+		t.Errorf("the odd fixture repo %q sorts at or after %q, so the row it marks "+
+			"no longer comes first and the tests that walk to it are counting rows "+
+			"in a different order", odd, main)
+	}
+}
