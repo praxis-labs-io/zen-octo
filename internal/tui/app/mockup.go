@@ -521,7 +521,7 @@ func mockDetail() gh.PullRequestDetail {
 			// the flag the reviewer picker reads it as somebody with an
 			// outstanding request and offers to cancel a request that is not
 			// theirs to cancel.
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
+			{Actor: gh.Actor{Login: "praxis-labs/maintainers"}, Requested: true, Team: true},
 		},
 
 		Rollup: gh.CheckRollup{
@@ -730,7 +730,7 @@ func mockPullRequests() []gh.PullRequest {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
 	const (
-		octo   = "zen-octo/zen-octo"
+		octo   = "praxis-labs/zen-octo"
 		term   = "praxis-labs/zen-term"
 		linear = "praxis-labs/zen-linear"
 	)

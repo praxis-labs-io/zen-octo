@@ -21,7 +21,7 @@ func mergeableDetail() gh.PullRequestDetail {
 	d.HeadRefOid = "9f1c2b7"
 	d.HeadRefID = "REF_88"
 	d.MergeCommit = gh.MergeMessage{
-		Headline: "Merge pull request #412 from zen-octo/fix-auth-retry",
+		Headline: "Merge pull request #412 from acme/fix-auth-retry",
 		Body:     "Fix auth retry",
 	}
 	d.SquashCommit = gh.MergeMessage{

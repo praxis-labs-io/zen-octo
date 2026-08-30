@@ -64,7 +64,7 @@ func boxBorders(frame string) int {
 func mixed() []gh.PullRequest {
 	prs := numbered(4)
 	prs[0].Number = 1204
-	prs[1].Repository = "praxis-labs-io/other"
+	prs[1].Repository = "acme/other"
 	prs[2].Title = "Fix the auth retry"
 	prs[3].Author = gh.Actor{Login: "octocat"}
 	prs[3].HeadRefName = "feature/zno-94-search"
@@ -120,7 +120,7 @@ func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 	}{
 		{name: "number", query: "#1204", want: "Change 0"},
 		{name: "number without the hash", query: "1204", want: "Change 0"},
-		{name: "repository", query: "labs-io/other", want: "Change 1"},
+		{name: "repository", query: "cme/oth", want: "Change 1"},
 		{name: "title", query: "auth retry", want: "Fix the auth retry"},
 		{name: "author", query: "@octocat", want: "Change 3"},
 		{name: "head branch", query: "zno-94", want: "Change 3"},
@@ -211,7 +211,7 @@ func TestTheQuerySurvivesATabSwitch(t *testing.T) {
 	second := numbered(4)
 	for i := range second {
 		second[i].ID = "OTHER_" + second[i].ID
-		second[i].Repository = "praxis-labs-io/other"
+		second[i].Repository = "acme/other"
 	}
 
 	m := list.New(testTheme)

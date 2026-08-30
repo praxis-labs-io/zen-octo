@@ -9,7 +9,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-const prURL = "https://github.com/praxis-labs-io/zen-octo/pull/412"
+const prURL = "https://github.com/acme/rocket/pull/412"
 
 // links stands the two side effects up, recording what each was handed and
 // answering with the errors the test wants.

@@ -105,7 +105,7 @@ func TestEnterOnALabelRowAsksForTheRepositorysChoices(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
 
 	got := asked(t, m, "enter")
-	want := prview.NeedRepoMetaMsg{Repo: "zen-octo/zen-octo"}
+	want := prview.NeedRepoMetaMsg{Repo: "acme/rocket"}
 	if got != want {
 		t.Fatalf("enter sent %#v, want %#v", got, want)
 	}

@@ -26,14 +26,14 @@ func TestJobFetchesTheStepsBesideTheLog(t *testing.T) {
 		]
 	}`}
 
-	got, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo/zen-octo", 9001)
+	got, err := newWithDoer(nil, rest).Job(context.Background(), "acme/rocket", 9001)
 	if err != nil {
 		t.Fatalf("Job: %v", err)
 	}
 	if rest.gotMethod != http.MethodGet {
 		t.Errorf("method = %q, want GET", rest.gotMethod)
 	}
-	if want := "repos/zen-octo/zen-octo/actions/jobs/9001"; rest.gotPath != want {
+	if want := "repos/acme/rocket/actions/jobs/9001"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
 	if got.ID != 9001 || got.Name != "test" || got.State != CheckStateFailure {
@@ -58,7 +58,7 @@ func TestJobFetchesTheStepsBesideTheLog(t *testing.T) {
 
 func TestJobForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: `{}`}
-	if _, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo", 9001); err == nil {
+	if _, err := newWithDoer(nil, rest).Job(context.Background(), "acme", 9001); err == nil {
 		t.Fatal("want an error for a repo with no owner")
 	}
 	if rest.gotPath != "" {
@@ -69,14 +69,14 @@ func TestJobForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 func TestJobLogsAsksTheJobsLogEndpoint(t *testing.T) {
 	rest := &fakeREST{body: "line one\nline two\n"}
 
-	got, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo/zen-octo", 9001)
+	got, err := newWithDoer(nil, rest).JobLogs(context.Background(), "acme/rocket", 9001)
 	if err != nil {
 		t.Fatalf("JobLogs: %v", err)
 	}
 	if rest.gotMethod != http.MethodGet {
 		t.Errorf("method = %q, want GET", rest.gotMethod)
 	}
-	if want := "repos/zen-octo/zen-octo/actions/jobs/9001/logs"; rest.gotPath != want {
+	if want := "repos/acme/rocket/actions/jobs/9001/logs"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
 	// A log is plain text, not JSON: this proves JobLogs never tries to decode
@@ -119,7 +119,7 @@ func TestJobLogDownloadStopsAtItsTransferBudget(t *testing.T) {
 
 func TestJobLogsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: "irrelevant"}
-	if _, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo", 9001); err == nil {
+	if _, err := newWithDoer(nil, rest).JobLogs(context.Background(), "acme", 9001); err == nil {
 		t.Fatal("want an error for a repo with no owner")
 	}
 	if rest.gotPath != "" {
@@ -130,13 +130,13 @@ func TestJobLogsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 func TestRerunJobPostsToTheSelectedJobsEndpoint(t *testing.T) {
 	rest := &fakeREST{}
 
-	if _, err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 9001); err != nil {
+	if _, err := newWithDoer(nil, rest).RerunJob(context.Background(), "acme/rocket", 9001); err != nil {
 		t.Fatalf("RerunJob: %v", err)
 	}
 	if rest.gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", rest.gotMethod)
 	}
-	if want := "repos/zen-octo/zen-octo/actions/jobs/9001/rerun"; rest.gotPath != want {
+	if want := "repos/acme/rocket/actions/jobs/9001/rerun"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
 	if rest.gotBody != "" {
@@ -147,13 +147,13 @@ func TestRerunJobPostsToTheSelectedJobsEndpoint(t *testing.T) {
 func TestRerunFailedJobsPostsToTheRerunFailedEndpoint(t *testing.T) {
 	rest := &fakeREST{}
 
-	if err := newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "zen-octo/zen-octo", 555200001); err != nil {
+	if err := newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "acme/rocket", 555200001); err != nil {
 		t.Fatalf("RerunFailedJobs: %v", err)
 	}
 	if rest.gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", rest.gotMethod)
 	}
-	if want := "repos/zen-octo/zen-octo/actions/runs/555200001/rerun-failed-jobs"; rest.gotPath != want {
+	if want := "repos/acme/rocket/actions/runs/555200001/rerun-failed-jobs"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
 	if rest.gotBody != "" {
@@ -164,20 +164,20 @@ func TestRerunFailedJobsPostsToTheRerunFailedEndpoint(t *testing.T) {
 func TestRerunAllJobsPostsToTheRerunEndpoint(t *testing.T) {
 	rest := &fakeREST{}
 
-	if err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "zen-octo/zen-octo", 555200001); err != nil {
+	if err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "acme/rocket", 555200001); err != nil {
 		t.Fatalf("RerunAllJobs: %v", err)
 	}
 	if rest.gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", rest.gotMethod)
 	}
-	if want := "repos/zen-octo/zen-octo/actions/runs/555200001/rerun"; rest.gotPath != want {
+	if want := "repos/acme/rocket/actions/runs/555200001/rerun"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
 }
 
 func TestRerunAllJobsForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{}
-	if err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "zen-octo", 1); err == nil {
+	if err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "acme", 1); err == nil {
 		t.Fatal("want an error for a repo with no owner")
 	}
 	if rest.gotPath != "" {
@@ -195,22 +195,22 @@ func TestAForbiddenJobsCallNamesTheScopeToAdd(t *testing.T) {
 		call func(rest *fakeREST) error
 	}{
 		{"Job", func(rest *fakeREST) error {
-			_, err := newWithDoer(nil, rest).Job(context.Background(), "zen-octo/zen-octo", 1)
+			_, err := newWithDoer(nil, rest).Job(context.Background(), "acme/rocket", 1)
 			return err
 		}},
 		{"JobLogs", func(rest *fakeREST) error {
-			_, err := newWithDoer(nil, rest).JobLogs(context.Background(), "zen-octo/zen-octo", 1)
+			_, err := newWithDoer(nil, rest).JobLogs(context.Background(), "acme/rocket", 1)
 			return err
 		}},
 		{"RerunJob", func(rest *fakeREST) error {
-			_, err := newWithDoer(nil, rest).RerunJob(context.Background(), "zen-octo/zen-octo", 1)
+			_, err := newWithDoer(nil, rest).RerunJob(context.Background(), "acme/rocket", 1)
 			return err
 		}},
 		{"RerunFailedJobs", func(rest *fakeREST) error {
-			return newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "zen-octo/zen-octo", 1)
+			return newWithDoer(nil, rest).RerunFailedJobs(context.Background(), "acme/rocket", 1)
 		}},
 		{"RerunAllJobs", func(rest *fakeREST) error {
-			return newWithDoer(nil, rest).RerunAllJobs(context.Background(), "zen-octo/zen-octo", 1)
+			return newWithDoer(nil, rest).RerunAllJobs(context.Background(), "acme/rocket", 1)
 		}},
 	}
 
@@ -234,7 +234,7 @@ func TestARerunTransportErrorIsWrappedNotSwallowed(t *testing.T) {
 	wantErr := errors.New("connection reset")
 	rest := &fakeREST{err: wantErr}
 
-	err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "zen-octo/zen-octo", 1)
+	err := newWithDoer(nil, rest).RerunAllJobs(context.Background(), "acme/rocket", 1)
 	if !errors.Is(err, wantErr) {
 		t.Errorf("err = %v, want it to wrap %v", err, wantErr)
 	}

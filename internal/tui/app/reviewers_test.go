@@ -47,7 +47,7 @@ func TestAReviewerReadsOnTheRailBeforeItLands(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "@nkr") {
 		t.Errorf("the new reviewer is not on the rail before the write landed:\n%s", out)
 	}
-	if got, want := client.reviewerWrites(), []string{"+zen-octo/zen-octo#412: nkr"}; !slices.Equal(got, want) {
+	if got, want := client.reviewerWrites(), []string{"+acme/rocket#412: nkr"}; !slices.Equal(got, want) {
 		t.Errorf("sent %v, want the request addressed by repository and number", got)
 	}
 }
@@ -64,7 +64,7 @@ func TestRequestingCopilotSendsItAsAReviewer(t *testing.T) {
 
 	press(m, "space", "enter") // Copilot is the first row
 
-	want := []string{"+zen-octo/zen-octo#412: " + gh.CopilotLogin}
+	want := []string{"+acme/rocket#412: " + gh.CopilotLogin}
 	if got := client.reviewerWrites(); !slices.Equal(got, want) {
 		t.Errorf("sent %v, want %v", got, want)
 	}
@@ -97,7 +97,7 @@ func TestCancellingAReviewRequestSaysSo(t *testing.T) {
 	if !strings.Contains(lastLine(render(t, m)), "Cancelled 1 review request") {
 		t.Errorf("status bar = %q, want the cancellation reported", strings.TrimSpace(lastLine(render(t, m))))
 	}
-	if got, want := client.reviewerWrites(), []string{"-zen-octo/zen-octo#412: nkr"}; !slices.Equal(got, want) {
+	if got, want := client.reviewerWrites(), []string{"-acme/rocket#412: nkr"}; !slices.Equal(got, want) {
 		t.Errorf("sent %v, want the removal alone", got)
 	}
 }
@@ -175,8 +175,8 @@ func TestSwappingReviewersCancelsBeforeItAsks(t *testing.T) {
 	m = press(m, "space", "down", "space", "enter") // check Copilot, uncheck @nkr
 
 	want := []string{
-		"-zen-octo/zen-octo#412: nkr",
-		"+zen-octo/zen-octo#412: " + gh.CopilotLogin,
+		"-acme/rocket#412: nkr",
+		"+acme/rocket#412: " + gh.CopilotLogin,
 	}
 	if got := client.reviewerWrites(); !slices.Equal(got, want) {
 		t.Errorf("sent %v, want %v", got, want)

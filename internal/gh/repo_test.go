@@ -34,14 +34,14 @@ const repoMetaBody = `{
 func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo"); err != nil {
+	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket"); err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
-	if got, want := f.gotVars["owner"], "zen-octo"; got != want {
+	if got, want := f.gotVars["owner"], "acme"; got != want {
 		t.Errorf("owner = %v, want %v", got, want)
 	}
-	if got, want := f.gotVars["name"], "zen-octo"; got != want {
+	if got, want := f.gotVars["name"], "rocket"; got != want {
 		t.Errorf("name = %v, want %v", got, want)
 	}
 	if !strings.Contains(f.gotQuery, "labels(first: 100)") {
@@ -59,7 +59,7 @@ func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 func TestRepoMetaAsksForTheMentionableUsersByHandleAndName(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo"); err != nil {
+	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket"); err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
@@ -72,7 +72,7 @@ func TestRepoMetaAsksForTheMentionableUsersByHandleAndName(t *testing.T) {
 func TestRepoMetaMapsTheMentionableUsers(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRepoMetaMapsTheMentionableUsers(t *testing.T) {
 func TestRepoMetaLeavesAMissingNameEmpty(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestRepoMetaLeavesAMissingNameEmpty(t *testing.T) {
 func TestRepoMetaKeepsTheMentionableAndAssignableListsApart(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestRepoMetaKeepsTheMentionableAndAssignableListsApart(t *testing.T) {
 func TestRepoMetaMapsTheLabels(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestRepoMetaMapsTheLabels(t *testing.T) {
 func TestRepoMetaMapsTheAssignableUsers(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestRepoMetaMapsTheAssignableUsers(t *testing.T) {
 func TestRepoMetaMapsTheMergeMethods(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestRepoMetaMapsTheMergeMethods(t *testing.T) {
 func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
-	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo"); err != nil {
+	if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket"); err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 }
 
 func TestRepoMetaRejectsMalformedName(t *testing.T) {
-	for _, repo := range []string{"", "zen-octo", "/zen-octo", "zen-octo/"} {
+	for _, repo := range []string{"", "acme", "/acme", "acme/"} {
 		f := &fakeDoer{body: repoMetaBody}
 		if _, err := newWithDoer(f, nil).RepoMeta(context.Background(), repo); err == nil {
 			t.Errorf("RepoMeta(%q) = nil error, want one", repo)
@@ -220,7 +220,7 @@ func TestRepoMetaRejectsMalformedName(t *testing.T) {
 func TestRepoMetaNullRepositoryIsAnError(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": null}`}
 
-	_, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/nope")
+	_, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/nope")
 	if err == nil {
 		t.Fatal("RepoMeta = nil error, want one")
 	}
@@ -233,7 +233,7 @@ func TestRepoMetaWrapsTransportError(t *testing.T) {
 	boom := errors.New("boom")
 	f := &fakeDoer{err: boom}
 
-	_, err := newWithDoer(f, nil).RepoMeta(context.Background(), "zen-octo/zen-octo")
+	_, err := newWithDoer(f, nil).RepoMeta(context.Background(), "acme/rocket")
 	if !errors.Is(err, boom) {
 		t.Fatalf("error = %v, want it to wrap %v", err, boom)
 	}

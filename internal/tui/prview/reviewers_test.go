@@ -108,7 +108,7 @@ func TestCheckingAReviewerAsksForTheReview(t *testing.T) {
 		t.Fatalf("enter sent %T, want a SetReviewersMsg", asked(t, m, "enter"))
 	}
 
-	if got.ID != "PR_412" || got.Repo != "zen-octo/zen-octo" || got.Number != 412 {
+	if got.ID != "PR_412" || got.Repo != "acme/rocket" || got.Number != 412 {
 		t.Errorf("addressed %s %s#%d, want the pull request on screen", got.ID, got.Repo, got.Number)
 	}
 	if want := []string{gh.CopilotLogin}; !slices.Equal(got.Add, want) {
@@ -161,11 +161,11 @@ func TestATeamRequestSurvivesAReviewerWrite(t *testing.T) {
 		t.Fatalf("enter sent %T, want a SetReviewersMsg", asked(t, m, "enter"))
 	}
 
-	if slices.Contains(got.Remove, "zen-octo/maintainers") {
+	if slices.Contains(got.Remove, "acme/maintainers") {
 		t.Errorf("Remove = %q, want the team left alone", got.Remove)
 	}
 	if !slices.ContainsFunc(got.Panel, func(r gh.Reviewer) bool {
-		return r.Actor.Login == "zen-octo/maintainers"
+		return r.Actor.Login == "acme/maintainers"
 	}) {
 		t.Error("the team came off the panel the rail is about to show")
 	}

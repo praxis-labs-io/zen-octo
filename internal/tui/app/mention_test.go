@@ -61,7 +61,7 @@ func TestTheFirstAtFetchesTheRepositorysPeople(t *testing.T) {
 
 	m := mentioning(t, client, "@")
 
-	if got, want := client.metaCalls(), []string{"zen-octo/zen-octo"}; !slices.Equal(got, want) {
+	if got, want := client.metaCalls(), []string{"acme/rocket"}; !slices.Equal(got, want) {
 		t.Errorf("metaCalls = %v, want %v", got, want)
 	}
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Sam Reed") {
@@ -87,7 +87,7 @@ func TestTheMentionListCostsOneRequestForTheWholeSession(t *testing.T) {
 	m = press(m, "esc", "1", "c")
 	m = typeInto(m, "@")
 
-	if got, want := client.metaCalls(), []string{"zen-octo/zen-octo"}; !slices.Equal(got, want) {
+	if got, want := client.metaCalls(), []string{"acme/rocket"}; !slices.Equal(got, want) {
 		t.Errorf("metaCalls = %v, want %v", got, want)
 	}
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Sam Reed") {

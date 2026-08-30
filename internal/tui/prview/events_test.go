@@ -148,10 +148,10 @@ func TestAnAddAndARemoveAreTwoLines(t *testing.T) {
 func TestARequestNamesCopilotAndATeamTheWayTheRailDoes(t *testing.T) {
 	out := conversationWith(t,
 		happening(gh.TimelineReviewRequested, gh.CopilotLogin),
-		happening(gh.TimelineReviewRequested, "zen-octo/maintainers"),
+		happening(gh.TimelineReviewRequested, "acme/maintainers"),
 	)
 
-	if want := "requested reviews from Copilot and @zen-octo/maintainers"; !strings.Contains(out, want) {
+	if want := "requested reviews from Copilot and @acme/maintainers"; !strings.Contains(out, want) {
 		t.Errorf("the conversation is missing %q:\n%s", want, out)
 	}
 	if strings.Contains(out, "@"+gh.CopilotLogin) {

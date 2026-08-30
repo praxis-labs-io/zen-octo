@@ -428,7 +428,7 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	res, err := client.RepoMeta(ctx, "zen-octo/zen-octo")
+	res, err := client.RepoMeta(ctx, "praxis-labs-io/zen-octo")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}

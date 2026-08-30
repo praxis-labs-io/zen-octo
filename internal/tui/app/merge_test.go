@@ -23,7 +23,7 @@ func (f *fakeSearcher) serveMergeable(id string) {
 	held.Merge = gh.MergeClean
 	held.HeadRefOid = "9f1c2b7"
 	held.HeadRefID = "REF_88"
-	held.MergeCommit = gh.MergeMessage{Headline: "Merge pull request #412 from zen-octo/fix-auth"}
+	held.MergeCommit = gh.MergeMessage{Headline: "Merge pull request #412 from acme/fix-auth"}
 	held.SquashCommit = gh.MergeMessage{Headline: "Fix auth retry (#412)"}
 	f.details[id] = held
 }
@@ -292,7 +292,7 @@ func TestAProbeSwallowedByAFetchInFlightIsArmedAgain(t *testing.T) {
 // modal with nothing to choose, so the form would never open in mockup mode
 // even with the two calls behind it implemented.
 func TestTheMockupOffersEveryMergeMethod(t *testing.T) {
-	res, err := app.Mock{}.RepoMeta(context.Background(), "zen-octo/zen-octo")
+	res, err := app.Mock{}.RepoMeta(context.Background(), "praxis-labs/zen-octo")
 	if err != nil {
 		t.Fatalf("RepoMeta: %v", err)
 	}

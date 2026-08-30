@@ -31,7 +31,7 @@ const branchesBody = `{
 func TestBranchesComeBackNewestFirst(t *testing.T) {
 	f := &fakeDoer{body: branchesBody}
 
-	res, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "")
+	res, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestBranchesComeBackNewestFirst(t *testing.T) {
 func TestABranchWithNoDateIsKeptAndSortsLast(t *testing.T) {
 	f := &fakeDoer{body: branchesBody}
 
-	res, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "")
+	res, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestABranchWithNoDateIsKeptAndSortsLast(t *testing.T) {
 func TestBranchesSendsTheSearchAndReportsTheOverflow(t *testing.T) {
 	f := &fakeDoer{body: branchesBody}
 
-	res, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "release")
+	res, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "release")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBranchesReportsNoOverflowWhenThePageReachedThemAll(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": {"defaultBranchRef": {"name": "main"},
 	  "refs": {"totalCount": 1, "nodes": [{"name": "main", "target": null}]}}}`}
 
-	res, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "")
+	res, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestBranchesSurvivesAMissingDefaultBranch(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": {"defaultBranchRef": null,
 	  "refs": {"totalCount": 0, "nodes": []}}}`}
 
-	res, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "")
+	res, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestBranchesSurvivesAMissingDefaultBranch(t *testing.T) {
 func TestBranchesRefusesANullRepository(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": null}`}
 
-	if _, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", ""); err == nil {
+	if _, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", ""); err == nil {
 		t.Fatal("Branches: want an error for a null repository")
 	}
 }
@@ -142,7 +142,7 @@ func TestBranchesRefusesANullRepository(t *testing.T) {
 func TestBranchesRejectsAMalformedRepo(t *testing.T) {
 	f := &fakeDoer{body: branchesBody}
 
-	_, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo", "")
+	_, err := newWithDoer(f, nil).Branches(context.Background(), "acme", "")
 	if err == nil {
 		t.Fatal("Branches: want an error for a name that is not owner/name")
 	}
@@ -155,7 +155,7 @@ func TestBranchesWrapsAFailure(t *testing.T) {
 	boom := errors.New("bad credentials")
 	f := &fakeDoer{err: boom}
 
-	_, err := newWithDoer(f, nil).Branches(context.Background(), "zen-octo/zen-octo", "")
+	_, err := newWithDoer(f, nil).Branches(context.Background(), "acme/rocket", "")
 	if err == nil {
 		t.Fatal("Branches: want an error")
 	}

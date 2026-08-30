@@ -17,7 +17,7 @@ const detailBody = `{
   "rateLimit": {"limit": 5000, "cost": 3, "remaining": 4712, "resetAt": "2026-08-05T18:00:00Z"},
   "node": {
     "id": "PR_412", "number": 412, "title": "Fix auth retry",
-    "url": "https://github.com/praxis-labs-io/zen-octo/pull/412",
+    "url": "https://github.com/acme/rocket/pull/412",
     "isDraft": false, "state": "OPEN",
     "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
     "viewerCanAssign": true,
@@ -37,8 +37,8 @@ const detailBody = `{
     "baseRef": {"compare": {"behindBy": 4}},
     "body": "Caps the backoff.",
     "author": {"login": "drucial"},
-    "repository": {"nameWithOwner": "zen-octo/zen-octo"},
-    "mergeHeadline": "Merge pull request #412 from zen-octo/fix-auth",
+    "repository": {"nameWithOwner": "acme/rocket"},
+    "mergeHeadline": "Merge pull request #412 from acme/fix-auth",
     "mergeBody": "Fix auth retry",
     "squashHeadline": "Fix auth retry (#412)",
     "squashBody": "* Cap the backoff\n\n* Add a test",
@@ -48,7 +48,7 @@ const detailBody = `{
     "reviewRequests": {"nodes": [
       {"requestedReviewer": {"login": "nkr"}},
       {"requestedReviewer": {"login": "copilot-pull-request-reviewer"}},
-      {"requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "zen-octo"}}},
+      {"requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "acme"}}},
       {"requestedReviewer": null}
     ]},
 
@@ -158,7 +158,7 @@ const detailBody = `{
        "requestedReviewer": {"login": "copilot-pull-request-reviewer"}},
       {"__typename": "ReviewRequestedEvent", "createdAt": "2026-08-04T15:30:00Z",
        "actor": {"login": "drucial"},
-       "requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "zen-octo"}}},
+       "requestedReviewer": {"slug": "core-maintainers", "organization": {"login": "acme"}}},
       {"__typename": "ReviewRequestRemovedEvent", "createdAt": "2026-08-04T16:00:00Z",
        "actor": null, "requestedReviewer": {"login": "nkr"}},
       {"__typename": "BaseRefChangedEvent", "createdAt": "2026-08-04T16:30:00Z",
@@ -176,7 +176,7 @@ const detailBody = `{
          "checkSuite": {"workflowRun": {"workflow": {"name": "Rails Lint"}}}},
         {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "FAILURE",
          "databaseId": 8700123456, "startedAt": "2026-08-05T09:00:00Z", "completedAt": "2026-08-05T09:05:00Z",
-         "detailsUrl": "https://github.com/praxis-labs-io/zen-octo/runs/8700123456",
+         "detailsUrl": "https://github.com/acme/rocket/runs/8700123456",
          "checkSuite": {"workflowRun": {"databaseId": 555200001, "workflow": {"name": "Build"}}}},
         {"__typename": "CheckRun", "name": "windows", "status": "COMPLETED", "conclusion": "SKIPPED",
          "checkSuite": {"workflowRun": null}},
@@ -246,7 +246,7 @@ func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 		// marked as one: its handle is built here rather than sent, so nothing
 		// may write it back where a login goes.
 		{Actor: Actor{Login: "copilot-pull-request-reviewer"}, Requested: true},
-		{Actor: Actor{Login: "zen-octo/core-maintainers"}, Requested: true, Team: true},
+		{Actor: Actor{Login: "acme/core-maintainers"}, Requested: true, Team: true},
 	}
 
 	got := fetchDetail(t).Reviewers
@@ -353,7 +353,7 @@ func TestAReviewRequestEventNamesABotAndATeamTheWayTheRailDoes(t *testing.T) {
 		}
 	}
 
-	want := []string{CopilotLogin, "zen-octo/core-maintainers"}
+	want := []string{CopilotLogin, "acme/core-maintainers"}
 	if !slices.Equal(got, want) {
 		t.Errorf("review requests name %v, want %v", got, want)
 	}
@@ -593,7 +593,7 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 			t.Errorf("non-Actions check %q has job id %d", check.Name, check.JobID)
 		}
 	}
-	if build.DetailsURL != "https://github.com/praxis-labs-io/zen-octo/runs/8700123456" {
+	if build.DetailsURL != "https://github.com/acme/rocket/runs/8700123456" {
 		t.Errorf("build.DetailsURL = %q, want the run's own link", build.DetailsURL)
 	}
 	if want := 5 * time.Minute; build.Duration != want {
@@ -804,7 +804,7 @@ func TestPullRequestReadsTheMergeMessages(t *testing.T) {
 	d := fetchDetail(t)
 
 	merge := MergeMessage{
-		Headline: "Merge pull request #412 from zen-octo/fix-auth",
+		Headline: "Merge pull request #412 from acme/fix-auth",
 		Body:     "Fix auth retry",
 	}
 	if got := d.MergeMessage(MergeMethodMerge); got != merge {
@@ -1155,9 +1155,9 @@ func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
 		slug string
 		want string
 	}{
-		{name: "under its organization", org: "zen-octo", slug: "core-maintainers", want: "zen-octo/core-maintainers"},
+		{name: "under its organization", org: "acme", slug: "core-maintainers", want: "acme/core-maintainers"},
 		{name: "with no organization", org: "", slug: "core-maintainers", want: "core-maintainers"},
-		{name: "with nothing at all", org: "zen-octo", slug: "", want: ""},
+		{name: "with nothing at all", org: "acme", slug: "", want: ""},
 	}
 
 	for _, tt := range tests {

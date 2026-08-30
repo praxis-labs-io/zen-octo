@@ -28,13 +28,13 @@ func mentionFixture() gh.PullRequestDetail {
 	return gh.PullRequestDetail{
 		PullRequest: gh.PullRequest{
 			ID:         "PR_1",
-			Repository: "zen-octo/zen-octo",
+			Repository: "acme/rocket",
 			Author:     gh.Actor{Login: "author"},
 		},
 		Assignees: []gh.Actor{{ID: "U_1", Login: "assignee"}},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "reviewer"}},
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Team: true},
+			{Actor: gh.Actor{Login: "acme/maintainers"}, Team: true},
 			{Actor: gh.Actor{Login: gh.CopilotLogin}},
 		},
 		Timeline: []gh.TimelineItem{
@@ -74,7 +74,7 @@ func TestParticipantsLeadWithTheAuthorAndFollowThePage(t *testing.T) {
 }
 
 func TestParticipantsLeaveTeamsOut(t *testing.T) {
-	if got := participants(mentionFixture()); slices.Contains(got, "zen-octo/maintainers") {
+	if got := participants(mentionFixture()); slices.Contains(got, "acme/maintainers") {
 		t.Errorf("participants = %q, want the team left out", got)
 	}
 }
