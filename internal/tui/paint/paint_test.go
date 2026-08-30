@@ -139,10 +139,8 @@ func TestFillBeatsTheKindTint(t *testing.T) {
 	}
 }
 
-// A theme leaving a surface nil means "leave the terminal's own showing", and
-// handing that to Lipgloss is what paints a row nothing asked to be painted. It
-// is what an unanswered background query gets: there is nothing to derive a
-// tint from, and a guessed one lands invisible about as often as not.
+// An unanswered background query leaves every surface nil. There is nothing to
+// derive a tint from, and a guessed one lands invisible about as often as not.
 func TestARowTakesNoBackgroundFromAThemeThatDefinesNone(t *testing.T) {
 	for _, tc := range []struct {
 		name string

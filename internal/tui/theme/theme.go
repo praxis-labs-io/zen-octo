@@ -134,14 +134,8 @@ const (
 )
 
 // Terminal derives the theme from what the terminal reported. Either field of
-// the surface is nil where nothing answered.
-//
-// transparent is for a terminal running translucent, and what spoils that is a
-// window painted over it. That is the background alone: nothing paints it into
-// a cell, and the root writes it once as OSC 11. The three surfaces over it are
-// per-row and mean something — a lit row, an added line, a removed one — and a
-// client that drops them to keep a wallpaper visible is one navigated by
-// memory. So transparent withholds the background and derives the rest.
+// the surface is nil where nothing answered. transparent withholds the
+// background alone: it is the only one painted as a window rather than a row.
 func Terminal(s Surface, transparent bool) Theme {
 	bg := s.Background
 	t := Theme{
@@ -201,12 +195,9 @@ func Terminal(s Surface, transparent bool) Theme {
 		t.Syntax = SyntaxLight
 	}
 
-	// The theme carries the background it was derived from. Where that is the
-	// one the terminal reported, painting it changes nothing a reader can see
-	// and costs nothing if the terminal ignores the request; where config named
-	// a different one, it is the whole of the ask. Either way the shades and the
-	// tints then sit on exactly the base they were computed against. It is the
-	// one field transparent withholds.
+	// Carried so the shades and the tints sit on exactly the base they were
+	// computed against, and painted so a background named in config is applied
+	// rather than only derived from.
 	if !transparent {
 		t.Background = bg
 	}

@@ -219,11 +219,6 @@ func TestNoBackgroundPaintsNoSurface(t *testing.T) {
 	}
 }
 
-// What spoils a translucent terminal is a window painted over it, and the
-// background is that window: nothing paints it into a cell, and the root writes
-// it once as OSC 11. The surfaces over it are per-row and each says something —
-// a lit row, an added line, a removed one — so dropping them to keep a wallpaper
-// visible buys nothing and costs the reader their cursor.
 func TestTransparentWithholdsTheBackgroundAndKeepsTheSurfaces(t *testing.T) {
 	th, opaque := theme.Terminal(dark, true), theme.Terminal(dark, false)
 
@@ -244,8 +239,6 @@ func TestTransparentWithholdsTheBackgroundAndKeepsTheSurfaces(t *testing.T) {
 		}
 	}
 
-	// The shades are not surfaces and go on being derived: a translucent
-	// terminal still has a background, it just must not be painted over.
 	if th.Subtle != opaque.Subtle || th.Border != opaque.Border {
 		t.Error("transparent changed the derived shades, want only the background withheld")
 	}
