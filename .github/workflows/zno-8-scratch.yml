@@ -1,0 +1,22 @@
+# Throwaway: a multi-job workflow with one job that always fails, so ZNO-8's
+# rerun keys can be verified against real Actions. Delete with its branch.
+name: ZNO-8 scratch
+
+on: pull_request
+
+jobs:
+  passes:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "this one is green"
+
+  also-passes:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "so is this one"
+
+  fails:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "about to fail on purpose"
+      - run: exit 1
