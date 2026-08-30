@@ -134,9 +134,8 @@ const (
 )
 
 // Terminal derives the theme from what the terminal reported. Either field of
-// the surface is nil where nothing answered. transparent asks for nothing to be
-// painted at all, for a terminal running translucent: neither the background
-// the theme would otherwise carry nor the three surfaces over it.
+// the surface is nil where nothing answered. transparent withholds the
+// background alone: it is the only one painted as a window rather than a row.
 func Terminal(s Surface, transparent bool) Theme {
 	bg := s.Background
 	t := Theme{
@@ -196,16 +195,12 @@ func Terminal(s Surface, transparent bool) Theme {
 		t.Syntax = SyntaxLight
 	}
 
-	if transparent {
-		return t
+	// Carried so the shades and the tints sit on exactly the base they were
+	// computed against, and painted so a background named in config is applied
+	// rather than only derived from.
+	if !transparent {
+		t.Background = bg
 	}
-
-	// The theme carries the background it was derived from. Where that is the
-	// one the terminal reported, painting it changes nothing a reader can see
-	// and costs nothing if the terminal ignores the request; where config named
-	// a different one, it is the whole of the ask. Either way the shades and the
-	// tints then sit on exactly the base they were computed against.
-	t.Background = bg
 
 	// Neutral: along the shade axis it took the foreground's tint.
 	t.SelectedBackground = lift(bg, nil, selectionLift)

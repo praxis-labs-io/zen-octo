@@ -219,27 +219,28 @@ func TestNoBackgroundPaintsNoSurface(t *testing.T) {
 	}
 }
 
-func TestTransparentDropsTheSurfacesAndKeepsTheRest(t *testing.T) {
-	th := theme.Terminal(dark, true)
+func TestTransparentWithholdsTheBackgroundAndKeepsTheSurfaces(t *testing.T) {
+	th, opaque := theme.Terminal(dark, true), theme.Terminal(dark, false)
+
+	if th.Background != nil {
+		t.Errorf("Background = %v under transparent, want nil", th.Background)
+	}
 
 	for _, tc := range []struct {
-		name string
-		c    color.Color
+		name      string
+		got, want color.Color
 	}{
-		{"SelectedBackground", th.SelectedBackground},
-		{"AddedBackground", th.AddedBackground},
-		{"RemovedBackground", th.RemovedBackground},
+		{"SelectedBackground", th.SelectedBackground, opaque.SelectedBackground},
+		{"AddedBackground", th.AddedBackground, opaque.AddedBackground},
+		{"RemovedBackground", th.RemovedBackground, opaque.RemovedBackground},
 	} {
-		if tc.c != nil {
-			t.Errorf("%s = %v under transparent, want nil", tc.name, tc.c)
+		if tc.got != tc.want {
+			t.Errorf("%s = %v under transparent, want %v", tc.name, tc.got, tc.want)
 		}
 	}
 
-	// The shades are not surfaces and go on being derived: a translucent
-	// terminal still has a background, it just must not be painted over.
-	opaque := theme.Terminal(dark, false)
 	if th.Subtle != opaque.Subtle || th.Border != opaque.Border {
-		t.Error("transparent changed the derived shades, want only the painted surfaces dropped")
+		t.Error("transparent changed the derived shades, want only the background withheld")
 	}
 }
 

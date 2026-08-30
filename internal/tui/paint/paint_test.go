@@ -139,16 +139,13 @@ func TestFillBeatsTheKindTint(t *testing.T) {
 	}
 }
 
-// A theme leaving a surface nil means "leave the terminal's own showing", and
-// handing that to Lipgloss is what breaks a transparent background. It is what
-// transparent: true asks for and what an unanswered background query gets, so a
-// row painting anything here fills a translucent terminal in solid.
+// An unanswered background query leaves every surface nil. There is nothing to
+// derive a tint from, and a guessed one lands invisible about as often as not.
 func TestARowTakesNoBackgroundFromAThemeThatDefinesNone(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		th   theme.Theme
 	}{
-		{"transparent", theme.Terminal(testSurface, true)},
 		{"undetected", theme.Terminal(theme.Surface{}, false)},
 		{"bare", theme.Theme{Text: testTheme.Text, Subtle: testTheme.Subtle}},
 	} {
