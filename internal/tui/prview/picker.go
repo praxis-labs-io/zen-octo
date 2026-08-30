@@ -208,6 +208,13 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	// picker is the section: it is where something is taken off as well as put
 	// on, so pointing at one of them is as good an ask as pointing at the add
 	// row under them.
+	// A check is the one rail row that opens nothing. There is no write to make
+	// against it from here, so enter takes the reader to the tab that holds its
+	// log and its rerun keys, which is the move v already makes into the diff.
+	if m.railRing.on.kind == focusCheck {
+		return m.showCheckFromRail()
+	}
+
 	var want pickField
 	switch m.railRing.on.kind {
 	case focusLabel, focusAddLabel:

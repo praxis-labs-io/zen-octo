@@ -279,3 +279,87 @@ func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 			got, stripANSI(back.View()))
 	}
 }
+
+// railTo walks the rail's ring to the row naming want. The rail is a list of
+// controls and its cursor is what enter reads, so a test that means "the check
+// row" has to stand on it rather than assume its index.
+func railTo(t *testing.T, m prview.Model, want string) prview.Model {
+	t.Helper()
+
+	for range 24 {
+		for l := range strings.SplitSeq(stripANSI(m.View()), "\n") {
+			if head, _, ok := strings.Cut(l, "││"); ok {
+				l = head
+			}
+			if strings.Contains(l, "▌") && strings.Contains(l, want) {
+				return m
+			}
+		}
+		m = press(m, "j")
+	}
+	t.Fatalf("the rail's cursor never reached %q", want)
+	return m
+}
+
+// A check is the one rail row with no write behind it, so enter takes the
+// reader to the tab that holds its log and its rerun keys. The rail row and the
+// tab's selection are keyed the same, so what lands under the cursor there is
+// the row that was pointed at here.
+func TestEnterOnARailCheckOpensItOnTheChecksTab(t *testing.T) {
+	d := sampleDetail()
+	d.Rollup = checkRollup()
+	m := railTo(t, press(detailed(held(d), 160, 44), "1"), "Build / test")
+
+	if strings.Contains(stripANSI(m.View()), "─Log─") {
+		t.Fatal("setup: the Checks tab is already open")
+	}
+
+	m = press(m, "enter")
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "─Log─") {
+		t.Fatalf("enter on a rail check did not open the Checks tab:\n%s", out)
+	}
+
+	// The selection rather than the frame: r acts on the check under the
+	// cursor, so the job it names is what says the jump landed on the row the
+	// reader pointed at rather than on whichever check sorted first.
+	_, cmd := key(m, "r")
+	if cmd == nil {
+		t.Fatal("the jump landed somewhere with no failed job under the cursor")
+	}
+	msg, ok := cmd().(prview.RerunCheckMsg)
+	if !ok {
+		t.Fatalf("r sent %T after the jump", cmd())
+	}
+	if msg.JobID != 103 {
+		t.Errorf("the jump landed on job %d, want the check the rail was on", msg.JobID)
+	}
+}
+
+// A folded workflow draws no row for its jobs, so a jump into one has to open
+// it. Landing on a row nothing renders reads as the key having done nothing.
+func TestAJumpIntoAFoldedWorkflowOpensIt(t *testing.T) {
+	d := sampleDetail()
+	d.Rollup = checkRollup()
+
+	// Fold Build on the tab, then leave and come back through the rail.
+	m := press(detailed(held(d), 160, 44), "]", "]", "j", "space")
+	if strings.Contains(stripANSI(m.View()), "  test") {
+		t.Fatal("setup: the workflow did not fold")
+	}
+
+	m = railTo(t, press(m, "[", "[", "1"), "Build / test")
+	m = press(m, "enter")
+
+	// The indented row and the open marker, rather than the name: the rail lists
+	// "Build / test" too, so a bare substring passes whether or not the workflow
+	// opened.
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "▾ ● Build") {
+		t.Errorf("the workflow the jump landed in is still folded:\n%s", out)
+	}
+	if !strings.Contains(out, "  ● test") {
+		t.Errorf("the row the jump landed on is not drawn:\n%s", out)
+	}
+}
