@@ -71,7 +71,7 @@ func TestStatusBarDropsTheRightSideBeforeTheLeft(t *testing.T) {
 // A right side one cell too wide used to go entirely, taking the budget with
 // it. The leading few cells are the ones that carry anything.
 func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
-	got := bar().Size(46).Render("j/k move · q quit", "◆ 4821 · #412 acme/rocket")
+	got := bar().Size(45).Render("j/k move · q quit", "◆ 4821 · #412 acme/rocket")
 
 	if !strings.Contains(got, "4821") {
 		t.Errorf("Render() = %q, want the budget kept", got)

@@ -120,7 +120,7 @@ func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 	}{
 		{name: "number", query: "#1204", want: "Change 0"},
 		{name: "number without the hash", query: "1204", want: "Change 0"},
-		{name: "repository", query: "acme/other", want: "Change 1"},
+		{name: "repository", query: "cme/oth", want: "Change 1"},
 		{name: "title", query: "auth retry", want: "Fix the auth retry"},
 		{name: "author", query: "@octocat", want: "Change 3"},
 		{name: "head branch", query: "zno-94", want: "Change 3"},
