@@ -121,26 +121,26 @@ By default zen-octo paints a background: the one your terminal reported, or the
 one you named above. Painting the reported one changes nothing you can see, and
 it is what keeps every shade sitting on exactly the base it was derived against.
 
-`transparent: true` is the opt-out, and it is one rule — paint nothing. No
-background, no cursor line, no green and red diff washes. It is for a terminal
-running translucent, where a filled window is the thing that spoils the effect.
-What you give up is real: a changed line is read as a block, and once the wash
-is gone the bar in the leading cell and the `+` and `−` markers are all that
-carry it.
+`transparent: true` is the opt-out. It is for a terminal running translucent,
+where a window painted over your wallpaper is the thing that spoils the effect,
+and it withholds exactly that: the background, and nothing else. The cursor line
+and the green and red diff washes are painted as usual. They are one row each
+rather than a window, and each of them says something — where you are, what was
+added, what was taken away.
 
-It costs more than the diff. The bar is drawn on the diff and the rail, so those
-keep a cursor; the pull request list, the pickers, the file, commit and check
-columns, the merge form and the job log were marked by the wash alone and are
-left with nothing under it. Until that is fixed, `transparent: true` is a client
-you navigate by memory outside the diff.
+It said "paint nothing" through v0.2.0 and took those with it. That left the
+pull request list, the pickers, the file, commit and check columns and the merge
+form with no cursor at all, which is a client you navigate by memory for a
+translucency they were never obscuring.
 
 The two combine. Naming a background under `transparent: true` means "derive
-against this, paint nothing" — which is the answer for a translucent terminal
+against this, do not paint it" — which is the answer for a translucent terminal
 that also cannot answer the query.
 
 A terminal that never answers and names nothing paints nothing either, since a
 surface guessed against an unknown background lands invisible about as often as
-not.
+not. That one still costs you the cursor outside the diff and the rail, and
+naming a `background` is the fix: it restores every surface.
 
 ### Syntax
 

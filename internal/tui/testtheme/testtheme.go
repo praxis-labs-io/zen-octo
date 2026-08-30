@@ -22,8 +22,3 @@ var Surface = theme.Surface{Background: Background, Foreground: lipgloss.Color("
 // Theme is the shipped theme over that surface, so a test asserts the colors a
 // reader is actually given rather than a palette nothing runs.
 var Theme = theme.Terminal(Surface, false)
-
-// Transparent is the same surface asked to paint nothing, which is what
-// transparent: true and a terminal that answered no background both get. A test
-// that only ever runs Theme cannot see a cursor go missing there.
-var Transparent = theme.Terminal(Surface, true)

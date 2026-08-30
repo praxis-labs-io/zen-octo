@@ -1166,12 +1166,21 @@ slot.
 of them the answer is nothing.** The diff and the rail carry a bar, so `litRun`,
 `hunkHead` and `railRow` still say where the cursor is. Everywhere else the fill
 was the whole of it: the list rows, the picker, the file, commit and check
-columns, and the merge form's method and delete rows go unmarked, and the two
-buttons and the mention list keep a focused state and lose their resting one.
-The glyphs those rows already carry are state rather than focus — a tick reads
-`checked`, a fold marker reads open, and both are drawn the same on the row
-above. That is ZNO-99, and until it lands `transparent: true` is a client whose
-cursor is invisible outside the diff.
+columns, the merge form's method and delete rows and the job log's selected line
+go unmarked, and the two buttons and the mention list keep a focused state and
+lose their resting one. The glyphs those rows already carry are state rather
+than focus — a tick reads `checked`, a fold marker reads open, and both are
+drawn the same on the row above.
+
+**Only one path reaches that now**, and it is a terminal that answered nothing
+rather than `transparent: true`, which was where it was met. There is no
+background to lift a surface from there and a guessed slot lands invisible about
+as often as not, so the fill cannot come back. Naming `background:` in config is
+what does, and it restores every one of them. A mark that is not a fill was
+tried on this and put back: weight, on the base every cell derives from, read as
+too quiet to follow across a full-width row, and a bar wants a leading cell nine
+of those surfaces do not hold open. That is ZNO-100, and it is a design question
+rather than a missing line.
 
 `paint` and lipgloss both treat a nil background as "paint none", so the
 sixteen call sites need no guard for the *painting*. `selectedJobLogLine` was
@@ -1227,13 +1236,19 @@ hang off it. It answers two readers at once — the one who wants a dark client 
 a light terminal, and `screen` and the ssh and tmux setups that never reply,
 which otherwise get no painted surface at all.
 
-**`transparent` is one rule: paint nothing.** The background goes with the three
-surfaces rather than being a separate switch, because the reader it exists for
-is running translucent and a filled window is the thing that spoils it — sparing
-the cursor line while filling the whole terminal behind it would be the setting
-defeating itself. It stays a derivation input under the flag, so naming a
-background and asking for transparency together means "derive against this,
-paint nothing", which is the translucent terminal that also cannot answer.
+**`transparent` withholds the background and nothing else.** It read "paint
+nothing" for a while, the three surfaces going with it on the argument that the
+reader it exists for is running translucent and a filled window is what spoils
+that. The window is the part that was right and the three surfaces were never
+part of it: `Background` has one consumer, the OSC 11 write in `app.render`, and
+nothing paints it into a cell. `SelectedBackground`, `AddedBackground` and
+`RemovedBackground` are per-row and each says something — where the cursor is,
+what was added, what was taken away — so dropping them buys a translucency they
+were never obscuring and costs the reader every mark outside the diff. That
+shipped, documented, as a client you navigate by memory. It stays a derivation
+input under the flag, so naming a background and asking for transparency
+together means "derive against this, do not paint it", which is the translucent
+terminal that also cannot answer.
 
 `theme:` in config is a set of token overrides layered on the derived theme
 rather than a name. It tolerates a scalar, because `theme: rose-pine-moon` is on

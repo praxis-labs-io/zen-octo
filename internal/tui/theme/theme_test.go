@@ -219,27 +219,35 @@ func TestNoBackgroundPaintsNoSurface(t *testing.T) {
 	}
 }
 
-func TestTransparentDropsTheSurfacesAndKeepsTheRest(t *testing.T) {
-	th := theme.Terminal(dark, true)
+// What spoils a translucent terminal is a window painted over it, and the
+// background is that window: nothing paints it into a cell, and the root writes
+// it once as OSC 11. The surfaces over it are per-row and each says something —
+// a lit row, an added line, a removed one — so dropping them to keep a wallpaper
+// visible buys nothing and costs the reader their cursor.
+func TestTransparentWithholdsTheBackgroundAndKeepsTheSurfaces(t *testing.T) {
+	th, opaque := theme.Terminal(dark, true), theme.Terminal(dark, false)
+
+	if th.Background != nil {
+		t.Errorf("Background = %v under transparent, want nil", th.Background)
+	}
 
 	for _, tc := range []struct {
-		name string
-		c    color.Color
+		name      string
+		got, want color.Color
 	}{
-		{"SelectedBackground", th.SelectedBackground},
-		{"AddedBackground", th.AddedBackground},
-		{"RemovedBackground", th.RemovedBackground},
+		{"SelectedBackground", th.SelectedBackground, opaque.SelectedBackground},
+		{"AddedBackground", th.AddedBackground, opaque.AddedBackground},
+		{"RemovedBackground", th.RemovedBackground, opaque.RemovedBackground},
 	} {
-		if tc.c != nil {
-			t.Errorf("%s = %v under transparent, want nil", tc.name, tc.c)
+		if tc.got != tc.want {
+			t.Errorf("%s = %v under transparent, want %v", tc.name, tc.got, tc.want)
 		}
 	}
 
 	// The shades are not surfaces and go on being derived: a translucent
 	// terminal still has a background, it just must not be painted over.
-	opaque := theme.Terminal(dark, false)
 	if th.Subtle != opaque.Subtle || th.Border != opaque.Border {
-		t.Error("transparent changed the derived shades, want only the painted surfaces dropped")
+		t.Error("transparent changed the derived shades, want only the background withheld")
 	}
 }
 
