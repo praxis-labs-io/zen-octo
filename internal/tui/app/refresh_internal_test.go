@@ -64,7 +64,7 @@ func adoptingAPage(t *testing.T) Model {
 func onADetail(t *testing.T) Model {
 	t.Helper()
 
-	pr := gh.PullRequest{ID: "PR_1", Number: 1, State: gh.PRStateOpen, Repository: "zen-octo/zen-octo"}
+	pr := gh.PullRequest{ID: "PR_1", Number: 1, State: gh.PRStateOpen, Repository: "acme/rocket"}
 	landed := gh.DetailResult{Detail: gh.PullRequestDetail{
 		PullRequest: pr,
 		Commits:     []gh.Commit{{SHA: "9f1c2b7", Short: "9f1c2b7", Headline: "Cap the backoff"}},

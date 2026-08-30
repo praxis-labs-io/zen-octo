@@ -54,7 +54,7 @@ func TestThePickerAsksTheRepositoryOnceForItsChoices(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "space toggle") {
 		t.Fatalf("the picker did not open a second time:\n%s", out)
 	}
-	if got, want := client.metaCalls(), []string{"zen-octo/zen-octo"}; !slices.Equal(got, want) {
+	if got, want := client.metaCalls(), []string{"acme/rocket"}; !slices.Equal(got, want) {
 		t.Errorf("asked %v, want the repository read once and cached", got)
 	}
 }
@@ -170,20 +170,20 @@ func TestQDoesNotQuitWhileAPickerIsUp(t *testing.T) {
 func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
 	client := &fakeSearcher{prs: []gh.PullRequest{
 		{
-			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "zen-octo/zen-octo",
+			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "acme/rocket",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
 			HeadRefName: "fix-auth", UpdatedAt: time.Now().Add(-2 * time.Hour),
 		},
 		{
-			ID: "PR_9", Number: 9, Title: "Other repo", Repository: "zen-octo/website",
+			ID: "PR_9", Number: 9, Title: "Other repo", Repository: "acme/landing",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
 			HeadRefName: "copy", UpdatedAt: time.Now().Add(-3 * time.Hour),
 		},
 	}}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveDetail("PR_9", "Rewrites the landing copy.")
-	client.serveRepoMetaFor("zen-octo/zen-octo", gh.RepoMeta{Labels: repoLabelSet()})
-	client.serveRepoMetaFor("zen-octo/website", gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
+	client.serveRepoMetaFor("acme/rocket", gh.RepoMeta{Labels: repoLabelSet()})
+	client.serveRepoMetaFor("acme/landing", gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
 
 	// The list's own sort decides which opens first, so each step names the pull
 	// request it landed on rather than assuming an order.

@@ -45,7 +45,7 @@ func TestEnterOnTheBaseRowAsksForTheRepositorysBranches(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
 
 	got := asked(t, m, "enter")
-	want := prview.NeedBranchesMsg{Repo: "zen-octo/zen-octo"}
+	want := prview.NeedBranchesMsg{Repo: "acme/rocket"}
 	if got != want {
 		t.Fatalf("enter sent %#v, want %#v", got, want)
 	}

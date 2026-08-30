@@ -61,8 +61,8 @@ var fixtureTime = time.Now().Add(-2 * time.Hour)
 
 func pr(title string) gh.PullRequest {
 	return gh.PullRequest{
-		ID: "PR_" + title, Number: 412, Title: title, Repository: "zen-octo/zen-octo",
-		URL:    "https://github.com/praxis-labs-io/zen-octo/pull/412",
+		ID: "PR_" + title, Number: 412, Title: title, Repository: "acme/rocket",
+		URL:    "https://github.com/acme/rocket/pull/412",
 		Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen,
 		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 6,
 		Checks: gh.CheckStateSuccess, ReviewDecision: gh.ReviewDecisionApproved,
@@ -78,7 +78,7 @@ func numbered(n int) []gh.PullRequest {
 		prs[i] = pr(fmt.Sprintf("Change %d", i))
 		prs[i].ID = fmt.Sprintf("PR_%d", i)
 		prs[i].Number = i
-		prs[i].URL = fmt.Sprintf("https://github.com/praxis-labs-io/zen-octo/pull/%d", i)
+		prs[i].URL = fmt.Sprintf("https://github.com/acme/rocket/pull/%d", i)
 	}
 	return prs
 }
@@ -274,7 +274,7 @@ func TestScrollingToAGroupsFirstRowShowsItsHeader(t *testing.T) {
 // The status pair closes the second line: two spaces off the file count, then
 // review, then the check rollup at the edge.
 func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
-	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "zen-octo/zen-octo"))
+	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "acme/rocket"))
 
 	if inner := strings.TrimRight(strings.Trim(row, "│"), " "); !strings.HasSuffix(inner, fileGlyph+"  ● "+reviewGlyph+" ● "+checksGlyph) {
 		t.Errorf("the second line does not close with the file count and the status pair: %q", inner)
@@ -498,9 +498,9 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 		author, age, diff, files, comments, status bool
 	}{
 		{width: 140, author: true, age: true, diff: true, files: true, comments: true, status: true},
-		{width: 64, author: false, age: true, diff: true, files: true, comments: true, status: true},
-		{width: 52, author: false, age: false, diff: true, files: true, comments: true, status: true},
-		{width: 40, author: false, age: false, diff: true, files: false, comments: true, status: true},
+		{width: 58, author: false, age: true, diff: true, files: true, comments: true, status: true},
+		{width: 46, author: false, age: false, diff: true, files: true, comments: true, status: true},
+		{width: 38, author: false, age: false, diff: true, files: false, comments: true, status: true},
 		{width: 30, author: false, age: false, diff: false, files: false, comments: true, status: true},
 		{width: 20, author: false, age: false, diff: false, files: false, comments: false, status: false},
 	}
@@ -540,7 +540,7 @@ func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
 	if !strings.Contains(lines[0], "#412") {
 		t.Errorf("the number is not on the title line\n%q", lines[0])
 	}
-	if !strings.Contains(lines[1], "zen-octo/zen-octo by @drucial · 2h") {
+	if !strings.Contains(lines[1], "acme/rocket by @drucial · 2h") {
 		t.Errorf("the identity is spread across columns\n%q", lines[1])
 	}
 }
@@ -551,12 +551,12 @@ func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 	p := pr("Fix auth retry")
 	p.Author = gh.Actor{}
 
-	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{p}), "zen-octo/zen-octo"))
+	row := stripANSI(rowContaining(t, screen(t, 140, 10, []gh.PullRequest{p}), "acme/rocket"))
 
 	if strings.Contains(row, "by ") || strings.Contains(row, "@") {
 		t.Errorf("a deleted author still leaves an attribution\n%q", row)
 	}
-	if !strings.Contains(row, "zen-octo/zen-octo · 2h") {
+	if !strings.Contains(row, "acme/rocket · 2h") {
 		t.Errorf("the rest of the identity went with the author\n%q", row)
 	}
 }
@@ -611,7 +611,7 @@ func TestBothStatusDotsAlwaysDraw(t *testing.T) {
 			p := pr("Fix auth retry")
 			p.Checks, p.ReviewDecision = c, d
 
-			row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "zen-octo/zen-octo"))
+			row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "acme/rocket"))
 			if want := "● " + reviewGlyph + " ● " + checksGlyph; !strings.Contains(row, want) {
 				t.Errorf("checks %q with review %q does not draw both readings: %q", c, d, row)
 			}
@@ -638,7 +638,7 @@ func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 		p := pr("Fix auth retry")
 		p.ReviewDecision, p.Checks = tt.decision, gh.CheckStateNone
 
-		row := rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "zen-octo/zen-octo")
+		row := rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "acme/rocket")
 		// The review dot is the first of the two, so the first styled run with a
 		// dot in it is the one under test.
 		if got := styleOf(t, row, "●"); !strings.Contains(got, fgSeq(tt.want)) {
@@ -715,7 +715,7 @@ func TestTheWindowNeverOpensMidRow(t *testing.T) {
 				// on the first line inside the pane means a row was cut in half by
 				// the window.
 				body := strings.Split(stripANSI(m.View()), "\n")[1]
-				if strings.Contains(body, "zen-octo/zen-octo") {
+				if strings.Contains(body, "acme/rocket") {
 					t.Errorf("the window opens on a row's second line: %q", body)
 				}
 			})
@@ -882,7 +882,7 @@ func TestALargeChurnAbbreviatesRatherThanClipping(t *testing.T) {
 	big := pr("Vendor the dependency tree")
 	big.Additions, big.Deletions = 12045, 340000
 
-	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{big}), "zen-octo/zen-octo"))
+	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{big}), "acme/rocket"))
 
 	for _, want := range []string{"+12k", "−340k"} {
 		if !strings.Contains(row, want) {

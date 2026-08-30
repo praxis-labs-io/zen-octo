@@ -167,14 +167,14 @@ func TestWritingIntoTheSliceHandedToPendingLabelsDoesNotReachTheStore(t *testing
 func TestRepoMetaIsHeldForTheNextPicker(t *testing.T) {
 	s := store.New(configured())
 
-	if !s.BeginRepoMeta("zen-octo/zen-octo") {
+	if !s.BeginRepoMeta("acme/rocket") {
 		t.Fatal("BeginRepoMeta refused a repository never fetched")
 	}
-	s.RepoMetaApplied("zen-octo/zen-octo", gh.RepoMetaResult{
+	s.RepoMetaApplied("acme/rocket", gh.RepoMetaResult{
 		Meta: gh.RepoMeta{Labels: labelSet("bug")},
 	})
 
-	held := s.Repo("zen-octo/zen-octo")
+	held := s.Repo("acme/rocket")
 	if !held.Loaded {
 		t.Error("metadata is not marked loaded")
 	}
@@ -183,7 +183,7 @@ func TestRepoMetaIsHeldForTheNextPicker(t *testing.T) {
 	}
 
 	// Refused twice over: already loaded, so a second picker costs nothing.
-	if s.BeginRepoMeta("zen-octo/zen-octo") {
+	if s.BeginRepoMeta("acme/rocket") {
 		t.Error("BeginRepoMeta started a second request for metadata already held")
 	}
 }
@@ -191,22 +191,22 @@ func TestRepoMetaIsHeldForTheNextPicker(t *testing.T) {
 func TestBeginRepoMetaRefusesOneAlreadyInFlight(t *testing.T) {
 	s := store.New(configured())
 
-	if !s.BeginRepoMeta("zen-octo/zen-octo") {
+	if !s.BeginRepoMeta("acme/rocket") {
 		t.Fatal("the first BeginRepoMeta was refused")
 	}
-	if s.BeginRepoMeta("zen-octo/zen-octo") {
+	if s.BeginRepoMeta("acme/rocket") {
 		t.Error("BeginRepoMeta started a second request while one was in flight")
 	}
 }
 
 func TestInvalidateRepoMetaLetsTheNextPickerAskAgain(t *testing.T) {
 	s := store.New(configured())
-	s.BeginRepoMeta("zen-octo/zen-octo")
-	s.RepoMetaApplied("zen-octo/zen-octo", gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: labelSet("bug")}})
+	s.BeginRepoMeta("acme/rocket")
+	s.RepoMetaApplied("acme/rocket", gh.RepoMetaResult{Meta: gh.RepoMeta{Labels: labelSet("bug")}})
 
-	s.InvalidateRepoMeta("zen-octo/zen-octo")
+	s.InvalidateRepoMeta("acme/rocket")
 
-	if !s.BeginRepoMeta("zen-octo/zen-octo") {
+	if !s.BeginRepoMeta("acme/rocket") {
 		t.Error("BeginRepoMeta still refuses after the metadata was invalidated")
 	}
 }
@@ -215,10 +215,10 @@ func TestFailedRepoMetaCarriesItsError(t *testing.T) {
 	s := store.New(configured())
 	boom := errors.New("boom")
 
-	s.BeginRepoMeta("zen-octo/zen-octo")
-	s.RepoMetaFailed("zen-octo/zen-octo", boom)
+	s.BeginRepoMeta("acme/rocket")
+	s.RepoMetaFailed("acme/rocket", boom)
 
-	held := s.Repo("zen-octo/zen-octo")
+	held := s.Repo("acme/rocket")
 	if !errors.Is(held.Err, boom) {
 		t.Errorf("err = %v, want %v", held.Err, boom)
 	}
@@ -713,7 +713,7 @@ func TestNeitherPeopleWriteReadsAsAStateWrite(t *testing.T) {
 	}
 }
 
-const repo = "zen-octo/zen-octo"
+const repo = "acme/rocket"
 
 func based(base string, behind int) gh.DetailResult {
 	return gh.DetailResult{Detail: gh.PullRequestDetail{

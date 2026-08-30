@@ -21,13 +21,13 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
 )
 
-const sampleURL = "https://github.com/praxis-labs-io/zen-octo/pull/412"
+const sampleURL = "https://github.com/acme/rocket/pull/412"
 
 func samplePR() gh.PullRequest {
 	return gh.PullRequest{
 		ID: "PR_412", Number: 412, Title: "Fix the auth retry backoff loop",
 		URL:        sampleURL,
-		Repository: "zen-octo/zen-octo", Author: gh.Actor{Login: "drucial"},
+		Repository: "acme/rocket", Author: gh.Actor{Login: "drucial"},
 		State: gh.PRStateOpen, BaseRefName: "main", HeadRefName: "fix-auth-retry",
 		Additions: 42, Deletions: 7, ChangedFiles: 3, Comments: 24,
 		Checks: gh.CheckStateFailure, ReviewDecision: gh.ReviewDecisionChangesRequested,
@@ -607,7 +607,7 @@ func sampleDetail() gh.PullRequestDetail {
 			// handle is built rather than sent, and no write may spell a login
 			// with it. Without the flag it reads here as somebody with an
 			// outstanding request, which the reviewer picker would then cancel.
-			{Actor: gh.Actor{Login: "zen-octo/maintainers"}, Requested: true, Team: true},
+			{Actor: gh.Actor{Login: "acme/maintainers"}, Requested: true, Team: true},
 		},
 		Rollup: gh.CheckRollup{
 			State: gh.CheckStateFailure,
@@ -2059,7 +2059,7 @@ func TestEveryReviewerIsMarkedWithTheirVerdict(t *testing.T) {
 	}{
 		{row: "● @nkr", state: "waiting on a change", color: testTheme.Error},
 		{row: "● @octobot", state: "done with it", color: testTheme.Success},
-		{row: "● @zen-octo/maintainers", state: "in flight", color: testTheme.Warning},
+		{row: "● @acme/maintainers", state: "in flight", color: testTheme.Warning},
 	}
 	for i, w := range want {
 		if got := rows[at+1+i]; got != w.row {
@@ -2120,7 +2120,7 @@ func TestAReviewerWithAnOpenThreadReadsAsWaiting(t *testing.T) {
 // A bot login runs past the rail as readily as a workflow name does.
 func TestALongReviewerNameClipsRatherThanWrapping(t *testing.T) {
 	d := sampleDetail()
-	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "zen-octo/copilot-pull-request-reviewers"}}}
+	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "acme/copilot-pull-request-reviewers"}}}
 
 	rows := railRows(t, detailed(held(d), 200, 44).View())
 	for i, row := range rows {

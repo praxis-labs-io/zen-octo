@@ -595,7 +595,7 @@ func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResu
 // serveRepoMeta stages the choices every picker draws from, for the repository
 // the sample pull requests live in.
 func (f *fakeSearcher) serveRepoMeta(meta gh.RepoMeta) {
-	f.serveRepoMetaFor("zen-octo/zen-octo", meta)
+	f.serveRepoMetaFor("acme/rocket", meta)
 }
 
 // serveRepoMetaFor stages one repository's choices. Keyed, because the cache is:
@@ -623,7 +623,7 @@ func (f *fakeSearcher) metaCalls() []string {
 func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []string) (gh.LabelsResult, error) {
 	f.mu.Lock()
 	f.labelled = append(f.labelled, prID+": "+strings.Join(labelIDs, ","))
-	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Labels, f.postErr, f.postHold
+	known, err, hold := f.repoMetas["acme/rocket"].Labels, f.postErr, f.postHold
 	f.mu.Unlock()
 
 	time.Sleep(hold)
@@ -651,7 +651,7 @@ func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []stri
 func (f *fakeSearcher) SetAssignees(_ context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error) {
 	f.mu.Lock()
 	f.assigned = append(f.assigned, prID+": "+strings.Join(assigneeIDs, ","))
-	known, err, hold := f.repoMetas["zen-octo/zen-octo"].Users, f.postErr, f.postHold
+	known, err, hold := f.repoMetas["acme/rocket"].Users, f.postErr, f.postHold
 	f.mu.Unlock()
 
 	time.Sleep(hold)
@@ -1080,14 +1080,14 @@ func testConfig() *config.Config {
 func samplePRs() []gh.PullRequest {
 	return []gh.PullRequest{
 		{
-			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "zen-octo/zen-octo",
-			URL:    "https://github.com/praxis-labs-io/zen-octo/pull/412",
+			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "acme/rocket",
+			URL:    "https://github.com/acme/rocket/pull/412",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
 			HeadRefName: "fix-auth", Additions: 42, Deletions: 7, ChangedFiles: 3,
 			Checks: gh.CheckStateSuccess, UpdatedAt: time.Now().Add(-2 * time.Hour),
 		},
 		{
-			ID: "PR_408", Number: 408, Title: "Bump deps", Repository: "zen-octo/zen-octo",
+			ID: "PR_408", Number: 408, Title: "Bump deps", Repository: "acme/rocket",
 			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, IsDraft: true,
 			Checks: gh.CheckStateFailure, UpdatedAt: time.Now().Add(-30 * time.Hour),
 		},
@@ -1270,7 +1270,7 @@ func TestRendersFetchedPullRequests(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
 	out := render(t, m)
-	for _, want := range []string{"My PRs", "#412", "Fix auth retry", "zen-octo/zen-octo", "drucial", "#408"} {
+	for _, want := range []string{"My PRs", "#412", "Fix auth retry", "acme/rocket", "drucial", "#408"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view is missing %q\n%s", want, out)
 		}
@@ -1432,7 +1432,7 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 
 	// A new PR lands at the top, pushing #408 down a row.
 	client.serve(append([]gh.PullRequest{{
-		ID: "PR_NEW", Number: 500, Title: "Brand new", Repository: "zen-octo/zen-octo",
+		ID: "PR_NEW", Number: 500, Title: "Brand new", Repository: "acme/rocket",
 		State: gh.PRStateOpen, UpdatedAt: time.Now(),
 	}}, samplePRs()...))
 	m = settle(m, keyMsg("s"))
@@ -2302,7 +2302,7 @@ func manyPRs(n int) []gh.PullRequest {
 	for i := range prs {
 		prs[i] = gh.PullRequest{
 			ID: fmt.Sprintf("PR_%d", i), Number: i, Title: fmt.Sprintf("Change %d", i),
-			Repository: "zen-octo/zen-octo", State: gh.PRStateOpen, UpdatedAt: at,
+			Repository: "acme/rocket", State: gh.PRStateOpen, UpdatedAt: at,
 		}
 	}
 	return prs
@@ -2560,8 +2560,8 @@ func TestTheDiffIsNotFetchedUntilTheFilesTabIsOpened(t *testing.T) {
 	}
 
 	m = press(m, "]", "]", "]")
-	if got := client.fetched(); len(got) != 1 || got[0] != "zen-octo/zen-octo#412" {
-		t.Errorf("fetched %v, want one diff for zen-octo/zen-octo#412", got)
+	if got := client.fetched(); len(got) != 1 || got[0] != "acme/rocket#412" {
+		t.Errorf("fetched %v, want one diff for acme/rocket#412", got)
 	}
 	if !strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
 		t.Error("the diff never reached the screen")
@@ -2631,7 +2631,7 @@ func TestOnlyTheCommitTheCursorStopsOnIsFetched(t *testing.T) {
 	}
 
 	m = settleOn(m, "7b20ef4a11")
-	want := "zen-octo/zen-octo@7b20ef4a11"
+	want := "acme/rocket@7b20ef4a11"
 	if got := client.fetchedCommits(); len(got) != 1 || got[0] != want {
 		t.Errorf("fetched %v, want one request for %q", got, want)
 	}
@@ -2682,7 +2682,7 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	m = settleOn(press(m, "j"), "7b20ef4a11")
 	m = settleOn(press(m, "k"), "a3f91c2d5e")
 
-	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@7b20ef4a11"}
+	want := []string{"acme/rocket@a3f91c2d5e", "acme/rocket@7b20ef4a11"}
 	if got := client.fetchedCommits(); !slices.Equal(got, want) {
 		t.Errorf("fetched %v, want %v: the second read of a commit is cached", got, want)
 	}
@@ -2898,7 +2898,7 @@ func TestRefreshingOnTheCommitsTabRefetchesTheCommitOnThePane(t *testing.T) {
 
 	m = press(m, "s")
 
-	want := []string{"zen-octo/zen-octo@a3f91c2d5e", "zen-octo/zen-octo@a3f91c2d5e"}
+	want := []string{"acme/rocket@a3f91c2d5e", "acme/rocket@a3f91c2d5e"}
 	if got := client.fetchedCommits(); !slices.Equal(got, want) {
 		t.Errorf("fetched commits %v, want %v", got, want)
 	}
@@ -3173,7 +3173,7 @@ func TestTheDetailStatusBarCarriesNothingButItsHints(t *testing.T) {
 	for _, width := range []int{100, 120, 160, 200} {
 		// The number is in the header too, so only the bar's own line answers.
 		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
-		for _, unwanted := range []string{"#412", "zen-octo/zen-octo"} {
+		for _, unwanted := range []string{"#412", "acme/rocket"} {
 			if strings.Contains(bar, unwanted) {
 				t.Errorf("width %d: the status bar still carries %q: %q", width, unwanted, strings.TrimSpace(bar))
 			}
@@ -3212,7 +3212,7 @@ func TestADiffDoesNotFollowTheReaderToTheNextPullRequest(t *testing.T) {
 	if strings.Contains(stripANSI(render(t, m)), "delay = min(delay*2, fetchTimeout)") {
 		t.Error("the first pull request's diff is showing on the second")
 	}
-	if got := client.fetched(); len(got) != 2 || got[1] != "zen-octo/zen-octo#408" {
+	if got := client.fetched(); len(got) != 2 || got[1] != "acme/rocket#408" {
 		t.Errorf("fetched %v, want a second request for #408", got)
 	}
 }

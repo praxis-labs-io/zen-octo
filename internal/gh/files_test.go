@@ -115,7 +115,7 @@ const fileViewsBody = `{
 func fetchFiles(t *testing.T) FilesResult {
 	t.Helper()
 	res, err := newWithDoer(&fakeDoer{body: fileViewsBody}, &fakeREST{body: filesBody}).
-		PullRequestFiles(context.Background(), "PR_17", "zen-octo/zen-octo", 17, 4)
+		PullRequestFiles(context.Background(), "PR_17", "acme/rocket", 17, 4)
 	if err != nil {
 		t.Fatalf("PullRequestFiles: %v", err)
 	}
@@ -125,14 +125,14 @@ func fetchFiles(t *testing.T) FilesResult {
 func TestFilesAskForOnePageOfTheRightPullRequest(t *testing.T) {
 	rest := &fakeREST{body: filesBody}
 	if _, err := newWithDoer(&fakeDoer{body: fileViewsBody}, rest).
-		PullRequestFiles(context.Background(), "PR_17", "zen-octo/zen-octo", 17, 4); err != nil {
+		PullRequestFiles(context.Background(), "PR_17", "acme/rocket", 17, 4); err != nil {
 		t.Fatalf("PullRequestFiles: %v", err)
 	}
 
 	if rest.gotMethod != http.MethodGet {
 		t.Errorf("method = %q, want GET", rest.gotMethod)
 	}
-	want := "repos/zen-octo/zen-octo/pulls/17/files?per_page=100"
+	want := "repos/acme/rocket/pulls/17/files?per_page=100"
 	if rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
@@ -172,7 +172,7 @@ func TestFilesCarryViewerStateAndRateLimit(t *testing.T) {
 func TestFilesRefuseAResponseMissingViewedState(t *testing.T) {
 	body := `{"node":{"files":{"nodes":[{"path":"internal/gh/files.go","viewerViewedState":"UNVIEWED"}]}}}`
 	_, err := newWithDoer(&fakeDoer{body: body}, &fakeREST{body: filesBody}).
-		PullRequestFiles(context.Background(), "PR_17", "zen-octo/zen-octo", 17, 4)
+		PullRequestFiles(context.Background(), "PR_17", "acme/rocket", 17, 4)
 	if err == nil || !strings.Contains(err.Error(), "internal/tui/prview/files.go") {
 		t.Fatalf("err = %v, want the missing path named", err)
 	}
@@ -208,7 +208,7 @@ func TestAFileWithNoPatchSaysWhyRatherThanReadingAsUnchanged(t *testing.T) {
 
 func TestOverflowIsReportedAgainstWhatThePullRequestTouched(t *testing.T) {
 	res, err := newWithDoer(&fakeDoer{body: fileViewsBody}, &fakeREST{body: filesBody}).
-		PullRequestFiles(context.Background(), "PR_17", "zen-octo/zen-octo", 17, 130)
+		PullRequestFiles(context.Background(), "PR_17", "acme/rocket", 17, 130)
 	if err != nil {
 		t.Fatalf("PullRequestFiles: %v", err)
 	}
@@ -241,12 +241,12 @@ const commitBody = `{
 func TestACommitDiffAsksTheCommitEndpointAndParsesItsFiles(t *testing.T) {
 	rest := &fakeREST{body: commitBody}
 	res, err := newWithDoer(nil, rest).
-		CommitFiles(context.Background(), "zen-octo/zen-octo", "a3f91c2d5e")
+		CommitFiles(context.Background(), "acme/rocket", "a3f91c2d5e")
 	if err != nil {
 		t.Fatalf("CommitFiles: %v", err)
 	}
 
-	want := "repos/zen-octo/zen-octo/commits/a3f91c2d5e?per_page=100"
+	want := "repos/acme/rocket/commits/a3f91c2d5e?per_page=100"
 	if rest.gotMethod != http.MethodGet || rest.gotPath != want {
 		t.Errorf("asked %s %q, want GET %q", rest.gotMethod, rest.gotPath, want)
 	}
@@ -276,7 +276,7 @@ func TestAFullPageOfCommitFilesReadsAsTruncated(t *testing.T) {
 	body := `{"files": [` + strings.Join(nodes, ",") + `]}`
 
 	res, err := newWithDoer(nil, &fakeREST{body: body}).
-		CommitFiles(context.Background(), "zen-octo/zen-octo", "a3f91c2")
+		CommitFiles(context.Background(), "acme/rocket", "a3f91c2")
 	if err != nil {
 		t.Fatalf("CommitFiles: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestAFullPageOfCommitFilesReadsAsTruncated(t *testing.T) {
 func TestACommitDiffForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: commitBody}
 	if _, err := newWithDoer(nil, rest).
-		CommitFiles(context.Background(), "zen-octo", "a3f91c2"); err == nil {
+		CommitFiles(context.Background(), "acme", "a3f91c2"); err == nil {
 		t.Fatal("want an error for a repo with no owner")
 	}
 	if rest.gotPath != "" {
@@ -298,7 +298,7 @@ func TestACommitDiffForARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T
 
 func TestARepoWithoutAnOwnerIsRefusedBeforeTheRequest(t *testing.T) {
 	rest := &fakeREST{body: filesBody}
-	_, err := newWithDoer(nil, rest).PullRequestFiles(context.Background(), "PR_17", "zen-octo", 17, 1)
+	_, err := newWithDoer(nil, rest).PullRequestFiles(context.Background(), "PR_17", "acme", 17, 1)
 
 	if err == nil {
 		t.Fatal("want an error for a repo with no owner")
@@ -315,7 +315,7 @@ func TestAForbiddenFilesCallNamesTheScopeToAdd(t *testing.T) {
 
 	rest := &fakeREST{err: &api.HTTPError{StatusCode: 403, Headers: headers}}
 	_, err := newWithDoer(&fakeDoer{body: fileViewsBody}, rest).
-		PullRequestFiles(context.Background(), "PR_17", "zen-octo/zen-octo", 17, 1)
+		PullRequestFiles(context.Background(), "PR_17", "acme/rocket", 17, 1)
 
 	var scope *ScopeError
 	if !errors.As(err, &scope) {

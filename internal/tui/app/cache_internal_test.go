@@ -21,7 +21,7 @@ const past = 60
 func TestADiffOutlivingItsDetailIsNotRefetched(t *testing.T) {
 	m := onADetail(t)
 
-	pr := gh.PullRequest{ID: "PR_gone", Number: 9, Repository: "zen-octo/zen-octo"}
+	pr := gh.PullRequest{ID: "PR_gone", Number: 9, Repository: "acme/rocket"}
 	m.store.DetailApplied("PR_gone", gh.DetailResult{Detail: gh.PullRequestDetail{PullRequest: pr}})
 	m.store.BeginFiles("PR_gone")
 	m.store.FilesApplied("PR_gone", oneDiff())
@@ -82,7 +82,7 @@ func TestReopeningAPullRequestKeepsItsDiff(t *testing.T) {
 	}
 
 	oldest := oldestHeld(t, past, func(i int) bool { return m.store.Files(id(i)).Loaded })
-	m.open(gh.PullRequest{ID: id(oldest), Number: oldest, Repository: "zen-octo/zen-octo"})
+	m.open(gh.PullRequest{ID: id(oldest), Number: oldest, Repository: "acme/rocket"})
 
 	m.store.BeginFiles("PR_new")
 	m.store.FilesApplied("PR_new", oneDiff())

@@ -39,26 +39,26 @@ const twoPRsBody = `{
     "nodes": [
       {
         "id": "PR_1", "number": 412, "title": "Fix auth retry",
-        "url": "https://github.com/praxis-labs-io/zen-octo/pull/412",
+        "url": "https://github.com/acme/rocket/pull/412",
         "isDraft": false, "state": "OPEN",
         "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-02T11:30:00Z",
         "additions": 42, "deletions": 7, "changedFiles": 3,
         "headRefName": "fix-auth", "baseRefName": "main",
         "reviewDecision": "APPROVED",
         "author": {"login": "drucial"},
-        "repository": {"nameWithOwner": "zen-octo/zen-octo"},
+        "repository": {"nameWithOwner": "acme/rocket"},
         "statusCheckRollup": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}
       },
       {
         "id": "PR_2", "number": 408, "title": "Bump deps",
-        "url": "https://github.com/praxis-labs-io/zen-octo/pull/408",
+        "url": "https://github.com/acme/rocket/pull/408",
         "isDraft": true, "state": "OPEN",
         "createdAt": "2026-07-30T09:00:00Z", "updatedAt": "2026-07-31T09:00:00Z",
         "additions": 1, "deletions": 1, "changedFiles": 1,
         "headRefName": "bump", "baseRefName": "main",
         "reviewDecision": "",
         "author": null,
-        "repository": {"nameWithOwner": "zen-octo/zen-octo"},
+        "repository": {"nameWithOwner": "acme/rocket"},
         "statusCheckRollup": {"nodes": []}
       }
     ]
@@ -84,8 +84,8 @@ func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 	if first.Author.Login != "drucial" {
 		t.Errorf("Author.Login = %q, want drucial", first.Author.Login)
 	}
-	if first.Repository != "zen-octo/zen-octo" {
-		t.Errorf("Repository = %q, want zen-octo/zen-octo", first.Repository)
+	if first.Repository != "acme/rocket" {
+		t.Errorf("Repository = %q, want acme/rocket", first.Repository)
 	}
 	if first.Checks != CheckStateSuccess {
 		t.Errorf("Checks = %q, want %q", first.Checks, CheckStateSuccess)

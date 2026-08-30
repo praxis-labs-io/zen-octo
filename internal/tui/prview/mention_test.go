@@ -70,7 +70,7 @@ const (
 func TestTheFirstAtInABoxAsksForTheRepositorysPeople(t *testing.T) {
 	_, cmd := typing(composing(200, 60), "@")
 
-	want := prview.NeedRepoMetaMsg{Repo: "zen-octo/zen-octo"}
+	want := prview.NeedRepoMetaMsg{Repo: "acme/rocket"}
 	if got := asking(cmd); got != want {
 		t.Fatalf("typing @ sent %#v, want %#v", got, want)
 	}
@@ -240,7 +240,7 @@ func TestClearingTheRepositoryPutsTheMentionListBackOnItsWay(t *testing.T) {
 	m, _ := typing(writing(t), "@")
 	cmd := m.SetRepo(store.Repo{})
 
-	want := prview.NeedRepoMetaMsg{Repo: "zen-octo/zen-octo"}
+	want := prview.NeedRepoMetaMsg{Repo: "acme/rocket"}
 	if got := asking(cmd); got != want {
 		t.Errorf("clearing the repository sent %#v, want %#v", got, want)
 	}
