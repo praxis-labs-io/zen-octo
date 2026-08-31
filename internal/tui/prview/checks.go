@@ -1,6 +1,7 @@
 package prview
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -58,6 +59,13 @@ type rerunPending struct {
 	startedAt   time.Time
 	completedAt time.Time
 	acceptedAt  time.Time
+
+	// check is the attempt the write replaces and at is where it sat in the
+	// collapsed rollup. GitHub drops the old attempt the moment it queues the
+	// rerun, so without these the row leaves the column until the new attempt is
+	// reported, and comes back wherever its group happens to end.
+	check gh.Check
+	at    int
 }
 
 type checkTreeRow struct {
@@ -115,6 +123,73 @@ type checks struct {
 	searchWithin int
 
 	reruns map[string]rerunPending
+
+	// shown is what the column draws: the fetched rollup collapsed to one
+	// attempt per logical check, with a rerun's own attempt held in place while
+	// GitHub has dropped it and not yet reported the new one. It is not the
+	// fetched rollup and must never be read as evidence about it, which is why
+	// rerunReplacement and checkForLogical stay on Detail.Rollup.
+	shown []gh.Check
+}
+
+// rerunHoldFor bounds how long a mark survives its check vanishing from the
+// rollup. GitHub drops the old attempt when it queues the rerun and reports the
+// new one a poll or two later, so the gap is seconds; past this it is a check
+// that is gone rather than one on its way, and holding forever would leave a
+// row nothing can retire.
+const rerunHoldFor = time.Minute
+
+// newestAttempt collapses the rollup to one check per logical key. GitHub keeps
+// every attempt, so a job that was skipped and later rerun arrives twice and
+// draws two rows for one check. Key tells the attempts apart by DistinctID,
+// which is what makes them two rows; LogicalKey is the identity a reader has,
+// and the newest attempt is the answer to it.
+func newestAttempt(checks []gh.Check) []gh.Check {
+	at := make(map[string]int, len(checks))
+	out := make([]gh.Check, 0, len(checks))
+	for _, c := range checks {
+		i, seen := at[c.LogicalKey()]
+		if !seen {
+			at[c.LogicalKey()] = len(out)
+			out = append(out, c)
+			continue
+		}
+		// The kept attempt holds its place. A newer attempt taking the later
+		// slot would walk the row down its group each time it reran.
+		if attemptTime(c).After(attemptTime(out[i])) {
+			out[i] = c
+		}
+	}
+	return out
+}
+
+// renderedChecks is the rollup as the column draws it. The hold runs after the
+// collapse, because a held attempt is one the collapse found nothing to keep.
+func (m *Model) renderedChecks() []gh.Check {
+	out := newestAttempt(m.detail.Detail.Rollup.Checks)
+
+	for _, pending := range m.check.reruns {
+		if pending.check.Name == "" {
+			continue
+		}
+		if slices.ContainsFunc(out, func(c gh.Check) bool {
+			return c.LogicalKey() == pending.check.LogicalKey()
+		}) {
+			continue
+		}
+		held := pending.check
+		// Pending rather than the state it failed with. The row is reporting a
+		// rerun that is out, and its last verdict is one the reader already
+		// acted on by pressing the key.
+		held.State = gh.CheckStatePending
+		held.StartedAt, held.CompletedAt = time.Time{}, time.Time{}
+		out = append(out, held)
+		if pending.at < len(out)-1 {
+			copy(out[pending.at+1:], out[pending.at:len(out)-1])
+			out[pending.at] = held
+		}
+	}
+	return out
 }
 
 // groupChecks keeps workflow order from the rollup. Status contexts are flat
@@ -221,9 +296,8 @@ func (m *Model) syncChecks() {
 		m.check.reruns = make(map[string]rerunPending)
 	}
 
-	m.check.groups = groupChecks(m.detail.Detail.Rollup)
-	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
-
+	// The marks settle first: both the collapse and the hold under it read the
+	// map, and a mark this fetch retired must not hold a row for a frame.
 	for logical, pending := range m.check.reruns {
 		replacement, any := m.rerunReplacement(logical, pending)
 		if !any {
@@ -238,6 +312,10 @@ func (m *Model) syncChecks() {
 			m.check.selected = replacement.Key()
 		}
 	}
+
+	m.check.shown = m.renderedChecks()
+	m.check.groups = groupChecks(gh.CheckRollup{Checks: m.check.shown})
+	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
 
 	if m.checkForKey(m.check.selected) == nil {
 		m.check.selected = ""
@@ -281,10 +359,24 @@ func (m *Model) syncChecks() {
 	showRow(&m.sideView, m.check.cursor)
 }
 
+// shownSlot is where a check sits in the set the column is drawing, which is the
+// slot a hold puts it back into. A check the set does not carry goes to the end
+// rather than to row zero, which is a workflow it does not belong to.
+func (m *Model) shownSlot(c gh.Check) int {
+	at := slices.IndexFunc(m.check.shown, func(s gh.Check) bool { return s.Key() == c.Key() })
+	if at < 0 {
+		return len(m.check.shown)
+	}
+	return at
+}
+
+// checkForKey answers off the shown set rather than the fetched rollup, so a
+// held rerun keeps its selection through the gap. Anything asking what GitHub
+// last reported wants checkForLogical beside it.
 func (m *Model) checkForKey(key string) *gh.Check {
-	for i := range m.detail.Detail.Rollup.Checks {
-		if m.detail.Detail.Rollup.Checks[i].Key() == key {
-			return &m.detail.Detail.Rollup.Checks[i]
+	for i := range m.check.shown {
+		if m.check.shown[i].Key() == key {
+			return &m.check.shown[i]
 		}
 	}
 	return nil
@@ -307,7 +399,18 @@ func (m Model) rerunReplacement(logical string, pending rerunPending) (*gh.Check
 		}
 	}
 	if newest == nil {
-		return nil, m.checkForLogical(logical) != nil
+		if m.checkForLogical(logical) != nil {
+			return nil, true
+		}
+		// The check is not in the rollup at all. While the write is young that
+		// is the gap between GitHub dropping the old attempt and reporting the
+		// new one, and dropping the mark here is what took the row with it.
+		// Past the window it is a check that is gone, and a mark nothing can
+		// retire would hold a row for the rest of the session.
+		if pending.acceptedAt.IsZero() || time.Since(pending.acceptedAt) < rerunHoldFor {
+			return nil, true
+		}
+		return nil, false
 	}
 	if newest.State == gh.CheckStatePending || newest.State == gh.CheckStateExpected {
 		return newest, true
@@ -411,6 +514,7 @@ func (m *Model) rerunCheck() tea.Cmd {
 	}
 	m.check.reruns[check.LogicalKey()] = rerunPending{
 		jobID: check.JobID, startedAt: check.StartedAt, completedAt: check.CompletedAt,
+		check: check, at: m.shownSlot(check),
 	}
 	m.syncContent()
 	name := cleanJobLabel(check.Name)
@@ -506,6 +610,7 @@ func (m *Model) rerunRun(all bool) tea.Cmd {
 	for _, c := range targets {
 		m.check.reruns[c.LogicalKey()] = rerunPending{
 			jobID: c.JobID, startedAt: c.StartedAt, completedAt: c.CompletedAt,
+			check: c, at: m.shownSlot(c),
 		}
 		ids = append(ids, c.JobID)
 	}

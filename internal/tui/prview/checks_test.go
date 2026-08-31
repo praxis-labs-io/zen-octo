@@ -1036,3 +1036,60 @@ func TestTheBulkKeysAreDeadWhileTheLogPaneHasTheKeys(t *testing.T) {
 		}
 	}
 }
+
+// GitHub keeps every attempt, so a job that was skipped and later rerun comes
+// back twice: two rows, one check, and a reader with no way to tell which is
+// current. The newest attempt is the answer, and it holds the place the first
+// one had rather than walking down its group on every rerun.
+func TestASupersededAttemptDoesNotGetItsOwnRow(t *testing.T) {
+	old := time.Now().Add(-10 * time.Minute)
+	r := gh.CheckRollup{
+		State: gh.CheckStateFailure,
+		Checks: []gh.Check{
+			{Name: "unit", Workflow: "CI", State: gh.CheckStateSkipped, JobID: 101, DistinctID: 1, CompletedAt: old},
+			{Name: "vet", Workflow: "CI", State: gh.CheckStateSuccess, JobID: 104},
+			{Name: "unit", Workflow: "CI", State: gh.CheckStateFailure, JobID: 105, DistinctID: 2, CompletedAt: time.Now()},
+		},
+	}
+
+	rows := filledCheckRows(overRollup(r, 160, 24))
+	if got := strings.Count(strings.Join(rows, "\n"), "unit"); got != 1 {
+		t.Errorf("unit takes %d rows, want the newest attempt alone:\n%s", got, strings.Join(rows, "\n"))
+	}
+	// The parent, then unit in the slot the skipped attempt held, then vet.
+	if len(rows) < 3 || !strings.Contains(rows[1], "unit") || !strings.Contains(rows[2], "vet") {
+		t.Errorf("rows = %q, want the kept attempt in the slot the first one had", rows)
+	}
+	if !strings.Contains(rows[1], "✗") {
+		t.Errorf("unit = %q, want the newest attempt's state rather than the skipped one's", rows[1])
+	}
+}
+
+// GitHub drops the old attempt the moment it queues the rerun and reports the
+// new one a poll or two later. The row used to leave the column for that gap
+// and the mark went with it, so the client forgot the rerun was even out.
+func TestARerunKeepsItsRowWhileGitHubHasDroppedIt(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j")
+	if _, cmd := key(m, "r"); cmd == nil {
+		t.Fatal("r on the workflow row did not ask for a rerun")
+	}
+	m, _ = key(m, "r")
+
+	// The refetch that lands mid-rerun carries no attempt of the failed job.
+	gone := bulkRollup()
+	gone.Checks = slices.DeleteFunc(gone.Checks, func(c gh.Check) bool { return c.JobID == 103 })
+	d := sampleDetail()
+	d.Rollup = gone
+	m.SetDetail(held(d))
+
+	rows := strings.Join(filledCheckRows(m), "\n")
+	if !strings.Contains(rows, "test") {
+		t.Errorf("the rerunning job left the column:\n%s", rows)
+	}
+	if !strings.Contains(rows, "● test") {
+		t.Errorf("the held row does not read as running:\n%s", rows)
+	}
+	if _, again := key(m, "r"); again != nil {
+		t.Error("the mark was dropped with the check, so r started a second rerun")
+	}
+}
