@@ -1023,7 +1023,7 @@ func markedRailRow(t *testing.T, frame string) string {
 		if !strings.Contains(raw, bgSeq(testTheme.SelectedBackground)) {
 			continue
 		}
-		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│● "+paint.BarGlyph))
+		return strings.TrimSpace(strings.Trim(stripANSI(raw), "│●○✓✗ "+paint.BarGlyph))
 	}
 	return ""
 }

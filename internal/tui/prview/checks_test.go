@@ -127,7 +127,7 @@ func TestTheChecksTreeFlattensSingleJobsAndNestsMultiJobWorkflows(t *testing.T) 
 	if !strings.Contains(rows[1], "▾") || !strings.Contains(rows[1], "2") {
 		t.Errorf("multi-job parent = %q, want an open fold and count", rows[1])
 	}
-	if !strings.HasPrefix(strings.TrimLeft(rows[2], " "), "●") || !strings.HasPrefix(rows[2], "  ") {
+	if !strings.HasPrefix(strings.TrimLeft(rows[2], " "), "✓") || !strings.HasPrefix(rows[2], "  ") {
 		t.Errorf("child = %q, want an indented state-bearing row", rows[2])
 	}
 }

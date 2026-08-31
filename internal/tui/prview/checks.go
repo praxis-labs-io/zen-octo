@@ -806,7 +806,7 @@ func (m Model) checkTreeLine(r checkTreeRow, width int, selected bool) string {
 	if selected {
 		base = base.Background(m.theme.SelectedBackground)
 	}
-	_, c := comp.CheckStateIcon(m.theme, r.state)
+	glyph, c := comp.CheckStateIcon(m.theme, r.state)
 	fold := ""
 	if r.parent {
 		fold = "▾ "
@@ -815,7 +815,7 @@ func (m Model) checkTreeLine(r checkTreeRow, width int, selected bool) string {
 		}
 	}
 	indent := strings.Repeat("  ", r.depth)
-	lead := base.Render(indent+fold) + base.Foreground(c).Render(glyphCheck) + base.Render(" ") +
+	lead := base.Render(indent+fold) + base.Foreground(c).Render(glyph) + base.Render(" ") +
 		base.Foreground(m.theme.Text).Render(cleanJobLabel(r.label))
 	right := ""
 	if r.parent {

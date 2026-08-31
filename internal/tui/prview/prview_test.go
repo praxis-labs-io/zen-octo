@@ -987,10 +987,10 @@ func TestTheRailNamesEveryCheck(t *testing.T) {
 	// Two jobs both called "test" are one row twice unless the workflow names
 	// them apart. Every row takes the same mark; its color is the state.
 	for _, want := range []string{
-		"● Rails Unit Tests / test",
-		"● Rails Lint / test",
+		"✓ Rails Unit Tests / test",
+		"✗ Rails Lint / test",
 		"● E2E Tests / e2e",
-		"● codecov", // a status context has no workflow to name it with
+		"○ codecov", // a status context has no workflow to name it with
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the rail is missing %q", want)
@@ -2006,8 +2006,8 @@ func TestALongCheckNameClipsRatherThanWrapping(t *testing.T) {
 
 	rows := railRows(t, detailed(held(d), 200, 44).View())
 
-	// Reviewers take the same mark, so the count has to start below the Checks
-	// heading rather than at every dot on the rail.
+	// Reviewers take a mark too, so the count has to start below the Checks
+	// heading rather than at every marked row on the rail.
 	at := -1
 	for i, row := range rows {
 		if strings.HasPrefix(row, "Checks") {
@@ -2021,7 +2021,7 @@ func TestALongCheckNameClipsRatherThanWrapping(t *testing.T) {
 
 	marked := 0
 	for _, row := range rows[at+1:] {
-		if !strings.HasPrefix(row, "●") {
+		if row == "" || !strings.ContainsRune("●○✓✗", []rune(row)[0]) {
 			break
 		}
 		marked++
@@ -2203,9 +2203,16 @@ func railMarks(t *testing.T, frame string) map[string]bool {
 }
 
 // rowMark is the SGR a row's mark is painted in. The cell before it belongs to
-// the focus marker, so the glyph opens its own styled run.
+// the focus marker, so the glyph opens its own styled run. A check spells its
+// state out, so the mark is whichever of the four the row carries; a reviewer
+// still takes the dot.
 func rowMark(raw string) (string, bool) {
-	at := strings.Index(raw, "m●")
+	at := -1
+	for _, glyph := range []string{"m✓", "m✗", "m●", "m○"} {
+		if i := strings.Index(raw, glyph); i >= 0 && (at < 0 || i < at) {
+			at = i
+		}
+	}
 	if at < 0 {
 		return "", false
 	}

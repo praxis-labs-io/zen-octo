@@ -356,10 +356,10 @@ func TestAJumpIntoAFoldedWorkflowOpensIt(t *testing.T) {
 	// "Build / test" too, so a bare substring passes whether or not the workflow
 	// opened.
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "▾ ● Build") {
+	if !strings.Contains(out, "▾ ✗ Build") {
 		t.Errorf("the workflow the jump landed in is still folded:\n%s", out)
 	}
-	if !strings.Contains(out, "  ● test") {
+	if !strings.Contains(out, "  ✗ test") {
 		t.Errorf("the row the jump landed on is not drawn:\n%s", out)
 	}
 }

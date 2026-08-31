@@ -16,8 +16,12 @@ import (
 // same set the draft and closed markers come from.
 const glyphFile = "" // nf-cod-file
 
-// glyphCheck marks every row in the Checks section. Color carries which state
-// it is in: a column of one shape reads down faster than a column of four.
+// glyphCheck marks a reviewer, whose state has no icon of its own. The checks
+// beside it draw comp.CheckStateIcon instead: one shape read down faster, but
+// it made a failure and a pass differ by hue alone, disagreeing with the rail's
+// own header, the log pane and the browser, all of which spell the state out.
+// It also left the column saying nothing at all wherever there is no palette to
+// answer with.
 const glyphCheck = "●"
 
 // markLead is the state dot and the space after it. Only the rows carrying one
@@ -220,11 +224,11 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 	for _, check := range r.Checks {
 		key := focusKey{kind: focusCheck, id: check.Key()}
 		base, lit := m.railRow(m.railRing.focused(key))
-		_, c := comp.CheckStateIcon(m.theme, check.State)
+		glyph, c := comp.CheckStateIcon(m.theme, check.State)
 
 		faint := base.Foreground(m.theme.Subtle)
 		out = append(out, railEntry{
-			line: m.railLine(base, lit, base.Foreground(c).Render(glyphCheck)+faint.Render(" ")+
+			line: m.railLine(base, lit, base.Foreground(c).Render(glyph)+faint.Render(" ")+
 				m.fit(faint, checkName(check), railNameRoom(width, markLead)), width),
 			key: key,
 		})
@@ -243,7 +247,7 @@ func checkName(c gh.Check) string {
 }
 
 // reviewerRows marks each reviewer with where they stand. The rail has no room
-// for the words, and the same dot the checks use carries it in one cell.
+// for the words, and a dot carries it in one cell.
 func (m Model) reviewerRows(reviewers []gh.Reviewer, width int) []railEntry {
 	out := make([]railEntry, 0, len(reviewers)+1)
 	for _, r := range reviewers {
