@@ -973,3 +973,66 @@ func TestTheBulkKeysAreDeadOnAJobRow(t *testing.T) {
 		t.Error("R on a job row asked to rerun the whole run")
 	}
 }
+
+// failFirstRollup puts the failing job first in its workflow, so it is the
+// selection the tab opens on. The rest of the bulk tests walk onto the parent
+// from a passing job and never reach the case where both keys have an answer.
+func failFirstRollup() gh.CheckRollup {
+	return gh.CheckRollup{
+		State: gh.CheckStateFailure,
+		Checks: []gh.Check{
+			{Name: "unit", Workflow: "CI", State: gh.CheckStateSuccess, JobID: 101},
+			{Name: "atest", Workflow: "Build", State: gh.CheckStateFailure, JobID: 103, RunID: 555200001},
+			{Name: "zlint", Workflow: "Build", State: gh.CheckStateSuccess, JobID: 102, RunID: 555200001},
+		},
+	}
+}
+
+// The selection under a parent row is still whichever job the reader last stood
+// on, so a failed one leaves both r's in play at once. The row decides: on a
+// workflow r means the workflow.
+func TestROnAWorkflowRowMeansTheRunEvenWithAFailedJobSelected(t *testing.T) {
+	m := press(overRollup(failFirstRollup(), 160, 24), "j", "j", "k")
+
+	// Before the press: rerunRun marks the shared reruns map, which takes both
+	// hints back off the line the way a second r is refused.
+	var reruns []string
+	for _, binding := range m.ShortHelp() {
+		if strings.Contains(binding.Help().Desc, "rerun") {
+			reruns = append(reruns, binding.Help().Key)
+		}
+	}
+	if !slices.Equal(reruns, []string{"r", "R"}) {
+		t.Errorf("the hint line offers %v, want r for the failed jobs and R for all of them", reruns)
+	}
+
+	_, cmd := key(m, "r")
+	if cmd == nil {
+		t.Fatal("r on the workflow row did nothing")
+	}
+	raw := cmd()
+	msg, ok := raw.(prview.RerunRunMsg)
+	if !ok {
+		t.Fatalf("r sent %T, want the run rather than the job under the selection", raw)
+	}
+	if !slices.Equal(msg.JobIDs, []int64{103}) {
+		t.Errorf("JobIDs = %v, want the failed job of the run", msg.JobIDs)
+	}
+}
+
+// The run keys read the column's cursor, so they need the column. Handed to the
+// log pane they aimed a bulk write at a row nothing on the screen was pointing
+// at, where r beside them acts on the job whose log is open and stays live.
+func TestTheBulkKeysAreDeadWhileTheLogPaneHasTheKeys(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j", "2")
+
+	for _, k := range []string{"r", "R"} {
+		_, cmd := key(m, k)
+		if cmd == nil {
+			continue
+		}
+		if _, ok := cmd().(prview.RerunRunMsg); ok {
+			t.Errorf("%s from the log pane asked to rerun the whole run", k)
+		}
+	}
+}

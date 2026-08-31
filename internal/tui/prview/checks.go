@@ -356,8 +356,17 @@ func (m Model) checkRerunning(key string) bool {
 	return ok
 }
 
-func (m Model) canRerunCheck() bool {
+// canRerunCheck is whether r means the one job the selection names. A parent
+// row is where it does not: r means the run there, and the selection under a
+// parent is still whichever job the reader last stood on, so without this the
+// job case matched first and the key reran one job of a run the reader had
+// aimed the key at whole. It is the same question twice on the hint line, which
+// carried r against both.
+func (m *Model) canRerunCheck() bool {
 	if m.tab != tabChecks || m.checkRerunning(m.check.selected) {
+		return false
+	}
+	if _, onRun := m.selectedRun(); onRun {
 		return false
 	}
 	return m.checkHasJob() && m.checkFailed()
@@ -418,8 +427,15 @@ func (m *Model) rerunCheck() tea.Cmd {
 // single-job run is a job row and r there is the one-job rerun: the two calls
 // do the same thing to a run of one, and the key that is already there is the
 // one the reader has.
+//
+// It reads the column's cursor, so it needs the column to have the keys. That
+// is checkFoldable's rule and for its reason: the single-job rerun beside it
+// acts on the logical selection and is right from either pane, because the log
+// pane is showing that job, where a run is a row and the pane that is not
+// drawing rows cannot be aimed at one. Ungated, R from the log made a bulk
+// write against a row nothing on the screen was pointing at.
 func (m *Model) selectedRun() (checkTreeRow, bool) {
-	if m.tab != tabChecks || m.check.cursor >= len(m.check.rows) {
+	if m.tab != tabChecks || m.focus != paneSide || m.check.cursor >= len(m.check.rows) {
 		return checkTreeRow{}, false
 	}
 	row := m.check.rows[m.check.cursor]
