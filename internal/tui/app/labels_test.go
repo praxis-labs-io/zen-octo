@@ -168,22 +168,12 @@ func TestQDoesNotQuitWhileAPickerIsUp(t *testing.T) {
 // command before the next key, so no request is ever still in flight. This
 // covers the routing; the guard itself is one line in repoMetaLanded.
 func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
-	client := &fakeSearcher{prs: []gh.PullRequest{
-		{
-			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "acme/rocket",
-			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
-			HeadRefName: "fix-auth", UpdatedAt: time.Now().Add(-2 * time.Hour),
-		},
-		{
-			ID: "PR_9", Number: 9, Title: "Other repo", Repository: "acme/landing",
-			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
-			HeadRefName: "copy", UpdatedAt: time.Now().Add(-3 * time.Hour),
-		},
-	}}
+	prs := twoRepoPRs()
+	client := &fakeSearcher{prs: prs}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveDetail("PR_9", "Rewrites the landing copy.")
-	client.serveRepoMetaFor("acme/rocket", gh.RepoMeta{Labels: repoLabelSet()})
-	client.serveRepoMetaFor("acme/landing", gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
+	client.serveRepoMetaFor(prs[0].Repository, gh.RepoMeta{Labels: repoLabelSet()})
+	client.serveRepoMetaFor(prs[1].Repository, gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
 
 	// The list's own sort decides which opens first, so each step names the pull
 	// request it landed on rather than assuming an order.
@@ -241,11 +231,33 @@ func TestSyncingLetsThePickerSeeANewLabel(t *testing.T) {
 // walk is only right while the other repository sorts before the main fixture's,
 // which is a premise the walk itself does not state. ZNO-79 broke it once by
 // renaming both.
+//
+// It reads the names off the fixture rather than naming them again. Spelled out
+// here, the guard compares two constants to each other and stays green through
+// exactly the rename it exists to catch.
 func TestTheTwoRepoFixtureSortsInTheOrderTheWalkAssumes(t *testing.T) {
-	const main, other = "acme/rocket", "acme/landing"
+	prs := twoRepoPRs()
+	main, other := prs[0].Repository, prs[1].Repository
 
 	if other >= main {
 		t.Errorf("%q sorts at or after %q, so the pull request the test opens first "+
 			"is no longer the one it asserts on", other, main)
+	}
+}
+
+// twoRepoPRs is the fixture both of those read: one pull request in each of two
+// repositories.
+func twoRepoPRs() []gh.PullRequest {
+	return []gh.PullRequest{
+		{
+			ID: "PR_412", Number: 412, Title: "Fix auth retry", Repository: "acme/rocket",
+			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
+			HeadRefName: "fix-auth", UpdatedAt: time.Now().Add(-2 * time.Hour),
+		},
+		{
+			ID: "PR_9", Number: 9, Title: "Other repo", Repository: "acme/landing",
+			Author: gh.Actor{Login: "drucial"}, State: gh.PRStateOpen, BaseRefName: "main",
+			HeadRefName: "copy", UpdatedAt: time.Now().Add(-3 * time.Hour),
+		},
 	}
 }
