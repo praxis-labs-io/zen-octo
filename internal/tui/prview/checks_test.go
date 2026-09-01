@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -1091,5 +1092,137 @@ func TestARerunKeepsItsRowWhileGitHubHasDroppedIt(t *testing.T) {
 	}
 	if _, again := key(m, "r"); again != nil {
 		t.Error("the mark was dropped with the check, so r started a second rerun")
+	}
+}
+
+// The log under the pane belongs to the attempt the rerun replaces. Left there
+// it reads as the new run's output, and its folds and search answer lines that
+// are on their way out. syncChecks cannot do it, because the mark is exactly
+// what stops it resetting through the gap GitHub opens.
+func TestARerunDropsTheLogOfTheAttemptItReplaces(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		rollup gh.CheckRollup
+		walk   []string
+		key    string
+	}{
+		// The job row, where r means the one job under the selection.
+		{name: "one job", rollup: bulkRollup(), walk: []string{"j", "j", "j"}, key: "r"},
+		// The parent row, reached from the failed job so the selection is still
+		// on it. R there replaces the run, the selected attempt included.
+		{name: "the whole run", rollup: failFirstRollup(), walk: []string{"j", "j", "k"}, key: "R"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(overRollup(tt.rollup, 160, 24), tt.walk...)
+			m.SetJob(103, loadedJob(103, true))
+			if out := stripANSI(m.View()); !strings.Contains(out, "tests failed") {
+				t.Fatalf("the log never landed to begin with:\n%s", out)
+			}
+
+			m, cmd := key(m, tt.key)
+			if cmd == nil {
+				t.Fatalf("%s did not ask for a rerun", tt.key)
+			}
+			if out := stripANSI(m.View()); strings.Contains(out, "tests failed") {
+				t.Errorf("the replaced attempt's log is still on the pane:\n%s", out)
+			}
+		})
+	}
+}
+
+// worst() ranks a failure above a pending, so a parent computed from the checks
+// as fetched stayed marked failing over a job that was already running again.
+// The mark has to reach the group state, not the row alone.
+func TestRerunningAJobTakesItsWorkflowOffFailing(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j", "j", "j") // Build / test, failing
+
+	rows := filledCheckRows(m)
+	if !strings.Contains(rows[1], "✗ Build") {
+		t.Fatalf("the workflow does not start out failing: %q", rows[1])
+	}
+
+	m, cmd := key(m, "r")
+	if cmd == nil {
+		t.Fatal("r did not ask for a rerun")
+	}
+
+	rows = filledCheckRows(m)
+	if !strings.Contains(rows[1], "● Build") {
+		t.Errorf("the workflow = %q, want it running while its only failure is rerunning", rows[1])
+	}
+	if !strings.Contains(rows[3], "● test") {
+		t.Errorf("the job = %q, want it running", rows[3])
+	}
+}
+
+// The steps are drawn in a pane, so a bare line at column zero sat outside the
+// frame above it with its glyph left of the border, and unwrapped it ran off
+// the pane, which clips silently and mid-cell.
+func TestALineWhereTheStepsWouldBeSitsInsideThePaneAndWraps(t *testing.T) {
+	long := "no such host: " + strings.Repeat("a very long resolver name ", 12)
+	m := onChecks(160, 24)
+	m.SetJob(101, store.Job{Status: store.StatusFailed, Err: errors.New(long)})
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	head := slices.IndexFunc(lines, func(l string) bool {
+		return strings.Contains(l, "Could not load the job log")
+	})
+	if head < 0 {
+		t.Fatalf("the note is not on the pane:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The pane's own words start two columns in: its border and the space
+	// inside it. Anything less puts the glyph outside the frame above it.
+	body := logPaneText(t, lines[head])
+	if got := len(body) - len(strings.TrimLeft(body, " ")); got != 2 {
+		t.Errorf("the note is inset %d columns, want %d:\n%q", got, 2, lines[head])
+	}
+	// A message this long on one line is a message that never wrapped.
+	if !strings.Contains(stripANSI(m.View()), "resolver name") {
+		t.Fatal("the fixture never reached the pane")
+	}
+	if strings.Contains(lines[head], "a very long resolver name a very long resolver name a very long resolver name") {
+		t.Errorf("the note did not wrap:\n%q", lines[head])
+	}
+}
+
+// logPaneText is one rendered row with the pane borders and the column beside
+// it taken off, so an inset is measured against the pane rather than the frame.
+func logPaneText(t *testing.T, line string) string {
+	t.Helper()
+	at := strings.LastIndex(line, "│")
+	first := strings.Index(line, "│")
+	if first < 0 || at <= first {
+		t.Fatalf("no log pane on the row: %q", line)
+	}
+	inner := line[:at]
+	if cut := strings.LastIndex(inner, "│"); cut >= 0 {
+		inner = inner[cut+len("│"):]
+	}
+	return inner
+}
+
+// Nothing is fetched while a rerun is out: the old attempt's log is dropped and
+// the new one has not been reported. Saying "Loading" there claims a request
+// nobody made, and no fetch in flight means nothing keeps the glyph moving.
+func TestTheLogPaneSaysItIsWaitingOnTheNewAttempt(t *testing.T) {
+	m := press(overRollup(bulkRollup(), 160, 24), "j", "j", "j")
+	m.SetJob(103, loadedJob(103, true))
+
+	m, cmd := key(m, "r")
+	if cmd == nil {
+		t.Fatal("r did not ask for a rerun")
+	}
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Waiting for the new attempt") {
+		t.Errorf("the pane does not say what it is waiting on:\n%s", out)
+	}
+	if strings.Contains(out, "Loading the job log") {
+		t.Error("the pane claims a fetch that is not in flight")
+	}
+
+	if _, tick := m.Update(spinner.TickMsg{}); tick == nil {
+		t.Error("the tick chain died, so the glyph freezes on its first frame")
 	}
 }

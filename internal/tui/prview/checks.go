@@ -168,6 +168,17 @@ func newestAttempt(checks []gh.Check) []gh.Check {
 func (m *Model) renderedChecks() []gh.Check {
 	out := newestAttempt(m.detail.Detail.Rollup.Checks)
 
+	// A marked check reads as running wherever it is read, which is the row and
+	// the workflow state above it. Forced at the row alone, worst() went on
+	// ranking the attempt being replaced and left a parent marked failing over
+	// a job that was already running again.
+	for i := range out {
+		if _, marked := m.check.reruns[out[i].LogicalKey()]; marked {
+			out[i].State = gh.CheckStatePending
+			out[i].StartedAt, out[i].CompletedAt = time.Time{}, time.Time{}
+		}
+	}
+
 	for _, pending := range m.check.reruns {
 		if pending.check.Name == "" {
 			continue
@@ -516,6 +527,14 @@ func (m *Model) rerunCheck() tea.Cmd {
 		jobID: check.JobID, startedAt: check.StartedAt, completedAt: check.CompletedAt,
 		check: check, at: m.shownSlot(check),
 	}
+	// The mark decides what the rows and the workflow above them read as, and
+	// nothing else rebuilds them until the next fetch lands.
+	m.syncChecks()
+	// The log under the pane is the attempt being replaced. Held, it reads as
+	// this rerun's output and its search and folds answer lines that are on
+	// their way out. syncChecks will not do it: the mark is exactly what stops
+	// it resetting through the gap.
+	m.resetCheckJob()
 	m.syncContent()
 	name := cleanJobLabel(check.Name)
 	if check.Workflow != "" {
@@ -613,7 +632,11 @@ func (m *Model) rerunRun(all bool) tea.Cmd {
 			check: c, at: m.shownSlot(c),
 		}
 		ids = append(ids, c.JobID)
+		if selected := m.selectedCheck(); selected != nil && selected.LogicalKey() == c.LogicalKey() {
+			m.resetCheckJob()
+		}
 	}
+	m.syncChecks()
 	m.syncContent()
 
 	msg := RerunRunMsg{
@@ -634,6 +657,11 @@ func (m *Model) RunRerunSettled(jobIDs []int64) {
 			}
 		}
 	}
+	// The mark is what the rows and the workflow above them are computed from,
+	// so releasing one has to rebuild them. Left alone the check stayed pending
+	// in the shown set and r was dead on a failure GitHub had just refused to
+	// rerun.
+	m.syncChecks()
 	m.syncContent()
 }
 
@@ -663,6 +691,7 @@ func (m *Model) RerunSettled(jobID int64) {
 			delete(m.check.reruns, key)
 		}
 	}
+	m.syncChecks()
 	m.syncContent()
 }
 
@@ -898,9 +927,6 @@ func (m Model) checkColumn(width int) string {
 	}
 	lines := make([]string, len(m.check.rows))
 	for i, r := range m.check.rows {
-		if m.checkRerunning(r.checkKey) {
-			r.state = gh.CheckStatePending
-		}
 		lines[i] = m.checkTreeLine(r, width, i == m.check.cursor)
 	}
 	return strings.Join(lines, "\n")

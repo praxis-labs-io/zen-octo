@@ -673,7 +673,15 @@ func (m *Model) showBox() {
 func (m Model) waiting() bool {
 	return (!m.detail.Loaded && m.detail.Status == store.StatusLoading) ||
 		waitingFor(m.files) || waitingFor(m.commit.files) || waitingForJob(m.check.job) || m.commitBlank() ||
-		m.mentionWaiting()
+		m.rerunBlank() || m.mentionWaiting()
+}
+
+// rerunBlank is a rerun out over the selected check, where the log of the
+// attempt it replaces has been dropped and the new attempt has not been
+// reported. No fetch is in flight through that, so nothing else keeps the tick
+// chain alive and the glyph froze on its first frame.
+func (m Model) rerunBlank() bool {
+	return m.tab == tabChecks && m.checkRerunning(m.check.selected)
 }
 
 // commitBlank is a commit to show with nothing on the pane yet: the settle
