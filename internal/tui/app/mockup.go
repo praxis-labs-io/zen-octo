@@ -372,6 +372,9 @@ func (Mock) RerunJob(context.Context, string, int64) (time.Time, error) {
 	return time.Now(), nil
 }
 
+func (Mock) RerunFailedJobs(context.Context, string, int64) error { return nil }
+func (Mock) RerunAllJobs(context.Context, string, int64) error    { return nil }
+
 func mockFiles() []gh.ChangedFile {
 	return []gh.ChangedFile{
 		{

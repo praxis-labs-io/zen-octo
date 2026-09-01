@@ -79,7 +79,7 @@ The same movement keys serve every pane. Focus decides what they move.
 | --- | --- |
 | `c` | comment |
 | `r` | reply, or rerun a job |
-| `R` | quote reply |
+| `R` | quote reply, or rerun every job in a workflow |
 | `e` | edit |
 | `D` | delete |
 | `x` | resolve or unresolve |
@@ -94,6 +94,9 @@ The same movement keys serve every pane. Focus decides what they move.
 | `/` | search the log |
 | `n` `N` | next, previous match |
 | `f` | first failure |
+| `r` | rerun the job, or a workflow's failed jobs |
+| `R` | rerun every job in a workflow |
+| `⏎` | on a rail check, open it here |
 
 ### The rest
 

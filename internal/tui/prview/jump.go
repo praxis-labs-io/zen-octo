@@ -10,6 +10,44 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
+// showCheckFromRail takes the check the rail's cursor is on to its row in the
+// Checks tab. The rail row and the tab's selection are keyed the same, on
+// Check.Key, so the jump is the key rather than a lookup that could disagree
+// with the row the reader pointed at.
+//
+// It unfolds the workflow holding it. A folded parent draws no row for its
+// jobs, so landing on one without opening it puts the cursor somewhere the
+// reader cannot see and leaves the tab looking like it ignored the key.
+func (m Model) showCheckFromRail() (Model, tea.Cmd) {
+	key := m.railRing.on.id
+	if key == "" {
+		return m, nil
+	}
+
+	for _, g := range m.check.groups {
+		if slices.ContainsFunc(g.checks, func(c gh.Check) bool { return c.Key() == key }) {
+			delete(m.check.folded, checkParentKey(g.name, g.runID))
+		}
+	}
+
+	m.check.selected = key
+	tab := m.goToTab(tabChecks)
+	m.syncChecks()
+
+	// The column is where the check cursor lives, and a jump that lands the
+	// selection without the keys leaves j and k scrolling the log beside it.
+	m.focusPane(paneSide)
+	for i, row := range m.check.rows {
+		if row.checkKey == key {
+			m.check.cursor = i
+			break
+		}
+	}
+	m.showSideCursor()
+
+	return m, tab
+}
+
 // showInDiff takes the thread the ring is on to its place in the Files tab.
 //
 // A diff already here that does not carry the file is answered where the reader

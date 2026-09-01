@@ -304,25 +304,41 @@ func (m *Model) jumpFirstCheckFailure() {
 	}
 }
 
+// jobNote is a line of prose where the steps would be. The steps are drawn in
+// a pane, so bare text at column zero sat outside the frame above it and its
+// glyph sat left of the border; and unwrapped it ran off the pane, which clips
+// silently and mid-cell. It takes the same inset the pane's own text has.
+func (m Model) jobNote(text string, width int) string {
+	return indent(wrap(text, max(1, width-jobNoteInset*2)), jobNoteInset)
+}
+
+// jobNoteInset is the border and the space inside it, which is where the
+// summary pane's own words start.
+const jobNoteInset = 2
+
 func (m *Model) jobBody(check gh.Check, width int) string {
 	summary := m.jobSummary(check, width)
 	if check.JobID == 0 {
-		return summary + "\n\n" + m.faint().Render("No job log is available for this status check.")
+		return summary + "\n\n" + m.jobNote(m.faint().Render("No job log is available for this status check."), width)
 	}
 
 	var body string
 	switch {
 	case m.check.parsing:
-		body = m.faint().Render("Processing the job log…")
+		body = m.jobNote(m.faint().Render("Processing the job log…"), width)
+	// A rerun is out and there is no attempt to fetch yet, so nothing is
+	// loading and saying so would be a claim about a request nobody made.
+	case m.checkRerunning(m.check.selected):
+		body = m.jobNote(m.spinner.Render("Waiting for the new attempt"), width)
 	case m.check.job.Loaded:
 		body = m.jobSteps(width)
 		if m.check.job.Status == store.StatusFailed {
-			body += "\n\n" + m.faint().Render("Log output is unavailable: "+m.check.job.Err.Error())
+			body += "\n\n" + m.jobNote(m.faint().Render("Log output is unavailable: "+m.check.job.Err.Error()), width)
 		}
 	case m.check.job.Status == store.StatusFailed:
-		body = m.faint().Render("Could not load the job log: " + m.check.job.Err.Error())
+		body = m.jobNote(m.faint().Render("Could not load the job log: "+m.check.job.Err.Error()), width)
 	default:
-		body = m.spinner.Render("Loading the job log")
+		body = m.jobNote(m.spinner.Render("Loading the job log"), width)
 	}
 	return summary + "\n\n" + body
 }
@@ -388,7 +404,7 @@ func (m *Model) jobSteps(width int) string {
 	sections := m.check.sections
 	if len(sections) == 0 {
 		m.check.stepLines = 0
-		return m.faint().Render("No steps were reported for this job.")
+		return m.jobNote(m.faint().Render("No steps were reported for this job."), width)
 	}
 	if m.check.step >= len(sections) {
 		m.check.step = len(sections) - 1

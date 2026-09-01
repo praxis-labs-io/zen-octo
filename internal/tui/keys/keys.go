@@ -217,7 +217,7 @@ var (
 		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
 		Editor:       key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply or rerun")),
-		QuoteReply:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply")),
+		QuoteReply:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply or rerun all")),
 		React:        key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "react")),
 		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Delete:       key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
@@ -367,6 +367,12 @@ type DetailContext struct {
 	JobMatches bool
 	JobRerun   bool
 
+	// RunRerun and RunRerunAll are the workflow row's two, which the job row
+	// never carries: a run is what the bulk calls take, and a parent row is the
+	// only place one is under the cursor.
+	RunRerun    bool
+	RunRerunAll bool
+
 	// SearchStanding is whether a settled query is still filtering the job log.
 	// Esc clears that before it will leave the screen, so the line saying "back"
 	// names the second press rather than the one the reader is about to make.
@@ -428,6 +434,12 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	}
 	if c.JobRerun {
 		out = append(out, hint(k.Reply, "r", "rerun"))
+	}
+	if c.RunRerun {
+		out = append(out, hint(k.Reply, "r", "rerun failed"))
+	}
+	if c.RunRerunAll {
+		out = append(out, hint(k.QuoteReply, "R", "rerun all"))
 	}
 	return append(out, Global.Help)
 }
