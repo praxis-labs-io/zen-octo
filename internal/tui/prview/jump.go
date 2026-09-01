@@ -26,7 +26,7 @@ func (m Model) showCheckFromRail() (Model, tea.Cmd) {
 
 	for _, g := range m.check.groups {
 		if slices.ContainsFunc(g.checks, func(c gh.Check) bool { return c.Key() == key }) {
-			delete(m.check.folded, checkParentKey(g.name))
+			delete(m.check.folded, checkParentKey(g.name, g.runID))
 		}
 	}
 

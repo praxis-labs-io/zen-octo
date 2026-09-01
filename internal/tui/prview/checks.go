@@ -1,6 +1,7 @@
 package prview
 
 import (
+	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -47,6 +48,12 @@ type checkGroup struct {
 	name   string
 	checks []gh.Check
 	state  gh.CheckState
+
+	// runID is the run the jobs below belong to. A workflow that fires on both
+	// push and pull_request reports one name over two runs, and grouped on the
+	// name alone one parent row stood over both: R reran the first and marked
+	// the jobs of the second, which nothing then retired.
+	runID int64
 }
 
 // checkTreeRow is one visible line in the Checks column. A parent folds a
@@ -156,7 +163,7 @@ func newestAttempt(checks []gh.Check) []gh.Check {
 		}
 		// The kept attempt holds its place. A newer attempt taking the later
 		// slot would walk the row down its group each time it reran.
-		if attemptTime(c).After(attemptTime(out[i])) {
+		if laterAttempt(c, out[i]) {
 			out[i] = c
 		}
 	}
@@ -179,6 +186,12 @@ func (m *Model) renderedChecks() []gh.Check {
 		}
 	}
 
+	// Ranged straight off the map these went in in whatever order Go handed
+	// them over, each one inserted against a slice the one before it had grown:
+	// a bulk rerun holds every job of a run at once, and the column drew them in
+	// a different order on each sync. Ascending order is what makes a slot mean
+	// the same thing to every insert after it.
+	var holds []rerunPending
 	for _, pending := range m.check.reruns {
 		if pending.check.Name == "" {
 			continue
@@ -188,17 +201,18 @@ func (m *Model) renderedChecks() []gh.Check {
 		}) {
 			continue
 		}
+		holds = append(holds, pending)
+	}
+	slices.SortFunc(holds, func(a, b rerunPending) int { return cmp.Compare(a.at, b.at) })
+
+	for _, pending := range holds {
 		held := pending.check
 		// Pending rather than the state it failed with. The row is reporting a
 		// rerun that is out, and its last verdict is one the reader already
 		// acted on by pressing the key.
 		held.State = gh.CheckStatePending
 		held.StartedAt, held.CompletedAt = time.Time{}, time.Time{}
-		out = append(out, held)
-		if pending.at < len(out)-1 {
-			copy(out[pending.at+1:], out[pending.at:len(out)-1])
-			out[pending.at] = held
-		}
+		out = slices.Insert(out, min(pending.at, len(out)), held)
 	}
 	return out
 }
@@ -210,15 +224,17 @@ func groupChecks(r gh.CheckRollup) []checkGroup {
 	at := make(map[string]int, len(r.Checks))
 	var out []checkGroup
 	for _, c := range r.Checks {
-		i, ok := at[c.Workflow]
+		group := c.Workflow + "\x00" + strconv.FormatInt(c.RunID, 10)
+		i, ok := at[group]
 		if !ok {
 			i = len(out)
-			at[c.Workflow] = i
-			out = append(out, checkGroup{name: c.Workflow})
+			at[group] = i
+			out = append(out, checkGroup{name: c.Workflow, runID: c.RunID})
 		}
 		out[i].checks = append(out[i].checks, c)
 	}
-	if i, ok := at[""]; ok && i != len(out)-1 {
+	// The status contexts, which carry neither a workflow nor a run.
+	if i, ok := at["\x000"]; ok && i != len(out)-1 {
 		g := out[i]
 		out = append(append(out[:i:i], out[i+1:]...), g)
 	}
@@ -252,8 +268,10 @@ func rank(s gh.CheckState) int {
 	return 0
 }
 
-func checkParentKey(workflow string) string { return checkParentPrefix + workflow }
-func checkRowKey(c gh.Check) string         { return checkJobPrefix + c.Key() }
+func checkParentKey(workflow string, runID int64) string {
+	return checkParentPrefix + workflow + "\x00" + strconv.FormatInt(runID, 10)
+}
+func checkRowKey(c gh.Check) string { return checkJobPrefix + c.Key() }
 
 // flattenChecks makes single-job workflows one row and gives only multi-job
 // workflows a parent. Status contexts are never a synthetic workflow.
@@ -273,11 +291,11 @@ func flattenChecks(groups []checkGroup, folded map[string]bool) []checkTreeRow {
 				key: checkRowKey(c), label: g.name + " / " + c.Name, checkKey: c.Key(), state: c.State,
 			})
 		default:
-			key := checkParentKey(g.name)
+			key := checkParentKey(g.name, g.runID)
 			closed := folded[key]
 			out = append(out, checkTreeRow{
 				key: key, label: g.name, state: g.state, count: len(g.checks), parent: true, folded: closed,
-				runID: g.checks[0].RunID,
+				runID: g.runID,
 			})
 			if closed {
 				continue
@@ -329,11 +347,26 @@ func (m *Model) syncChecks() {
 	m.check.rows = flattenChecks(m.check.groups, m.check.folded)
 
 	if m.checkForKey(m.check.selected) == nil {
+		// The same check under a new attempt before dropping to row one. The
+		// shown set is keyed on the attempt, so a check rerun anywhere else,
+		// in the browser or by a job depending on it, takes the reader's
+		// selection out from under them, and dropping straight to the first row
+		// landed them on a check they had not been reading.
+		want := logicalOf(m.check.selected)
 		m.check.selected = ""
-		for _, r := range m.check.rows {
-			if r.checkKey != "" {
-				m.check.selected = r.checkKey
-				break
+		if want != "" {
+			if at := slices.IndexFunc(m.check.shown, func(c gh.Check) bool {
+				return c.LogicalKey() == want
+			}); at >= 0 {
+				m.check.selected = m.check.shown[at].Key()
+			}
+		}
+		if m.check.selected == "" {
+			for _, r := range m.check.rows {
+				if r.checkKey != "" {
+					m.check.selected = r.checkKey
+					break
+				}
 			}
 		}
 	}
@@ -443,6 +476,37 @@ func (m Model) rerunReplacement(logical string, pending rerunPending) (*gh.Check
 		return newest, true
 	}
 	return nil, true
+}
+
+// laterAttempt is whether a is the attempt to draw over b. A queued rerun
+// carries neither timestamp, so comparing times alone answered no and the
+// column went on drawing the failure the rerun was replacing. GitHub runs one
+// attempt of a logical check at a time, so a live one is always the current
+// one; past that it is the clock, and past that the id, which counts up.
+func laterAttempt(a, b gh.Check) bool {
+	if live(a) != live(b) {
+		return live(a)
+	}
+	if at, bt := attemptTime(a), attemptTime(b); !at.Equal(bt) {
+		return at.After(bt)
+	}
+	return a.DistinctID > b.DistinctID
+}
+
+// logicalOf takes a check key back to the logical check under it. Key is
+// LogicalKey with a distinct id appended where GitHub gave two attempts the
+// same display identity, and LogicalKey is three fields, so the first three are
+// the check whatever attempt the key named.
+func logicalOf(key string) string {
+	parts := strings.SplitN(key, "\x00", 4)
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.Join(parts[:3], "\x00")
+}
+
+func live(c gh.Check) bool {
+	return c.State == gh.CheckStatePending || c.State == gh.CheckStateExpected
 }
 
 func attemptTime(check gh.Check) time.Time {
@@ -574,7 +638,7 @@ func (m *Model) selectedRun() (checkTreeRow, bool) {
 func (m *Model) runRerunTargets(row checkTreeRow, all bool) []gh.Check {
 	var out []gh.Check
 	for _, g := range m.check.groups {
-		if checkParentKey(g.name) != row.key {
+		if checkParentKey(g.name, g.runID) != row.key {
 			continue
 		}
 		for _, c := range g.checks {
@@ -601,6 +665,16 @@ func (m *Model) canRerunRun(all bool) bool {
 	targets := m.runRerunTargets(row, all)
 	if len(targets) == 0 {
 		return false
+	}
+	// GitHub refuses a whole-run rerun while the run is still going, and the
+	// optimistic path would have marked every job and dropped the log the
+	// reader was watching before the refusal arrived.
+	if all {
+		for _, c := range targets {
+			if live(c) {
+				return false
+			}
+		}
 	}
 	// A second press while the first is out settles in whatever order the
 	// responses arrive, which is the rule one key over.

@@ -191,9 +191,7 @@ func TestFoldAndSelectionSurviveAPoll(t *testing.T) {
 }
 
 func TestRAsksToRerunTheSelectedFailedJob(t *testing.T) {
-	r := checkRollup()
-	r.Checks[2].RunID = 555200001
-	m := press(overRollup(r, 160, 24), "j", "j", "j")
+	m := press(overRollup(bulkRollup(), 160, 24), "j", "j", "j")
 
 	var cmd tea.Cmd
 	m, cmd = key(m, "r")
@@ -273,9 +271,7 @@ func TestTerminalRerunWithoutTimestampsReleasesTheOptimisticState(t *testing.T) 
 }
 
 func TestRerunIsOfferedOnlyOnARerunnableJob(t *testing.T) {
-	r := checkRollup()
-	r.Checks[2].RunID = 555200001
-	failed := press(overRollup(r, 160, 24), "j", "j", "j")
+	failed := press(overRollup(bulkRollup(), 160, 24), "j", "j", "j")
 	found := false
 	for _, binding := range failed.ShortHelp() {
 		if binding.Help().Desc == "rerun" {
@@ -875,11 +871,17 @@ func TestFirstFailureIsOfferedOnlyWhereThereIsALogToJumpInto(t *testing.T) {
 // bulkRollup gives the Build workflow a run id and a second failure, so the
 // two bulk keys have different answers to give: r takes what failed, R takes
 // the passing job with them.
+// bulkRollup gives the fixture the run ids a real rollup has: every job of a
+// workflow shares its run. Grouping is on the run as well as the name, so two
+// jobs of one workflow under different runs are two workflows.
 func bulkRollup() gh.CheckRollup {
 	r := checkRollup()
 	for i := range r.Checks {
-		if r.Checks[i].Workflow == "Build" {
+		switch r.Checks[i].Workflow {
+		case "Build":
 			r.Checks[i].RunID = 555200001
+		case "CI":
+			r.Checks[i].RunID = 555200002
 		}
 	}
 	return r
@@ -1224,5 +1226,170 @@ func TestTheLogPaneSaysItIsWaitingOnTheNewAttempt(t *testing.T) {
 
 	if _, tick := m.Update(spinner.TickMsg{}); tick == nil {
 		t.Error("the tick chain died, so the glyph freezes on its first frame")
+	}
+}
+
+// A queued rerun carries neither timestamp, so a collapse ordered on the clock
+// alone answered that the finished attempt was newer and the column went on
+// drawing the failure the rerun was replacing.
+func TestAQueuedAttemptWinsTheCollapseOverTheOneItReplaces(t *testing.T) {
+	done := time.Now().Add(-5 * time.Minute)
+	r := gh.CheckRollup{State: gh.CheckStateFailure, Checks: []gh.Check{
+		{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 1, DistinctID: 1, StartedAt: done, CompletedAt: done},
+		{Name: "test", Workflow: "CI", State: gh.CheckStatePending, JobID: 2, DistinctID: 2},
+	}}
+
+	rows := filledCheckRows(overRollup(r, 160, 24))
+	if len(rows) != 1 {
+		t.Fatalf("rows = %q, want the two attempts collapsed to one", rows)
+	}
+	if !strings.Contains(rows[0], "●") {
+		t.Errorf("row = %q, want the queued attempt rather than the one it replaces", rows[0])
+	}
+}
+
+// A bulk rerun holds every job of a run at once. Inserted straight off the map
+// each hold landed against a slice the one before it had grown, so the column
+// drew its jobs in a different order on each sync.
+func TestHeldRowsComeBackInTheSameOrderEveryTime(t *testing.T) {
+	run := gh.CheckRollup{State: gh.CheckStateFailure, Checks: []gh.Check{
+		{Name: "solo", Workflow: "S", State: gh.CheckStateSuccess, JobID: 1},
+		{Name: "aaa", Workflow: "W", State: gh.CheckStateFailure, JobID: 11, RunID: 900},
+		{Name: "bbb", Workflow: "W", State: gh.CheckStateFailure, JobID: 22, RunID: 900},
+		{Name: "ccc", Workflow: "W", State: gh.CheckStateFailure, JobID: 33, RunID: 900},
+	}}
+
+	seen := map[string]bool{}
+	for range 40 {
+		m := press(overRollup(run, 160, 24), "j")
+		m, cmd := key(m, "R")
+		if cmd == nil {
+			t.Fatal("R did not ask for a rerun")
+		}
+		// Every held job vanishes at once, which is the gap GitHub opens.
+		d := sampleDetail()
+		d.Rollup = gh.CheckRollup{}
+		m.SetDetail(held(d))
+		seen[strings.Join(filledCheckRows(m), "|")] = true
+	}
+	if len(seen) != 1 {
+		t.Errorf("the held rows came back in %d different orders", len(seen))
+		for k := range seen {
+			t.Logf("  %s", k)
+		}
+	}
+}
+
+// A workflow that fires on both push and pull_request reports one name over two
+// runs. Grouped on the name alone, one parent stood over both: R reran the
+// first and marked the jobs of the second, which nothing ever retired.
+func TestAWorkflowRunningTwiceIsTwoRowsAndTwoReruns(t *testing.T) {
+	r := gh.CheckRollup{State: gh.CheckStateFailure, Checks: []gh.Check{
+		{Name: "solo", Workflow: "S", State: gh.CheckStateSuccess, JobID: 1},
+		{Name: "aaa", Workflow: "CI", State: gh.CheckStateFailure, JobID: 11, RunID: 900},
+		{Name: "bbb", Workflow: "CI", State: gh.CheckStateFailure, JobID: 22, RunID: 901},
+	}}
+
+	// Two single-job runs rather than one parent over both.
+	rows := filledCheckRows(overRollup(r, 160, 24))
+	if len(rows) != 3 {
+		t.Fatalf("rows = %q, want one row per run rather than a parent over both", rows)
+	}
+
+	// And the write names one run's jobs only.
+	m := press(overRollup(r, 160, 24), "j")
+	if _, cmd := key(m, "R"); cmd != nil {
+		if msg, ok := cmd().(prview.RerunRunMsg); ok && len(msg.JobIDs) > 1 {
+			t.Errorf("R marked %v, want the jobs of one run", msg.JobIDs)
+		}
+	}
+}
+
+// GitHub refuses a whole-run rerun while the run is going, and the optimistic
+// path would mark every job and drop the log the reader is watching before the
+// refusal lands.
+func TestRerunAllIsQuietWhileTheRunIsStillGoing(t *testing.T) {
+	r := bulkRollup()
+	for i := range r.Checks {
+		if r.Checks[i].Name == "lint" {
+			r.Checks[i].State = gh.CheckStatePending
+		}
+	}
+	m := press(overRollup(r, 160, 24), "j")
+
+	if _, cmd := key(m, "R"); cmd != nil {
+		if msg, ok := cmd().(prview.RerunRunMsg); ok {
+			t.Errorf("R asked to rerun a run still in progress: %+v", msg)
+		}
+	}
+	// r is still live: rerunning what failed does not wait on the rest.
+	if _, cmd := key(m, "r"); cmd == nil {
+		t.Error("r went quiet too, but a failed job can be rerun while others run")
+	}
+}
+
+// The shown set is keyed on the attempt, so a check rerun anywhere else takes
+// the reader's selection out from under them. Dropping straight to the first
+// row landed them on a check they had not been reading.
+func TestASelectionFollowsItsCheckIntoANewAttempt(t *testing.T) {
+	old := time.Now().Add(-5 * time.Minute)
+	before := gh.CheckRollup{State: gh.CheckStateFailure, Checks: []gh.Check{
+		{Name: "first", Workflow: "A", State: gh.CheckStateSuccess, JobID: 1},
+		{Name: "test", Workflow: "B", State: gh.CheckStateFailure, JobID: 2, DistinctID: 1, CompletedAt: old},
+	}}
+	m := press(overRollup(before, 160, 24), "j") // B / test
+	if got := logPaneHead(t, m); got != "B / test" {
+		t.Fatalf("the walk did not land on the check, pane reads %q", got)
+	}
+
+	// Somebody reruns it in the browser: a new attempt, a new key.
+	after := before
+	after.Checks = []gh.Check{
+		before.Checks[0],
+		{Name: "test", Workflow: "B", State: gh.CheckStatePending, JobID: 3, DistinctID: 2},
+	}
+	d := sampleDetail()
+	d.Rollup = after
+	m.SetDetail(held(d))
+
+	if got := logPaneHead(t, m); got != "B / test" {
+		t.Errorf("the selection landed on %q, want it to follow the check into its new attempt", got)
+	}
+}
+
+// logPaneHead is the check the log pane is showing, which is what the selection
+// names. The column draws every row whether or not it is selected, so a frame
+// containing a name says nothing about where the selection went.
+func logPaneHead(t *testing.T, m prview.Model) string {
+	t.Helper()
+	for _, line := range strings.Split(stripANSI(m.View()), "\n") {
+		for _, glyph := range []string{"✓ ", "✗ ", "● ", "○ "} {
+			at := strings.Index(line, "│ "+glyph)
+			if at < 0 {
+				continue
+			}
+			rest := line[at+len("│ "+glyph):]
+			if cut := strings.Index(rest, "│"); cut >= 0 {
+				rest = rest[:cut]
+			}
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+// The rail listed a row per attempt while the tab drew one per check, so enter
+// on a superseded row named a key the tab does not carry.
+func TestTheRailListsTheSameAttemptsTheTabDoes(t *testing.T) {
+	old := time.Now().Add(-5 * time.Minute)
+	d := sampleDetail()
+	d.Rollup = gh.CheckRollup{State: gh.CheckStateFailure, Checks: []gh.Check{
+		{Name: "test", Workflow: "CI", State: gh.CheckStateFailure, JobID: 1, DistinctID: 1, CompletedAt: old},
+		{Name: "test", Workflow: "CI", State: gh.CheckStatePending, JobID: 2, DistinctID: 2},
+	}}
+
+	out := stripANSI(detailed(held(d), 200, 60).View())
+	if got := strings.Count(out, "CI / test"); got != 1 {
+		t.Errorf("the rail lists CI / test %d times, want the one attempt the tab draws:\n%s", got, out)
 	}
 }

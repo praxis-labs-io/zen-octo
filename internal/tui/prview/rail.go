@@ -220,8 +220,13 @@ func (m Model) checkRows(r gh.CheckRollup, width int) []railEntry {
 		}}
 	}
 
-	out := make([]railEntry, 0, len(r.Checks))
-	for _, check := range r.Checks {
+	// The same collapse the Checks tab makes. Listed raw, the rail offered a
+	// row per attempt while the tab drew one per check, so enter on a
+	// superseded row named a key the tab does not carry and landed the reader
+	// on whichever check sorted first.
+	checks := newestAttempt(r.Checks)
+	out := make([]railEntry, 0, len(checks))
+	for _, check := range checks {
 		key := focusKey{kind: focusCheck, id: check.Key()}
 		base, lit := m.railRow(m.railRing.focused(key))
 		glyph, c := comp.CheckStateIcon(m.theme, check.State)
