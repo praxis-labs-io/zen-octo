@@ -3,6 +3,8 @@
 A terminal client for GitHub, built for the part of the day spent in other
 people's branches.
 
+![A pull request read, discussed and merged without leaving the terminal](docs/images/tour.gif)
+
 A pull request opens as four tabs: the conversation as threaded cards, the diff,
 the commits, and the CI logs. Reply, quote, edit, react and resolve on any
 thread. Comment on the line the cursor is on. Search a job's log and jump to its
