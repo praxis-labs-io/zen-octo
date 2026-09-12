@@ -6,8 +6,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// ReactionWrite is a reaction toggled here and not yet answered for. An empty CommentID is the
-// description; ThreadID is empty outside a review thread.
+// ReactionWrite is a reaction toggled here and not yet answered for. An empty CommentID is the description.
 type ReactionWrite struct {
 	Key       string
 	CommentID string
@@ -19,7 +18,6 @@ type ReactionWrite struct {
 	On bool
 }
 
-// PendingReaction holds a toggled reaction and returns the key its response reconciles against.
 func (s *Store) PendingReaction(id, commentID, threadID string,
 	content gh.ReactionContent, on bool,
 ) string {
@@ -127,8 +125,7 @@ func reactInThread(w ReactionWrite, threads []gh.ReviewThread, fresh bool) ([]gh
 	return threads, fresh
 }
 
-// ReactionApplied writes GitHub's count for the one reaction the write moved and drops the write.
-// Only that group, because answers to two toggles on one subject can arrive in either order.
+// ReactionApplied settles only the group the write moved: answers to two toggles on one subject arrive in either order.
 func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 	w, held, ok := s.settleReaction(id, key)
 	if !ok {
@@ -175,7 +172,6 @@ func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 	s.markStale(id)
 }
 
-// ReactionReverted drops the write, putting the reaction back as fetched.
 func (s *Store) ReactionReverted(id, key string) { s.dropReaction(id, key) }
 
 func (s *Store) settleReaction(id, key string) (ReactionWrite, Detail, bool) {

@@ -9,7 +9,6 @@ import (
 // Keyed by concrete job id: a rerun keeps the check but has a different log.
 func jobKey(id int64) string { return strconv.FormatInt(id, 10) }
 
-// Job is the Actions job held for id, or the zero value where none was asked for.
 func (s Store) Job(id int64) Job {
 	if id == 0 {
 		return Job{}
@@ -17,7 +16,6 @@ func (s Store) Job(id int64) Job {
 	return s.jobs.get(jobKey(id))
 }
 
-// BeginJob marks a job in flight and reports whether it started.
 func (s *Store) BeginJob(id int64) bool {
 	if id == 0 {
 		return false
@@ -35,7 +33,6 @@ func (s *Store) BeginJob(id int64) bool {
 	return true
 }
 
-// JobApplied stores a job's metadata and log.
 func (s *Store) JobApplied(id int64, job gh.Job, log []byte) {
 	if id == 0 {
 		return
@@ -52,7 +49,6 @@ func (s *Store) JobApplied(id int64, job gh.Job, log []byte) {
 	})
 }
 
-// JobLogFailed stores a job's metadata with the error from its log download.
 func (s *Store) JobLogFailed(id int64, job gh.Job, err error) {
 	if id == 0 {
 		return

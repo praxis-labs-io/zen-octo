@@ -20,7 +20,6 @@ type CommentWrite struct {
 	Delete bool
 }
 
-// PendingCommentEdit holds a rewritten comment and returns the key its response reconciles against.
 func (s *Store) PendingCommentEdit(id, commentID, threadID, body string) string {
 	return s.holdWrite(id, CommentWrite{
 		CommentID: commentID,
@@ -29,7 +28,6 @@ func (s *Store) PendingCommentEdit(id, commentID, threadID, body string) string 
 	})
 }
 
-// PendingCommentDelete holds a deleted comment and returns the key its response reconciles against.
 func (s *Store) PendingCommentDelete(id, commentID, threadID string) string {
 	return s.holdWrite(id, CommentWrite{
 		CommentID: commentID,
@@ -108,7 +106,6 @@ func foldIntoThread(w CommentWrite, threads []gh.ReviewThread, fresh bool) ([]gh
 	return threads, fresh
 }
 
-// CommentEditApplied writes GitHub's version of the comment into the held detail and drops the write.
 func (s *Store) CommentEditApplied(id, key string, res gh.CommentResult) {
 	w, held, ok := s.settleWrite(id, key)
 	if !ok {
@@ -154,7 +151,6 @@ func (s *Store) threadCommentApplied(id string, held Detail, w CommentWrite, c g
 	s.markStale(id)
 }
 
-// CommentDeleteApplied removes the comment from the held detail and drops the write.
 func (s *Store) CommentDeleteApplied(id, key string) {
 	w, held, ok := s.settleWrite(id, key)
 	if !ok {
@@ -175,7 +171,6 @@ func (s *Store) CommentDeleteApplied(id, key string) {
 	s.markStale(id)
 }
 
-// CommentWriteReverted drops the write, putting the comment back as fetched.
 func (s *Store) CommentWriteReverted(id, key string) { s.dropWrite(id, key) }
 
 func (s *Store) settleWrite(id, key string) (CommentWrite, Detail, bool) {

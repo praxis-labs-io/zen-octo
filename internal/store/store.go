@@ -8,7 +8,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// Status is where a fetch got to.
 type Status int
 
 const (
@@ -18,7 +17,6 @@ const (
 	StatusFailed
 )
 
-// Section is one tab's query, the rows it returned, and where its fetch got to.
 type Section struct {
 	config.Section
 
@@ -30,7 +28,6 @@ type Section struct {
 	Loaded bool
 }
 
-// Detail is one pull request's full state, keyed by its id.
 type Detail struct {
 	Detail gh.PullRequestDetail
 	Status Status
@@ -46,7 +43,6 @@ type Detail struct {
 	BaseWriting bool
 }
 
-// Files is one diff: a pull request's, keyed by its id, or a commit's, keyed by its sha.
 type Files struct {
 	Files     []gh.ChangedFile
 	MoreFiles int
@@ -57,7 +53,6 @@ type Files struct {
 	Loaded bool
 }
 
-// Job is one Actions job's metadata and log.
 type Job struct {
 	Job    gh.Job
 	Log    string
@@ -89,7 +84,6 @@ type FileView struct {
 	Viewed bool
 }
 
-// Store holds every configured section, what was opened from them, the writes in flight, and the point budget.
 type Store struct {
 	sections []Section
 
@@ -124,7 +118,6 @@ type Store struct {
 	rowSeq     map[string]int
 }
 
-// New builds a store over the configured sections, none of them fetched.
 func New(sections []config.Section) Store {
 	held := make([]Section, len(sections))
 	for i, s := range sections {
@@ -148,29 +141,23 @@ func New(sections []config.Section) Store {
 // Sections is a snapshot for the view.
 func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 
-// Rate is the point budget as of the responses seen so far.
 func (s Store) Rate() gh.RateLimit { return s.rate }
 
-// Viewer is the account the token belongs to, or the zero Actor before it has answered.
 func (s Store) Viewer() gh.Actor { return s.viewer }
 
-// ViewerApplied stores the login and folds the response into the budget.
 func (s *Store) ViewerApplied(res gh.ViewerResult) {
 	s.viewer = res.Viewer
 	s.adopt(res.RateLimit)
 }
 
-// Loading reports whether any section has a fetch in flight.
 func (s Store) Loading() bool { return Loading(s.sections) }
 
-// Loading is the same question asked of a snapshot.
 func Loading(sections []Section) bool {
 	return slices.ContainsFunc(sections, func(sec Section) bool {
 		return sec.Status == StatusLoading
 	})
 }
 
-// BeginAll marks every section in flight.
 func (s *Store) BeginAll() {
 	for i := range s.sections {
 		s.sections[i].Status = StatusLoading
@@ -252,8 +239,7 @@ func (s *Store) PollFailed(i int) {
 	s.sections[i].Status = StatusReady
 }
 
-// Detail is what is held for a pull request with every write in flight folded in.
-// The zero value is one never opened.
+// Detail is what is held for a pull request with every write in flight folded in, or the zero value if never opened.
 func (s Store) Detail(id string) Detail {
 	held := s.details.get(id)
 	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
@@ -326,12 +312,11 @@ func (s Store) Detail(id string) Detail {
 	return held
 }
 
-// PendingComment holds a comment not yet acknowledged and returns the key its response reconciles against.
 func (s *Store) PendingComment(id string, c gh.Comment) string {
 	return s.hold(id, "", c)
 }
 
-// PendingReply is PendingComment for a reply to a review thread. The comment's Kind is set to CommentThread.
+// PendingReply is PendingComment for a reply to threadID, and sets the comment's Kind to CommentThread.
 func (s *Store) PendingReply(id, threadID string, c gh.Comment) string {
 	c.Kind = gh.CommentThread
 	return s.hold(id, threadID, c)
@@ -349,7 +334,6 @@ func (s *Store) hold(id, threadID string, c gh.Comment) string {
 	return key
 }
 
-// PendingResolve holds a thread resolved or unresolved and returns the key its response reconciles against.
 func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
 	key := s.nextKey()
 
@@ -360,7 +344,6 @@ func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
 	return key
 }
 
-// ResolveApplied writes GitHub's answer for a thread, permissions included, and drops the write.
 func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 	r, dropped := s.dropResolve(id, key)
 	if !dropped {
@@ -389,7 +372,6 @@ func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 	s.put(id, held)
 }
 
-// ResolveReverted drops the write, putting the thread back as fetched.
 func (s *Store) ResolveReverted(id, key string) { s.dropResolve(id, key) }
 
 func (s *Store) dropResolve(id, key string) (Resolution, bool) {
@@ -411,7 +393,6 @@ func threadAt(threads []gh.ReviewThread, id string) int {
 	return slices.IndexFunc(threads, func(t gh.ReviewThread) bool { return t.ID == id })
 }
 
-// PendingApplied replaces the placeholder with the comment GitHub recorded.
 func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	p, dropped := s.dropPending(id, key)
 	if !dropped {
@@ -465,7 +446,6 @@ func hasThreadComment(comments []gh.Comment, id string) bool {
 	return slices.ContainsFunc(comments, func(c gh.Comment) bool { return c.ID == id })
 }
 
-// PendingReverted takes the placeholder back off the screen.
 func (s *Store) PendingReverted(id, key string) { s.dropPending(id, key) }
 
 func (s *Store) dropPending(id, key string) (Pending, bool) {
@@ -506,8 +486,7 @@ func (s *Store) BeginDetail(id string) bool {
 	return true
 }
 
-// DetailApplied stores a pull request and folds the budget. A response asked for before a write
-// settled is dropped rather than stored; StaleDetail reports that another fetch is owed.
+// DetailApplied stores a pull request and folds the budget, dropping a response asked for before a write settled.
 func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 	if id == "" {
 		return
@@ -668,7 +647,6 @@ func (s *Store) dropFileDebts(dropped []string) {
 	}
 }
 
-// FilesApplied stores a pull request's diff and folds the budget.
 func (s *Store) FilesApplied(id string, res gh.FilesResult) {
 	s.adopt(res.RateLimit)
 	s.dropFileDebts(diffApplied(&s.files, id, res, s.filesPinned))
@@ -682,19 +660,15 @@ func (s *Store) FilesFailed(id string, err error) {
 // UseFiles marks a diff read from the cache as recently used.
 func (s *Store) UseFiles(id string) { s.files.touch(id) }
 
-// CommitFiles is the diff held for a commit, keyed by its sha.
 func (s Store) CommitFiles(sha string) Files { return s.commits.get(sha) }
 
-// BeginCommitFiles marks a commit's diff in flight and reports whether it started.
 func (s *Store) BeginCommitFiles(sha string) bool {
 	_, ok := beginDiff(&s.commits, sha, diffPinned(&s.commits))
 	return ok
 }
 
-// UseCommitFiles is UseFiles for a commit's diff.
 func (s *Store) UseCommitFiles(sha string) { s.commits.touch(sha) }
 
-// CommitFilesApplied stores a commit's diff.
 func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
 	diffApplied(&s.commits, sha, res, diffPinned(&s.commits))
 }
@@ -741,7 +715,6 @@ func putDiff(held *cache[Files], key string, f Files, pinned func(string) bool) 
 	return held.evict(key, pinned)
 }
 
-// PendingFileView holds a file marked viewed or unviewed and returns the key its response reconciles against.
 func (s *Store) PendingFileView(id, path string, viewed bool) string {
 	key := s.nextKey()
 	if s.viewing == nil {
@@ -751,7 +724,6 @@ func (s *Store) PendingFileView(id, path string, viewed bool) string {
 	return key
 }
 
-// FileViewApplied writes the settled viewed state into the held diff and drops the write.
 func (s *Store) FileViewApplied(id, key string) {
 	write, ok := s.dropFileView(id, key)
 	if !ok {
@@ -771,7 +743,6 @@ func (s *Store) FileViewApplied(id, key string) {
 	s.files.put(id, held)
 }
 
-// FileViewReverted drops the write, putting the file back as fetched.
 func (s *Store) FileViewReverted(id, key string) {
 	if _, ok := s.dropFileView(id, key); !ok {
 		return

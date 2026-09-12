@@ -6,8 +6,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// BeginPulse marks a recheck in flight and reports whether it started. It refuses a detail
-// never loaded, one being fully fetched, and one already rechecking.
+// BeginPulse marks a recheck in flight, refusing a detail never loaded, being fully fetched, or already rechecking.
 func (s *Store) BeginPulse(id string) bool {
 	held, ok := s.details.look(id)
 	if id == "" || !ok || !held.Loaded {
