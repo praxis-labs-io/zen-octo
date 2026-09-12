@@ -55,8 +55,6 @@ func TestStatusBarPushesTheRightSideToTheEnd(t *testing.T) {
 	}
 }
 
-// The right side is reference material. The left side tells you how to get out,
-// so it is what survives a squeeze.
 func TestStatusBarDropsTheRightSideBeforeTheLeft(t *testing.T) {
 	got := bar().Size(20).Render("j/k move · q quit", "◆ 4821 · My PRs")
 
@@ -68,8 +66,6 @@ func TestStatusBarDropsTheRightSideBeforeTheLeft(t *testing.T) {
 	}
 }
 
-// A right side one cell too wide used to go entirely, taking the budget with
-// it. The leading few cells are the ones that carry anything.
 func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
 	got := bar().Size(45).Render("j/k move · q quit", "◆ 4821 · #412 acme/rocket")
 
@@ -84,9 +80,6 @@ func TestStatusBarClipsTheRightSideRatherThanDroppingIt(t *testing.T) {
 	}
 }
 
-// A toast is the only account there is of a write that failed, so it is the one
-// thing on this line that must survive a narrow terminal. The hints beside it
-// go on working whether or not they are on screen.
 func TestRenderMessageKeepsTheMessageAndCutsTheHints(t *testing.T) {
 	const message = "Could not request a review from @drucial"
 
@@ -100,8 +93,6 @@ func TestRenderMessageKeepsTheMessageAndCutsTheHints(t *testing.T) {
 	}
 }
 
-// A message wider than the bar has nowhere to go but the line it is on. Leaving
-// the hints their two cells pushed it past the frame.
 func TestRenderMessageClipsAMessageWiderThanTheBar(t *testing.T) {
 	const width = 30
 
@@ -121,18 +112,11 @@ func TestBudgetWarnsWhenThePoolRunsLow(t *testing.T) {
 	if got := s.Budget(120); !strings.Contains(got, fgSeq(testTheme.Warning)) {
 		t.Error("a low budget is not rendered as a warning")
 	}
-	// An exhausted pool is the one reading the user most needs. Hiding it here
-	// made the warning branch unreachable.
 	if got := s.Budget(0); !strings.Contains(got, "0") || !strings.Contains(got, fgSeq(testTheme.Warning)) {
 		t.Errorf("Budget(0) = %q, want a warning-colored zero", got)
 	}
 }
 
-// The hints are shed to the room before the bar is handed them, so Room has to
-// answer what render will actually leave the left side. Two numbers in two
-// packages agreed once and nothing would have failed when they stopped: the
-// hints would go back to being cut mid-word, which is the whole of what the
-// shed exists to stop.
 func TestRoomIsWhatTheLeftSideActuallyGets(t *testing.T) {
 	b := bar().Size(40)
 	message := "Refreshed 3 sections"
@@ -149,8 +133,6 @@ func TestRoomIsWhatTheLeftSideActuallyGets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Filled to exactly the room: nothing is cut and the line still
-			// fits, which is the two numbers agreeing.
 			left := strings.Repeat("x", tt.room)
 			got := tt.draw(left, tt.right)
 

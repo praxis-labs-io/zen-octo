@@ -12,8 +12,6 @@ import (
 
 func pane() comp.Pane { return comp.NewPane(testTheme) }
 
-// fgSeq is the SGR sequence lipgloss emits for a foreground color, which is how
-// these tests tell a focused border from an idle one.
 func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
 func TestPaneReportsTheSizeLeftForContent(t *testing.T) {
@@ -37,8 +35,6 @@ func TestPaneNeverExceedsItsSize(t *testing.T) {
 		{name: "content taller than the pane", width: 40, height: 5, content: strings.Repeat("row\n", 40)},
 		{name: "content wider than the pane", width: 20, height: 4, content: strings.Repeat("wide ", 40)},
 		{name: "no content at all", width: 30, height: 6, content: ""},
-		// Two lines is borders and nothing else. Writing the body regardless
-		// costs a third line and pushes the status bar off the terminal.
 		{name: "no room for a body", width: 30, height: 2, content: "one\ntwo"},
 		{name: "one line of body", width: 30, height: 3, content: "one\ntwo"},
 	}
@@ -79,8 +75,6 @@ func TestPaneRendersTabsInTheTopBorder(t *testing.T) {
 	}
 }
 
-// The active tab is told apart by weight and color alone, so this is the only
-// thing standing between the user and a strip where every tab looks current.
 func TestPaneBrightensOnlyTheActiveTab(t *testing.T) {
 	tabs := []comp.Tab{{Label: "Conversation"}, {Label: "Commits"}}
 
@@ -182,7 +176,6 @@ func TestPaneRendersNothingWhenTooSmallToFrame(t *testing.T) {
 	}
 }
 
-// stripANSI drops SGR sequences so a test can reason about layout positions.
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -197,8 +190,6 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// A heading needs a line of its own and a rule under it, and the rule has to
-// join the sides rather than float between them.
 func TestAHeaderIsRuledOffFromTheContent(t *testing.T) {
 	out := comp.NewPane(testTheme).
 		Header("octobot commented").
@@ -221,8 +212,6 @@ func TestAHeaderIsRuledOffFromTheContent(t *testing.T) {
 	}
 }
 
-// A caller sizing a pane to its content has to know what the pane spends on
-// itself, and a heading costs two lines the borders do not.
 func TestChromeCountsTheHeaderAndItsRule(t *testing.T) {
 	plain := comp.NewPane(testTheme)
 	headed := plain.Header("octobot commented")
@@ -234,15 +223,12 @@ func TestChromeCountsTheHeaderAndItsRule(t *testing.T) {
 		t.Errorf("Chrome() = %d with a header, want 4", headed.Chrome())
 	}
 
-	// Sized by that rule, one line of content fits exactly.
 	out := headed.Size(30, 1+headed.Chrome()).Render("Coverage held.")
 	if got := strings.Count(out, "\n") + 1; got != 5 {
 		t.Errorf("pane is %d lines, want 5", got)
 	}
 }
 
-// A pane too short for a heading, a rule and a line of content drops the
-// heading: the content is the part carrying the meaning.
 func TestAPaneTooShortForBothKeepsTheContent(t *testing.T) {
 	out := comp.NewPane(testTheme).
 		Header("octobot commented").
@@ -254,9 +240,6 @@ func TestAPaneTooShortForBothKeepsTheContent(t *testing.T) {
 	}
 }
 
-// Above is only worth having if it agrees with the render. Anything mapping a
-// content line to a screen line reads it, and a pane that grew a row without it
-// would put every one of them out by that row.
 func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
 	tests := []struct {
 		name string
@@ -264,10 +247,7 @@ func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
 	}{
 		{"headed", pane().Header(" heading").Size(40, 10)},
 		{"bare", pane().Size(40, 10)},
-		// Two rows of content and the borders, which is under the height the
-		// heading needs, so the pane drops it.
 		{"no room for the heading", pane().Header(" heading").Size(40, 4)},
-		// Narrower than its own borders, which the pane refuses to draw at all.
 		{"too narrow to draw", pane().Header(" heading").Size(1, 10)},
 	}
 
@@ -293,15 +273,10 @@ func TestPaneAboveIsWhereTheContentActuallyStarts(t *testing.T) {
 	}
 }
 
-// sgrParams is the parameter run lipgloss emits for a style, read back off a
-// rendered cell rather than rebuilt from the color. A slot goes over the wire as
-// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
-// doing the arithmetic itself asserts against a sequence the app never writes.
 func sgrParams(s lipgloss.Style) string {
 	out := s.Render("x")
 	end := strings.Index(out, "m")
 	if end < 0 {
-		// NoColor is the terminal's own, and nothing is written for it.
 		return ""
 	}
 	return out[len("\x1b["):end]

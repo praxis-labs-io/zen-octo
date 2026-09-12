@@ -5,33 +5,22 @@ import (
 	"strings"
 )
 
-// Segment is one piece of a markdown body: either prose to render, or a
-// <details> block folded to the line that stands for it.
+// Segment is one piece of a markdown body: prose, or a <details> block folded to its summary.
 type Segment struct {
-	// Text is prose. Empty on a fold.
+	// Text is prose, empty on a fold.
 	Text string
 
-	// Summary is the <summary> line, and Lines what is behind it. Both are zero
-	// on prose, so Summary is what tells the two apart.
+	// Summary is set only on a fold, with Lines counting what it hides.
 	Summary string
 	Lines   int
 }
 
-// detailsBlock matches one <details> element and pulls out its summary. It is
-// deliberately non-greedy, so the first </details> closes it: a nested pair
-// would be mispaired, and GitHub does not write them.
+// Non-greedy, so nested <details> mispair; GitHub does not write them.
 var detailsBlock = regexp.MustCompile(`(?is)<details>\s*(?:<summary>(.*?)</summary>)?(.*?)</details>`)
 
-// tagRun strips any HTML left inside a summary. GitHub wraps some of them in
-// <b>, and the markers would otherwise read as text.
 var tagRun = regexp.MustCompile(`<[^>]*>`)
 
-// SplitDetails breaks a body into prose and folds. GitHub collapses <details>
-// in the browser, and a bot review that pastes a sixty-row table of every file
-// it looked at is the reason it does.
-//
-// The caller decides what a fold looks like, and whether to render the body
-// whole instead. Nothing here styles anything.
+// SplitDetails breaks body into prose and <details> folds, in order.
 func SplitDetails(body string) []Segment {
 	var out []Segment
 	rest := body
@@ -53,7 +42,7 @@ func SplitDetails(body string) []Segment {
 	return appendText(out, rest)
 }
 
-// Folded reports whether a body has anything in it worth an expand key.
+// Folded reports whether segments hold any fold.
 func Folded(segments []Segment) bool {
 	for _, s := range segments {
 		if s.Summary != "" {
@@ -70,7 +59,6 @@ func appendText(out []Segment, text string) []Segment {
 	return append(out, Segment{Text: text})
 }
 
-// group is one submatch, empty when the group did not participate.
 func group(s string, loc []int, n int) string {
 	if loc[2*n] < 0 {
 		return ""

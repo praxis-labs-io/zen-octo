@@ -20,7 +20,6 @@ func items(names ...string) []comp.PickerItem {
 	return out
 }
 
-// many builds a list long enough to earn a filter row and outrun the window.
 func many(n int) []comp.PickerItem {
 	out := make([]comp.PickerItem, n)
 	for i := range out {
@@ -44,7 +43,7 @@ func render(p comp.Picker) string { return p.Render(testTheme, 80) }
 func TestAMultiPickerAppliesTheWholeCheckedSet(t *testing.T) {
 	p := comp.NewPicker("Labels", items("bug", "docs", "urgent"), []string{"id-bug"}, true)
 
-	p.Move(2) // urgent
+	p.Move(2)
 	p.Toggle()
 
 	if got, want := p.Chosen(), []string{"id-bug", "id-urgent"}; !slices.Equal(got, want) {
@@ -52,16 +51,13 @@ func TestAMultiPickerAppliesTheWholeCheckedSet(t *testing.T) {
 	}
 }
 
-// The set comes back in the order the items were given, not the order they were
-// checked. A caller diffing it against what it holds would otherwise see a
-// change every time the reader worked bottom-up.
 func TestTheChosenSetKeepsTheOrderItemsWereGivenIn(t *testing.T) {
 	p := comp.NewPicker("Labels", items("bug", "docs", "urgent"), nil, true)
 
 	p.Move(2)
-	p.Toggle() // urgent first
+	p.Toggle()
 	p.Move(-2)
-	p.Toggle() // then bug
+	p.Toggle()
 
 	if got, want := p.Chosen(), []string{"id-bug", "id-urgent"}; !slices.Equal(got, want) {
 		t.Errorf("Chosen = %q, want %q", got, want)
@@ -175,8 +171,6 @@ func TestBackspaceAndClearWidenTheFilterAgain(t *testing.T) {
 	}
 }
 
-// Space is the toggle key on a multi picker. A filter that swallowed it would
-// leave the reader unable to check anything.
 func TestSpaceDoesNotTypeIntoAMultiPickersFilter(t *testing.T) {
 	p := comp.NewPicker("Labels", many(20), nil, true)
 
@@ -193,7 +187,6 @@ func TestASinglePickersFilterTakesSpace(t *testing.T) {
 	}
 }
 
-// A modified key is a binding on the screen underneath, not text.
 func TestAModifiedKeyIsNotFilterText(t *testing.T) {
 	p := comp.NewPicker("Labels", many(20), nil, false)
 
@@ -202,9 +195,6 @@ func TestAModifiedKeyIsNotFilterText(t *testing.T) {
 	}
 }
 
-// One keypress into a filter is one character. A key reporting a whole name in
-// its text is an arrow that arrived in the wrong field, and typing it would put
-// "down" into the filter when the reader pressed an arrow.
 func TestAKeyNameIsNotFilterText(t *testing.T) {
 	p := comp.NewPicker("Labels", many(20), nil, false)
 
@@ -215,8 +205,6 @@ func TestAKeyNameIsNotFilterText(t *testing.T) {
 	}
 }
 
-// A real arrow key carries no text at all, and must still move the cursor
-// rather than being swallowed by the filter.
 func TestAnArrowMovesTheCursorWhileFiltering(t *testing.T) {
 	p := comp.NewPicker("Labels", many(20), nil, false)
 
@@ -248,7 +236,6 @@ func TestTheWindowScrollsWithTheCursorAndSaysWhatIsHidden(t *testing.T) {
 	}
 }
 
-// The modal must never grow the frame it is composited into.
 func TestThePickerFitsTheFrameItIsGiven(t *testing.T) {
 	long := []comp.PickerItem{{ID: "id", Name: strings.Repeat("verylongname", 12)}}
 	p := comp.NewPicker("Labels", long, nil, true)
@@ -300,9 +287,6 @@ func TestACheckedRowIsMarked(t *testing.T) {
 	}
 }
 
-// The hint grows a counter once the list outruns the window, and the modal is
-// sized for the longest it can render. Sizing to the short form clips the keys
-// off exactly the long lists where the hint is worth having.
 func TestTheHintIsNotClippedOnAListWithACounter(t *testing.T) {
 	frame := render(comp.NewPicker("Labels", many(20), nil, true))
 
@@ -314,8 +298,6 @@ func TestTheHintIsNotClippedOnAListWithACounter(t *testing.T) {
 	}
 }
 
-// bodyRows is the modal's interior, borders and title stripped, so a test can
-// say what sits on which row.
 func bodyRows(p comp.Picker) []string {
 	lines := strings.Split(stripANSI(p.Render(testTheme, 200)), "\n")
 	if len(lines) < 3 {
@@ -329,15 +311,12 @@ func bodyRows(p comp.Picker) []string {
 	return out
 }
 
-// Every picker opens with a blank row above its choices, filter row or not, so
-// the first choice always lands on the same line and the title in the border
-// does not read as the top of the list.
 func TestABlankRowSitsAboveTheChoices(t *testing.T) {
 	tests := []struct {
 		name  string
 		p     comp.Picker
-		blank int // the row the blank is on
-		first int // the row the first choice is on
+		blank int
+		first int
 	}{
 		{
 			name:  "no filter row",
@@ -365,8 +344,6 @@ func TestABlankRowSitsAboveTheChoices(t *testing.T) {
 	}
 }
 
-// The filter row keeps the top, above the blank. It is what the list is being
-// narrowed by, so it reads with the modal's title rather than with the choices.
 func TestTheFilterRowKeepsTheTop(t *testing.T) {
 	rows := bodyRows(comp.NewPicker("Labels", many(20), nil, true))
 
@@ -378,8 +355,6 @@ func TestTheFilterRowKeepsTheTop(t *testing.T) {
 	}
 }
 
-// Two blanks and no more: one above the choices, one under them. A third would
-// be a choice not shown, in a modal that holds ten.
 func TestTheChoicesSitBetweenTwoBlankRows(t *testing.T) {
 	rows := bodyRows(comp.NewPicker("State", items("Convert to draft", "Close"), nil, false))
 
@@ -397,18 +372,12 @@ func TestTheChoicesSitBetweenTwoBlankRows(t *testing.T) {
 	}
 }
 
-// The filter is the search on a picker whose choices come from the server, so
-// replacing the list must not clear the field that caused the fetch. Rebuilding
-// through NewPicker is what this exists to stop.
 func TestReplaceKeepsWhatWasTyped(t *testing.T) {
 	p := comp.NewPicker("Merge into", many(20), nil, false)
 	typeInto(t, &p, "release")
 
 	p.Replace(items("release/1.0", "release/2.0"), "")
 
-	// The placeholder, not the word: every item in the replaced list carries
-	// "release" too, so looking for it finds the list whether the field kept it
-	// or not. An empty field is the one thing that renders this.
 	out := render(p)
 	if strings.Contains(out, "Type to filter") {
 		t.Errorf("the filter row lost what was typed:\n%s", out)
@@ -418,9 +387,6 @@ func TestReplaceKeepsWhatWasTyped(t *testing.T) {
 	}
 }
 
-// A list that arrived while the reader was typing is a list they have not
-// looked at. The cursor goes to the top of it, the way it does when the filter
-// itself narrows one.
 func TestReplacePutsTheCursorOnTheFirstNewRow(t *testing.T) {
 	p := comp.NewPicker("Merge into", many(20), nil, false)
 	p.Move(5)
@@ -432,8 +398,6 @@ func TestReplacePutsTheCursorOnTheFirstNewRow(t *testing.T) {
 	}
 }
 
-// A search that matched more than came back has to say so. Silently showing
-// thirty of a hundred and sixty reads as a repository with thirty branches.
 func TestTheNoteRendersBesideTheTitle(t *testing.T) {
 	p := comp.NewPicker("Merge into", items("main"), nil, false)
 	p.Replace(items("release/1.0"), "36 more matches")
@@ -447,12 +411,6 @@ func TestTheNoteRendersBesideTheTitle(t *testing.T) {
 	}
 }
 
-// The note is part of the title now, and measuring the title without it clips
-// the count off the border.
-//
-// The note has to outrun the floor to prove anything: below it every picker
-// opens at the same width whatever it holds, so a short note would leave the
-// two renders identical and the test green for the wrong reason.
 func TestTheModalIsWideEnoughForTheNote(t *testing.T) {
 	const note = "1284 more · narrow the search a little further"
 
@@ -470,9 +428,6 @@ func TestTheModalIsWideEnoughForTheNote(t *testing.T) {
 	}
 }
 
-// Replacing does not change what the write behind the picker is doing, so what
-// was checked stays checked. An id the new list does not carry matches nothing
-// and marks nothing.
 func TestReplaceKeepsWhatWasChecked(t *testing.T) {
 	p := comp.NewPicker("Merge into", items("main", "develop"), []string{"id-main"}, false)
 	p.Replace(items("develop", "main"), "")
@@ -489,8 +444,6 @@ func TestReplaceKeepsWhatWasChecked(t *testing.T) {
 	t.Error("main is not in the replaced list")
 }
 
-// The hint sets the width on a short list, and the multi-select one is fifteen
-// columns longer, so without a floor above both the two kinds open at two sizes.
 func TestEveryPickerOpensAtTheSameWidthOverShortContent(t *testing.T) {
 	single := comp.NewPicker("Merge into", items("main", "develop"), []string{"id-main"}, false)
 	multi := comp.NewPicker("Labels", items("bug", "docs"), []string{"id-bug"}, true)

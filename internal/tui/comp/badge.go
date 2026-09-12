@@ -7,24 +7,14 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// The badge helpers return a glyph and its color rather than a styled string,
-// because the list bakes a selection background into every cell and can only do
-// that if it owns the final style.
-
-// State glyphs come from the Nerd Fonts octicon and codicon ranges, the same
-// vocabulary gh-dash uses. Shape carries the meaning here: four circles told
-// apart by color alone is what the first pass got wrong.
+// Nerd Font octicon and codicon glyphs, the vocabulary gh-dash uses, so state reads by shape and not color alone.
 const (
-	glyphPROpen   = "" // nf-oct-git_pull_request
-	glyphPRDraft  = "" // nf-cod-git_pull_request_draft
-	glyphPRMerged = "" // nf-oct-git_merge
-	glyphPRClosed = "" // nf-cod-git_pull_request_closed
+	glyphPROpen   = ""
+	glyphPRDraft  = ""
+	glyphPRMerged = ""
+	glyphPRClosed = ""
 )
 
-// prStateKind is a pull request's two lifecycle fields resolved to the one
-// thing worth showing. The icon and the label both read it, so the precedence
-// is written once: a fifth state, or a change to where the draft flag sits in
-// the order, cannot leave the two disagreeing.
 type prStateKind int
 
 const (
@@ -33,18 +23,11 @@ const (
 	prKindClosed
 	prKindMerged
 
-	// prKindUnknown is a state GitHub added since. It comes off the wire
-	// unvalidated, and claiming it is open is the one reading that could be
-	// wrong in a way that matters.
+	// A state GitHub added since, deliberately not read as open.
 	prKindUnknown
 )
 
-// prStateOf reads the state before the draft flag, never the other way around.
-// They are independent fields and a closed pull request carries both, but draft
-// is a stage of being open: GitHub keeps the flag set on one it closed, so
-// reading it first leaves a closed pull request marked as a draft somebody could
-// still pick up. Reopening gives the draft back, which is where the flag earns
-// its keep.
+// State before the draft flag: GitHub leaves a closed pull request's draft flag set.
 func prStateOf(pr gh.PullRequest) prStateKind {
 	switch pr.State {
 	case gh.PRStateMerged:
@@ -61,7 +44,7 @@ func prStateOf(pr gh.PullRequest) prStateKind {
 	return prKindUnknown
 }
 
-// PRStateIcon is the lifecycle marker: open, draft, merged, or closed.
+// PRStateIcon is the lifecycle glyph and its color: open, draft, merged, or closed.
 func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:
@@ -76,7 +59,7 @@ func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	return glyphPROpen, th.Subtle
 }
 
-// PRStateLabel names the same thing in words, for places with room for them.
+// PRStateLabel names PRStateIcon's state in words.
 func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:
@@ -91,9 +74,7 @@ func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	return string(pr.State), th.Subtle
 }
 
-// CheckStateIcon is the rollup of every check on the head commit. Nothing
-// reported reads as a pass: there is no failure either way, and a blank where
-// an icon goes reads as a rendering fault rather than as the absence of news.
+// CheckStateIcon is the glyph for the head commit's check rollup. Nothing reported reads as a pass.
 func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	switch s {
 	case gh.CheckStateFailure, gh.CheckStateError:
@@ -105,14 +86,10 @@ func CheckStateIcon(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	case gh.CheckStateSuccess, gh.CheckStateNone:
 		return "✓", th.Success
 	}
-	// The rollup state comes off the wire unvalidated, so a state GitHub adds
-	// later arrives here. That is not news either way, and a pass is the one
-	// reading of it that could be wrong.
 	return "●", th.Subtle
 }
 
-// CheckStateLabel names the rollup. It returns empty when nothing reported, so
-// a caller can drop the row rather than print a blank.
+// CheckStateLabel names the check rollup, or returns empty when nothing reported.
 func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	switch s {
 	case gh.CheckStateSuccess:
@@ -133,28 +110,9 @@ func CheckStateLabel(th theme.Theme, s gh.CheckState) (string, color.Color) {
 	return "", th.Subtle
 }
 
-// ReviewerColor is where one reviewer stands, for a caller with room for a mark
-// but not for the words. Four answers, because a rail row has one cell to say
-// them in:
-//
-//	red    something of theirs is open and in the way
-//	amber  in flight: their answer is wanted and has not come
-//	green  they are happy with it
-//	muted  they are not holding anything up
-//
-// An open thread reads as red whatever the verdict was. Someone who left three
-// unanswered questions and called it a comment is holding up the same thing as
-// someone who asked for changes.
-//
-// A changes-requested review with no threads under it stays red however long it
-// sits. There is nothing to resolve, so nothing can record that it was dealt
-// with, and going quiet on it would say it had been.
-//
-// Amber outranks green, which is what makes a re-request visible. An approval
-// somebody has been asked to give again is stale, and leaving it green is the
-// version of this that shows nothing at all when the key is pressed. It also
-// covers a changes-requested review whose every thread is now resolved: not
-// blocking any more, not agreed either, and waiting on them to look again.
+// ReviewerColor is Error while a reviewer blocks (open threads, or changes requested with no threads),
+// Warning while their review is requested or their resolved threads await a second look,
+// Success on approval, and Subtle otherwise.
 func ReviewerColor(th theme.Theme, r gh.Reviewer) color.Color {
 	blocked := r.Unresolved > 0 ||
 		(r.State == gh.ReviewStateChangesRequested && r.Threads == 0)
@@ -173,9 +131,7 @@ func ReviewerColor(th theme.Theme, r gh.Reviewer) color.Color {
 	return th.Subtle
 }
 
-// ReviewStateLabel names one reviewer's verdict, in the past tense the
-// conversation reads it in. It is not ReviewLabel: that one summarises the pull
-// request, this one is what a person said.
+// ReviewStateLabel names one reviewer's verdict; ReviewLabel summarises the pull request.
 func ReviewStateLabel(th theme.Theme, s gh.ReviewState) (string, color.Color) {
 	switch s {
 	case gh.ReviewStateApproved:
@@ -188,12 +144,8 @@ func ReviewStateLabel(th theme.Theme, s gh.ReviewState) (string, color.Color) {
 	return "reviewed", th.Accent
 }
 
-// MergeStateLabel names whether the pull request can be merged, and what is in
-// the way if it cannot. GitHub reports only the topmost reason, so this says
-// one thing rather than listing them.
-//
-// The check rollup is what tells the flavours of UNSTABLE apart, which is why
-// this takes a second argument where the other labels take one.
+// MergeStateLabel names whether the pull request can merge or GitHub's topmost reason it cannot.
+// checks distinguishes the kinds of UNSTABLE.
 func MergeStateLabel(th theme.Theme, s gh.MergeState, checks gh.CheckState) (string, color.Color) {
 	switch s {
 	case gh.MergeClean:
@@ -205,14 +157,6 @@ func MergeStateLabel(th theme.Theme, s gh.MergeState, checks gh.CheckState) (str
 	case gh.MergeBehind:
 		return "Behind the base", th.Warning
 	case gh.MergeUnstable:
-		// UNSTABLE is GitHub saying the commit status is not passing, and a
-		// check still running is not passing. Reading it as a failure reports a
-		// build that has not finished as a broken one, and does it beside a
-		// header that says the checks are running.
-		//
-		// The rollup is not the whole of UNSTABLE: a failing commit status that
-		// no check run produced leaves it green. So only the two states that
-		// are plainly a wait are read as one.
 		switch checks {
 		case gh.CheckStatePending:
 			return "Checks running", th.Warning
@@ -223,14 +167,10 @@ func MergeStateLabel(th theme.Theme, s gh.MergeState, checks gh.CheckState) (str
 	case gh.MergeDraft:
 		return "Draft", th.Subtle
 	}
-	// GitHub computes mergeability lazily and answers UNKNOWN until it has. It
-	// is a wait rather than an answer.
 	return "Checking", th.Subtle
 }
 
-// ReviewColor is where review stands, as a color for a caller drawing its own
-// mark. Nothing blocking reads the same as an approval, because it is the same
-// news.
+// ReviewColor is the review decision as a color. No review required reads as approved.
 func ReviewColor(th theme.Theme, d gh.ReviewDecision) color.Color {
 	switch d {
 	case gh.ReviewDecisionChangesRequested:
@@ -243,8 +183,7 @@ func ReviewColor(th theme.Theme, d gh.ReviewDecision) color.Color {
 	return th.Success
 }
 
-// ReviewLabel names where review stands. It returns empty when no review is
-// required.
+// ReviewLabel names the review decision, or returns empty when no review is required.
 func ReviewLabel(th theme.Theme, d gh.ReviewDecision) (string, color.Color) {
 	switch d {
 	case gh.ReviewDecisionApproved:

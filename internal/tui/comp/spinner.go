@@ -10,12 +10,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Spinner is the loading indicator, dressed in the theme and wired the one way
-// every screen wants it.
-//
-// Each one carries its own tag, so a root that hands every tick to every screen
-// is safe: a screen advances on its own ticks and drops the rest. That is what
-// lets two screens spin at once without either running at double speed.
+// Spinner is the themed loading indicator. Each carries its own tag and ignores other spinners' ticks.
 type Spinner struct {
 	theme theme.Theme
 	model spinner.Model
@@ -28,12 +23,9 @@ func NewSpinner(th theme.Theme) Spinner {
 	return Spinner{theme: th, model: sp}
 }
 
-// Tick starts the chain.
 func (s Spinner) Tick() tea.Cmd { return s.model.Tick }
 
-// Advance moves the frame on and re-arms while there is still something in
-// flight. A tick that arrives with nothing loading ends the chain rather than
-// spinning over a screen that already has its answer.
+// Advance moves the frame on and re-arms only while loading; a tick from another spinner is ignored.
 func (s *Spinner) Advance(msg spinner.TickMsg, loading bool) tea.Cmd {
 	if !loading {
 		return nil
@@ -43,14 +35,10 @@ func (s *Spinner) Advance(msg spinner.TickMsg, loading bool) tea.Cmd {
 	return cmd
 }
 
-// Render is the glyph and what it is waiting on. An empty label is the glyph
-// alone.
+// Render is the glyph followed by label, or the glyph alone for an empty label.
 func (s Spinner) Render(label string) string { return s.render(label, s.theme.Subtle) }
 
-// RenderAccent is Render for the status bar, where the label carries the accent
-// instead of receding. The line beside it is the key hints, and a label in the
-// grey they are rendered in reads as one more of them rather than as something
-// happening.
+// RenderAccent is Render with the label in the accent color, for the status bar.
 func (s Spinner) RenderAccent(label string) string { return s.render(label, s.theme.Accent) }
 
 func (s Spinner) render(label string, c color.Color) string {
