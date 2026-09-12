@@ -1,5 +1,4 @@
-// Package golden compares test output against a recorded file, and rewrites the
-// file instead when -update is passed. Test-only: it never reaches the binary.
+// Package golden compares test output against a recorded file, rewriting it under -update.
 package golden
 
 import (
@@ -9,12 +8,9 @@ import (
 	"testing"
 )
 
-// Registered here rather than per suite, so `make golden` regenerates every
-// golden under one name. It exists only in a binary linking this package.
 var update = flag.Bool("update", false, "regenerate the golden files")
 
-// The directory the test binary started in. A test that chdirs would otherwise
-// resolve testdata against wherever it moved to.
+// Captured at init so a test that chdirs still resolves testdata against the package.
 var root = startDir()
 
 func startDir() string {

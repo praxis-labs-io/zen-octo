@@ -54,11 +54,6 @@ func run(mockup bool) error {
 		return err
 	}
 
-	// Asked before Bubble Tea takes the tty, so the theme is built once and the
-	// first frame is already the right colors. The query ends on the terminal's
-	// device-attributes reply, so a terminal that answers at all answers at
-	// once; one that answers nothing yields an empty surface and the theme falls
-	// back to the palette alone.
 	surface := theme.Query(os.Stdin, os.Stdout)
 
 	_, err = tea.NewProgram(app.New(cfg, client, surface)).Run()
@@ -77,8 +72,6 @@ func newClient(mockup bool) (app.GitHub, error) {
 	return client, nil
 }
 
-// newConfigPathCmd prints where config is read from, so "why isn't my config
-// loading" is answerable without guessing.
 func newConfigPathCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "config-path",

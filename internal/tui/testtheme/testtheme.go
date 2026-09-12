@@ -1,6 +1,4 @@
-// Package testtheme is the surface every render test paints against, named
-// rather than detected: a test that queried the terminal would answer one way
-// here and another in CI.
+// Package testtheme is the fixed surface render tests paint against, so no test depends on the terminal.
 package testtheme
 
 import (
