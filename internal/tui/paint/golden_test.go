@@ -9,15 +9,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
 )
 
-// These goldens keep their escapes, where the frame ones are stripped: what a
-// painted row gets wrong is the colour and the fill. `cat` one to read it.
 func compare(t *testing.T, name, got string) {
 	t.Helper()
 	golden.Compare(t, name, []byte(got))
 }
 
-// Tokens are hand-built rather than taken from Chroma, so a golden file records
-// what the painter did and not what a lexer version thought of a line.
 func tokens() []syntax.Token {
 	return []syntax.Token{
 		{Text: "const ", Color: testTheme.Accent},
@@ -56,8 +52,6 @@ func TestGoldenLines(t *testing.T) {
 			}},
 			24,
 		},
-		// An odd remainder against two-cell runes is where the cut used to come
-		// back a column short of the pane.
 		{
 			"clipped_wide",
 			paint.Line{Kind: paint.Added, New: 12, Tokens: []syntax.Token{
@@ -71,8 +65,6 @@ func TestGoldenLines(t *testing.T) {
 			40,
 		},
 		{"wide_gutter", paint.Line{Kind: paint.Context, Old: 1234, New: 1235, Tokens: tokens()}, 40},
-		// The bar takes the leading cell rather than a column of its own, so a
-		// barred row is exactly as wide as the one above it.
 		{
 			"line_barred",
 			paint.Line{
@@ -95,8 +87,6 @@ func TestGoldenLines(t *testing.T) {
 	}
 }
 
-// A held-open column has to be exactly as wide as a filled one, or the marker
-// moves between a line that has both numbers and a line that has one.
 func TestGoldenOneSided(t *testing.T) {
 	p := painter()
 	gutter := paint.Gutter(120)
@@ -109,8 +99,6 @@ func TestGoldenOneSided(t *testing.T) {
 	compare(t, "one_sided", strings.Join(rows, "\n"))
 }
 
-// Half is the one renderer whose output is always exactly its width: a short
-// column puts the one beside it out of step for the rest of the file.
 func TestGoldenHalves(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -121,8 +109,6 @@ func TestGoldenHalves(t *testing.T) {
 		{"half_removed", paint.Line{Kind: paint.Removed, Old: 119, Tokens: tokens()}, 26},
 		{"half_context", paint.Line{Kind: paint.Context, New: 120, Tokens: tokens()}, 26},
 
-		// The column facing an unpaired change: no number, no marker, no tint,
-		// and still exactly as wide as the one beside it.
 		{"half_blank", paint.Line{}, 26},
 		{
 			"half_clipped",
@@ -157,14 +143,11 @@ func TestGoldenHalves(t *testing.T) {
 	}
 }
 
-// The code column moves with the gutter, the way it does in a unified row.
 func TestGoldenHalfWideGutter(t *testing.T) {
 	compare(t, "half_wide_gutter", painter().Half(
 		paint.Line{Kind: paint.Added, New: 42100, Tokens: tokens()}, paint.Gutter(42100), 30))
 }
 
-// A heading over side-by-side indents to the left column's own code, and its
-// bar sits at the pane edge rather than in either column.
 func TestGoldenHalfHeader(t *testing.T) {
 	compare(t, "half_header", painter().HalfHeader(paint.Header{
 		Text:  "@@ -11,4 +12,6 @@ func Paint()",
@@ -178,8 +161,6 @@ func TestGoldenHunkHeader(t *testing.T) {
 	compare(t, "hunk_header", painter().HunkHeader(paint.Header{Text: "@@ -11,4 +12,6 @@ func Paint()"}, paint.Gutter(1235), 40))
 }
 
-// The heading a cursor is on: filled to the edge, with the mark in the column
-// the change marks under it use.
 func TestGoldenHunkHeaderMarked(t *testing.T) {
 	compare(t, "hunk_header_marked", painter().HunkHeader(paint.Header{
 		Text:   "@@ -11,4 +12,6 @@ func Paint()",
@@ -188,8 +169,6 @@ func TestGoldenHunkHeaderMarked(t *testing.T) {
 	}, paint.Gutter(1235), 40))
 }
 
-// A heading the cursor is on takes the bar at the pane edge, where the badge and
-// the marker keep the columns they line up with the source in.
 func TestGoldenHunkHeaderBarred(t *testing.T) {
 	compare(t, "hunk_header_barred", painter().HunkHeader(paint.Header{
 		Text:  "@@ -11,4 +12,6 @@ func Paint()",
@@ -199,7 +178,6 @@ func TestGoldenHunkHeaderBarred(t *testing.T) {
 	}, paint.Gutter(1235), 40))
 }
 
-// Both glyphs at once, which is a cursor on a heading that carries a state.
 func TestGoldenHunkHeaderBadged(t *testing.T) {
 	compare(t, "hunk_header_badged", painter().HunkHeader(paint.Header{
 		Text:   "@@ -11,4 +12,6 @@ func Paint()",
