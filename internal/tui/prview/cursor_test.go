@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// barredRow is the row the cursor is on, read off the bar it paints in the
-// leading cell. The fill is shared with a lit card and the bar is not.
-//
-// Rows inside a pane only. The tab strip marks its current tab with the same
-// glyph, and it sits above every border.
 func barredRow(frame string) string {
 	for _, line := range strings.Split(frame, "\n") {
 		bare := stripANSI(line)
@@ -20,8 +15,6 @@ func barredRow(frame string) string {
 	return ""
 }
 
-// The braces land on a block and j walks the code under it. Without the second
-// half a reader can point at a hunk and at nothing inside it.
 func TestJWalksTheRowsUnderTheLitHunk(t *testing.T) {
 	m := onFiles(200, 50)
 	if got := barredRow(m.View()); got != "" {
@@ -50,13 +43,10 @@ func TestJWalksTheRowsUnderTheLitHunk(t *testing.T) {
 	}
 }
 
-// A block runs out and the cursor steps to the next one, forward onto its head
-// and back onto its last row.
 func TestTheCursorCrossesBetweenBlocks(t *testing.T) {
 	m := press(onFiles(200, 50), "}")
 	head := barredRow(m.View())
 
-	// Four rows of code under the hunk, then the thread written against it.
 	last := press(m, "j", "j", "j", "j")
 	if got := barredRow(last.View()); !strings.Contains(got, "time.Sleep(delay)") {
 		t.Fatalf("setup: the fourth row is %q, want the hunk's last line", got)
@@ -81,8 +71,6 @@ func TestTheCursorCrossesBetweenBlocks(t *testing.T) {
 	}
 }
 
-// The braces name a block, so one pressed from inside another lands on its own
-// heading rather than carrying the row the cursor had walked to.
 func TestABraceZeroesTheRowCursor(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "j", "j")
 	if got := barredRow(m.View()); strings.Contains(got, "@@") {
@@ -94,11 +82,6 @@ func TestABraceZeroesTheRowCursor(t *testing.T) {
 	}
 }
 
-// The cursor walking down a pane shorter than the file has to bring its own row
-// with it, or the reader is moving something they cannot see. Each row is named,
-// because barredRow reads the frame: a row it finds is a row on the screen, and
-// asking only whether something somewhere is lit is a test the pane can pass
-// while the cursor sits under the fold.
 func TestTheCursorScrollsThePaneToStayOnIt(t *testing.T) {
 	m := press(onFiles(120, 14), "}")
 	for i, want := range []string{
@@ -114,9 +97,6 @@ func TestTheCursorScrollsThePaneToStayOnIt(t *testing.T) {
 	}
 }
 
-// A thread renders its own card and every reply hanging off it, so the code
-// below them all belongs to the last reply. Credited to the card that opened the
-// thread instead, j steps over every reply and k walks back down the screen.
 func TestTheCursorWalksTheRepliesBeforeTheCodeUnderThem(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}")
 	if got := focusedCard(t, m.View()); !strings.Contains(got, "internal/gh/client.go:42") {
@@ -144,8 +124,6 @@ func TestTheCursorWalksTheRepliesBeforeTheCodeUnderThem(t *testing.T) {
 	}
 }
 
-// The last stop of a file is a boundary the cursor does not cross, and a key it
-// swallowed there would leave whatever sits under that stop unreachable.
 func TestJAtTheLastStopScrollsRatherThanStalling(t *testing.T) {
 	m := press(onFiles(100, 14), "}", "j", "j", "j", "j", "j", "j", "j")
 	if got := barredRow(m.View()); !strings.Contains(got, "42 43") {
@@ -162,9 +140,6 @@ func TestJAtTheLastStopScrollsRatherThanStalling(t *testing.T) {
 	}
 }
 
-// A folded hunk draws no code, so there is nothing under its heading for the
-// cursor to walk into. It is the only stop its file has once the fold takes the
-// threads with it, so the key finds a boundary and the heading keeps the bar.
 func TestAFoldedHunkOffersTheCursorNoRows(t *testing.T) {
 	m := press(onFiles(200, 50), "}")
 	if got := barredRow(m.View()); !strings.Contains(got, "@@ -40,4 +40,5 @@") {

@@ -9,31 +9,13 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// SetStateMsg asks the root to move a pull request through its lifecycle. It
-// carries the transition the reader picked rather than the state it lands on,
-// for the reason ResolveThreadMsg gives: the root writes what it was handed and
-// never reads the page back.
+// SetStateMsg asks the root to apply transition To to pull request ID.
 type SetStateMsg struct {
 	ID string
 	To gh.PRTransition
 }
 
-// stateChoices is every transition this pull request will take, in the order
-// the menu offers them: the one that changes what it is first, then the one
-// that ends it.
-//
-// It reads State and IsDraft rather than the row's own words. They are two
-// independent fields and a closed draft is both, but PRStateLabel shows drafts
-// ahead of everything else, so that row says "Draft" whether or not it is still
-// open. Offering the draft toggle off that word would put "Ready for review" on
-// a pull request that is closed.
-//
-// Permission is GitHub's answer, not a guess. A menu item that opens a write
-// GitHub refuses is worse than no item, and viewerCanUpdate is the flag those
-// two draft mutations actually track.
-//
-// Merged is the end of the line: nothing moves it, so nothing is offered and
-// the row stops being somewhere tab stops.
+// Reads State and IsDraft rather than the row label, which says Draft on a closed draft.
 func stateChoices(d gh.PullRequestDetail) []gh.PRTransition {
 	if d.State == gh.PRStateMerged {
 		return nil
@@ -61,8 +43,6 @@ func stateChoices(d gh.PullRequestDetail) []gh.PRTransition {
 	return out
 }
 
-// stateItems is the menu as the picker takes it. The id is the transition
-// itself, so applying reads one back without a lookup table.
 func (m Model) stateItems(choices []gh.PRTransition) []comp.PickerItem {
 	out := make([]comp.PickerItem, 0, len(choices))
 	for _, to := range choices {
@@ -72,8 +52,6 @@ func (m Model) stateItems(choices []gh.PRTransition) []comp.PickerItem {
 	return out
 }
 
-// stateChoice names a transition and colors it as the state it produces, so the
-// menu reads the way the row it will rewrite does.
 func (m Model) stateChoice(to gh.PRTransition) (string, color.Color) {
 	switch to {
 	case gh.TransitionReady:
@@ -88,15 +66,6 @@ func (m Model) stateChoice(to gh.PRTransition) (string, color.Color) {
 	return string(to), m.theme.Subtle
 }
 
-// applyState asks the root for the transition the menu was left on.
-//
-// No unchanged check, unlike labels: the menu never offers a move the pull
-// request has already made, so every pick is a change.
-//
-// No check that the transition is one the menu offered either. The ids come
-// from the items, the items were built from the choices, and a picker cannot
-// return one it was not given. GitHub is the authority on whether the move is
-// still available, and the revert branch is what answers when it is not.
 func (m Model) applyState(p picking) (Model, tea.Cmd) {
 	chosen := p.p.Chosen()
 	if len(chosen) != 1 {
