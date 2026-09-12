@@ -36,7 +36,6 @@ type Theme struct {
 	BorderMuted  color.Color
 }
 
-// InvertedOrText is the text color to use on top of a filled surface.
 func (t Theme) InvertedOrText() color.Color {
 	if t.Inverted != nil {
 		return t.Inverted
@@ -44,7 +43,6 @@ func (t Theme) InvertedOrText() color.Color {
 	return t.Text
 }
 
-// MutedOrSubtle is Muted, or Subtle where Muted is unset.
 func (t Theme) MutedOrSubtle() color.Color {
 	if t.Muted != nil {
 		return t.Muted
@@ -52,7 +50,6 @@ func (t Theme) MutedOrSubtle() color.Color {
 	return t.Subtle
 }
 
-// BorderSubtleOrBorder is BorderSubtle, or Border where it is unset.
 func (t Theme) BorderSubtleOrBorder() color.Color {
 	if t.BorderSubtle != nil {
 		return t.BorderSubtle
@@ -60,7 +57,6 @@ func (t Theme) BorderSubtleOrBorder() color.Color {
 	return t.Border
 }
 
-// BorderMutedOrSubtle is BorderMuted, falling back through the border ladder.
 func (t Theme) BorderMutedOrSubtle() color.Color {
 	if t.BorderMuted != nil {
 		return t.BorderMuted
@@ -80,7 +76,6 @@ const (
 	slotGrey    = lipgloss.BrightBlack
 )
 
-// SyntaxDark and SyntaxLight are the Chroma styles paired against a dark and a light background.
 const (
 	SyntaxDark  = "github-dark"
 	SyntaxLight = "github"
