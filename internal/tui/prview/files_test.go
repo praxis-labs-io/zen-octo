@@ -17,9 +17,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// sampleFiles covers what the tab has to tell apart: nesting deep enough to
-// fold, a rename, a file with no patch, and the lines sampleDetail's two review
-// threads anchor to, one on each side of the diff.
 func sampleFiles() []gh.ChangedFile {
 	return []gh.ChangedFile{
 		{
@@ -68,16 +65,12 @@ func loadedFiles(files []gh.ChangedFile, more int) store.Files {
 	return store.Files{Files: files, MoreFiles: more, Status: store.StatusReady, Loaded: true}
 }
 
-// onFiles is the screen with a diff, sitting on the Files tab.
 func onFiles(width, height int) prview.Model {
 	m := detailed(held(sampleDetail()), width, height)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 	return press(m, "]", "]", "]")
 }
 
-// The diff is rendered once and kept, so the two queries landing in either
-// order have to reach the screen. The threads come from the detail and the
-// lines they hang off from the diff.
 func TestThreadsLandingAfterTheDiffStillRender(t *testing.T) {
 	m := prview.New(testTheme, samplePR(), prview.RailPreference{}, colorizer())
 	m.SetSize(200, 60)
@@ -189,8 +182,6 @@ func TestMarkViewedFromTheDiffAdvancesFromTheShownFile(t *testing.T) {
 	}
 }
 
-// The tab opens on something to read. A binary file has no body, and opening on
-// one shows a reader an empty pane and a note.
 func TestTheFilesTabOpensOnAFileWithADiff(t *testing.T) {
 	if got := diffHeads(onFiles(200, 50).View()); !strings.Contains(got, "internal/gh/client.go") {
 		t.Errorf("the tab opened on %q, want the first file with hunks", got)
@@ -204,8 +195,6 @@ func TestAFileWithNoBodySaysWhyWhenItIsReached(t *testing.T) {
 	}
 }
 
-// The file column is what navigation hangs off, and a flat list of full paths
-// is not a tree.
 func TestTheFileColumnNestsThePathsAndFoldsASingleChildRun(t *testing.T) {
 	out := stripANSI(onFiles(200, 50).View())
 
@@ -214,15 +203,11 @@ func TestTheFileColumnNestsThePathsAndFoldsASingleChildRun(t *testing.T) {
 			t.Errorf("the tree does not show %q", want)
 		}
 	}
-	// tui holds one directory, which holds one directory. Three rows and six
-	// columns to say tui/prview is what makes a narrow column unreadable.
 	if strings.Contains(out, "▾ tui/\n") {
 		t.Error("tui/ printed on a row of its own instead of joining the run below it")
 	}
 }
 
-// The churn belongs to the file's own heading in the diff. In the column
-// beside it, it is the same number twice and the cells a nested path needs.
 func TestTheChurnIsOnTheFileHeadingAndNotInTheColumn(t *testing.T) {
 	m := onFiles(200, 50)
 
@@ -252,12 +237,9 @@ func TestARenameShowsThePathItCameFrom(t *testing.T) {
 	}
 }
 
-// A line number that does not line up with the one above it is worse than none.
 func TestTheGutterHoldsBothSidesLineNumbers(t *testing.T) {
 	out := stripANSI(onFiles(200, 50).View())
 
-	// The removed line has an old number and no new one; the added lines the
-	// other way round.
 	for _, want := range []string{"41    − ", "   41 + ", "40 40   "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the gutter does not show %q", want)
@@ -265,8 +247,6 @@ func TestTheGutterHoldsBothSidesLineNumbers(t *testing.T) {
 	}
 }
 
-// A line of code folded onto a second row puts its tail under the gutter and
-// every line below it out of step with its own number.
 func TestALongCodeLineClipsRatherThanWraps(t *testing.T) {
 	long := strings.Repeat("x", 400)
 	files := []gh.ChangedFile{{
@@ -294,8 +274,6 @@ func TestALongCodeLineClipsRatherThanWraps(t *testing.T) {
 	}
 }
 
-// Reading a review means reading the comments against the lines they were
-// written about, not scrolling back to the conversation for them.
 func TestAReviewThreadRendersUnderTheLineItAnchorsTo(t *testing.T) {
 	out := stripANSI(onFiles(200, 60).View())
 
@@ -313,8 +291,6 @@ func TestAReviewThreadRendersUnderTheLineItAnchorsTo(t *testing.T) {
 	}
 }
 
-// A comment on a deleted line and one on an added line can carry the same
-// number. Only the side tells them apart.
 func TestAThreadOnTheLeftAnchorsToTheRemovedLine(t *testing.T) {
 	out := stripANSI(showFile(t, onFiles(200, 60), "internal/store/store.go").View())
 
@@ -329,8 +305,6 @@ func TestAThreadOnTheLeftAnchorsToTheRemovedLine(t *testing.T) {
 	}
 }
 
-// An outdated thread anchors to a line the pull request has moved past.
-// Dropping it loses the only record of what was asked.
 func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 	d := sampleDetail()
 	d.Threads = append(d.Threads, gh.ReviewThread{
@@ -347,8 +321,6 @@ func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 	}
 }
 
-// Two threads on one line put two stops side by side with no code between
-// them, which is the one join that has no line of its own to hang a break on.
 func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 	d := sampleDetail()
 	d.Threads = append(d.Threads, gh.ReviewThread{
@@ -367,7 +339,6 @@ func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 		t.Fatal("both threads on the line are not on the frame")
 	}
 
-	// The second card's own top border, and the row that has to sit against it.
 	top := second
 	for top > first && !strings.Contains(lines[top], "╭") {
 		top--
@@ -377,7 +348,6 @@ func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 	}
 }
 
-// litHunk is the @@ row the ring is on, read off the fill the cursor paints.
 func litHunk(frame string) string {
 	fill := bgSeq(testTheme.SelectedBackground)
 	for _, line := range strings.Split(frame, "\n") {
@@ -388,8 +358,6 @@ func litHunk(frame string) string {
 	return ""
 }
 
-// The diff draws the same cards the conversation does, and without a ring not
-// one of them can be replied to, resolved or reacted to.
 func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
 	m := onFiles(200, 50)
 	if got := litHunk(m.View()); got != "" {
@@ -414,16 +382,12 @@ func TestTheBracesWalkTheHunksAndCardsOfADiff(t *testing.T) {
 	}
 }
 
-// The pinned heading costs the pane two rows and arrives with the diff, which
-// is the real order: the tab asks for the diff as it opens.
 func TestADiffLandingOnTheOpenTabSizesThePane(t *testing.T) {
 	files := []gh.ChangedFile{longFile("a.go", 200)}
 
-	// Opened first, the diff arriving after.
 	late := press(detailed(held(sampleDetail()), 100, 24), "]", "]", "]")
 	late.SetFiles(loadedFiles(files, 0))
 
-	// And the other way round, which was always sized right.
 	early := detailed(held(sampleDetail()), 100, 24)
 	early.SetFiles(loadedFiles(files, 0))
 	early = press(early, "]", "]", "]")
@@ -432,15 +396,11 @@ func TestADiffLandingOnTheOpenTabSizesThePane(t *testing.T) {
 		t.Errorf("the diff landing on the open tab reads %q, want %q", got, want)
 	}
 
-	// And the end of it is reachable rather than clipped past the last row. The
-	// tab opens on the column, so the pane is taken before it is scrolled.
 	if out := stripANSI(press(late, "2", "G").View()); !strings.Contains(out, "case 199:") {
 		t.Error("the last line of the diff cannot be scrolled to")
 	}
 }
 
-// scrollReadout is the N/M a pane draws in its bottom border once its content
-// outruns it.
 func scrollReadout(frame string) string {
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		if !strings.Contains(line, "╯") || !strings.Contains(line, "/") {
@@ -452,11 +412,7 @@ func scrollReadout(frame string) string {
 	return ""
 }
 
-// A refetch moves the cursor after the rows are rebuilt, and the pane draws
-// whatever was named before that.
 func TestARefetchLeavesTheCursorAndThePaneOnOneFile(t *testing.T) {
-	// Reading screenshot.png with the cursor parked on the docs/ row above it,
-	// which is row zero and so the one a refetch moves.
 	m := press(showFile(t, onFiles(200, 50), "docs/screenshot.png"), "1", "g")
 	if got := cursorFile(m.View()); !strings.Contains(got, "docs/") {
 		t.Fatalf("setup: the cursor is on %q, want the directory row", got)
@@ -469,8 +425,6 @@ func TestARefetchLeavesTheCursorAndThePaneOnOneFile(t *testing.T) {
 	}
 }
 
-// A refetch answering with nothing leaves a body of one line, and the stops the
-// last render put in the ring have nowhere to be.
 func TestADiffThatComesBackEmptyDropsItsStops(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}")
 	if focusedCard(t, m.View()) == "" {
@@ -479,35 +433,27 @@ func TestADiffThatComesBackEmptyDropsItsStops(t *testing.T) {
 
 	m.SetFiles(loadedFiles(nil, 0))
 
-	// A stop nothing drew still answers esc, so the reader presses it, the
-	// screen swallows it, and nothing on the frame says why.
 	_, cmd := m.Update(escape())
 	if cmd == nil {
 		t.Error("esc was swallowed by a stop left over from the diff that went")
 	}
 }
 
-// The stops are the last tab's until the next one writes its own, and a tab
-// that answers with a note instead of blocks never writes any.
 func TestATabShowingANoteDropsTheLastTabsStops(t *testing.T) {
 	m := detailed(store.Detail{}, 200, 50)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	// No detail, so the diff carries no threads and a hunk is the only stop.
 	onFiles := press(press(m, "]", "]", "]"), "}")
 	if litHunk(onFiles.View()) == "" {
 		t.Fatal("setup: nothing is lit on the Files tab to leave behind")
 	}
 
-	// Back to a conversation that has not landed, so the pane is one note.
 	back := press(onFiles, "]")
 	if _, cmd := back.Update(escape()); cmd == nil {
 		t.Error("esc was swallowed on a tab whose ring was never rebuilt")
 	}
 }
 
-// twoHunks is a file whose diff jumps, which is the only shape a gap between
-// hunks shows up in. sampleFiles carries one hunk per file.
 func twoHunks() []gh.ChangedFile {
 	return []gh.ChangedFile{{
 		Path: "a.go", Status: gh.FileModified, Additions: 2,
@@ -524,8 +470,6 @@ func twoHunks() []gh.ChangedFile {
 	}}
 }
 
-// A hunk is a jump to somewhere else in the file, and run against the line
-// above it the two read as one stretch of code that never was.
 func TestHunksAreSeparatedByABlankLine(t *testing.T) {
 	m := detailed(held(sampleDetail()), 100, 24)
 	m.SetFiles(loadedFiles(twoHunks(), 0))
@@ -545,7 +489,6 @@ func TestHunksAreSeparatedByABlankLine(t *testing.T) {
 	}
 }
 
-// diffRow is what a frame row holds inside the diff pane's own borders.
 func diffRow(line string) string {
 	cells := strings.Split(line, "│")
 	if len(cells) < 4 {
@@ -554,12 +497,9 @@ func diffRow(line string) string {
 	return cells[len(cells)-2]
 }
 
-// One file is in the pane, so the stop after a file's last one is in the next
-// file. A key dying at each file boundary would send the reader to the column.
 func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}", "}")
 
-	// Past the reply, which is the last stop in the first file.
 	m = press(m, "}")
 	if got := diffHeads(m.View()); !strings.Contains(got, "internal/store/store.go") {
 		t.Fatalf("the brace past the last stop left the pane on %q", got)
@@ -568,7 +508,6 @@ func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
 		t.Errorf("crossing landed on %q, want the new file's first hunk", got)
 	}
 
-	// And back, onto the last stop of the file it came from rather than its head.
 	m = press(m, "{")
 	if got := diffHeads(m.View()); !strings.Contains(got, "internal/gh/client.go") {
 		t.Fatalf("the brace back left the pane on %q", got)
@@ -578,8 +517,6 @@ func TestTheBracesCrossFromOneFileToTheNext(t *testing.T) {
 	}
 }
 
-// A reply is a card of its own in the diff as it is in the conversation. One
-// the motion key walks past is one the reader can see and cannot answer.
 func TestTheBracesStopOnAReplyInTheDiff(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}", "}")
 
@@ -587,7 +524,6 @@ func TestTheBracesStopOnAReplyInTheDiff(t *testing.T) {
 		t.Fatalf("the brace past the thread lit %q, want the reply hanging off it", got)
 	}
 
-	// x and v mean the thread and not an answer to it, so neither is named here.
 	lines := strings.Split(stripANSI(m.View()), "\n")
 	footer := footerRow(t, lines, headingRow(t, lines, "octobot · said · 1h"))
 	if !strings.Contains(footer, "r reply") {
@@ -600,10 +536,7 @@ func TestTheBracesStopOnAReplyInTheDiff(t *testing.T) {
 	}
 }
 
-// The cursor moving is not the pane moving: from a directory row the next file
-// row is the file already drawn, and crossing onto it walks it a second time.
 func TestCrossingFromADirectoryRowStillReachesTheNextFile(t *testing.T) {
-	// Up onto the gh/ row, which keeps the pane on the file under it.
 	m := press(onFiles(200, 50), "1", "k")
 	if got := cursorFile(m.View()); !strings.Contains(got, "gh/") {
 		t.Fatalf("setup: the cursor is on %q, want the directory above the file", got)
@@ -612,17 +545,13 @@ func TestCrossingFromADirectoryRowStillReachesTheNextFile(t *testing.T) {
 		t.Fatalf("setup: the pane is drawing %q, want the first file", got)
 	}
 
-	// Off the end of client.go: its hunk, its thread, its reply, then across.
 	m = press(m, "}", "}", "}", "}")
 	if got := diffHeads(m.View()); !strings.Contains(got, "internal/store/store.go") {
 		t.Errorf("the brace off the last stop left the pane on %q", got)
 	}
 }
 
-// Past the last file it stays put. Both ends of every ring here are boundaries.
 func TestTheBracesStopAtTheEndsOfTheDiff(t *testing.T) {
-	// docs/screenshot.png sorts first and GitHub sent no body for it, so it is
-	// also the file with no stop to land on.
 	first := press(onFiles(200, 50), "}", "{", "{", "{")
 	if got := diffHeads(first.View()); !strings.Contains(got, "docs/screenshot.png") {
 		t.Errorf("the brace back off the first file moved to %q", got)
@@ -634,11 +563,7 @@ func TestTheBracesStopAtTheEndsOfTheDiff(t *testing.T) {
 	}
 }
 
-// A card in a diff answers the line above it, so topping it scrolls away the
-// one thing the reader is reading the comment about.
 func TestACardInTheDiffOpensBelowTheCodeItAnswers(t *testing.T) {
-	// Short enough that the card cannot sit on screen whole, so the jump has to
-	// choose where to put it.
 	lines := strings.Split(stripANSI(press(onFiles(200, 14), "}", "}").View()), "\n")
 
 	card := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "╭─") && !strings.HasPrefix(l, "╭") })
@@ -652,8 +577,6 @@ func TestACardInTheDiffOpensBelowTheCodeItAnswers(t *testing.T) {
 	}
 }
 
-// v means take me to the diff, and inside one there is nowhere left to go. A
-// footer naming a key that does nothing is worse than a footer without it.
 func TestACardInTheDiffNamesItsKeysAndNotTheJump(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}")
 
@@ -670,11 +593,7 @@ func TestACardInTheDiffNamesItsKeysAndNotTheJump(t *testing.T) {
 	}
 }
 
-// The key goes as quiet as the footer. Left live it re-enters the tab it is
-// already on, which drags the column's cursor to a file it is already showing.
 func TestVDoesNothingOnTheFilesTab(t *testing.T) {
-	// The cursor parked off the file being read, so a jump has somewhere to move
-	// it and doing nothing is visible.
 	m := press(onFiles(200, 50), "1", "k", "}", "}")
 	if got := cursorFile(m.View()); !strings.Contains(got, "gh/") {
 		t.Fatalf("setup: the cursor is on %q, want the directory row", got)
@@ -689,8 +608,6 @@ func TestVDoesNothingOnTheFilesTab(t *testing.T) {
 	}
 }
 
-// Replying is the whole point of the ring, and the box belongs under the card
-// it answers rather than at the foot of a page the diff does not have.
 func TestReplyOpensABoxInTheDiff(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}", "r")
 
@@ -706,8 +623,6 @@ func TestReplyOpensABoxInTheDiff(t *testing.T) {
 	}
 }
 
-// The popup is drawn at the caret, and the caret's line and column come from
-// the box's own offsets. A diff dropping those leaves the list nowhere to open.
 func TestAnAtInADiffBoxOpensTheMentionList(t *testing.T) {
 	m := press(onFiles(200, 60), "}", "}", "r")
 	m.SetRepo(loadedRepo())
@@ -718,7 +633,6 @@ func TestAnAtInADiffBoxOpensTheMentionList(t *testing.T) {
 	}
 }
 
-// esc leaves the screen with a card lit, on this tab as on the conversation.
 func TestEscBacksOutWithACardLitInTheDiff(t *testing.T) {
 	m := press(onFiles(200, 50), "}", "}")
 	if focusedCard(t, m.View()) == "" {
@@ -734,8 +648,6 @@ func TestEscBacksOutWithACardLitInTheDiff(t *testing.T) {
 	}
 }
 
-// tab is the file key here and the strip stays on ] and [, which is the half of
-// the swap that is easy to drop.
 func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	m := onFiles(200, 50)
 
@@ -746,10 +658,7 @@ func TestTheFileKeyLeavesTheTabStrip(t *testing.T) {
 	}
 }
 
-// The tree belongs to the column and the blocks to the pane. A fold in the
-// pane leaves the tree alone and keeps the hunk heading as the way back in.
 func TestTheFoldKeyCollapsesTheLitHunk(t *testing.T) {
-	// The cursor left on the gh/ row, which is the only kind the tree folds.
 	m := press(onFiles(200, 50), "1", "k", "}")
 	if litHunk(m.View()) == "" {
 		t.Fatal("setup: no hunk is lit for the key to land on")
@@ -815,8 +724,6 @@ func TestTheRingSkipsThreadsInsideAFoldedHunk(t *testing.T) {
 	}
 }
 
-// A push makes every hunk new reading, even where GitHub gives one the same
-// heading. A refresh on the same commit keeps the reader's place.
 func TestAChangedHeadOpensFoldedHunks(t *testing.T) {
 	d := sampleDetail()
 	d.HeadRefOid = "before"
@@ -857,7 +764,6 @@ func TestFoldingADirectoryTakesItsFilesOutOfTheTree(t *testing.T) {
 }
 
 func TestSelectingAFileScrollsTheDiffToIt(t *testing.T) {
-	// A frame short enough that the last file is well past the first screen.
 	m := press(onFiles(200, 16), "1")
 	if strings.Contains(stripANSI(m.View()), "const tabWidth = 4") {
 		t.Fatal("the last file is already on screen; the test proves nothing")
@@ -869,8 +775,6 @@ func TestSelectingAFileScrollsTheDiffToIt(t *testing.T) {
 	}
 }
 
-// The keys that move further than a line have to move the cursor too. A file
-// column scrolled away from its own cursor answers nothing.
 func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
 	m := press(onFiles(200, 16), "1", "G")
 
@@ -888,8 +792,6 @@ func TestTheFileColumnKeepsItsCursorUnderTheJumpKeys(t *testing.T) {
 	}
 }
 
-// The cursor says which file the diff is showing, which is the question the
-// column exists to answer whether or not the keys are pointed at it.
 func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
 	m := press(onFiles(200, 40), "1", "g", "j", "j", "j")
 	if !strings.Contains(cursorFile(m.View()), "gh/") {
@@ -901,18 +803,12 @@ func TestTheFileCursorStaysPaintedWithFocusOnTheDiff(t *testing.T) {
 	}
 }
 
-// selectedRow is the whole frame line carrying the selection background.
-// The fill is looked for inside the column rather than anywhere on the line.
-// The diff beside it carries a fill of its own now that the tab opens with a
-// hunk lit, and it lands on whichever row of the tree it happens to sit beside:
-// taking the first painted line on the frame answered with the wrong pane.
 func selectedRow(frame string) string {
 	for _, line := range strings.Split(frame, "\n") {
 		at := strings.Index(line, selectionSeq())
 		if at < 0 {
 			continue
 		}
-		// The column's own right border, which the fill sits inside of.
 		if edge := nthIndex(line, "│", 2); edge >= 0 && at < edge {
 			return line
 		}
@@ -920,7 +816,6 @@ func selectedRow(frame string) string {
 	return ""
 }
 
-// nthIndex is where the nth occurrence of sep starts, or -1.
 func nthIndex(s, sep string, n int) int {
 	at := 0
 	for range n {
@@ -933,8 +828,6 @@ func nthIndex(s, sep string, n int) int {
 	return at - len(sep)
 }
 
-// cursorFile is the file column's share of that line. The frame spans two
-// panes, and the whole line lets the diff beside the tree answer for it.
 func cursorFile(frame string) string {
 	cells := strings.Split(stripANSI(selectedRow(frame)), "│")
 	if len(cells) < 2 {
@@ -943,8 +836,6 @@ func cursorFile(frame string) string {
 	return strings.TrimSpace(cells[1])
 }
 
-// The rail is about the pull request rather than the change, the tree wants a
-// column, and a diff between the two is a gutter and a fragment.
 func TestTheRailIsOffOnTheFilesTabAtEveryWidth(t *testing.T) {
 	tests := []struct {
 		width int
@@ -965,23 +856,16 @@ func TestTheRailIsOffOnTheFilesTabAtEveryWidth(t *testing.T) {
 		if strings.Contains(out, "Details") {
 			t.Errorf("width %d: the rail is on screen", tt.width)
 		}
-		// Read off the border rather than off the title alone: the strip a row
-		// above names the tab Files too, and it is there at every width.
 		if got := strings.Contains(out, "[1]─Files"); got != tt.tree {
 			t.Errorf("width %d: tree on screen = %v, want %v", tt.width, got, tt.tree)
 		}
 	}
 }
 
-// The two side columns never share a frame, so the only place a difference
-// between them shows is in the jump when you tab from one to the other.
 func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	// Both lead their row, so both are the leftmost pane and measure the same
-	// way. The rail used to close the row instead and had to be measured back
-	// from the frame's right edge.
 	rail := paneEnd(t, m.View())
 	tree := paneEnd(t, press(m, "]", "]", "]").View())
 
@@ -990,7 +874,6 @@ func TestTheFileColumnAndTheRailAreTheSameWidth(t *testing.T) {
 	}
 }
 
-// paneEnd is where the leftmost pane's right border sits, which is its width.
 func paneEnd(t *testing.T, frame string) int {
 	t.Helper()
 	top := stripANSI(paneTop(frame))
@@ -1001,8 +884,6 @@ func paneEnd(t *testing.T, frame string) int {
 	return lipgloss.Width(top[:at]) + 1
 }
 
-// The column is the only navigation the tab has, so it narrows rather than
-// disappearing once the diff has taken its measure.
 func TestTheFileColumnNarrowsBeforeItHides(t *testing.T) {
 	widths := map[int]int{220: 37, 120: 37, 100: 24, 80: 24}
 
@@ -1017,8 +898,6 @@ func TestTheFileColumnNarrowsBeforeItHides(t *testing.T) {
 	}
 }
 
-// The rail belongs to the conversation, and stepping aside for the diff must
-// not read as having been turned off.
 func TestTheRailComesBackWhenTheTabDoes(t *testing.T) {
 	m := detailed(held(sampleDetail()), 130, 40)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -1058,8 +937,6 @@ func TestTheFrameFillsItsSizeExactlyOnTheFilesTab(t *testing.T) {
 	}
 }
 
-// The panes are numbered by where they sit, so the digits have to follow what
-// is on screen rather than what each pane holds.
 func TestThePanesAreNumberedLeftToRight(t *testing.T) {
 	top := stripANSI(paneTop(onFiles(200, 40).View()))
 
@@ -1087,14 +964,12 @@ func TestFocusingTheDiffLeavesTheCursorWhereItWas(t *testing.T) {
 	}
 }
 
-// Leaving the Files tab takes the tree with it, and the movement keys cannot
-// keep driving a pane that is no longer on screen.
 func TestFocusLeavesTheTreeWhenTheTabDoes(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 20)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	m = press(m, "]", "]", "]", "1") // to Files, focus the tree
-	m = press(m, "]")                // round to the conversation
+	m = press(m, "]", "]", "]", "1")
+	m = press(m, "]")
 
 	before := footerOf(t, m.View())
 	if after := footerOf(t, press(m, "j", "j", "j").View()); after == before {
@@ -1102,8 +977,6 @@ func TestFocusLeavesTheTreeWhenTheTabDoes(t *testing.T) {
 	}
 }
 
-// A digit with no pane behind it does nothing rather than focusing something
-// that is not there.
 func TestADigitPastTheLastPaneIsIgnored(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 20)
 
@@ -1114,9 +987,6 @@ func TestADigitPastTheLastPaneIsIgnored(t *testing.T) {
 	}
 }
 
-// Tall enough for the note to be on the first frame. The threads in the diff
-// carry replies, and a reply is a card, so the page below the last file is
-// deeper than a window of sixty rows.
 func TestOverflowIsReportedRatherThanDropped(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 80)
 	m.SetFiles(loadedFiles(sampleFiles(), 3))
@@ -1126,8 +996,6 @@ func TestOverflowIsReportedRatherThanDropped(t *testing.T) {
 	}
 }
 
-// The reason a file has no diff is a sentence, and it is the only thing in the
-// block. Cut without a mark it reads as the whole reason.
 func TestTheOmittedReasonIsMarkedRatherThanCut(t *testing.T) {
 	m := detailed(held(sampleDetail()), 75, 30)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -1138,8 +1006,6 @@ func TestTheOmittedReasonIsMarkedRatherThanCut(t *testing.T) {
 	}
 }
 
-// The pane clips a heading that does not fit, and it clips mid-cell without a
-// mark. A count losing its last digit that way still reads as a count.
 func TestAChurnTooWideToFitIsMarkedRatherThanCut(t *testing.T) {
 	files := sampleFiles()
 	files[0].Additions, files[0].Deletions = 12345, 67890
@@ -1181,9 +1047,6 @@ func TestAPullRequestWithNoFilesSaysSo(t *testing.T) {
 	}
 }
 
-// Selection is baked into every cell of the row. Wrapping a joined row instead
-// paints only its first cell, because every styled run ends in a reset that
-// clears the background with it.
 func TestTheSelectedFileIsPaintedCellByCell(t *testing.T) {
 	m := press(onFiles(200, 40), "1")
 
@@ -1201,9 +1064,6 @@ func selectionSeq() string {
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// A changed line is read as a block, not a character at a time. The tint has to
-// run the whole width, and it is painted per cell because every styled run ends
-// in a reset that clears the background with it.
 func TestAChangedLineIsTintedEdgeToEdge(t *testing.T) {
 	frame := onFiles(200, 50).View()
 
@@ -1231,16 +1091,12 @@ func TestAChangedLineIsTintedEdgeToEdge(t *testing.T) {
 		if got := strings.Count(tt.line, tt.seq); got < 5 {
 			t.Errorf("the %s tint appears %d times, want it on every cell", tt.name, got)
 		}
-		// The frame is three panes wide, so the tint covers the diff's own
-		// width rather than the line's. Anything short of that is a hole.
 		if got := lipgloss.Width(tinted(tt.line, tt.seq)); got < 100 {
 			t.Errorf("the %s tint covers %d cells, want it running to the border", tt.name, got)
 		}
 	}
 }
 
-// A context line has no tint to run out, so it must not be filled: the trailing
-// spaces would be indistinguishable from a change with no color.
 func TestAContextLineIsNotTinted(t *testing.T) {
 	frame := stripANSI(onFiles(200, 50).View())
 
@@ -1256,10 +1112,6 @@ func TestAContextLineIsNotTinted(t *testing.T) {
 	t.Fatal("the context line is not on screen")
 }
 
-// A run of hunks with nothing between them reads as one file. The box is what
-// says where one ends.
-// A file is not a thing to act on, so it gets a heading and no box. Boxing one
-// put a review thread in the diff three borders deep.
 func TestTheFileHeadingIsPinnedAboveTheDiff(t *testing.T) {
 	lines := strings.Split(stripANSI(onFiles(200, 50).View()), "\n")
 
@@ -1282,9 +1134,6 @@ func TestTheFileHeadingIsPinnedAboveTheDiff(t *testing.T) {
 	}
 }
 
-// Scrolling the diff leaves the heading where it is. A reader sixty lines into
-// a file still has to be told which file it is, and the heading is the only
-// thing on the frame that says so.
 func TestTheFileHeadingSurvivesScrolling(t *testing.T) {
 	files := sampleFiles()
 	files[0] = longFile("internal/gh/client.go", 60)
@@ -1302,9 +1151,6 @@ func TestTheFileHeadingSurvivesScrolling(t *testing.T) {
 	}
 }
 
-// tinted is the text on a line the given background does cover. It walks the
-// SGR runs rather than the text, which is the only way to tell a painted cell
-// from a bare one.
 func tinted(line, seq string) string {
 	var out strings.Builder
 	painted := false
@@ -1333,12 +1179,8 @@ func tinted(line, seq string) string {
 
 func bgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Background(c)) }
 
-// Reading a diff is reading one file after another, and doing that by the line
-// takes as many keystrokes as the file is long.
 func TestTabJumpsAWholeFileFromEitherPane(t *testing.T) {
 	for _, focus := range []string{"1", "2"} {
-		// The column opens on the first file, so no jump to the top first: g on
-		// the tree would land on the directory above it.
 		m := press(onFiles(200, 20), focus)
 
 		want := []string{"client.go", "store.go", "files.go"}
@@ -1346,15 +1188,12 @@ func TestTabJumpsAWholeFileFromEitherPane(t *testing.T) {
 			if got := cursorFile(m.View()); !strings.Contains(got, file) {
 				t.Fatalf("pane %s, jump %d: cursor on %q, want %q", focus, i, got, file)
 			}
-			// The diff follows the column, whichever one the keys are aimed at.
-			// The last file cannot reach the top of the window, only the screen.
 			if heads := diffHeads(m.View()); !strings.Contains(heads, file) {
 				t.Errorf("pane %s: the diff does not show %q, only %q", focus, file, heads)
 			}
 			m = press(m, "tab")
 		}
 
-		// Past the last file it stays put rather than wrapping.
 		if got := cursorFile(m.View()); !strings.Contains(got, "files.go") {
 			t.Errorf("pane %s: tab past the last file moved to %q", focus, got)
 		}
@@ -1379,8 +1218,6 @@ func TestShiftTabWalksBackUpTheFiles(t *testing.T) {
 	}
 }
 
-// longFile is a file whose diff runs well past a test window, so the reader can
-// be inside it with its heading off the top.
 func longFile(path string, lines int) gh.ChangedFile {
 	body := make([]gh.DiffLine, lines)
 	for i := range body {
@@ -1393,7 +1230,6 @@ func longFile(path string, lines int) gh.ChangedFile {
 }
 
 func TestTabFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
-	// docs/, screenshot.png, internal/, gh/, client.go
 	m := press(onFiles(200, 20), "1", "g", "j", "j")
 	if got := cursorFile(m.View()); !strings.Contains(got, "internal/") {
 		t.Fatalf("setup: cursor on %q, want the internal/ directory", got)
@@ -1404,10 +1240,6 @@ func TestTabFromADirectoryEntersItRatherThanSkippingIt(t *testing.T) {
 	}
 }
 
-// diffHeads is every file heading the diff pane has on screen. A heading
-// carries the churn; the same path in the file column does not.
-// diffHeads is the file the diff pane is drawing, read off the pinned heading
-// above its rule. One file per pane, so there is only ever one.
 func diffHeads(frame string) string {
 	lines := strings.Split(stripANSI(frame), "\n")
 	for i, line := range lines {
@@ -1423,9 +1255,6 @@ func diffHeads(frame string) string {
 	return ""
 }
 
-// showFile walks the tree until the diff pane is drawing a named file, the way
-// a reader looking for one does. The bound is generous: it only has to exceed
-// the rows any fixture here builds.
 func showFile(t *testing.T, m prview.Model, path string) prview.Model {
 	t.Helper()
 	m = press(m, "g")
@@ -1439,9 +1268,6 @@ func showFile(t *testing.T, m prview.Model, path string) prview.Model {
 	return m
 }
 
-// bigDiff is a pull request the size of a real refactor. Rendering one file
-// tokenises the whole of it, so the cost the diff pays per keystroke is what
-// this measures.
 func bigDiff(files, lines int) []gh.ChangedFile {
 	out := make([]gh.ChangedFile, files)
 	for i := range out {
@@ -1466,8 +1292,6 @@ func bigDiff(files, lines int) []gh.ChangedFile {
 	return out
 }
 
-// Walking the file column repaints the diff. Every file rendering again for a
-// cursor that moved one row is what made a large pull request unreadable.
 func BenchmarkMoveTheCursorOnALargeDiff(b *testing.B) {
 	m := detailed(held(sampleDetail()), 200, 50)
 	m.SetFiles(loadedFiles(bigDiff(60, 200), 0))
@@ -1478,8 +1302,6 @@ func BenchmarkMoveTheCursorOnALargeDiff(b *testing.B) {
 	}
 }
 
-// The spans the jump keys read outlive a tab switch, and one viewport serves
-// every tab, so a stale one scrolls the conversation to a diff offset.
 func TestTheBraceWalksTheRingOnTheConversationWhateverTheDiffRecorded(t *testing.T) {
 	loaded := func() prview.Model {
 		m := detailed(held(sampleDetail()), 200, 30)
@@ -1487,7 +1309,6 @@ func TestTheBraceWalksTheRingOnTheConversationWhateverTheDiffRecorded(t *testing
 		return m
 	}
 
-	// Round the tabs once so the diff renders and records its spans.
 	toured := press(loaded(), "]", "]", "]", "]")
 
 	for _, k := range []string{"}", "{"} {
@@ -1497,8 +1318,6 @@ func TestTheBraceWalksTheRingOnTheConversationWhateverTheDiffRecorded(t *testing
 	}
 }
 
-// The rail is suppressed on the Files tab whatever the user asked for, so the
-// key cannot read the screen to decide what to do next.
 func TestTogglingTheRailOnFilesDoesNotUndoItOnTheConversation(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -1508,7 +1327,6 @@ func TestTogglingTheRailOnFilesDoesNotUndoItOnTheConversation(t *testing.T) {
 		t.Fatal("setup: d did not hide the rail")
 	}
 
-	// Out to Files, press it there, and back.
 	m = press(m, "]", "]", "]", "d", "[", "[", "[")
 
 	if strings.Contains(stripANSI(m.View()), "Details") {
@@ -1531,9 +1349,6 @@ func TestOutdatedThreadsHoldTheirOrder(t *testing.T) {
 		})
 	}
 
-	// Each build renders the diff from scratch. Ranging the map is ordered at
-	// random per range, so one model repainting is not the test: the same
-	// comments have to come out the same way every time they are rendered.
 	var want []int
 	for i := range 20 {
 		m := detailed(held(d), 200, 66)
@@ -1554,7 +1369,6 @@ func TestOutdatedThreadsHoldTheirOrder(t *testing.T) {
 	}
 }
 
-// strayOrder is the line numbers of the outdated threads, top to bottom.
 func strayOrder(frame string) []int {
 	var out []int
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
@@ -1568,9 +1382,6 @@ func strayOrder(frame string) []int {
 	return out
 }
 
-// One tick chain serves every tab. Answering only for the tab in front of the
-// reader ended it the moment they tabbed away from a diff still in flight, and
-// coming back found a glyph that never moved again for the whole request.
 func TestTheDiffSpinnerSurvivesLeavingTheTab(t *testing.T) {
 	m := detailed(held(sampleDetail()), 120, 20)
 	m.SetFiles(store.Files{Status: store.StatusLoading})
@@ -1580,12 +1391,8 @@ func TestTheDiffSpinnerSurvivesLeavingTheTab(t *testing.T) {
 		t.Fatal("Init started no spinner")
 	}
 
-	// Out to Files, which is where the diff is being waited on, then back to
-	// the conversation while it is still coming.
 	m = press(m, "]", "]", "]", "[", "[", "[")
 
-	// A tick command holds one timer and delivers once, so each has to be
-	// called exactly once.
 	m, next = m.Update(next())
 	if next == nil {
 		t.Fatal("the chain ended while the diff was still in flight")

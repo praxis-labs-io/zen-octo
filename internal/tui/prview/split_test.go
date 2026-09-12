@@ -12,8 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// codeRows is the drawn rows of source: everything between the hunk heading and
-// the first card under it, stripped.
 func codeRows(frame string) []string {
 	var out []string
 	seen := false
@@ -32,8 +30,6 @@ func codeRows(frame string) []string {
 	return out
 }
 
-// splitRows is the code rows of a diff drawing two columns, which carry the rule
-// between them on top of the four borders every row has.
 func splitRows(frame string) []string {
 	var out []string
 	for _, row := range codeRows(frame) {
@@ -44,8 +40,6 @@ func splitRows(frame string) []string {
 	return out
 }
 
-// A run of removals pairs against the additions after it, one row each, and the
-// shorter side draws a blank rather than shifting the columns out of step.
 func TestSideBySidePairsARunOfRemovalsAgainstTheAdditions(t *testing.T) {
 	m := press(onFiles(140, 30), "|")
 	rows := splitRows(m.View())
@@ -53,7 +47,6 @@ func TestSideBySidePairsARunOfRemovalsAgainstTheAdditions(t *testing.T) {
 		t.Fatalf("the diff drew %d two-column rows:\n%s", len(rows), m.View())
 	}
 
-	// The fixture removes one line and adds two, under a line of context.
 	want := []struct{ left, right string }{
 		{"for {", "for {"},
 		{"time.Sleep(delay)", "delay = min(delay*2, fetchTimeout)"},
@@ -73,8 +66,6 @@ func TestSideBySidePairsARunOfRemovalsAgainstTheAdditions(t *testing.T) {
 	}
 }
 
-// halvesOf splits a drawn row into its two columns. The bars are the tree's two
-// borders, the pane's left, the rule, and the pane's right.
 func halvesOf(row string) (string, string, bool) {
 	var at []int
 	for i, r := range []rune(row) {
@@ -90,8 +81,6 @@ func halvesOf(row string) (string, string, bool) {
 	return string(cells[at[2]+1 : at[3]]), string(cells[at[3]+1 : at[4]]), true
 }
 
-// Every row has to be exactly the pane, or the column on the right walks in and
-// out as the file goes on. An odd width is where the halving lands wrong.
 func TestEverySideBySideRowIsExactlyThePane(t *testing.T) {
 	for _, width := range []int{110, 111, 140, 141} {
 		m := press(onFiles(width, 30), "|")
@@ -107,8 +96,6 @@ func TestEverySideBySideRowIsExactlyThePane(t *testing.T) {
 	}
 }
 
-// The key refuses rather than drawing two columns of nothing, and says how many
-// columns short the pane is.
 func TestSideBySideIsRefusedInAPaneTooNarrowForIt(t *testing.T) {
 	m := onFiles(70, 20)
 	after, cmd := m.Update(tea.KeyPressMsg{Code: '|', Text: "|"})
@@ -128,8 +115,6 @@ func TestSideBySideIsRefusedInAPaneTooNarrowForIt(t *testing.T) {
 	}
 }
 
-// A terminal shrinking under a split pane keeps the answer, so widening brings
-// the columns back without a second press.
 func TestANarrowedPaneFallsBackToUnifiedAndComesBack(t *testing.T) {
 	m := press(onFiles(140, 30), "|")
 	if len(splitRows(m.View())) == 0 {
@@ -147,8 +132,6 @@ func TestANarrowedPaneFallsBackToUnifiedAndComesBack(t *testing.T) {
 	}
 }
 
-// h and l step the columns before they give the focus up, and only the column
-// the cursor is in lights.
 func TestHAndLStepTheColumnsBeforeTheyLeaveThePane(t *testing.T) {
 	m := press(onFiles(140, 30), "|", "}", "j")
 	head := barredRow(m.View())
@@ -161,7 +144,6 @@ func TestHAndLStepTheColumnsBeforeTheyLeaveThePane(t *testing.T) {
 		t.Fatalf("h did not move the bar off the head column: %q", got)
 	}
 
-	// The bar is in the base column now, which is left of the rule.
 	row := barredRow(base.View())
 	if at := strings.Index(row, "▌"); at < 0 || at > strings.Index(row[at:], "│")+at {
 		t.Errorf("the bar is not in the base column: %q", row)
@@ -171,8 +153,6 @@ func TestHAndLStepTheColumnsBeforeTheyLeaveThePane(t *testing.T) {
 	}
 }
 
-// insertOnly is a hunk the base column has no line in at all, which is the one
-// shape a column step has nowhere to land in.
 func insertOnly() []gh.ChangedFile {
 	return []gh.ChangedFile{{
 		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 3,
@@ -187,10 +167,6 @@ func insertOnly() []gh.ChangedFile {
 	}}
 }
 
-// A file with every line on one side has one column worth standing in, and
-// walkColumn already walks the reader in it. Stepping to the empty one moves
-// m.column and nothing else, so the key showed nothing and left the file column
-// a second press away. The render is what says the step took.
 func TestHOnAOneSidedBlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 40)
 	m.SetFiles(store.Files{Files: insertOnly(), Status: store.StatusReady, Loaded: true})
@@ -205,13 +181,7 @@ func TestHOnAOneSidedBlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	}
 }
 
-// splitting() reads a remembered file and a width, and both outlive a tab
-// change. Ungated, h on another tab's main pane is swallowed as a column step
-// and moves the Files tab's column behind the reader's back, which they meet on
-// the next walk there rather than on the key they pressed.
 func TestTheColumnsAreTheFilesTabsAlone(t *testing.T) {
-	// The walk is made again after the trip, because a tab change gives the row
-	// cursor up on its own and the column is what this is asking about.
 	walk := func(keys ...string) string {
 		d := sampleDetail()
 		d.Commits = sampleCommits()
@@ -233,9 +203,6 @@ func TestTheColumnsAreTheFilesTabsAlone(t *testing.T) {
 	}
 }
 
-// On a block the two columns draw the same frame, so a column step there is a
-// press that shows the reader nothing and leaves the file column one further
-// away than it looks.
 func TestHOnABlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	m := press(onFiles(140, 30), "|", "}")
 
@@ -246,10 +213,6 @@ func TestHOnABlockLeavesForTheFileColumnOnTheFirstPress(t *testing.T) {
 	}
 }
 
-// The reader asked for a mode, not for a fact about request ordering. The diff
-// is a second request, so ] to Files and | straight after is the common case,
-// and refusing it silently made the key need a second press once the files
-// landed.
 func TestSplitPressedBeforeTheDiffLandsAppliesWhenItDoes(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 160, 40), "]", "]", "]")
 	m = press(m, "|")

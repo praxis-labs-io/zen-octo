@@ -8,10 +8,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// conversationWith renders a page whose timeline is exactly these items.
-//
-// The threads go with it. They hang off reviews that are not on this page, so
-// they would render at the end and push the line under test off the frame.
 func conversationWith(t *testing.T, items ...gh.TimelineItem) string {
 	t.Helper()
 
@@ -21,7 +17,6 @@ func conversationWith(t *testing.T, items ...gh.TimelineItem) string {
 	return stripANSI(detailed(held(d), 200, 60).View())
 }
 
-// happening is one event by drucial, an hour ago.
 func happening(kind gh.TimelineKind, subject string) gh.TimelineItem {
 	return gh.TimelineItem{
 		Kind:      kind,
@@ -31,10 +26,6 @@ func happening(kind gh.TimelineKind, subject string) gh.TimelineItem {
 	}
 }
 
-// Every kind reads as something somebody did, in the past tense the rest of the
-// conversation is written in. A kind with no words renders to nothing and takes
-// its row with it, which is the failure this catches: the line is missing, and
-// nothing else on the page changes to say so.
 func TestEveryEventReadsAsASentence(t *testing.T) {
 	baseChanged := happening(gh.TimelineBaseChanged, "develop")
 	baseChanged.Was = "main"
@@ -67,8 +58,6 @@ func TestEveryEventReadsAsASentence(t *testing.T) {
 	}
 }
 
-// One picker apply writes a label set as one event per label. Three rows for
-// one keystroke is what buries the discussion between them.
 func TestARunOfLabelsIsOneLineNamingEveryOne(t *testing.T) {
 	out := conversationWith(t,
 		happening(gh.TimelineLabeled, "bug"),
@@ -84,9 +73,6 @@ func TestARunOfLabelsIsOneLineNamingEveryOne(t *testing.T) {
 	}
 }
 
-// The actor is part of the run, where it is not for a push. Two people
-// labelling in a row is two things happening, and folding them credits one of
-// them with the other's work.
 func TestTwoPeopleLabellingInARowAreTwoLines(t *testing.T) {
 	mine := happening(gh.TimelineLabeled, "bug")
 	theirs := happening(gh.TimelineLabeled, "needs-docs")
@@ -104,10 +90,6 @@ func TestTwoPeopleLabellingInARowAreTwoLines(t *testing.T) {
 	}
 }
 
-// A run is one keystroke's worth of events, not everything of a kind that
-// happens to sit together. Two requests for the same person minutes apart are
-// two things somebody did, and PR #20 carries exactly that pair: folded, they
-// read as "requested reviews from Copilot and Copilot".
 func TestTwoRequestsMinutesApartAreTwoLines(t *testing.T) {
 	first := happening(gh.TimelineReviewRequested, gh.CopilotLogin)
 	again := happening(gh.TimelineReviewRequested, gh.CopilotLogin)
@@ -123,9 +105,6 @@ func TestTwoRequestsMinutesApartAreTwoLines(t *testing.T) {
 	}
 }
 
-// A swap writes an add and a remove at the same instant. Folding them into one
-// line would mean saying which way each name went, and the sentence stops being
-// a sentence.
 func TestAnAddAndARemoveAreTwoLines(t *testing.T) {
 	out := conversationWith(t,
 		happening(gh.TimelineUnlabeled, "wip"),
@@ -142,9 +121,6 @@ func TestAnAddAndARemoveAreTwoLines(t *testing.T) {
 	}
 }
 
-// Copilot is named the way the reviewer picker names it. Its login is what the
-// rail shows and not a word anybody would think to look for, and a request for
-// it is the one metadata write with no other evidence on the page.
 func TestARequestNamesCopilotAndATeamTheWayTheRailDoes(t *testing.T) {
 	out := conversationWith(t,
 		happening(gh.TimelineReviewRequested, gh.CopilotLogin),
@@ -159,9 +135,6 @@ func TestARequestNamesCopilotAndATeamTheWayTheRailDoes(t *testing.T) {
 	}
 }
 
-// A merge falling off a heavily labelled pull request would leave the
-// conversation reading as one nobody ever merged. The comments and the threads
-// each say what their page did not reach, and the events now do too.
 func TestTheEventsTheWindowCutOffAreSaidToBeThere(t *testing.T) {
 	d := sampleDetail()
 	d.Timeline = []gh.TimelineItem{happening(gh.TimelineLabeled, "bug")}
@@ -174,8 +147,6 @@ func TestTheEventsTheWindowCutOffAreSaidToBeThere(t *testing.T) {
 	}
 }
 
-// GitHub answers with a login in the account's own case rather than the case it
-// was asked in, so the bot's name cannot hang on an exact match.
 func TestCopilotIsNamedWhateverCaseItArrivesIn(t *testing.T) {
 	out := conversationWith(t, happening(gh.TimelineReviewRequested, "Copilot-Pull-Request-Reviewer"))
 
@@ -184,9 +155,6 @@ func TestCopilotIsNamedWhateverCaseItArrivesIn(t *testing.T) {
 	}
 }
 
-// An event is something to read, not something to act on, so tab walks past it
-// the way it walks past a push. A run landing between two cards must not become
-// a stop between them.
 func TestTabWalksPastAMetadataEvent(t *testing.T) {
 	d := sampleDetail()
 	d.Timeline = append([]gh.TimelineItem{

@@ -10,14 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// showCheckFromRail takes the check the rail's cursor is on to its row in the
-// Checks tab. The rail row and the tab's selection are keyed the same, on
-// Check.Key, so the jump is the key rather than a lookup that could disagree
-// with the row the reader pointed at.
-//
-// It unfolds the workflow holding it. A folded parent draws no row for its
-// jobs, so landing on one without opening it puts the cursor somewhere the
-// reader cannot see and leaves the tab looking like it ignored the key.
 func (m Model) showCheckFromRail() (Model, tea.Cmd) {
 	key := m.railRing.on.id
 	if key == "" {
@@ -34,8 +26,6 @@ func (m Model) showCheckFromRail() (Model, tea.Cmd) {
 	tab := m.goToTab(tabChecks)
 	m.syncChecks()
 
-	// The column is where the check cursor lives, and a jump that lands the
-	// selection without the keys leaves j and k scrolling the log beside it.
 	m.focusPane(paneSide)
 	for i, row := range m.check.rows {
 		if row.checkKey == key {
@@ -48,14 +38,7 @@ func (m Model) showCheckFromRail() (Model, tea.Cmd) {
 	return m, tab
 }
 
-// showInDiff takes the thread the ring is on to its place in the Files tab.
-//
-// A diff already here that does not carry the file is answered where the reader
-// is standing. Switching to a tab that cannot show them what they asked for and
-// saying so from there is two moves to deliver one piece of bad news.
 func (m Model) showInDiff() (Model, tea.Cmd) {
-	// The tab rather than jumpable, which is false for a file the diff does not
-	// carry: that one is answered below with a toast rather than with silence.
 	t, ok := m.threadOnRing()
 	if !ok || t.Line == 0 || m.tab == tabFiles {
 		return m, nil
@@ -68,55 +51,37 @@ func (m Model) showInDiff() (Model, tea.Cmd) {
 
 	m.jump = t.ID
 
-	// A diff that failed is asked for again rather than landed on. Pressing v is
-	// asking to see the code, the pane carries no retry of its own, and dropping
-	// the jump here would leave the reader on an error with nothing said about
-	// what they pressed. Clearing filesAsked is what lets the tab ask twice.
 	if retry := !m.files.Loaded && m.files.Status == store.StatusFailed; retry {
 		m.filesAsked = false
 		return m, m.goToTab(tabFiles)
 	}
 
-	// Both taken before the return. finishJump writes the offset onto this
-	// model, and a return statement is free to read its own operand before the
-	// calls beside it.
 	tab := m.goToTab(tabFiles)
 	landed := m.finishJump()
 	return m, tea.Batch(tab, landed)
 }
 
-// jumpable is whether v has somewhere to take a thread. A diff still out is
-// counted in: the file is probably in it, and hiding the key until the tab has
-// been opened once teaches the reader it is not there.
+// A diff still in flight counts, or the key hides until the tab has been opened once.
 func (m Model) jumpable(t gh.ReviewThread) bool {
-	// Inside the diff there is nowhere left to go, so the key is inert and the
-	// footer that reads this stops naming it.
 	if t.Line == 0 || m.tab == tabFiles {
 		return false
 	}
 	return !m.files.Loaded || m.hasPath(t.Path)
 }
 
-// finishJump lands a jump on a diff that is here, and reports what it could
-// not do. It runs on the key and again on every diff arriving, so a jump made
-// before the first request answered lands the moment it does.
+// Runs on the key and on every diff arriving, so a jump made early lands with the diff.
 func (m *Model) finishJump() tea.Cmd {
 	if m.jump == "" {
 		return nil
 	}
 
 	if !m.files.Loaded {
-		// A fetch that failed has nothing to land in, and the pane already says
-		// why. Anything else is still on its way.
 		if m.files.Status == store.StatusFailed {
 			m.jump = ""
 		}
 		return nil
 	}
 
-	// The reader tabbed away while the diff was out. Hauling the page back to
-	// where they no longer are is the one thing every key on this screen
-	// refuses to do.
 	if m.tab != tabFiles {
 		m.jump = ""
 		return nil
@@ -134,14 +99,8 @@ func (m *Model) finishJump() tea.Cmd {
 	m.reveal(t.Path)
 	m.pointAt(t.Path)
 
-	// The card is what the jump named, so the row cursor starts at its head
-	// rather than wherever it was left inside a block of the same id.
 	m.unpoint()
 
-	// Rendered before either pane is scrolled: both were only measured now, and
-	// SetYOffset clamps to the content the viewport is holding. Scrolling the
-	// column first against the tree as it was folded clamps the cursor to the
-	// top and leaves it off screen once the rows come back.
 	m.syncContent()
 	m.showCursorRow()
 
@@ -150,13 +109,9 @@ func (m *Model) finishJump() tea.Cmd {
 		return nil
 	}
 
-	// The file is here and the thread is not drawn in it, which is a file whose
-	// body GitHub omitted. Naming it was the whole of the move.
 	return nil
 }
 
-// threadLine is where a thread's card landed in the rendered diff. The stops
-// are a handful per file, so they are walked rather than indexed.
 func (m Model) threadLine(id string) (int, bool) {
 	want := focusKey{kind: focusThread, id: id}
 	for _, s := range m.diff.stops {
@@ -167,18 +122,9 @@ func (m Model) threadLine(id string) (int, bool) {
 	return 0, false
 }
 
-// jumpLead is the code kept above a thread when a jump lands: the line it
-// answers, and enough of the hunk around it to read that line in context.
 const jumpLead = 4
 
-// jumpTop is where the diff opens for a thread. Not the card's own line: the
-// card hangs under the line it was written against, so putting it on the top
-// row scrolls away the one thing the reader pressed the key to see. The same
-// rule the reply box follows, one tab over.
-//
-// It never opens above the file's own heading. A thread near the top of a file
-// would otherwise show the tail of the file before it, which reads as the wrong
-// file until the eye finds the border.
+// Opens above the card so the line it answers stays in view, and never above the file's heading.
 func (m Model) jumpTop(path string, line int) int {
 	top := line - jumpLead
 	if at := slices.IndexFunc(m.diff.spans, func(s fileSpan) bool { return s.key == path }); at >= 0 {
@@ -187,11 +133,7 @@ func (m Model) jumpTop(path string, line int) int {
 	return max(0, top)
 }
 
-// reveal takes a file out from under every fold hiding it. A file inside a
-// collapsed directory is in no row and no span, so there is no cursor to point
-// at it and no block to scroll to. A chain of directories collapses under the
-// deepest key in the chain, so every prefix goes rather than the one key the
-// tree happens to be using.
+// Unfolds every prefix, because a chain of directories collapses under its deepest key.
 func (m *Model) reveal(path string) {
 	segments := strings.Split(path, "/")
 	for i := range segments {
@@ -200,9 +142,6 @@ func (m *Model) reveal(path string) {
 	m.syncRows()
 }
 
-// pointAt moves the tree cursor to a file, so the column agrees with the pane
-// beside it. Bringing the cursor into the column's own window is the caller's,
-// because the column has to be rendered first.
 func (m *Model) pointAt(path string) {
 	at := slices.IndexFunc(m.rows, func(r row) bool { return r.file != nil && r.key == path })
 	if at < 0 {
@@ -212,8 +151,6 @@ func (m *Model) pointAt(path string) {
 	m.nameShownFile()
 }
 
-// hasPath is whether the diff carries a file. The tree and the thread key by
-// the same path, so a rename needs no second check.
 func (m Model) hasPath(path string) bool {
 	return slices.ContainsFunc(m.files.Files, func(f gh.ChangedFile) bool { return f.Path == path })
 }

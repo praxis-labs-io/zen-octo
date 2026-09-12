@@ -12,9 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// Markers the fixture uses nowhere else. "Thumbs down" is a row in the list and
-// appears on no card, so an assertion on it cannot pass off the rail behind the
-// modal.
 const (
 	reactRow    = "Thumbs down"
 	reactModal  = "React"
@@ -23,9 +20,6 @@ const (
 	confusedRow = "Confused"
 )
 
-// reactive is sampleDetail with reactions on it. The description and the
-// timeline comment carry some, the review carries none, and the eight are
-// offered on every block that will take the key.
 func reactive() gh.PullRequestDetail {
 	d := sampleDetail()
 	d.Viewer.CanReact = true
@@ -52,12 +46,10 @@ func reactive() gh.PullRequestDetail {
 	return d
 }
 
-// reacting puts the ring on a card by step count over a detail with reactions.
 func reacting(n int) prview.Model {
 	return walked(detailed(held(reactive()), 200, 60), n)
 }
 
-// reactAsked presses a key and insists it asked the root to toggle a reaction.
 func reactAsked(t *testing.T, m prview.Model, k string) prview.ReactMsg {
 	t.Helper()
 
@@ -69,13 +61,10 @@ func reactAsked(t *testing.T, m prview.Model, k string) prview.ReactMsg {
 	return msg
 }
 
-// enter is the press that applies whatever the modal is left on.
 func enter(m prview.Model) (prview.Model, tea.Cmd) {
 	return m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 }
 
-// The list is GitHub's eight, always all of them. One offering only what
-// somebody had already given would be empty the first time it opened.
 func TestReactOpensTheEight(t *testing.T) {
 	out := stripANSI(press(reacting(2), "+").View())
 
@@ -90,7 +79,6 @@ func TestReactOpensTheEight(t *testing.T) {
 	}
 }
 
-// The counts ride on the rows, so the reader can see what they are joining.
 func TestTheListNamesWhatEachReactionAlreadyHas(t *testing.T) {
 	out := stripANSI(press(reacting(2), "+").View())
 
@@ -103,11 +91,7 @@ func TestTheListNamesWhatEachReactionAlreadyHas(t *testing.T) {
 	}
 }
 
-// GitHub's flag is the whole of the question, and a key that opens a write
-// GitHub refuses is worse than one that does nothing.
 func TestReactIsInertWhereGitHubSaysNo(t *testing.T) {
-	// sampleDetail carries CanReact nowhere, which is what a viewer with no
-	// write access to the repository gets back.
 	m := walked(detailed(held(sampleDetail()), 200, 60), 2)
 
 	if out := stripANSI(press(m, "+").View()); strings.Contains(out, reactRow) {
@@ -115,9 +99,6 @@ func TestReactIsInertWhereGitHubSaysNo(t *testing.T) {
 	}
 }
 
-// The list opens on what the viewer has already given, which is what makes
-// enter with no movement a toggle rather than a change to whatever sorted
-// first. Pressing it there takes the reaction back off.
 func TestEnterOnAReactionAlreadyGivenTakesItBack(t *testing.T) {
 	got := reactAsked(t, press(reacting(2), "+"), "enter")
 
@@ -130,11 +111,9 @@ func TestEnterOnAReactionAlreadyGivenTakesItBack(t *testing.T) {
 	}
 }
 
-// And on one the viewer is not in, the same press adds it.
 func TestEnterOnAReactionNotGivenAddsIt(t *testing.T) {
 	m := press(reacting(2), "+")
 
-	// Down from thumbs up, which is where the list opened.
 	m, _ = arrow(m, tea.KeyDown)
 
 	_, cmd := enter(m)
@@ -150,8 +129,6 @@ func TestEnterOnAReactionNotGivenAddsIt(t *testing.T) {
 	}
 }
 
-// The description is not a comment. It is a field of the pull request, and the
-// pull request is the node a reaction to it names.
 func TestReactOnTheDescriptionAddressesThePullRequest(t *testing.T) {
 	got := reactAsked(t, press(reacting(1), "+"), "enter")
 
@@ -163,8 +140,6 @@ func TestReactOnTheDescriptionAddressesThePullRequest(t *testing.T) {
 	}
 }
 
-// A reply is a card of its own, so the key reaches it the way every other write
-// key does.
 func TestReactReachesAReply(t *testing.T) {
 	got := reactAsked(t, press(reacting(tabReply), "+"), "enter")
 
@@ -176,8 +151,6 @@ func TestReactReachesAReply(t *testing.T) {
 	}
 }
 
-// A thread's own card resolves to the comment that opened it, which is the one
-// the write keys act on there.
 func TestReactOnAThreadReachesTheCommentThatOpenedIt(t *testing.T) {
 	got := reactAsked(t, press(reacting(tabThread), "+"), "enter")
 
@@ -186,9 +159,6 @@ func TestReactOnAThreadReachesTheCommentThatOpenedIt(t *testing.T) {
 	}
 }
 
-// The pills render on every card that has any, not on the lit one alone. A row
-// that came and went with the focus would change a card's height on every press
-// of the motion key.
 func TestThePillsRenderOnACardNobodyIsOn(t *testing.T) {
 	out := stripANSI(detailed(held(reactive()), 200, 60).View())
 
@@ -200,8 +170,6 @@ func TestThePillsRenderOnACardNobodyIsOn(t *testing.T) {
 	}
 }
 
-// The same page with the ring on the card, so the pills are not a thing the
-// focus turns on.
 func TestThePillsDoNotMoveWhenTheRingArrives(t *testing.T) {
 	quiet := strings.Count(stripANSI(detailed(held(reactive()), 200, 60).View()), "\n")
 	lit := strings.Count(stripANSI(reacting(2).View()), "\n")
@@ -211,8 +179,6 @@ func TestThePillsDoNotMoveWhenTheRingArrives(t *testing.T) {
 	}
 }
 
-// A block nobody has reacted to draws no row at all. An empty one would be a
-// blank line under every comment on the page.
 func TestACardWithNoReactionsDrawsNoRow(t *testing.T) {
 	d := reactive()
 	d.Timeline[0].Comment.Reactions = nil
@@ -223,8 +189,6 @@ func TestACardWithNoReactionsDrawsNoRow(t *testing.T) {
 	}
 }
 
-// The card names the key, and only where GitHub will take the press. A key
-// listed on a card it does nothing to is worse than one nobody found.
 func TestTheCardNamesTheReactKey(t *testing.T) {
 	if got := stripANSI(reacting(2).View()); !strings.Contains(got, "+ react") {
 		t.Errorf("the focused card does not name the react key:\n%s", got)
@@ -236,8 +200,6 @@ func TestTheCardNamesTheReactKey(t *testing.T) {
 	}
 }
 
-// Two toggles on one reaction settle in the order the responses arrive, which
-// is not the order they were pressed. The row is inert until the first lands.
 func TestAReactionStillOutTakesNoSecondPress(t *testing.T) {
 	d := reactive()
 	d.Timeline[0].Comment.Reactions = []gh.Reaction{
@@ -250,14 +212,7 @@ func TestAReactionStillOutTakesNoSecondPress(t *testing.T) {
 	}
 }
 
-// The pills go under the words, and cardBoxAt measures down to an open box. A
-// row added above one would move the box's first cell without moving the
-// arithmetic that follows the caret, and the page would scroll to the wrong
-// line on every keystroke.
 func TestPillsDoNotMoveAnOpenBox(t *testing.T) {
-	// The viewer's own comment, since e only opens on one. sampleDetail's
-	// timeline comment is octobot's, so this is the description, which carries
-	// pills of its own in the fixture.
 	withPills := boxOffset(t, press(walked(viewing(reactive(), 200, 60), 1), "e").View())
 
 	bare := reactive()
@@ -270,8 +225,6 @@ func TestPillsDoNotMoveAnOpenBox(t *testing.T) {
 	}
 }
 
-// boxOffset is how far the box's button sits below the card heading it opened
-// on, which is the arithmetic a pill row could break.
 func boxOffset(t *testing.T, frame string) int {
 	t.Helper()
 
@@ -292,9 +245,6 @@ func boxOffset(t *testing.T, frame string) int {
 	return box - head
 }
 
-// The pills go while a box is over the block, the way the card's byline does.
-// The box carries its own button on its last row, and pills under that read as
-// a comment to react to rather than as one being written.
 func TestThePillsGoWhileTheBoxIsOverTheBlock(t *testing.T) {
 	m := press(walked(viewing(reactive(), 200, 60), 1), "e")
 
@@ -307,7 +257,6 @@ func TestThePillsGoWhileTheBoxIsOverTheBlock(t *testing.T) {
 	}
 }
 
-// And they come back once it closes. The reaction was never touched.
 func TestThePillsComeBackWhenTheBoxCloses(t *testing.T) {
 	m := press(press(walked(viewing(reactive(), 200, 60), 1), "e"), "esc")
 
@@ -316,9 +265,6 @@ func TestThePillsComeBackWhenTheBoxCloses(t *testing.T) {
 	}
 }
 
-// j and k walk the list. Eight rows is exactly the length that earns a filter,
-// and a filter claims every printable key ahead of movement: left on, j narrows
-// a list of eight fixed names to nothing, because none of them holds one.
 func TestJAndKWalkTheReactionList(t *testing.T) {
 	m := press(press(reacting(2), "+"), "j")
 
@@ -332,10 +278,6 @@ func TestJAndKWalkTheReactionList(t *testing.T) {
 	}
 }
 
-// A card clips what overflows it, silently and mid-cell, so a row of pills
-// wider than the card would lose its last ones with nothing to say they were
-// there. It folds at pill boundaries instead: a line costs a row and keeps
-// every glyph with its number.
 func TestAWideRowOfPillsFoldsRatherThanClipping(t *testing.T) {
 	d := reactive()
 	all := make([]gh.Reaction, 0, len(gh.ReactionOrder))
@@ -344,9 +286,6 @@ func TestAWideRowOfPillsFoldsRatherThanClipping(t *testing.T) {
 	}
 	d.Timeline[0].Comment.Reactions = all
 
-	// Narrow enough that eight pills cannot sit on one line. At 60 they can,
-	// and the card clips nothing, so a fixture at the width the other tests use
-	// would prove none of this.
 	for _, width := range []int{50, 44} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
 			out := stripANSI(detailed(held(d), width, 40).View())
@@ -361,9 +300,6 @@ func TestAWideRowOfPillsFoldsRatherThanClipping(t *testing.T) {
 	}
 }
 
-// reactionGlyphFor is the emoji a card draws for a reaction. It is spelled out
-// here rather than reached for in the package, because a test sharing the map
-// under test would pass on a map that had gone wrong.
 func reactionGlyphFor(c gh.ReactionContent) string {
 	return map[gh.ReactionContent]string{
 		gh.ReactionThumbsUp:   "👍",
@@ -377,10 +313,6 @@ func reactionGlyphFor(c gh.ReactionContent) string {
 	}[c]
 }
 
-// A reaction being taken back sits at zero while its write is out, and a pill
-// reading "0" would say nobody gave it. The dot is what says the count is not
-// known yet. Only a slow network shows this by eye, which is what makes it a
-// test rather than a thing to look at.
 func TestAReactionBeingTakenBackReadsAsPending(t *testing.T) {
 	d := reactive()
 	d.Timeline[0].Comment.Reactions = []gh.Reaction{
@@ -396,21 +328,17 @@ func TestAReactionBeingTakenBackReadsAsPending(t *testing.T) {
 	}
 }
 
-// Threads render in the diff as well as in the conversation, through the same
-// card, so the pills go with them.
 func TestPillsRenderOnAThreadInTheDiff(t *testing.T) {
 	d := reactive()
 	m := detailed(held(d), 200, 60)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	// The Files tab, which is three to the right of the conversation.
 	out := stripANSI(press(m, "]", "]", "]").View())
 	if !strings.Contains(out, "❤️ 2") {
 		t.Errorf("the thread's pills are missing from the diff:\n%s", out)
 	}
 }
 
-// esc closes the list and writes nothing, the way it does over every picker.
 func TestEscapeClosesTheListWithoutWriting(t *testing.T) {
 	m := press(reacting(2), "+")
 
@@ -423,9 +351,6 @@ func TestEscapeClosesTheListWithoutWriting(t *testing.T) {
 	}
 }
 
-// A pill is the only two-cell glyph on this screen, and a card pads its content
-// out to its own width from a measurement. One cell out and the border walks in
-// on every row that holds pills, which a fixture of plain text can never show.
 func TestPillsDoNotBreakTheFrameWidth(t *testing.T) {
 	for _, size := range []struct{ width, height int }{
 		{width: 200, height: 40},
@@ -445,8 +370,6 @@ func TestPillsDoNotBreakTheFrameWidth(t *testing.T) {
 	}
 }
 
-// The same question with the list up, which is where the glyphs sit next to
-// each other rather than one per row.
 func TestTheReactionListDoesNotBreakTheFrameWidth(t *testing.T) {
 	frame := press(reacting(2), "+").View()
 
@@ -457,11 +380,6 @@ func TestTheReactionListDoesNotBreakTheFrameWidth(t *testing.T) {
 	}
 }
 
-// rowFor is the line of a rendered frame holding a marker.
-// The picker's own cells, not the whole frame line. A modal is drawn over the
-// screen rather than into it, so the line it lands on still carries the rail and
-// the page either side of it, and the rail's Changes row is a column of digits
-// that a test asking whether a row is numbered would find.
 func rowFor(t *testing.T, frame, marker string) string {
 	t.Helper()
 
@@ -470,7 +388,6 @@ func rowFor(t *testing.T, frame, marker string) string {
 		if at < 0 {
 			continue
 		}
-		// The modal's border either side of the text it holds.
 		open := strings.LastIndex(line[:at], "│")
 		shut := strings.Index(line[at:], "│")
 		if open < 0 || shut < 0 {
