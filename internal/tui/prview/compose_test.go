@@ -15,7 +15,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// type sends a string one keypress at a time, the way a reader writes it.
 func typed(m prview.Model, text string) prview.Model {
 	for _, r := range text {
 		m, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -23,8 +22,6 @@ func typed(m prview.Model, text string) prview.Model {
 	return m
 }
 
-// pressed is press with the command kept, for the keys that ask the root for
-// something.
 func pressed(m prview.Model, keys ...string) (prview.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, k := range keys {
@@ -33,8 +30,6 @@ func pressed(m prview.Model, keys ...string) (prview.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// runCmd is what a command produced, or nil for a key the screen answered on
-// its own.
 func runCmd(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {
 		return nil
@@ -42,9 +37,6 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-// chord is a key the plain path cannot build: ctrl+enter carries no text, only
-// a code and a modifier, which is exactly why a terminal has to be asked
-// whether it can send one.
 func chord(m prview.Model) (prview.Model, tea.Cmd) {
 	return m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
 }
@@ -53,11 +45,7 @@ func composing(width, height int) prview.Model {
 	return press(detailed(held(sampleDetail()), width, height), "c")
 }
 
-// The box is part of the conversation, not something summoned. It is on the
-// page before any key is pressed, which is how anyone finds out it is there.
 func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
-	// G, because the box closes the conversation and this fixture is longer
-	// than the window. Reaching it is the reader's business; being there is not.
 	out := stripANSI(press(detailed(held(sampleDetail()), 200, 60), "G").View())
 
 	if !strings.Contains(out, "Leave a comment") {
@@ -66,17 +54,12 @@ func TestTheCommentBoxIsAlwaysOnThePage(t *testing.T) {
 	if !strings.Contains(out, "write a comment") {
 		t.Error("the box has no heading saying what it is for")
 	}
-	// c is what works from anywhere on the page. enter only works once the ring
-	// is on the box, so naming it here would be a key that does nothing.
 	if !strings.Contains(out, "c to write") {
 		t.Error("the box does not say how to start writing in it")
 	}
 }
 
-// It renders through the same card the comments above it render through, so
-// one being written sits among the ones already made rather than beside them.
 func TestTheCommentBoxRendersAsACard(t *testing.T) {
-	// G, because the box closes a conversation longer than the window.
 	frame := press(detailed(held(sampleDetail()), 200, 60), "G").View()
 	lines := strings.Split(stripANSI(frame), "\n")
 
@@ -98,9 +81,6 @@ func TestTheCommentBoxRendersAsACard(t *testing.T) {
 	}
 }
 
-// The box is content inside the pane, so it can no more overflow the frame than
-// a comment can. The short sizes are here because it is the tallest block the
-// conversation builds.
 func TestTheFrameStillFillsItsSizeWithTheComposerOpen(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 40},
@@ -136,8 +116,6 @@ func TestWhatIsTypedShowsInTheComposer(t *testing.T) {
 	}
 }
 
-// Every letter is a letter while the pane is open. j and k scroll everywhere
-// else on this screen, and a composer that ate them would be unusable.
 func TestTheComposerTakesTheKeysTheScreenWouldHaveAnswered(t *testing.T) {
 	m := typed(composing(200, 40), "jkdorq")
 
@@ -146,8 +124,6 @@ func TestTheComposerTakesTheKeysTheScreenWouldHaveAnswered(t *testing.T) {
 	}
 }
 
-// esc hands the keyboard back and keeps every word. The box stays where it is:
-// it is part of the conversation, not something that was opened over it.
 func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
 	m := press(typed(composing(200, 60), "half written"), "esc")
 
@@ -155,19 +131,15 @@ func TestEscapeKeepsTheWordsAndLeavesTheBox(t *testing.T) {
 	if !strings.Contains(out, "half written") {
 		t.Error("esc took the words away")
 	}
-	// The ring is still standing on the box, so enter is what resumes.
 	if !strings.Contains(out, "⏎ to write") {
 		t.Error("the box does not say the keyboard went back to the screen")
 	}
 
-	// And a letter is a key again rather than a letter.
 	if got := stripANSI(press(m, "j").View()); strings.Contains(got, "half writtenj") {
 		t.Error("the box is still taking letters after esc")
 	}
 }
 
-// Enter in the text is a newline and can be nothing else. A key that sends a
-// half-written comment is worse than one more keystroke.
 func TestEnterInTheTextIsANewlineNotAPost(t *testing.T) {
 	m, cmd := pressed(typed(composing(200, 40), "one"), "enter")
 	if msg := runCmd(cmd); msg != nil {
@@ -199,8 +171,6 @@ func TestTabReachesThePostButtonAndEnterSendsIt(t *testing.T) {
 		t.Errorf("ID = %q, want the pull request on screen", msg.ID)
 	}
 
-	// The pane closes and empties. The words are the root's now, and it puts
-	// them back if the write fails.
 	if got := stripANSI(m.View()); strings.Contains(got, "ship it") {
 		t.Errorf("the composer still holds a comment it sent:\n%s", got)
 	}
@@ -218,8 +188,6 @@ func TestCtrlEnterPostsFromTheText(t *testing.T) {
 	}
 }
 
-// A buffer of whitespace is nothing to post, and the button says so by going
-// faint rather than by swallowing the press.
 func TestAnEmptyComposerPostsNothing(t *testing.T) {
 	m := typed(composing(200, 40), "   \n  ")
 
@@ -233,8 +201,6 @@ func TestAnEmptyComposerPostsNothing(t *testing.T) {
 	}
 }
 
-// The button stays muted until it holds the focus. The writing is what the pane
-// is for, and a filled block in the corner would out-shout it.
 func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
 	written := typed(composing(200, 40), "ship it")
 	if lit(written.View()) {
@@ -249,14 +215,10 @@ func TestThePostButtonLightsOnlyWhenItHoldsFocus(t *testing.T) {
 	}
 }
 
-// lit is whether the post button carries the accent it takes on focus.
 func lit(frame string) bool {
 	return strings.Contains(frame, bgSeq(testTheme.Accent)+"mPost")
 }
 
-// It is a button at every state, filled surface and all. Muted is the colour it
-// wears, not a different shape: a control that turns into a word when it is not
-// focused is one the reader has to hunt for.
 func TestThePostButtonIsAFilledSurfaceAtEveryState(t *testing.T) {
 	empty := composing(200, 40)
 	written := typed(empty, "ship it")
@@ -274,11 +236,7 @@ func TestThePostButtonIsAFilledSurfaceAtEveryState(t *testing.T) {
 	}
 }
 
-// The button sits against the right edge of the pane, one column in, which is
-// the corner every dialog puts its confirm in.
 func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
-	// Narrow enough that the rail is hidden, so the composer's own border is
-	// the last thing on the row.
 	m := typed(composing(100, 40), "ship it")
 
 	lines := strings.Split(stripANSI(m.View()), "\n")
@@ -292,21 +250,16 @@ func TestThePostButtonSitsInTheBottomRight(t *testing.T) {
 		t.Fatalf("no post button on the frame:\n%s", strings.Join(lines, "\n"))
 	}
 
-	// The last row inside the pane: the line under it closes the border.
 	if !strings.Contains(lines[at+1], "╰") {
 		t.Errorf("the button is not on the pane's last row: %q", lines[at+1])
 	}
 
-	// Nothing but the button's own padding and the gutter between the label and
-	// the card's border.
 	tail := strings.TrimLeft(lines[at][strings.Index(lines[at], "Post")+len("Post"):], " ")
 	if !strings.HasPrefix(tail, "│") {
 		t.Errorf("the button is followed by %q, want the card's border next", tail)
 	}
 }
 
-// A top-level comment lands in the conversation, so it is written from there.
-// The three tabs with a column each anchor a different kind of comment.
 func TestCDoesNothingOnTheTabsWithAColumn(t *testing.T) {
 	for _, tab := range []struct {
 		name    string
@@ -325,9 +278,6 @@ func TestCDoesNothingOnTheTabsWithAColumn(t *testing.T) {
 	}
 }
 
-// The footer names the chord only where the terminal can send it. Elsewhere
-// ctrl+enter arrives as a plain enter and would add a blank line, and hinting
-// it would be promising a key that does the opposite of what it says.
 func TestTheFooterNamesTheChordOnlyWhereItWorks(t *testing.T) {
 	plain := stripANSI(composing(200, 40).View())
 	if strings.Contains(plain, "ctrl+⏎") {
@@ -344,8 +294,6 @@ func TestTheFooterNamesTheChordOnlyWhereItWorks(t *testing.T) {
 	}
 }
 
-// The revert branch, from the screen's side. A post that failed puts the words
-// back where they were written.
 func TestARestoredDraftReopensTheComposerWithTheWords(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 40)
 	m.RestoreDraft("this did not send")
@@ -355,8 +303,6 @@ func TestARestoredDraftReopensTheComposerWithTheWords(t *testing.T) {
 	}
 }
 
-// A card that has landed and one that still might not must not read the same.
-// Only one of the two can disappear.
 func TestACommentStillInFlightSaysSo(t *testing.T) {
 	d := sampleDetail()
 	pending := gh.Comment{
@@ -377,9 +323,7 @@ func TestACommentStillInFlightSaysSo(t *testing.T) {
 	}
 }
 
-// ctrl+e hands off rather than answering on the spot. The round trip needs a
-// real editor and a real terminal, so this holds the one thing a test can:
-// that the key produces a command instead of being swallowed.
+// Asserts only that a command comes back: the round trip needs a real editor and terminal.
 func TestCtrlEHandsTheBufferOff(t *testing.T) {
 	_, cmd := pressed(typed(composing(200, 40), "draft"), "ctrl+e")
 	if cmd == nil {
@@ -387,8 +331,6 @@ func TestCtrlEHandsTheBufferOff(t *testing.T) {
 	}
 }
 
-// The box costs the screen no layout at all. It is a block in the conversation,
-// so writing in it leaves the rail and the pane borders exactly where they were.
 func TestWritingACommentDoesNotMoveTheLayout(t *testing.T) {
 	resting := detailed(held(sampleDetail()), 200, 40)
 	writing := typed(press(resting, "c"), "ship it")
@@ -397,8 +339,6 @@ func TestWritingACommentDoesNotMoveTheLayout(t *testing.T) {
 		t.Errorf("the rail is %d rows while a comment is being written and %d otherwise", len(after), len(before))
 	}
 
-	// The top border only. The one at the foot carries the scroll counter, and
-	// that legitimately moves: c scrolls the page down to the box.
 	top := func(m prview.Model) string {
 		return strings.Split(stripANSI(m.View()), "\n")[0]
 	}
@@ -407,8 +347,6 @@ func TestWritingACommentDoesNotMoveTheLayout(t *testing.T) {
 	}
 }
 
-// The box is the last card, so on a long thread it starts below the fold. c
-// brings it onto the screen rather than leaving the reader to scroll for it.
 func TestCBringsTheBoxOntoTheScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
@@ -423,8 +361,6 @@ func TestCBringsTheBoxOntoTheScreen(t *testing.T) {
 	}
 }
 
-// Typing rebuilds the page and the box is the last thing on it, so the page has
-// to hold at the foot or the box being written in scrolls away under the words.
 func TestTheBoxStaysOnScreenWhileItIsWrittenIn(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 25)
@@ -436,9 +372,6 @@ func TestTheBoxStaysOnScreenWhileItIsWrittenIn(t *testing.T) {
 	}
 }
 
-// The page above the box is kept while it is being written in, which is what
-// makes a keystroke cheap. A refetch landing mid-sentence has to drop it, or
-// the reader carries on typing over a conversation that has moved on.
 func TestARefetchWhileTypingStillReachesTheScreen(t *testing.T) {
 	m := typed(composing(200, 60), "half written")
 
@@ -455,8 +388,6 @@ func TestARefetchWhileTypingStillReachesTheScreen(t *testing.T) {
 	}
 }
 
-// Focus moving onto the box unlights whichever card had it. The kept page holds
-// the highlight, so it has to be dropped when the box takes the keyboard.
 func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
@@ -468,8 +399,6 @@ func TestTakingTheBoxUnlightsTheCardThatHadFocus(t *testing.T) {
 	}
 }
 
-// Posting finishes the action, so nothing is left selected. An accent on an
-// empty box says the keyboard is somewhere it is not.
 func TestPostingLetsGoOfTheBox(t *testing.T) {
 	m := typed(composing(200, 60), "ship it")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardCompose) {
@@ -486,16 +415,12 @@ func TestPostingLetsGoOfTheBox(t *testing.T) {
 	}
 }
 
-// The hint names the key that works from where the reader is standing. enter
-// only starts writing once the ring is on the box; anywhere else it is c, and
-// naming the wrong one is a key that does nothing to whoever tries it.
 func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
 	away := detailed(held(sampleDetail()), 200, 60)
 	if got := stripANSI(press(away, "G").View()); !strings.Contains(got, "c to write") {
 		t.Errorf("with focus elsewhere the box names the wrong key:\n%s", got)
 	}
 
-	// Eight steps walk the ring onto the box without starting to write in it.
 	onIt := press(away, strings.Fields(strings.Repeat("} ", 9))...)
 	out := stripANSI(onIt.View())
 	if !strings.Contains(out, "⏎ to write") {
@@ -506,8 +431,6 @@ func TestTheHintNamesTheKeyThatWorksFromHere(t *testing.T) {
 	}
 }
 
-// A paste is not a keypress. The terminal sends it whole as its own message,
-// and nothing routed it to the box, so pasting a comment in did nothing at all.
 func TestAPastedCommentReachesTheBox(t *testing.T) {
 	m := typed(composing(200, 60), "before ")
 
@@ -518,8 +441,6 @@ func TestAPastedCommentReachesTheBox(t *testing.T) {
 	}
 }
 
-// It only goes there while the box has the keyboard. A paste onto a screen that
-// is being read is not text anybody asked for.
 func TestAPasteWhileReadingIsIgnored(t *testing.T) {
 	m, _ := detailed(held(sampleDetail()), 200, 60).Update(tea.PasteMsg{Content: "pasted words"})
 
@@ -528,12 +449,7 @@ func TestAPasteWhileReadingIsIgnored(t *testing.T) {
 	}
 }
 
-// Typing must never turn on where no box is drawn. The root stands aside for
-// Composing(), so every key after that goes to a textarea nobody can see and
-// the only way out is an esc the reader has no reason to press.
 func TestTypingNeverStartsWhereThereIsNoBox(t *testing.T) {
-	// The ring keeps its focus across a tab switch, so enter on a tab with a
-	// column would otherwise walk straight into the composer.
 	t.Run("enter on a tab with a column", func(t *testing.T) {
 		m := press(detailed(held(sampleDetail()), 200, 60), "c", "esc", "]", "enter")
 
@@ -545,7 +461,6 @@ func TestTypingNeverStartsWhereThereIsNoBox(t *testing.T) {
 		}
 	})
 
-	// The failure line takes the box's place, so there is nothing to write in.
 	t.Run("c on a conversation that never loaded", func(t *testing.T) {
 		failed := store.Detail{Status: store.StatusFailed, Err: errors.New("network is down")}
 		m := press(detailed(failed, 200, 60), "c")
@@ -556,8 +471,6 @@ func TestTypingNeverStartsWhereThereIsNoBox(t *testing.T) {
 	})
 }
 
-// A failed post takes the keyboard back only where the box is on screen. A
-// reader who moved on keeps the tab they chose; the words wait for them.
 func TestARestoredDraftDoesNotCaptureAnUnrelatedTab(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "]")
 	m.RestoreDraft("this did not send")
@@ -566,14 +479,11 @@ func TestARestoredDraftDoesNotCaptureAnUnrelatedTab(t *testing.T) {
 		t.Error("the restore captured the keyboard on a tab drawing no box")
 	}
 
-	// The words are still there when the reader comes back to them.
 	if got := stripANSI(press(m, "[", "c").View()); !strings.Contains(got, "this did not send") {
 		t.Errorf("the words did not survive the trip back:\n%s", got)
 	}
 }
 
-// A post is answered for long after the box emptied, and by then the reader may
-// be writing the next comment. Overwriting rescues one and destroys the other.
 func TestARestoredDraftDoesNotDestroyOneWrittenSince(t *testing.T) {
 	m := typed(composing(200, 60), "the next comment")
 	m.RestoreDraft("the one that failed")
@@ -586,11 +496,7 @@ func TestARestoredDraftDoesNotDestroyOneWrittenSince(t *testing.T) {
 	}
 }
 
-// The box is in the conversation, so the keys have to be going there. Left on
-// the rail, the accent names one pane while another takes every keystroke.
 func TestWritingFromTheRailMovesTheKeysToTheConversation(t *testing.T) {
-	// l moves the keys to the rail and tab puts its cursor on a row, which is
-	// what the rail paints. Without both, there is no cursor line to be wrong.
 	rail := press(detailed(held(sampleDetail()), 200, 60), "h", "}")
 	if markedRailRow(t, rail.View()) == "" {
 		t.Fatal("the rail has no cursor line to begin with")
@@ -605,9 +511,6 @@ func TestWritingFromTheRailMovesTheKeysToTheConversation(t *testing.T) {
 	}
 }
 
-// The button keeps its room and the hint gives way. Clipping from the right
-// takes the button, which on a terminal that cannot send the chord is the only
-// way to post.
 func TestThePostButtonSurvivesANarrowCard(t *testing.T) {
 	for _, width := range []int{80, 70, 60, 50, 44} {
 		m := typed(press(detailed(held(sampleDetail()), width, 40), "c"), "ship it")
@@ -617,9 +520,6 @@ func TestThePostButtonSurvivesANarrowCard(t *testing.T) {
 	}
 }
 
-// The one block on this tab that was relying on the viewport to fold it. Soft
-// wrap is off now, so it wraps itself or the reader is told the fetch failed
-// and not told why.
 func TestTheLoadFailureSaysWhyAtEveryWidth(t *testing.T) {
 	err := errors.New("Post \"https://api.github.com/graphql\": dial tcp 140.82.121.6:443: connect: operation timed out")
 	failed := store.Detail{Status: store.StatusFailed, Err: err}
