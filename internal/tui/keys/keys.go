@@ -52,7 +52,6 @@ type DetailMap struct {
 	PrevInColumn key.Binding
 	ToggleViewed key.Binding
 
-	// NextBlock and PrevBlock walk the tab's blocks, the way the braces walk paragraphs in vim.
 	NextBlock key.Binding
 	PrevBlock key.Binding
 
@@ -106,7 +105,6 @@ type FormMap struct {
 	Toggle key.Binding
 }
 
-// Global, List, Detail, and Form are the only place a key is named.
 var (
 	Global = GlobalMap{
 		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
