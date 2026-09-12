@@ -13,8 +13,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
 )
 
-// pickField is which rail row a picker was opened from, and so which write
-// applying it starts. The zero value is no picker.
 type pickField int
 
 const (
@@ -24,143 +22,55 @@ const (
 	pickAssignees
 	pickReviewers
 	pickBase
-
-	// pickMerge opens a form rather than a picker. It is in this enum for one
-	// reason: the form cannot be built without knowing which methods the
-	// repository allows, so it waits on the same fetch and resumes down the
-	// same path the three pickers below do.
+	// pickMerge opens a form, not a picker, but waits on the same repository fetch.
 	pickMerge
-
-	// pickDelete is the confirm over a comment D was pressed on. It is a picker
-	// of two rows rather than a widget of its own: the modal, the keys, the
-	// escape and the accent are all the picker's already, and a question with
-	// two answers is a list with two rows.
 	pickDelete
-
-	// pickReact is GitHub's eight over the block + was pressed on. It is the
-	// one picker here whose choices are neither the repository's nor a search:
-	// the eight are fixed, so nothing is fetched and nothing is waited on.
 	pickReact
 )
 
-// needsRepo is whether a field's choices belong to the repository rather than
-// to the detail the screen already holds. Only those cost a round trip before
-// the modal can open; the state menu is built from what is on screen.
-//
-// The base picker costs one too and is still not here. Its choices are a
-// search, keyed by what has been typed rather than by the repository, so it
-// waits on its own call and SetBranches is what resumes it.
+// pickBase is absent: its choices are a search, and SetBranches resumes it.
 func (f pickField) needsRepo() bool {
 	return f == pickLabels || f == pickAssignees || f == pickReviewers || f == pickMerge
 }
 
-// picking is the picker over the screen, if any.
-//
-// want is a picker asked for before the repository answered. Opening one needs
-// the choices, the screen cannot fetch them, and a modal with an empty list
-// reads as a repository with no labels. So the ask is held here, the root is
-// told to fetch, and the picker opens when the answer lands.
 type picking struct {
 	field pickField
 	p     comp.Picker
 
-	// labels and users are what the picker was built over, held so applying
-	// reads the same list it offered. Rebuilding either at apply time would let
-	// a refetch landing while the modal was up change the set under the reader,
-	// and a choice that disappeared between opening and applying is one the
-	// write would silently drop.
-	//
-	// One per field rather than one list of something they have in common. They
-	// are different types and each apply path wants its own back whole: the rail
-	// draws a label from its name and a person from their login.
-	//
-	// The state menu needs no twin of these. Its ids are the transitions
-	// themselves, so applying reads them straight back off the picker.
-	labels []gh.Label
-	users  []gh.Actor
-
-	// reviewers is the panel the reviewer picker was built against, held for
-	// the same reason and needed for a second one: that write applies a delta,
-	// so the set it is a delta from has to be the set the reader was looking at
-	// when they ticked.
+	// Snapshotted at open so a refetch behind the modal cannot change what applying writes.
+	labels    []gh.Label
+	users     []gh.Actor
 	reviewers []gh.Reviewer
+	on        target
+	react     reactTarget
 
-	// on is the comment the delete confirm was opened over, held for the reason
-	// the three above are: a refetch landing behind the modal must not change
-	// what enter deletes.
-	on target
-
-	// react is the block the reaction list was opened over, held for the same
-	// reason and carrying the reactions it was built against: what enter means
-	// depends on whether the viewer was already in the one under the cursor.
-	react reactTarget
-
-	want pickField
-
-	// wantOn is the rail row that ask came from, so the answer landing late can
-	// tell a reader still standing there from one who has tabbed on.
+	want   pickField
 	wantOn focusKey
 }
 
 func (p picking) open() bool { return p.field != pickNone }
 
-// NeedRepoMetaMsg asks the root for the choices a picker offers. The screen
-// reads the repository from the pull request it is showing; the root owns the
-// fetch and the cache, the same way it does for the detail.
+// NeedRepoMetaMsg asks the root to fetch the repository metadata the pickers draw from.
 type NeedRepoMetaMsg struct{ Repo string }
 
-// SetLabelsMsg asks the root to write a label set on this pull request. It
-// carries the whole set rather than what changed: the picker applies a set, the
-// mutation takes one, and a delta would have to be recomputed at both ends.
+// SetLabelsMsg asks the root to replace the pull request's labels with Labels.
 type SetLabelsMsg struct {
 	ID     string
 	Labels []gh.Label
 }
 
-// Capturing is whether something on this screen owns the keyboard. The root
-// stands aside when it does, because a picker's filter takes q as a letter the
-// same way a comment box does, and so does a commit message.
-//
-// The job log's search bar is one of them. It preempts every binding on this
-// screen the way the others do, but it was not named here, so the root went on
-// eating q and ? out of a query the reader was typing them into.
-//
-// It reaches the two callers below it only in principle: both want the rail,
-// and the search bar lives on the one tab that has a column instead of one.
+// Capturing reports whether a box, picker, merge form or job log search owns
+// the keyboard, in which case the root must pass every key through.
 func (m Model) Capturing() bool {
 	return m.Composing() || m.picking.open() || m.merging.open || m.check.searching
 }
 
-// SetRepo hands the screen the choices its pickers draw from, and opens the one
-// that was waiting on them.
-//
-// Only if the reader is still standing where they asked. A metadata fetch is a
-// round trip, and they may have started writing a comment or walked to another
-// pane meanwhile. A modal dropping over a box mid-sentence takes the keyboard
-// with it, because the picker answers keys ahead of the box.
-//
-// A menu opened in the meantime cancels the ask rather than queueing behind it.
-// The state menu needs no fetch, so it can open while this one is still owed,
-// and startPicker clears want along with the rest of picking. That is deliberate
-// and it is the safer of the two: a label picker that arrived late would replace
-// the menu under the reader's hands between one key and the next. There is no
-// third case to worry about, because a picker owns every key while it is up and
-// nothing can ask for another one.
-//
-// It reads needsRepo rather than testing want against nothing, because the base
-// picker waits on a different call. Labels asked for and then Base asked for
-// leaves want at pickBase, and opening that here builds it over branches this
-// screen has not been handed: a modal listing the current base alone, on which
-// enter does nothing.
+// SetRepo holds the repository's metadata, refills an open mention list, and
+// opens a picker or merge form waiting on it if the reader is still on the rail
+// row that asked. Returns any command the mention list or merge form needs.
 func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	m.repo = r
 
-	// A mention popup already on the page takes the answer as it lands, whatever
-	// else the screen is doing. It is ahead of every guard below because those
-	// refuse to drop a modal on somebody mid-sentence, and this one cannot be
-	// that: the box being typed in is what asked, and the list under the caret
-	// is what the fetch was for. SetBranches refills an open base picker at the
-	// same point for the same reason.
 	ask := m.refillMentions()
 
 	if !m.picking.want.needsRepo() || !r.Loaded {
@@ -174,16 +84,6 @@ func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 		return ask
 	}
 
-	// And only where they are still standing on the row they asked from. The
-	// rail having focus is not that: the fetch is a round trip and tab is free
-	// the whole time it is out, so without this the answer drops a modal over
-	// whichever row they walked to. SetBranches guards the base picker the same
-	// way, and it matters more here than it did there, because what lands late
-	// is a form that merges.
-	//
-	// The row rather than its kind, because a section and the row that adds to
-	// it open the same picker: a reader who asked from one label and walked to
-	// another has walked away.
 	if m.railRing.on != on {
 		return ask
 	}
@@ -195,22 +95,11 @@ func (m *Model) SetRepo(r store.Repo) tea.Cmd {
 	return ask
 }
 
-// openRailPicker opens whatever the rail row under the focus holds. It does
-// nothing on a row with no picker behind it, and nothing while the focus is
-// scrolled out of the window: acting on a row the reader cannot see is the rule
-// every key that reads a ring holds to.
 func (m Model) openRailPicker() (Model, tea.Cmd) {
 	if !m.detail.Loaded || !m.railRing.live(bodyTop(&m.railView), m.railView.Height()) {
 		return m, nil
 	}
 
-	// A row in a section and the row that adds to it open the same picker. The
-	// picker is the section: it is where something is taken off as well as put
-	// on, so pointing at one of them is as good an ask as pointing at the add
-	// row under them.
-	// A check is the one rail row that opens nothing. There is no write to make
-	// against it from here, so enter takes the reader to the tab that holds its
-	// log and its rerun keys, which is the move v already makes into the diff.
 	if m.railRing.on.kind == focusCheck {
 		return m.showCheckFromRail()
 	}
@@ -233,18 +122,12 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The choices are the repository's, not this pull request's, so they
-	// outlive the screen and are asked for once.
 	if want.needsRepo() && !m.repo.Loaded {
 		m.picking.want, m.picking.wantOn = want, m.railRing.on
 		repo := m.pr.Repository
 		return m, func() tea.Msg { return NeedRepoMetaMsg{Repo: repo} }
 	}
 
-	// The branch list is a search rather than a cache, so a picker opens over
-	// the search for nothing. Anything else held is the last thing somebody
-	// typed into a picker they have since closed, which is not the list this
-	// one should start on.
 	if want == pickBase && (!m.branches.Loaded || m.branches.Query != "") {
 		m.picking.want = want
 		repo := m.pr.Repository
@@ -258,9 +141,6 @@ func (m Model) openRailPicker() (Model, tea.Cmd) {
 	return m, nil
 }
 
-// startPicker builds the picker for a field over the choices already held. A
-// field with nothing to offer opens nothing: a modal listing no choices reads
-// as a fetch that came back empty.
 func (m *Model) startPicker(field pickField) {
 	switch field {
 	case pickState:
@@ -270,10 +150,7 @@ func (m *Model) startPicker(field pickField) {
 		}
 		m.picking = picking{
 			field: field,
-			// Nothing pre-checked, and single select: these are moves to make,
-			// not a set to hold. No state offers more than two, well under the
-			// picker's own threshold for a filter row, so the menu gets none.
-			p: comp.NewPicker("State", m.stateItems(choices), nil, false),
+			p:     comp.NewPicker("State", m.stateItems(choices), nil, false),
 		}
 
 	case pickLabels:
@@ -314,9 +191,6 @@ func (m *Model) startPicker(field pickField) {
 			p: comp.NewPicker(
 				"Reviewers",
 				m.reviewerItems(choices),
-				// Who is being waited on, not who is on the panel. A tick
-				// means a review is requested, so somebody who has already
-				// answered opens unchecked and ticking them asks again.
 				pendingReviewers(panel),
 				true,
 			),
@@ -325,32 +199,18 @@ func (m *Model) startPicker(field pickField) {
 	case pickBase:
 		base := m.railDetail().BaseRefName
 
-		// Single select, and opened on the branch already set, so enter with no
-		// movement is a no-op rather than a retarget onto whatever sorted
-		// newest. No snapshot of the choices beside it: a branch's id is its
-		// name, and the list is replaced under the reader on every keystroke
-		// anyway.
 		p := comp.NewPicker(
 			"Merge into",
 			baseItems(m.branches, m.pr, base, m.theme.Text),
 			[]string{base},
 			false,
 		)
-		// The opening search can have left branches out too. Said through
-		// SetNote rather than Replace, which would move the cursor off the row
-		// this picker just opened on.
 		p.SetNote(branchNote(m.branches.More))
 		m.picking = picking{field: field, p: p}
 	}
 }
 
-// labelChoices is every label the picker may show: the repository's, then any
-// the pull request already carries that the repository's page did not reach.
-//
-// The union is what keeps the write honest. Both lists are a first page, one of
-// a hundred and one of twenty, and applying replaces the whole set. A label the
-// picker never listed is a label nobody could keep checked, so leaving it out
-// here deletes it from the pull request with nothing on screen to say so.
+// Unions in the pull request's own labels: applying replaces the set, so one never listed would be silently removed.
 func labelChoices(repo, onPR []gh.Label) []gh.Label {
 	out := slices.Clone(repo)
 	for _, l := range onPR {
@@ -361,8 +221,6 @@ func labelChoices(repo, onPR []gh.Label) []gh.Label {
 	return out
 }
 
-// labelItems is the repository's labels as choices, in the accent the rail
-// gives them, so the picker reads the same as the rows it writes.
 func labelItems(labels []gh.Label, accent color.Color) []comp.PickerItem {
 	out := make([]comp.PickerItem, 0, len(labels))
 	for _, l := range labels {
@@ -371,13 +229,7 @@ func labelItems(labels []gh.Label, accent color.Color) []comp.PickerItem {
 	return out
 }
 
-// pickerKey answers every key while a picker is up. Nothing below it gets a
-// look: a modal that let keys through would scroll the page behind it.
-//
-// The order is the whole of it. The keys that can never be text go first, then
-// the filter claims every printable one, and movement takes what is left. That
-// is what lets j walk a state menu and type a j into a label filter without
-// either of them being a special case.
+// Order is load-bearing: keys that are never text, then the filter takes every printable key, then movement.
 func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := keys.Detail
 
@@ -389,18 +241,12 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Activate):
 		return m.applyPicker()
 
-	// Only where it means something. On a single-select picker space is a
-	// character, and swallowing it here would leave the filter unable to take
-	// one.
 	case key.Matches(keyMsg, keys.Form.Toggle) && m.picking.p.Multi():
 		m.picking.p.Toggle()
 		return m, nil
 	}
 
 	if m.picking.p.Insert(keyMsg) {
-		// The filter is the search on this one field. Every keystroke arms its
-		// own wait and the stale ones drop themselves, so a word typed at speed
-		// costs one request rather than one per letter.
 		if m.picking.field == pickBase {
 			return m, m.armBranches()
 		}
@@ -416,9 +262,6 @@ func (m Model) pickerKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyPicker closes the picker and asks the root to write what it chose. The
-// modal is gone either way, including on a field that decides there is nothing
-// to write.
 func (m Model) applyPicker() (Model, tea.Cmd) {
 	p := m.picking
 	m.picking = picking{}
@@ -442,11 +285,6 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyLabels asks the root to write the set the picker was left holding.
-//
-// A set equal to what is already on the pull request writes nothing. Applying
-// an unchanged picker is how a reader backs out of one they opened by mistake,
-// and it should cost neither a request nor a toast.
 func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
 	labels := byID(p.labels, p.p.Chosen(), labelID)
 	if sameByID(labels, m.railDetail().Labels, labelID) {
@@ -457,18 +295,6 @@ func (m Model) applyLabels(p picking) (Model, tea.Cmd) {
 	return m, func() tea.Msg { return SetLabelsMsg{ID: id, Labels: labels} }
 }
 
-// A picker deals in ids and the rail draws whole things, so every field needs
-// the same three moves between them. They are written once over any element
-// type rather than once per field: the pair for labels and the pair for people
-// were identical but for the type, comments included, and a fix to the id
-// comparison in one is a fix nothing would carry to the other. The base and
-// merge pickers want them too.
-//
-// The id is a function rather than an interface because the two spellings
-// differ: a label and an assignee are chosen by node id, a reviewer by login.
-
-// idsOf is the ids of what a pull request already carries, which is what a
-// picker opens checked.
 func idsOf[T any](items []T, id func(T) string) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
@@ -477,9 +303,6 @@ func idsOf[T any](items []T, id func(T) string) []string {
 	return out
 }
 
-// byID is the chosen ids back as whole choices, in the order they were offered.
-// The rail renders a name, so the ids alone would leave the optimistic row with
-// nothing to draw.
 func byID[T any](all []T, ids []string, id func(T) string) []T {
 	want := make(map[string]bool, len(ids))
 	for _, i := range ids {
@@ -495,11 +318,7 @@ func byID[T any](all []T, ids []string, id func(T) string) []T {
 	return out
 }
 
-// sameByID compares two sets by id, never as sequences. They come from
-// different connections: the chosen set is in the repository's order and the
-// pull request's is in its own, neither query asks for an ordering, and
-// comparing by position would call an untouched picker a change and fire the
-// write the check exists to prevent.
+// By id, not position: the two sets come from connections with different orders.
 func sameByID[T any](a, b []T, id func(T) string) bool {
 	if len(a) != len(b) {
 		return false
@@ -519,9 +338,6 @@ func sameByID[T any](a, b []T, id func(T) string) bool {
 func labelID(l gh.Label) string { return l.ID }
 func actorID(a gh.Actor) string { return a.ID }
 
-// pickerOverlay composites the picker over a rendered frame. It is drawn here
-// rather than at the root because the root does not know a picker is open, and
-// the status bar stays uncovered: a toast is worth reading while a modal is up.
 func (m Model) pickerOverlay(frame string) string {
 	if !m.picking.open() {
 		return frame

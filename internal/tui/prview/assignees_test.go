@@ -10,14 +10,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// openAssignees opens the Assignees picker from the add row under the section.
 func openAssignees(t *testing.T) prview.Model {
 	t.Helper()
 	return openPicker(t, "+ Add assignee")
 }
 
-// assigneeLogins is the logins a SetAssigneesMsg carries, in the order it
-// carries them.
 func assigneeLogins(msg prview.SetAssigneesMsg) []string {
 	out := make([]string, 0, len(msg.Assignees))
 	for _, a := range msg.Assignees {
@@ -26,9 +23,6 @@ func assigneeLogins(msg prview.SetAssigneesMsg) []string {
 	return out
 }
 
-// The section is the picker, so the row that adds and the rows already there
-// both open it. A reader pointing at somebody to take them off should not have
-// to walk down to the add row first.
 func TestEnterOnAnAssigneeOpensTheSamePickerAsTheAddRow(t *testing.T) {
 	for _, row := range []string{"@drucial", "+ Add assignee"} {
 		t.Run(row, func(t *testing.T) {
@@ -40,8 +34,6 @@ func TestEnterOnAnAssigneeOpensTheSamePickerAsTheAddRow(t *testing.T) {
 	}
 }
 
-// The set already on the pull request opens checked, so applying an untouched
-// picker is a no-op rather than a write that clears it.
 func TestTheAssigneePickerOpensOnWhoIsAlreadyAssigned(t *testing.T) {
 	got := menuBox(t, openAssignees(t), "Assignees")
 
@@ -58,7 +50,7 @@ func TestTheAssigneePickerOpensOnWhoIsAlreadyAssigned(t *testing.T) {
 func TestCheckingAnAssigneeAndApplyingAsksForTheWholeSet(t *testing.T) {
 	m := openAssignees(t)
 
-	m = press(m, "down") // onto @nkr, under the checked @drucial
+	m = press(m, "down")
 	m = press(m, " ")
 
 	got, ok := asked(t, m, "enter").(prview.SetAssigneesMsg)
@@ -72,18 +64,13 @@ func TestCheckingAnAssigneeAndApplyingAsksForTheWholeSet(t *testing.T) {
 	if want := []string{"drucial", "nkr"}; !slices.Equal(assigneeLogins(got), want) {
 		t.Errorf("assignees = %q, want %q", assigneeLogins(got), want)
 	}
-	// The node id is what updatePullRequest takes, and the login alone would
-	// come back rejected.
 	if got.Assignees[1].ID != "U_2" {
 		t.Errorf("assignees[1].ID = %q, want the node id", got.Assignees[1].ID)
 	}
 }
 
-// Unchecking the last one is a real write. It is how a reader clears the
-// section, and skipping it would leave the row on screen with nothing to say
-// why.
 func TestUncheckingEveryAssigneeAsksForAnEmptySet(t *testing.T) {
-	m := press(openAssignees(t), " ") // the cursor opens on the checked @drucial
+	m := press(openAssignees(t), " ")
 
 	got, ok := asked(t, m, "enter").(prview.SetAssigneesMsg)
 	if !ok {
@@ -94,17 +81,12 @@ func TestUncheckingEveryAssigneeAsksForAnEmptySet(t *testing.T) {
 	}
 }
 
-// Applying an untouched picker is how a reader backs out of one they opened by
-// mistake, and it should cost neither a request nor a toast.
 func TestApplyingAnUnchangedAssigneePickerWritesNothing(t *testing.T) {
 	if got := asked(t, openAssignees(t), "enter"); got != nil {
 		t.Errorf("an untouched picker sent %T, want nothing", got)
 	}
 }
 
-// Both lists are a first page, and applying replaces the whole set. Somebody
-// the picker never listed is somebody nobody could keep checked, so leaving
-// them out would unassign them with nothing on screen to say so.
 func TestTheAssigneePickerListsSomebodyTheRepositoryPageMissed(t *testing.T) {
 	d := sampleDetail()
 	d.Assignees = append(d.Assignees, gh.Actor{ID: "U_9", Login: "ghost"})
@@ -124,8 +106,6 @@ func TestTheAssigneePickerListsSomebodyTheRepositoryPageMissed(t *testing.T) {
 	}
 }
 
-// Nobody can be assigned where GitHub says the viewer may not. A row offering a
-// write it will refuse is worse than a row stating a fact.
 func TestTheAssigneeSectionIsInertWithoutPermission(t *testing.T) {
 	d := sampleDetail()
 	d.Viewer.CanAssign = false
@@ -134,8 +114,6 @@ func TestTheAssigneeSectionIsInertWithoutPermission(t *testing.T) {
 	if strings.Contains(frame, "+ Add assignee") {
 		t.Error("the add row is offered to a viewer who cannot assign")
 	}
-	// The people already on it still read, because that is a fact rather than
-	// an offer.
 	if !strings.Contains(frame, "@drucial") {
 		t.Error("the assignees themselves came off the rail with the add row")
 	}
@@ -154,12 +132,7 @@ func TestTheRingWalksPastTheAssigneesWithoutPermission(t *testing.T) {
 	}
 }
 
-// Before the detail lands nothing is known about what the viewer may do, which
-// is not the same as nothing being allowed. Dropping the rows early would move
-// every stop under them the moment the answer came.
 func TestTheAssigneeRowsKeepTheirKeysBeforeTheDetailLands(t *testing.T) {
-	// Unloaded, which is every false the zero value carries: no permissions,
-	// and no answer about permissions either.
 	loading := store.Detail{Status: store.StatusLoading}
 
 	if !strings.Contains(stripANSI(detailed(loading, 200, 60).View()), "+ Add assignee") {

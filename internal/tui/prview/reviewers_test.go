@@ -9,17 +9,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// openReviewers opens the Reviewers picker from the add row under the section.
-//
-// The fixture panel is three: nkr has asked for changes, octobot has approved,
-// and a team is still being waited on. Nobody in it is a person with an
-// outstanding request, which is what makes the checked set worth asserting.
 func openReviewers(t *testing.T) prview.Model {
 	t.Helper()
 	return openPicker(t, "+ Add reviewer")
 }
 
-// The section is the picker, so a reviewer row and the add row both open it.
 func TestEnterOnAReviewerOpensTheSamePickerAsTheAddRow(t *testing.T) {
 	for _, row := range []string{"@nkr", "+ Add reviewer"} {
 		t.Run(row, func(t *testing.T) {
@@ -31,9 +25,6 @@ func TestEnterOnAReviewerOpensTheSamePickerAsTheAddRow(t *testing.T) {
 	}
 }
 
-// Copilot cannot be discovered: GitHub publishes no connection that reports it
-// as a requestable reviewer, and suggestedActors answers with the coding agent
-// instead. So it is offered always, and first.
 func TestTheReviewerPickerOffersCopilotFirst(t *testing.T) {
 	box := menuBox(t, openReviewers(t), "Reviewers")
 
@@ -54,16 +45,11 @@ func TestTheReviewerPickerOffersCopilotFirst(t *testing.T) {
 		}
 	}
 
-	// Named for itself. Its login is the one the rail shows and not a word
-	// anybody would think to look for.
 	if strings.Contains(box, "@"+gh.CopilotLogin) {
 		t.Errorf("Copilot is listed by its login rather than its name:\n%s", box)
 	}
 }
 
-// GitHub refuses a review requested of the pull request's own author, and a row
-// that can only fail is worse than no row. The author is in the repository's
-// assignable list, so this is a filter rather than an accident.
 func TestTheReviewerPickerLeavesOutTheAuthor(t *testing.T) {
 	box := menuBox(t, openReviewers(t), "Reviewers")
 
@@ -75,11 +61,7 @@ func TestTheReviewerPickerLeavesOutTheAuthor(t *testing.T) {
 	}
 }
 
-// A tick means a review is requested, not that somebody is on the pull request.
-// Everyone in the fixture has answered or is a team, so nothing opens checked.
 func TestTheReviewerPickerChecksWhoIsStillBeingWaitedOn(t *testing.T) {
-	// One person still being waited on and one who has already approved, which
-	// is the whole of the question.
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{
 		{Actor: gh.Actor{Login: "octobot"}, State: gh.ReviewStateApproved},
@@ -101,7 +83,7 @@ func TestTheReviewerPickerChecksWhoIsStillBeingWaitedOn(t *testing.T) {
 }
 
 func TestCheckingAReviewerAsksForTheReview(t *testing.T) {
-	m := press(openReviewers(t), "space") // the cursor opens on Copilot
+	m := press(openReviewers(t), "space")
 
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
@@ -119,7 +101,6 @@ func TestCheckingAReviewerAsksForTheReview(t *testing.T) {
 	}
 }
 
-// Unchecking an outstanding request cancels it, and nothing else moves.
 func TestUncheckingAReviewerCancelsTheRequest(t *testing.T) {
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, Requested: true}}
@@ -128,7 +109,7 @@ func TestUncheckingAReviewerCancelsTheRequest(t *testing.T) {
 	m, _ = key(m, "enter")
 	m.SetRepo(loadedRepo())
 
-	m = press(m, "down", "space") // Copilot is first, nkr next
+	m = press(m, "down", "space")
 
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
@@ -142,19 +123,14 @@ func TestUncheckingAReviewerCancelsTheRequest(t *testing.T) {
 	}
 }
 
-// Applying an untouched picker is how a reader backs out of one they opened by
-// mistake, and it should cost neither a request nor a toast.
 func TestApplyingAnUnchangedReviewerPickerWritesNothing(t *testing.T) {
 	if got := asked(t, openReviewers(t), "enter"); got != nil {
 		t.Errorf("an untouched picker sent %T, want nothing", got)
 	}
 }
 
-// The picker offers users alone, so a team could never be ticked. Counting one
-// as an outstanding request would put it in the remove set and cancel a request
-// nothing on screen offered to cancel.
 func TestATeamRequestSurvivesAReviewerWrite(t *testing.T) {
-	m := press(openReviewers(t), "space") // request Copilot, touch nothing else
+	m := press(openReviewers(t), "space")
 
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
@@ -171,8 +147,6 @@ func TestATeamRequestSurvivesAReviewerWrite(t *testing.T) {
 	}
 }
 
-// The panel the rail shows while the write is out keeps everyone who has
-// answered, because cancelling reaches an outstanding request and nothing else.
 func TestTheOptimisticPanelKeepsWhoHasAlreadyReviewed(t *testing.T) {
 	m := press(openReviewers(t), "space")
 
@@ -192,8 +166,6 @@ func TestTheOptimisticPanelKeepsWhoHasAlreadyReviewed(t *testing.T) {
 	}
 }
 
-// Ticking somebody who has already reviewed is a fresh request, which is what
-// GitHub's own re-request button does.
 func TestRequestingAReviewAgainFromSomebodyWhoAnswered(t *testing.T) {
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateApproved}}
@@ -202,7 +174,7 @@ func TestRequestingAReviewAgainFromSomebodyWhoAnswered(t *testing.T) {
 	m, _ = key(m, "enter")
 	m.SetRepo(loadedRepo())
 
-	m = press(m, "down", "space") // nkr, who opened unchecked
+	m = press(m, "down", "space")
 
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
@@ -211,18 +183,11 @@ func TestRequestingAReviewAgainFromSomebodyWhoAnswered(t *testing.T) {
 	if want := []string{"nkr"}; !slices.Equal(got.Add, want) {
 		t.Errorf("Add = %q, want %q", got.Add, want)
 	}
-	// The verdict stays on the panel. GitHub keeps showing it, so a row
-	// flipping to "waiting" would be a state the refetch is about to
-	// contradict.
 	if len(got.Panel) != 1 || got.Panel[0].State != gh.ReviewStateApproved {
 		t.Errorf("panel = %+v, want the approval kept", got.Panel)
 	}
 }
 
-// The picker applies a delta, and Chosen reports only ids it was handed items
-// for, so a checked login with no item silently becomes a cancellation. The
-// repository's page is a first hundred and a review can be requested of anyone
-// with read access, so the two lists genuinely differ.
 func TestThePickerListsAPendingReviewerTheRepositoryPageMissed(t *testing.T) {
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{{Actor: gh.Actor{Login: "ghost"}, Requested: true}}
@@ -241,8 +206,7 @@ func TestThePickerListsAPendingReviewerTheRepositoryPageMissed(t *testing.T) {
 		}
 	}
 
-	// Ticking somebody else must not cancel them on the way past.
-	m = press(m, "space") // Copilot, the first row
+	m = press(m, "space")
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
 		t.Fatalf("enter sent %T, want a SetReviewersMsg", asked(t, m, "enter"))
@@ -252,10 +216,6 @@ func TestThePickerListsAPendingReviewerTheRepositoryPageMissed(t *testing.T) {
 	}
 }
 
-// A verdict and an open request are both true at once after a re-request, and
-// the panel carries them on one row. Reading "no state means waiting" hides the
-// request: nothing can cancel it, and ticking asks again for a review already
-// pending.
 func TestAReRequestedReviewerOpensCheckedAndCanBeCancelled(t *testing.T) {
 	d := sampleDetail()
 	d.Reviewers = []gh.Reviewer{
@@ -272,7 +232,7 @@ func TestAReRequestedReviewerOpensCheckedAndCanBeCancelled(t *testing.T) {
 		}
 	}
 
-	m = press(m, "down", "space") // untick @nkr
+	m = press(m, "down", "space")
 
 	got, ok := asked(t, m, "enter").(prview.SetReviewersMsg)
 	if !ok {
@@ -281,15 +241,11 @@ func TestAReRequestedReviewerOpensCheckedAndCanBeCancelled(t *testing.T) {
 	if want := []string{"nkr"}; !slices.Equal(got.Remove, want) {
 		t.Errorf("Remove = %q, want %q", got.Remove, want)
 	}
-	// The verdict survives the cancellation. Only the request was theirs to take.
 	if len(got.Panel) != 1 || got.Panel[0].State != gh.ReviewStateApproved || got.Panel[0].Requested {
 		t.Errorf("panel = %+v, want the approval kept and the request cleared", got.Panel)
 	}
 }
 
-// Assigning is CanAssign's to permit, but the mutation behind it is
-// updatePullRequest, which GitHub governs with CanUpdate. A triage collaborator
-// is answered true for the first and false for the second.
 func TestTheAssigneeSectionIsInertWithoutTheUpdatePermission(t *testing.T) {
 	d := sampleDetail()
 	d.Viewer.CanAssign = true

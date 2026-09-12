@@ -12,9 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// repoBranches is what a search for nothing returns: newest first, which is the
-// order internal/gh sorts them into. "main" is the fixture's own base and
-// "fix-auth-retry" is its head.
 func repoBranches(names ...string) store.Branches {
 	if len(names) == 0 {
 		names = []string{"develop", "main", "release/2.0", "fix-auth-retry"}
@@ -22,8 +19,6 @@ func repoBranches(names ...string) store.Branches {
 	return store.Branches{Default: "main", Names: names, Status: store.StatusReady, Loaded: true}
 }
 
-// openBase walks to the Base row, presses enter, and answers the search the
-// screen asks for. It returns the screen with the picker up.
 func openBase(t *testing.T, b store.Branches) prview.Model {
 	t.Helper()
 
@@ -39,8 +34,6 @@ func openBase(t *testing.T, b store.Branches) prview.Model {
 	return m
 }
 
-// The row says how far behind the branch is and is a stop on the ring, because
-// retargeting changes the branch that number is measured against.
 func TestEnterOnTheBaseRowAsksForTheRepositorysBranches(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
 
@@ -51,12 +44,7 @@ func TestEnterOnTheBaseRowAsksForTheRepositorysBranches(t *testing.T) {
 	}
 }
 
-// The default is where most retargets land, so it is offered first whatever the
-// search order says. Copilot is pinned in the reviewer picker for the same
-// reason.
 func TestTheBasePickerOffersTheDefaultBranchFirst(t *testing.T) {
-	// The search answers develop, main, release/2.0, fix-auth-retry. Pinning the
-	// default puts main first, ahead of the branch the search sorted newest.
 	box := menuBox(t, openBase(t, repoBranches()), "Merge into")
 
 	for _, row := range strings.Split(box, "\n") {
@@ -72,8 +60,6 @@ func TestTheBasePickerOffersTheDefaultBranchFirst(t *testing.T) {
 	t.Errorf("the picker offers no branches at all:\n%s", box)
 }
 
-// GitHub refuses a pull request onto its own head, so a row for it could only
-// ever fail.
 func TestTheBasePickerNeverOffersTheHeadBranch(t *testing.T) {
 	box := menuBox(t, openBase(t, repoBranches()), "Merge into")
 
@@ -82,9 +68,6 @@ func TestTheBasePickerNeverOffersTheHeadBranch(t *testing.T) {
 	}
 }
 
-// Single select, opened on what is already set. Without the cursor starting
-// there, enter on a picker opened by mistake retargets onto whatever sorted
-// newest.
 func TestTheBasePickerOpensOnTheBranchAlreadySet(t *testing.T) {
 	m := openBase(t, repoBranches())
 
@@ -96,8 +79,6 @@ func TestTheBasePickerOpensOnTheBranchAlreadySet(t *testing.T) {
 func TestChoosingABranchAsksTheRootToRetarget(t *testing.T) {
 	m := openBase(t, repoBranches())
 
-	// Off the checked row and onto another. Which one it lands on is what the
-	// message has to carry.
 	m = press(m, "j")
 	got := asked(t, m, "enter")
 
@@ -113,10 +94,6 @@ func TestChoosingABranchAsksTheRootToRetarget(t *testing.T) {
 	}
 }
 
-// A repository whose newest thirty branches do not include the one this pull
-// request targets, and whose default is something else again. Without the union
-// the picker opens with nothing checked, the cursor falls to the first row, and
-// enter retargets onto whatever sorted newest.
 func TestTheCurrentBaseIsOfferedWhenNeitherTheSearchNorTheDefaultCarriesIt(t *testing.T) {
 	m := openBase(t, store.Branches{
 		Default: "trunk",
@@ -132,13 +109,6 @@ func TestTheCurrentBaseIsOfferedWhenNeitherTheSearchNorTheDefaultCarriesIt(t *te
 	}
 }
 
-// The default is pinned on the list a picker opens over and on no other. Once
-// there is a search the reader is looking for something specific, and a row at
-// the top they did not ask for is one enter can land on by accident.
-//
-// The default here matches the search, which is the only shape where a wrong
-// pin is visible: one that does not match is hidden by the filter over it
-// whether it was pinned or not.
 func TestASearchDoesNotPinTheDefaultBranch(t *testing.T) {
 	m := openBase(t, repoBranches("develop", "main", "release/2.0", "release/1.9",
 		"feature/rail", "feature/base", "spike/glamour", "fix/scroll"))
@@ -155,8 +125,6 @@ func TestASearchDoesNotPinTheDefaultBranch(t *testing.T) {
 	}
 }
 
-// The filter is the search on this picker, and it does not run per keystroke: a
-// word typed at speed sets a wait per letter and only the last one asks.
 func TestTypingAsksForThatSearchOnceTheFilterSettles(t *testing.T) {
 	m := openBase(t, repoBranches("develop", "main", "release/2.0", "release/1.9",
 		"feature/rail", "feature/base", "spike/glamour", "fix/scroll"))
@@ -189,8 +157,6 @@ func TestTypingAsksForThatSearchOnceTheFilterSettles(t *testing.T) {
 	}
 }
 
-// A wait the reader has typed past drops itself. Otherwise five letters are
-// five requests and the last four are for searches nobody is running.
 func TestAWaitForAFilterThatMovedOnAsksForNothing(t *testing.T) {
 	m := openBase(t, repoBranches())
 
@@ -199,8 +165,6 @@ func TestAWaitForAFilterThatMovedOnAsksForNothing(t *testing.T) {
 	}
 }
 
-// The list is replaced under the filter rather than the picker being rebuilt,
-// so what was typed survives the answer landing.
 func TestASearchLandingKeepsWhatWasTyped(t *testing.T) {
 	m := openBase(t, repoBranches("develop", "main", "release/2.0", "release/1.9",
 		"feature/rail", "feature/base", "spike/glamour", "fix/scroll"))
@@ -221,8 +185,6 @@ func TestASearchLandingKeepsWhatWasTyped(t *testing.T) {
 	}
 }
 
-// A search that matched more than it returned says so. Silence there reads as a
-// repository with thirty branches.
 func TestASearchWithMoreMatchesSaysSo(t *testing.T) {
 	b := repoBranches()
 	b.More = 36
@@ -232,7 +194,6 @@ func TestASearchWithMoreMatchesSaysSo(t *testing.T) {
 	}
 }
 
-// retargeting is a detail mid-write: the branch moved, nothing has counted it.
 func retargeting(writing bool) store.Detail {
 	d := sampleDetail()
 	d.BaseRefName = "develop"
@@ -243,9 +204,6 @@ func retargeting(writing bool) store.Detail {
 	return out
 }
 
-// The old number was measured against a branch this pull request no longer
-// targets, so there is nothing honest to put in its place until the refetch
-// answers.
 func TestTheBaseRowSaysNothingAboutACountItDoesNotHave(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -267,8 +225,6 @@ func TestTheBaseRowSaysNothingAboutACountItDoesNotHave(t *testing.T) {
 	}
 }
 
-// A merged pull request has no head branch, so nothing compared it to its base.
-// "Merging into" is the retarget's word and would report a write nobody made.
 func TestTheBaseRowNamesTheBaseWithNothingToCompare(t *testing.T) {
 	d := sampleDetail()
 	d.State = gh.PRStateMerged
@@ -285,11 +241,6 @@ func TestTheBaseRowNamesTheBaseWithNothingToCompare(t *testing.T) {
 	}
 }
 
-// railStops is every row tab lands on while walking the rail, which is what
-// says whether a row is a control or a fact.
-//
-// The rail has to be focused first. Walking the conversation's own ring instead
-// reaches none of these rows and reports every one of them as a fact.
 func railStops(t *testing.T, d gh.PullRequestDetail) []string {
 	t.Helper()
 
@@ -303,17 +254,12 @@ func railStops(t *testing.T, d gh.PullRequestDetail) []string {
 		}
 		out = append(out, row)
 	}
-	// The State row is not it: it carries a glyph, and it is not a stop on a
-	// merged pull request, which is one of the cases below.
 	if !slices.Contains(out, "+ Add label") {
 		t.Fatalf("the walk never reached the rail at all: %q", out)
 	}
 	return out
 }
 
-// A merged pull request cannot be retargeted and GitHub refuses the write.
-// viewerCanUpdate stays true on one, because its title and body are still
-// editable, so the state is what this has to read.
 func TestTheBaseRowIsAFactOnAMergedPullRequest(t *testing.T) {
 	d := sampleDetail()
 	d.State = gh.PRStateMerged
@@ -323,8 +269,6 @@ func TestTheBaseRowIsAFactOnAMergedPullRequest(t *testing.T) {
 	}
 }
 
-// No write access, no control. The row states a fact the way an empty Checks
-// section does.
 func TestTheBaseRowIsAFactWithoutWriteAccess(t *testing.T) {
 	d := sampleDetail()
 	d.Viewer.CanUpdate = false
@@ -334,21 +278,15 @@ func TestTheBaseRowIsAFactWithoutWriteAccess(t *testing.T) {
 	}
 }
 
-// The other half of both gates: with write access on an open pull request the
-// row is a control, so the two tests above cannot pass by never reaching it.
 func TestTheBaseRowIsAControlOnAnOpenPullRequest(t *testing.T) {
 	if stops := railStops(t, sampleDetail()); !slices.Contains(stops, "4 commits behind main") {
 		t.Errorf("tab never stopped on the Base row: %q", stops)
 	}
 }
 
-// A pull request from a fork carries the head's name and not its repository, so
-// a contributor's main merging into this one matches the head filter by name
-// alone. Dropped, the picker opens with nothing checked and enter retargets onto
-// whatever sorted first.
 func TestAForkPullRequestStillOffersTheBaseItsHeadIsNamedAfter(t *testing.T) {
 	d := sampleDetail()
-	d.HeadRefName = "main" // the fork's own main
+	d.HeadRefName = "main"
 	d.BaseRefName = "main"
 
 	m := onRailRow(t, detailed(held(d), 200, 60), "4 commits behind main")
@@ -363,14 +301,11 @@ func TestAForkPullRequestStillOffersTheBaseItsHeadIsNamedAfter(t *testing.T) {
 	}
 }
 
-// A search answering is not something the reader did. Moving onto a row while
-// the request is out and having it reanchor underneath sends the write to
-// whichever branch the new list sorted first.
 func TestASearchLandingLeavesTheCursorOnTheRowItWasOn(t *testing.T) {
 	m := openBase(t, repoBranches("develop", "main", "release/2.0", "release/1.9",
 		"feature/rail", "feature/base", "spike/glamour", "fix/scroll"))
 
-	m = press(m, "down") // off main, onto develop
+	m = press(m, "down")
 	m.SetBranches(store.Branches{
 		Default: "main",
 		Names:   []string{"release/2.0", "develop", "main", "feature/rail"},
@@ -387,14 +322,10 @@ func TestASearchLandingLeavesTheCursorOnTheRowItWasOn(t *testing.T) {
 	}
 }
 
-// The rail keeping focus is not the reader still standing on Base. Enter starts
-// the search and the ring is free the whole time it is out.
 func TestASearchLandingAfterWalkingAwayOpensNothing(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "4 commits behind main")
 	m, _ = key(m, "enter")
 
-	// Up, because Base is the last control on this rail and the cursor stops
-	// there rather than coming back round.
 	m = press(m, "k")
 	m.SetBranches(repoBranches())
 
@@ -403,14 +334,12 @@ func TestASearchLandingAfterWalkingAwayOpensNothing(t *testing.T) {
 	}
 }
 
-// Labels asked for, then Base asked for. The repository answers first and must
-// not open the picker waiting on branches it has not been handed.
 func TestRepoMetaLandingDoesNotOpenTheBranchPicker(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
-	m, _ = key(m, "enter") // want = pickLabels
+	m, _ = key(m, "enter")
 
 	m = onRailRow(t, m, "4 commits behind main")
-	m, _ = key(m, "enter") // want = pickBase
+	m, _ = key(m, "enter")
 
 	m.SetRepo(loadedRepo())
 

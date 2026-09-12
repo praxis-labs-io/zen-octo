@@ -9,21 +9,13 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// SetAssigneesMsg asks the root to write an assignee set on this pull request.
-// It carries the whole set rather than what changed, for the reason
-// SetLabelsMsg gives: the picker applies a set and the mutation takes one.
+// SetAssigneesMsg asks the root to replace the pull request's assignees with Assignees.
 type SetAssigneesMsg struct {
 	ID        string
 	Assignees []gh.Actor
 }
 
-// assigneeChoices is everyone the picker may show: the repository's assignable
-// users, then anyone already assigned that the repository's page did not reach.
-//
-// The union is what keeps the write honest, the same way labelChoices does.
-// Both lists are a first page and applying replaces the whole set, so someone
-// the picker never listed is someone nobody could keep checked, and leaving
-// them out here unassigns them with nothing on screen to say so.
+// Unions in the current assignees: applying replaces the set, so one never listed would be silently unassigned.
 func assigneeChoices(repo, onPR []gh.Actor) []gh.Actor {
 	out := slices.Clone(repo)
 	for _, a := range onPR {
@@ -34,9 +26,6 @@ func assigneeChoices(repo, onPR []gh.Actor) []gh.Actor {
 	return out
 }
 
-// assigneeItems is the people as choices, written the way the rail writes them
-// so the picker reads the same as the rows it rewrites. The id is the node id,
-// which is the only spelling updatePullRequest takes.
 func (m Model) assigneeItems(users []gh.Actor) []comp.PickerItem {
 	out := make([]comp.PickerItem, 0, len(users))
 	for _, u := range users {
@@ -45,11 +34,6 @@ func (m Model) assigneeItems(users []gh.Actor) []comp.PickerItem {
 	return out
 }
 
-// applyAssignees asks the root to write the set the picker was left holding.
-//
-// A set equal to the one already on the pull request writes nothing. Applying
-// an unchanged picker is how a reader backs out of one they opened by mistake,
-// and it should cost neither a request nor a toast.
 func (m Model) applyAssignees(p picking) (Model, tea.Cmd) {
 	assignees := byID(p.users, p.p.Chosen(), actorID)
 	if sameByID(assignees, m.railDetail().Assignees, actorID) {
