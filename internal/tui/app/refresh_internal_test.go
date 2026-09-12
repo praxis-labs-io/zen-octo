@@ -9,8 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// The diff was the odd leg out. Its first fetch is out for as long as a diff
-// takes, which is exactly where r lands, and the summary named half the ask.
 func TestARefreshWaitsOnADiffAlreadyOnItsWay(t *testing.T) {
 	m := onADetail(t)
 	if !m.store.BeginFiles("PR_1") || !m.store.BeginCommitFiles("9f1c2b7") {
@@ -28,8 +26,6 @@ func TestARefreshWaitsOnADiffAlreadyOnItsWay(t *testing.T) {
 	}
 }
 
-// r adopts a page fetch a beat already sent, and pageFailedMsg was the one
-// answer reaching the store and never the leg: the bar then spins for good.
 func TestAFailedPageEndsTheRefreshThatAdoptedIt(t *testing.T) {
 	m := adoptingAPage(t)
 	if !m.detailRefreshing.running() {
@@ -42,8 +38,6 @@ func TestAFailedPageEndsTheRefreshThatAdoptedIt(t *testing.T) {
 	}
 }
 
-// adoptingAPage is a detail screen with a background page fetch out, and r
-// pressed over it. The debt is what a comment posted elsewhere leaves behind.
 func adoptingAPage(t *testing.T) Model {
 	t.Helper()
 
@@ -59,8 +53,6 @@ func adoptingAPage(t *testing.T) Model {
 	return model.(Model)
 }
 
-// onADetail is the detail screen over a landed pull request carrying one commit,
-// with nothing in flight: open fetches over what it drew, and that is answered.
 func onADetail(t *testing.T) Model {
 	t.Helper()
 

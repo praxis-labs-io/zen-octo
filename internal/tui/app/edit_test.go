@@ -11,9 +11,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// serveComment stages one comment on the conversation, with GitHub saying the
-// viewer may rewrite and remove it. Both flags, because the two keys read them
-// separately.
 func (f *fakeSearcher) serveComment(id, commentID, body string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -33,9 +30,6 @@ func (f *fakeSearcher) serveComment(id, commentID, body string) {
 	f.details[id] = held
 }
 
-// serveOwnDescription stages the pull request as the viewer's own writing. The
-// description carries no viewerDidAuthor, so whose it is comes from the login,
-// and the viewer is asked for once at startup.
 func (f *fakeSearcher) serveOwnDescription(id, login string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -45,8 +39,6 @@ func (f *fakeSearcher) serveOwnDescription(id, login string) {
 	f.details[id] = held
 }
 
-// onComment opens the pull request and walks the ring onto its one comment: the
-// description is the first stop and the comment is the second.
 func onComment(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -55,8 +47,6 @@ func onComment(t *testing.T, client *fakeSearcher) tea.Model {
 	return press(loaded(t, client, 160, 40), "enter", "2", "}")
 }
 
-// The whole of what optimistic means, one write over: the new words are on the
-// card before GitHub has been told, and the card says they have not landed.
 func TestAnEditedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -70,8 +60,6 @@ func TestAnEditedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 	if !strings.Contains(out, "saving") {
 		t.Error("the card does not say the edit is still on its way")
 	}
-	// Saving, not posting. A comment being rewritten is on GitHub already, and
-	// telling the reader it is posting says it might never have existed.
 	if strings.Contains(out, "posting") {
 		t.Error("an edit reads as a comment being posted")
 	}
@@ -99,8 +87,6 @@ func TestAnEditThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. The comment goes back to the words GitHub has, the reason
-// goes up, and the words that were typed go back in a box on the card.
 func TestAFailedEditPutsTheCommentBackAndKeepsTheWords(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -110,8 +96,6 @@ func TestAFailedEditPutsTheCommentBackAndKeepsTheWords(t *testing.T) {
 	if !strings.Contains(out, "Fixed.") {
 		t.Errorf("the words did not come back anywhere:\n%s", out)
 	}
-	// The box took the keyboard back with them, so the reader is looking at the
-	// edit they have to do something about.
 	if !strings.Contains(out, "ctrl+e editor") {
 		t.Error("the box did not take the keyboard back with the failed edit")
 	}
@@ -120,8 +104,6 @@ func TestAFailedEditPutsTheCommentBackAndKeepsTheWords(t *testing.T) {
 	}
 }
 
-// A delete is a second key rather than a second press of the same one, and the
-// comment comes off the page as soon as it is confirmed.
 func TestAConfirmedDeleteTakesTheCommentOffBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -151,8 +133,6 @@ func TestADeleteThatLandsSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. There is nothing typed to keep, so the comment coming back
-// is the whole of it.
 func TestAFailedDeletePutsTheCommentBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("403 Forbidden")}
 
@@ -167,8 +147,6 @@ func TestAFailedDeletePutsTheCommentBack(t *testing.T) {
 	}
 }
 
-// Cancelling writes nothing at all, which is what the first row of the confirm
-// is for.
 func TestCancellingTheConfirmWritesNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -182,8 +160,6 @@ func TestCancellingTheConfirmWritesNothing(t *testing.T) {
 	}
 }
 
-// The description is the first stop on the ring, and it is written through the
-// pull request rather than through a comment.
 func TestEditingTheDescriptionWritesThePullRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -227,8 +203,6 @@ func TestAFailedDescriptionEditKeepsTheWords(t *testing.T) {
 	}
 }
 
-// A refresh landing while an edit is out must not put the old words back. The
-// store holds the write beside the fetched detail for exactly this.
 func TestARefreshDoesNotUndoAnEditStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()

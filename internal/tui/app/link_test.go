@@ -11,8 +11,6 @@ import (
 
 const prURL = "https://github.com/acme/rocket/pull/412"
 
-// links stands the two side effects up, recording what each was handed and
-// answering with the errors the test wants.
 func links(t *testing.T, copyErr, browseErr error) (copied, opened *string) {
 	t.Helper()
 
@@ -37,8 +35,6 @@ func TestYCopiesTheSelectedPullRequestsLink(t *testing.T) {
 	}
 }
 
-// A native write fails where the machine has no clipboard tool, which is the
-// case OSC52 answers. The reader is owed the copy, not the transport.
 func TestAFailedNativeCopyStillReportsTheLink(t *testing.T) {
 	links(t, errors.New("no pbcopy here"), nil)
 
@@ -53,8 +49,6 @@ func TestAFailedNativeCopyStillReportsTheLink(t *testing.T) {
 	}
 }
 
-// The browser taking focus is its own account of what happened, so a toast
-// would spend the line saying what the reader is already looking at.
 func TestOOpensTheSelectedPullRequestAndSaysNothing(t *testing.T) {
 	_, opened := links(t, nil, nil)
 
@@ -78,8 +72,6 @@ func TestABrowserThatWillNotLaunchIsReported(t *testing.T) {
 	}
 }
 
-// The detail screen asks for the same two things, and the root answers both
-// screens through one pair of handlers.
 func TestTheDetailScreensLinkKeysReachTheSameHandlers(t *testing.T) {
 	copied, opened := links(t, nil, nil)
 	pr := samplePRs()[0]

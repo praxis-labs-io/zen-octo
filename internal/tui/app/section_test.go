@@ -12,7 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 )
 
-// recentConfig is one section whose filter names a window rather than a date.
 func recentConfig() *config.Config {
 	return &config.Config{
 		PRSections: []config.Section{
@@ -22,7 +21,6 @@ func recentConfig() *config.Config {
 	}
 }
 
-// boundIn reads the closed:>= instant out of a query the client was handed.
 func boundIn(t *testing.T, query string) time.Time {
 	t.Helper()
 
@@ -38,8 +36,6 @@ func boundIn(t *testing.T, query string) time.Time {
 	return at
 }
 
-// GitHub takes an absolute instant and nothing relative, so the token has to be
-// gone by the time the query goes out, and the bound has to be the real one.
 func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	before := time.Now().UTC()
@@ -61,8 +57,6 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 	}
 }
 
-// Every fetch renders its own bound, so a session left open keeps asking about
-// the day behind it. The clock cannot be moved here, so this is the weaker half.
 func TestEveryFetchRendersItsOwnWindow(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 

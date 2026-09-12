@@ -19,12 +19,6 @@ func repoLabelSet() []gh.Label {
 	}
 }
 
-// labelling opens the staged pull request with the rail focused and its cursor
-// on the row that already carries a label.
-//
-// The tab count is the rail's own order: the state row, the two add rows above
-// the labels section, then the label itself. A change to that order fails the
-// picker assertion in every test below rather than passing quietly.
 func labelling(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -49,7 +43,7 @@ func TestThePickerAsksTheRepositoryOnceForItsChoices(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
 	m := openLabelPicker(t, client)
-	m = press(m, "esc", "enter") // open it a second time
+	m = press(m, "esc", "enter")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "space toggle") {
 		t.Fatalf("the picker did not open a second time:\n%s", out)
@@ -59,8 +53,6 @@ func TestThePickerAsksTheRepositoryOnceForItsChoices(t *testing.T) {
 	}
 }
 
-// The rail changing is the acknowledgement, the same way the optimistic comment
-// is one for a comment.
 func TestALabelReadsOnTheRailBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -88,8 +80,6 @@ func TestALabelWriteThatLandsSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. Nothing was typed, so the fetched set going back on the
-// rail is the whole of it, and the toast carries the reason.
 func TestAFailedLabelWritePutsTheFetchedSetBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -103,8 +93,6 @@ func TestAFailedLabelWritePutsTheFetchedSetBack(t *testing.T) {
 	}
 }
 
-// A sync landing while a write is out must not put the old set back. The store
-// holds the edit beside the fetched detail for exactly this.
 func TestASyncDoesNotUndoALabelWriteStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -116,12 +104,8 @@ func TestASyncDoesNotUndoALabelWriteStillInFlight(t *testing.T) {
 	}
 }
 
-// GitHub is the authority on what the pull request ended up carrying. A label
-// deleted from the repository since the picker was filled comes back absent.
 func TestTheRailTakesGitHubsAnswerRatherThanTheAsk(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	// The repository no longer carries the label the picker offered, so the
-	// write comes back without it.
 	client.serveRepoMeta(gh.RepoMeta{Labels: repoLabelSet()})
 
 	m := openLabelPicker(t, client)
@@ -147,8 +131,6 @@ func TestAFailedRepositoryReadSaysSoAndOpensNoPicker(t *testing.T) {
 	}
 }
 
-// The root stands aside while a picker is up, the same way it does for a
-// comment box. q is a letter in a filter.
 func TestQDoesNotQuitWhileAPickerIsUp(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -159,14 +141,6 @@ func TestQDoesNotQuitWhileAPickerIsUp(t *testing.T) {
 	}
 }
 
-// The cache is keyed by repository and the screen is handed only its own. A
-// second pull request in another repository must get that repository's labels,
-// never the ones already cached for the first.
-//
-// The mismatch this guards against — a response landing after the reader has
-// moved to another repository — is not reachable here: the harness drains every
-// command before the next key, so no request is ever still in flight. This
-// covers the routing; the guard itself is one line in repoMetaLanded.
 func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
 	prs := twoRepoPRs()
 	client := &fakeSearcher{prs: prs}
@@ -175,8 +149,6 @@ func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
 	client.serveRepoMetaFor(prs[0].Repository, gh.RepoMeta{Labels: repoLabelSet()})
 	client.serveRepoMetaFor(prs[1].Repository, gh.RepoMeta{Labels: []gh.Label{{ID: "LA_W", Name: "seo"}}})
 
-	// The list's own sort decides which opens first, so each step names the pull
-	// request it landed on rather than assuming an order.
 	m := press(loaded(t, client, 160, 40), "enter", "1", "j", "j", "j", "enter")
 	first := stripANSI(render(t, m))
 	if !strings.Contains(first, "#9 Other repo") {
@@ -206,15 +178,12 @@ func TestEachRepositoryGetsItsOwnChoices(t *testing.T) {
 	}
 }
 
-// Nothing else drops the repository's choices, so without the sync hook a label
-// created in the browser stays out of the picker for the rest of the session.
 func TestSyncingLetsThePickerSeeANewLabel(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
 	m := openLabelPicker(t, client)
 	m = press(m, "esc")
 
-	// A third label appears in the repository, and the reader presses s.
 	client.serveRepoMeta(gh.RepoMeta{Labels: append(repoLabelSet(), gh.Label{ID: "LA_3", Name: "docs"})})
 	m = press(m, "s", "enter")
 
@@ -226,15 +195,7 @@ func TestSyncingLetsThePickerSeeANewLabel(t *testing.T) {
 	}
 }
 
-// The list sorts byRepoThenRecency, and TestEachRepositoryGetsItsOwnChoices
-// walks to the second pull request by pressing j a fixed number of times. That
-// walk is only right while the other repository sorts before the main fixture's,
-// which is a premise the walk itself does not state. ZNO-79 broke it once by
-// renaming both.
-//
-// It reads the names off the fixture rather than naming them again. Spelled out
-// here, the guard compares two constants to each other and stays green through
-// exactly the rename it exists to catch.
+// Reads the names off the fixture: spelled out, it would compare two constants and pass through the rename it guards.
 func TestTheTwoRepoFixtureSortsInTheOrderTheWalkAssumes(t *testing.T) {
 	prs := twoRepoPRs()
 	main, other := prs[0].Repository, prs[1].Repository
@@ -245,8 +206,6 @@ func TestTheTwoRepoFixtureSortsInTheOrderTheWalkAssumes(t *testing.T) {
 	}
 }
 
-// twoRepoPRs is the fixture both of those read: one pull request in each of two
-// repositories.
 func twoRepoPRs() []gh.PullRequest {
 	return []gh.PullRequest{
 		{

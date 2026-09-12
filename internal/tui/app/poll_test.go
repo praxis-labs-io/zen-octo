@@ -12,14 +12,10 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
-// beat fires one tick of the background poll, from an instant the test names.
-// The harness drops a tea.Tick, so every beat here is delivered by hand.
 func beat(m tea.Model, after time.Duration) tea.Model {
 	return settle(m, app.PollTick(time.Now().Add(after)))
 }
 
-// opened stages a pull request and puts the detail screen on it. What comes back
-// carries MergeUnknown, which is a pull request still settling.
 func opened(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -27,8 +23,6 @@ func opened(t *testing.T, client *fakeSearcher) tea.Model {
 	return press(loaded(t, client, 160, 44), "enter")
 }
 
-// bumpUpdated moves GitHub's own instant, which is what a comment posted in the
-// browser looks like from here: the pulse reports it and carries none of it.
 func (f *fakeSearcher) bumpUpdated(id string, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -38,8 +32,6 @@ func (f *fakeSearcher) bumpUpdated(id string, at time.Time) {
 	f.details[id] = held
 }
 
-// The ten-second beat belongs to one tab. A timer left behind by Checks must not
-// refresh the conversation, either diff, or the list after the reader moves on.
 func TestTheChecksBeatFiresOnlyOnTheChecksTab(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -66,8 +58,6 @@ func TestTheChecksBeatFiresOnlyOnTheChecksTab(t *testing.T) {
 	}
 }
 
-// Both timers can land together at the ten-second boundary. BeginPulse is the
-// final guard: the Checks chain must join the five-second chain already out.
 func TestTheChecksBeatRefreshesSelectedRunningJobMetadata(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "body")
@@ -110,7 +100,6 @@ func TestTheChecksBeatDoesNotDoubleTheBackgroundBeat(t *testing.T) {
 	}
 }
 
-// CI is what a reader sits and watches, and watching it is the whole complaint.
 func TestABeatRechecksAPullRequestStillMoving(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -122,8 +111,6 @@ func TestABeatRechecksAPullRequestStillMoving(t *testing.T) {
 	}
 }
 
-// The beat is faster than the interval on purpose: it is one clock for two
-// screens, and each decides for itself. A beat inside the interval asks nothing.
 func TestABeatInsideTheIntervalAsksNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -135,8 +122,6 @@ func TestABeatInsideTheIntervalAsksNothing(t *testing.T) {
 	}
 }
 
-// A pull request with its checks in and its mergeability known has nothing
-// moving, and asking every beat would spend a request on an unchanging answer.
 func TestASettledPullRequestIsAskedLessOften(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -155,8 +140,6 @@ func TestASettledPullRequestIsAskedLessOften(t *testing.T) {
 	}
 }
 
-// A picker or a form has the keyboard, and an answer landing under one relayouts
-// the page it is drawn over.
 func TestABeatUnderAFormAsksNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := openMergeForm(t, client)
@@ -169,8 +152,6 @@ func TestABeatUnderAFormAsksNothing(t *testing.T) {
 	}
 }
 
-// A question nobody asked owes no account of itself. A spinner or a toast for
-// one would report a fetch the reader never made.
 func TestABeatSaysNothingOnTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -188,8 +169,6 @@ func TestABeatSaysNothingOnTheStatusBar(t *testing.T) {
 	}
 }
 
-// Only the section on screen. The others are behind a tab, and their counts
-// follow when the reader arrives at them.
 func TestABeatOnTheListRefetchesTheSectionOnScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -206,8 +185,6 @@ func TestABeatOnTheListRefetchesTheSectionOnScreen(t *testing.T) {
 	}
 }
 
-// Which section that is follows the tab strip, or the beat spends every request
-// on the one the reader opened with and the tab they moved to never moves.
 func TestABeatFollowsTheTabStrip(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := press(loaded(t, client, 160, 44), "]")
@@ -228,8 +205,6 @@ func TestABeatFollowsTheTabStrip(t *testing.T) {
 	}
 }
 
-// The list renders the error state instead of the rows, so a poll nobody asked
-// for would empty a tab the reader is reading fine.
 func TestAFailedBeatKeepsTheRowsUp(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -253,8 +228,6 @@ func TestAFailedBeatKeepsTheRowsUp(t *testing.T) {
 	}
 }
 
-// A beat holds the section on screen every half minute, so s pressed during one
-// used to refresh every tab except the one being read and call it a success.
 func TestASyncWaitsOnTheSectionABeatIsHolding(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -270,8 +243,6 @@ func TestASyncWaitsOnTheSectionABeatIsHolding(t *testing.T) {
 	}
 }
 
-// PollFailed keeps the rows and the ready status, which is right for a beat and
-// wrong for one somebody is waiting on: the summary would call a failure a pass.
 func TestASyncReportsTheBeatItAdoptedFailing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -289,8 +260,6 @@ func TestASyncReportsTheBeatItAdoptedFailing(t *testing.T) {
 	}
 }
 
-// polling sends one beat and holds its answer, which is the section on screen
-// left in flight: the state a sync pressed a moment later has to reckon with.
 func polling(t *testing.T, m tea.Model) (tea.Model, []tea.Msg) {
 	t.Helper()
 
@@ -302,7 +271,6 @@ func polling(t *testing.T, m tea.Model) (tea.Model, []tea.Msg) {
 	return m, held
 }
 
-// The contrast that makes the point: the key the reader pressed does report it.
 func TestAFailedSyncStillSaysSoOnTheList(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -315,7 +283,6 @@ func TestAFailedSyncStillSaysSoOnTheList(t *testing.T) {
 	}
 }
 
-// An answer resets the clock, or the beat after it asks for what just landed.
 func TestALandedBeatStartsTheIntervalAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -326,15 +293,12 @@ func TestALandedBeatStartsTheIntervalAgain(t *testing.T) {
 		t.Fatalf("setup: the beat sent %d searches, want the one that was due", got)
 	}
 
-	// Two seconds past the answer, which is well inside the interval.
 	beat(m, 2*time.Second)
 	if got := client.calls() - before; got != 1 {
 		t.Errorf("the section was asked for again two seconds after it answered, %d in all", got)
 	}
 }
 
-// The stamp is written whether the answer was good or not, so a failure costs
-// one interval rather than being retried on every beat after it.
 func TestAFailedBeatCostsAnIntervalAndNotEveryBeat(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 160, 44)
@@ -352,8 +316,6 @@ func TestAFailedBeatCostsAnIntervalAndNotEveryBeat(t *testing.T) {
 	}
 }
 
-// The second half of the complaint. A comment posted elsewhere moves GitHub's
-// instant and nothing else here, so the page it is on has to be asked for.
 func TestACommentArrivingBringsTheWholePage(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -367,8 +329,6 @@ func TestACommentArrivingBringsTheWholePage(t *testing.T) {
 	}
 }
 
-// The page is megabytes and the conversation is the only tab any of it reaches,
-// so the debt keeps until the reader is somewhere it would show.
 func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := press(opened(t, client), "]")
@@ -381,7 +341,6 @@ func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 		t.Fatalf("the page was fetched %d more times away from the conversation", got-before)
 	}
 
-	// Back round to it, where every word of what changed would be on screen.
 	m = press(m, "]", "]", "]")
 	beat(m, 12*time.Second)
 
@@ -390,8 +349,6 @@ func TestTheWholePageWaitsForTheTabItShowsOn(t *testing.T) {
 	}
 }
 
-// The page is megabytes and DetailFailed leaves the debt standing, so nothing
-// else would keep a beat from re-sending it every five seconds forever.
 func TestAFailedPageIsNotAskedForOnEveryBeat(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -411,8 +368,6 @@ func TestAFailedPageIsNotAskedForOnEveryBeat(t *testing.T) {
 	}
 }
 
-// Still a beat nobody asked for, so its failure says nothing either: the page
-// on screen is unchanged and a toast is the only thing that would deny it.
 func TestAFailedPageSaysNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -435,8 +390,6 @@ func TestAFailedPageSaysNothing(t *testing.T) {
 	}
 }
 
-// A recheck that changed nothing must cost no rendering, and the frame is what
-// the reader sees of that. The store's own tests are what prove the answer.
 func TestARecheckThatChangesNothingLeavesTheFrameAlone(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)
@@ -452,8 +405,6 @@ func TestARecheckThatChangesNothingLeavesTheFrameAlone(t *testing.T) {
 	}
 }
 
-// The pulse carries the lifecycle, so a pull request merged elsewhere reaches
-// the row behind the screen on a beat, with no page fetched for it.
 func TestABeatCorrectsTheRowBehindTheScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := opened(t, client)

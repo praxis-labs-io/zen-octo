@@ -7,17 +7,13 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// oneDiff is a diff with something in it, for a cache that only counts entries.
 func oneDiff() gh.FilesResult {
 	return gh.FilesResult{Files: []gh.ChangedFile{{Path: "main.go"}}}
 }
 
-// past is more writes than any cap the store carries. The caps themselves are
-// not reachable from this package to name.
+// The store's caps are not reachable from this package to name.
 const past = 60
 
-// The two caches turn over separately: every open puts a detail and only a Files
-// tab puts a diff, so a held diff can outlive the detail carrying its number.
 func TestADiffOutlivingItsDetailIsNotRefetched(t *testing.T) {
 	m := onADetail(t)
 
@@ -47,8 +43,6 @@ func TestADiffOutlivingItsDetailIsNotRefetched(t *testing.T) {
 	}
 }
 
-// A commit read from the cache is a commit in use. Ordered by fetch alone, the
-// one a reader keeps coming back to on a long branch is the first one dropped.
 func TestReadingACommitDiffAgainKeepsIt(t *testing.T) {
 	m := onADetail(t)
 
@@ -58,7 +52,6 @@ func TestReadingACommitDiffAgainKeepsIt(t *testing.T) {
 		m.store.CommitFilesApplied(sha(i), oneDiff())
 	}
 
-	// The reader walks back to the oldest one still held, then on to a new one.
 	oldest := sha(oldestHeld(t, past, func(i int) bool { return m.store.CommitFiles(sha(i)).Loaded }))
 	m.needCommit(oldest)
 
@@ -70,8 +63,6 @@ func TestReadingACommitDiffAgainKeepsIt(t *testing.T) {
 	}
 }
 
-// Opening a pull request whose diff is already held is the same read one cache
-// over: it costs no request, and without it the diff ages from its first fetch.
 func TestReopeningAPullRequestKeepsItsDiff(t *testing.T) {
 	m := onADetail(t)
 
@@ -92,8 +83,6 @@ func TestReopeningAPullRequestKeepsItsDiff(t *testing.T) {
 	}
 }
 
-// oldestHeld is the earliest-written key a cache still carries, which is
-// whichever one eviction stopped at.
 func oldestHeld(t *testing.T, count int, loaded func(int) bool) int {
 	t.Helper()
 

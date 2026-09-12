@@ -13,8 +13,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// mentionSet is a repository's mentionable users, one of them somebody who has
-// never touched the sample pull request.
 func mentionSet() []gh.Mention {
 	return []gh.Mention{
 		{Login: "nkr", Name: "Nikita Rushmanov"},
@@ -22,7 +20,6 @@ func mentionSet() []gh.Mention {
 	}
 }
 
-// typeInto sends one printable key at a time, the way a reader writes.
 func typeInto(m tea.Model, text string) tea.Model {
 	for _, r := range text {
 		m = settle(m, tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -30,8 +27,6 @@ func typeInto(m tea.Model, text string) tea.Model {
 	return m
 }
 
-// mentioning opens the sample pull request, opens the compose box, and types an
-// @word into it.
 func mentioning(t *testing.T, client *fakeSearcher, token string) tea.Model {
 	t.Helper()
 
@@ -39,8 +34,6 @@ func mentioning(t *testing.T, client *fakeSearcher, token string) tea.Model {
 	return typeInto(m, token)
 }
 
-// Nothing at startup and nothing on open. The list costs a request, and a
-// reader who never writes a comment should never pay for it.
 func TestThePeopleAreNotFetchedUntilSomebodyNeedsThem(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -69,8 +62,6 @@ func TestTheFirstAtFetchesTheRepositorysPeople(t *testing.T) {
 	}
 }
 
-// The list belongs to the repository and the cache is the root's, so a picker
-// opened earlier has already paid for it.
 func TestTheMentionListCostsOneRequestForTheWholeSession(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -79,7 +70,6 @@ func TestTheMentionListCostsOneRequestForTheWholeSession(t *testing.T) {
 		Mentions: mentionSet(),
 	})
 
-	// Open the label picker from the rail first, then leave it.
 	m := press(loaded(t, client, 160, 40), "enter", "1", "j", "j", "j", "enter")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "space toggle") {
 		t.Fatalf("setup: the label picker did not open:\n%s", out)
@@ -95,9 +85,6 @@ func TestTheMentionListCostsOneRequestForTheWholeSession(t *testing.T) {
 	}
 }
 
-// The toast is over the pane and gone in seconds. The popup is under the caret
-// and has to say for itself that the list is not coming, or a short list of
-// participants reads as everybody there is.
 func TestAFailedPeopleFetchReachesThePopupAndNotJustTheToast(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), metaErr: errors.New("boom")}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -112,9 +99,6 @@ func TestAFailedPeopleFetchReachesThePopupAndNotJustTheToast(t *testing.T) {
 	}
 }
 
-// One esc closes the popup and the next gives the keyboard back. A leaked esc
-// would close the box on the first press, and on an edit it throws the draft
-// away: the reader dismissing a list of names would lose the comment.
 func TestTheFirstEscapeClosesTheListAndTheSecondClosesTheBox(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -134,8 +118,6 @@ func TestTheFirstEscapeClosesTheListAndTheSecondClosesTheBox(t *testing.T) {
 	}
 }
 
-// The sync key drops the held choices, and the next @ has to pay for them
-// again: what comes back is the point of the key.
 func TestRefreshingDropsThePeopleAndTheNextAtFetchesThemAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -146,10 +128,6 @@ func TestRefreshingDropsThePeopleAndTheNextAtFetchesThemAgain(t *testing.T) {
 		t.Fatalf("setup: metaCalls = %d, want 1", got)
 	}
 
-	// Two escapes: the first closes the popup and the second gives the keyboard
-	// back, which is the whole of the difference between them. Then a space,
-	// because the box keeps its words and the @ already in it would run into
-	// the next one.
 	m = press(m, "esc", "esc", "s", "c")
 	typeInto(m, " @")
 
@@ -158,10 +136,6 @@ func TestRefreshingDropsThePeopleAndTheNextAtFetchesThemAgain(t *testing.T) {
 	}
 }
 
-// A tick that arrives with nothing loading ends the chain, so by the time a
-// reader opens a box there is none running. The glyph would sit on its first
-// frame for the whole fetch, which is what every other lazy fetch here restarts
-// the chain to avoid.
 func TestAskingForThePeopleRestartsTheSpinner(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -169,9 +143,6 @@ func TestAskingForThePeopleRestartsTheSpinner(t *testing.T) {
 
 	m := press(loaded(t, client, 160, 40), "enter", "c")
 
-	// Driven by hand rather than settled, because settle drops the commands and
-	// the tick chain is a command. The @ asks the root, and it is the root
-	// answering that ask which owes the restart.
 	m, cmd := m.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 
 	ask := findAsk(cmd)
@@ -183,7 +154,6 @@ func TestAskingForThePeopleRestartsTheSpinner(t *testing.T) {
 	}
 }
 
-// findAsk digs the metadata request out of whatever the keystroke batched.
 func findAsk(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {
 		return nil
@@ -201,7 +171,6 @@ func findAsk(cmd tea.Cmd) tea.Msg {
 	return nil
 }
 
-// hasTick reports whether a command tree carries a spinner tick.
 func hasTick(cmd tea.Cmd) bool {
 	if cmd == nil {
 		return false

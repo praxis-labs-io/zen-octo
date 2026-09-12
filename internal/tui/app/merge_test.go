@@ -12,9 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
-// serveMergeable stages a pull request GitHub would merge: clean, with the head
-// commit and the branch it sits on, and with GitHub's own commit message for
-// each of the two methods that write one.
 func (f *fakeSearcher) serveMergeable(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -28,12 +25,6 @@ func (f *fakeSearcher) serveMergeable(id string) {
 	f.details[id] = held
 }
 
-// toMergeRow opens the staged pull request with the rail focused and its cursor
-// on the Merge row, which is the last one.
-//
-// The tab count is the rail's own order: the state row, the three add rows, the
-// base, then this. A change to that order fails the assertion under it in every
-// test below rather than passing quietly.
 func toMergeRow(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -51,8 +42,6 @@ func toMergeRow(t *testing.T, client *fakeSearcher) tea.Model {
 	return m
 }
 
-// openMergeForm walks to the Merge row and opens the form over the repository's
-// merge methods.
 func openMergeForm(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -63,13 +52,10 @@ func openMergeForm(t *testing.T, client *fakeSearcher) tea.Model {
 	return m
 }
 
-// pressMerge steps from the method rows to the button and presses it.
 func pressMerge(m tea.Model) tea.Model {
 	return press(m, "tab", "tab", "tab", "tab", "enter")
 }
 
-// The rail changing is the acknowledgement, the way it is for every other write
-// the rail makes.
 func TestAMergeReadsOnTheRailBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -97,8 +83,6 @@ func TestAMergeThatLandsNamesTheBranch(t *testing.T) {
 	}
 }
 
-// A merge writes the merged event onto the timeline, settles the checks and
-// moves what the viewer may do next, and the store can compute none of it.
 func TestAMergeRefetchesTheDetail(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -111,7 +95,6 @@ func TestAMergeRefetchesTheDetail(t *testing.T) {
 	}
 }
 
-// The branch goes with the merge, because the form opened with the box ticked.
 func TestAMergeDeletesTheHeadBranch(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -122,11 +105,9 @@ func TestAMergeDeletesTheHeadBranch(t *testing.T) {
 	}
 }
 
-// Unticking has to reach the write, or the checkbox is decoration.
 func TestAnUntickedFormLeavesTheBranchAlone(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	// Method, headline, message, delete: untick, then on to the button.
 	press(openMergeForm(t, client), "tab", "tab", "tab", "space", "tab", "enter")
 
 	if got := client.deletes(); len(got) != 0 {
@@ -137,8 +118,6 @@ func TestAnUntickedFormLeavesTheBranchAlone(t *testing.T) {
 	}
 }
 
-// Two calls, and the second cannot undo the first. A merge that landed stays
-// landed, and the only thing left to do about the branch is say so.
 func TestAFailedBranchDeleteLeavesTheMergeStanding(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.deleteErr = errors.New("Reference does not exist")
@@ -148,15 +127,11 @@ func TestAFailedBranchDeleteLeavesTheMergeStanding(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Merged into main") {
 		t.Errorf("a failed delete took the merge off the rail:\n%s", out)
 	}
-	// Not "still there": a request that timed out over a delete GitHub made is
-	// the same error, so the honest report is that nothing here can tell.
 	if bar := lastLine(render(t, m)); !strings.Contains(bar, "Could not confirm") {
 		t.Errorf("status bar = %q, want the delete reported as unconfirmed", strings.TrimSpace(bar))
 	}
 }
 
-// The revert branch. Nothing was typed and no branch was touched, so the
-// fetched state going back on the rail is the whole of it.
 func TestAFailedMergePutsTheStateBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.postErr = errors.New("Head branch was modified. Review and try the merge again.")
@@ -171,7 +146,6 @@ func TestAFailedMergePutsTheStateBack(t *testing.T) {
 		t.Errorf("the rail did not go back to what GitHub last said:\n%s", out)
 	}
 
-	// GitHub's own sentence, which is what tells the reader to sync.
 	if bar := lastLine(render(t, m)); !strings.Contains(bar, "Head branch was modified") {
 		t.Errorf("status bar = %q, want GitHub's own refusal", strings.TrimSpace(bar))
 	}
@@ -180,8 +154,6 @@ func TestAFailedMergePutsTheStateBack(t *testing.T) {
 	}
 }
 
-// GitHub computes mergeability lazily and the first query starts it, so a cold
-// pull request answers UNKNOWN. The probe re-asks as a pulse, not as a page.
 func TestADetailThatCannotSayWhetherItMergesIsAskedAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -189,7 +161,6 @@ func TestADetailThatCannotSayWhetherItMergesIsAskedAgain(t *testing.T) {
 	m := press(loaded(t, client, 160, 44), "enter")
 	before := len(client.opened())
 
-	// GitHub has worked it out by the time the wait runs out.
 	client.serveMergeable("PR_412")
 	m = settle(m, app.MergeProbe("PR_412"))
 
@@ -204,10 +175,6 @@ func TestADetailThatCannotSayWhetherItMergesIsAskedAgain(t *testing.T) {
 	}
 }
 
-// A wait that runs out on a question already answered asks nothing. The answer
-// can arrive from the sync key or from a write's own refetch while the wait is
-// still out, and a request for something already on the screen is one the
-// reader never made.
 func TestTheProbeAsksNothingOnceTheAnswerIsIn(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -226,10 +193,6 @@ func TestTheProbeAsksNothingOnceTheAnswerIsIn(t *testing.T) {
 	}
 }
 
-// A refused merge says the screen is behind GitHub, and the commonest reason it
-// is refused says exactly which part: the head moved after the detail was
-// fetched. Putting the fetched row back and asking nothing leaves the reader
-// looking at the answer that just lost them the merge.
 func TestAFailedMergeAsksForTheDetailAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.postErr = errors.New("Head branch was modified. Review and try the merge again.")
@@ -243,9 +206,6 @@ func TestAFailedMergeAsksForTheDetailAgain(t *testing.T) {
 	}
 }
 
-// gh.Merge takes any pull request back as a success, so an answer in another
-// state would be toasted as merged and have the branch deleted off the back of
-// it, which is the half of this that cannot be undone.
 func TestAnAnswerThatIsNotMergedDeletesNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.mergeState = gh.PRStateOpen
@@ -260,18 +220,12 @@ func TestAnAnswerThatIsNotMergedDeletesNothing(t *testing.T) {
 	}
 }
 
-// The probe's whole job is to answer a question the reader never asked, so a
-// wait swallowed by a fetch already in flight has to be armed again: that fetch
-// was asked for before GitHub had worked the answer out and will land carrying
-// the same UNKNOWN, and nothing else would ever ask.
 func TestAProbeSwallowedByAFetchInFlightIsArmedAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	m := press(loaded(t, client, 160, 44), "enter")
 
-	// A sync whose answer is held back, so the fetch is genuinely still out
-	// when the wait runs out.
 	m, held := holdBack(m, keyMsg("s"), "detailFetched")
 	if len(held) == 0 {
 		t.Fatal("setup: no detail response was held, so nothing is in flight")
@@ -281,16 +235,11 @@ func TestAProbeSwallowedByAFetchInFlightIsArmedAgain(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("the probe was swallowed by the fetch in flight and nothing was armed to ask again")
 	}
-	// What it armed is the wait, not a recheck: the fetch already out answers
-	// everything a pulse would and would land after it.
 	if got := client.pulsed(); len(got) != 0 {
 		t.Errorf("the probe rechecked %v under a fetch already in flight", got)
 	}
 }
 
-// A zero MergeMethods forbids every method, and startMerge refuses to open a
-// modal with nothing to choose, so the form would never open in mockup mode
-// even with the two calls behind it implemented.
 func TestTheMockupOffersEveryMergeMethod(t *testing.T) {
 	res, err := app.Mock{}.RepoMeta(context.Background(), "praxis-labs/zen-octo")
 	if err != nil {

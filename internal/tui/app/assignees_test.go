@@ -18,12 +18,6 @@ func repoUserSet() []gh.Actor {
 	}
 }
 
-// assigning opens the staged pull request with the rail focused and its cursor
-// on the row that adds an assignee.
-//
-// The tab count is the rail's own order: the state row, the add-reviewer row,
-// then this one. A change to that order fails the picker assertion in every
-// test below rather than passing quietly.
 func assigning(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -44,8 +38,6 @@ func openAssigneePicker(t *testing.T, client *fakeSearcher) tea.Model {
 	return m
 }
 
-// The rail changing is the acknowledgement, the same way the optimistic comment
-// is one for a comment.
 func TestAnAssigneeReadsOnTheRailBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -73,8 +65,6 @@ func TestAnAssigneeWriteThatLandsSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. Nothing was typed, so the fetched set going back on the
-// rail is the whole of it, and the toast carries the reason.
 func TestAFailedAssigneeWritePutsTheFetchedSetBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -88,8 +78,6 @@ func TestAFailedAssigneeWritePutsTheFetchedSetBack(t *testing.T) {
 	}
 }
 
-// A sync landing while a write is out must not put the old set back. The store
-// holds the edit beside the fetched detail for exactly this.
 func TestASyncDoesNotUndoAnAssigneeWriteStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -101,10 +89,6 @@ func TestASyncDoesNotUndoAnAssigneeWriteStillInFlight(t *testing.T) {
 	}
 }
 
-// Assigning changes nothing the store cannot already see, so it borrows no
-// refetch. The reviewer write beside it is the one that needs one, and paying
-// for a round trip here would put a second toast behind the one that already
-// said what happened.
 func TestAnAssigneeWriteDoesNotRefetchTheDetail(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 

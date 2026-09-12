@@ -10,11 +10,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// settleBudget is long enough for the commit debounce to answer inside.
 const settleBudget = time.Second
 
-// The chain is invisible from outside this package, which drops a tea.Tick: from
-// there an armed beat and one never armed look exactly the same.
 func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
 	m := New(pollConfig(), Mock{}, testSurface)
 
@@ -23,8 +20,6 @@ func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
 	}
 }
 
-// Every beat arms the next, and this beat asks for nothing: no section has
-// answered yet. A chain that ended where it found no work would never restart.
 func TestABeatArmsTheNextEvenHavingAskedForNothing(t *testing.T) {
 	m := New(pollConfig(), Mock{}, testSurface)
 
@@ -37,8 +32,6 @@ func TestABeatArmsTheNextEvenHavingAskedForNothing(t *testing.T) {
 	}
 }
 
-// The Checks timer has no startup chain of its own. Entering the tab is the one
-// edge that starts it, or every open session would carry an idle second timer.
 func TestTheChecksBeatStartsOnTheChecksTab(t *testing.T) {
 	m := onADetail(t)
 	model, _ := m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
@@ -48,8 +41,6 @@ func TestTheChecksBeatStartsOnTheChecksTab(t *testing.T) {
 	}
 }
 
-// A Tick cannot be cancelled, so leaving lets the one already armed land. It
-// must end there rather than carrying the chain onto another tab.
 func TestTheChecksBeatStopsAfterATabSwitch(t *testing.T) {
 	m := onTheChecksTab(t)
 	wasDue := m.poller.checksAt
@@ -69,8 +60,6 @@ func TestTheChecksBeatStopsAfterATabSwitch(t *testing.T) {
 		t.Error("the stopped Checks chain still reads as armed")
 	}
 
-	// The old chain ended while Files was up. Coming round to Checks again
-	// starts a fresh one rather than leaving the tab permanently stopped.
 	for range 2 {
 		model, _ = m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 		m = model.(Model)
@@ -81,8 +70,6 @@ func TestTheChecksBeatStopsAfterATabSwitch(t *testing.T) {
 	}
 }
 
-// A pending Tick is the chain even while its tab is away. Re-entering before it
-// lands must reuse that wait rather than leave a timer and goroutine per visit.
 func TestReturningToChecksDoesNotArmASecondBeat(t *testing.T) {
 	m := onTheChecksTab(t)
 	wasDue := m.poller.checksAt
@@ -102,8 +89,6 @@ func TestReturningToChecksDoesNotArmASecondBeat(t *testing.T) {
 	}
 }
 
-// If two chains ever arrive, only the first due tick may survive. This is the
-// backstop for leaving and returning before the old tab timer lands.
 func TestASecondChecksChainDiesInsideTheInterval(t *testing.T) {
 	m := onTheChecksTab(t)
 	at := time.Now()
@@ -121,8 +106,6 @@ func TestASecondChecksChainDiesInsideTheInterval(t *testing.T) {
 	}
 }
 
-// The five-second beat may answer just before the Checks beat lands. The recent
-// detail stamp suppresses a second request after the in-flight guard is gone.
 func TestTheChecksBeatDefersToARecentlyAnsweredBackgroundBeat(t *testing.T) {
 	m := onTheChecksTab(t)
 	due := time.Now()
@@ -135,8 +118,6 @@ func TestTheChecksBeatDefersToARecentlyAnsweredBackgroundBeat(t *testing.T) {
 	}
 }
 
-// A needless relayout shows nowhere in the frame: with the same detail in hand
-// SetDetail draws the same page. Arming the commit debounce is where it shows.
 func TestARecheckThatMovedNothingDoesNotRebuildThePage(t *testing.T) {
 	quiet := onTheCommitsTab(t).pulseSettledCmd(false)
 	if carries[prview.CommitSettleMsg](quiet, settleBudget) {
@@ -149,14 +130,11 @@ func TestARecheckThatMovedNothingDoesNotRebuildThePage(t *testing.T) {
 	}
 }
 
-// pulseSettledCmd settles one over the pull request the screen is showing.
 func (m Model) pulseSettledCmd(moved bool) tea.Cmd {
 	_, cmd := m.pulseSettled(m.detail.PullRequest().ID, moved)
 	return cmd
 }
 
-// onTheCommitsTab is a detail screen with a commit under the cursor whose diff
-// has not landed, which is the state SetDetail arms the debounce from.
 func onTheCommitsTab(t *testing.T) Model {
 	t.Helper()
 
