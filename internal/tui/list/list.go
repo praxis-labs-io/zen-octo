@@ -19,7 +19,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// OpenMsg asks the root to open PR.
 type OpenMsg struct{ PR gh.PullRequest }
 
 type CopyLinkMsg struct{ PR gh.PullRequest }
