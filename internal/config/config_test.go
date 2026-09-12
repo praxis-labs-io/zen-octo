@@ -10,8 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/config"
 )
 
-// writeConfig points config.Dir at a temp dir and writes body to config.yml.
-// Passing an empty body leaves the directory without a config file.
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -62,7 +60,6 @@ defaults:
 	if got.Defaults.PRsLimit != 5 {
 		t.Errorf("PRsLimit = %d, want 5", got.Defaults.PRsLimit)
 	}
-	// Absent from the file, so defaults fill in.
 	if got.Defaults.IssuesLimit != 20 {
 		t.Errorf("IssuesLimit = %d, want 20", got.Defaults.IssuesLimit)
 	}
@@ -71,7 +68,6 @@ defaults:
 	}
 }
 
-// The colors reach the config as written; what they mean belongs to the theme.
 func TestThemeColorsLoad(t *testing.T) {
 	writeConfig(t, "theme:\n  accent: \"#ff0000\"\n  error: \"1\"\ntransparent: true\n")
 
@@ -87,8 +83,6 @@ func TestThemeColorsLoad(t *testing.T) {
 	}
 }
 
-// A color this package cannot judge is not a reason to refuse the file. The
-// vocabulary belongs to the theme, and so does the complaint.
 func TestABadColorStillLoads(t *testing.T) {
 	writeConfig(t, "theme:\n  accent: \"nonsense\"\n")
 
@@ -97,9 +91,6 @@ func TestABadColorStillLoads(t *testing.T) {
 	}
 }
 
-// A theme name is what the last release took, so one is on disk for anyone
-// upgrading. A scalar unmarshalled into a map is a hard parse error, and
-// refusing to start over a color scheme is the wrong trade.
 func TestALeftoverThemeNameLoadsRatherThanFailing(t *testing.T) {
 	writeConfig(t, "theme: rose-pine-moon\n")
 
@@ -112,9 +103,6 @@ func TestALeftoverThemeNameLoadsRatherThanFailing(t *testing.T) {
 	}
 }
 
-// The syntax palette stays empty unless it is asked for. The theme pairs a
-// Chroma style against the background it read, and filling one in here would
-// override that pairing with the default's on every terminal.
 func TestSyntaxThemeIsEmptyUntilItIsSet(t *testing.T) {
 	writeConfig(t, "theme: rose-pine-moon\n")
 
@@ -208,9 +196,6 @@ func TestLoadRejectsInvalidConfigs(t *testing.T) {
 }
 
 func TestDefaultSectionsQualifyTheSearchType(t *testing.T) {
-	// GitHub searches issues and pull requests from one index. A section
-	// without is:pr or is:issue spends its limit on the wrong kind, and the
-	// caller silently drops what it didn't want.
 	cfg := config.Default()
 
 	for _, s := range cfg.PRSections {
@@ -225,8 +210,6 @@ func TestDefaultSectionsQualifyTheSearchType(t *testing.T) {
 	}
 }
 
-// GitHub's date qualifiers take an absolute instant and nothing relative, so
-// the filter carries a token and the client renders it before the search.
 func TestExpandQueryRendersTheSinceToken(t *testing.T) {
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 
@@ -261,8 +244,6 @@ func TestExpandQueryRendersTheSinceToken(t *testing.T) {
 	}
 }
 
-// A bound written in the reader's zone would move the window by hours twice a
-// year, so the instant is always UTC whatever clock now came off.
 func TestExpandQueryWritesTheBoundInUTC(t *testing.T) {
 	zone := time.FixedZone("well east", 11*60*60)
 	now := time.Date(2026, 8, 15, 6, 0, 0, 0, zone)
@@ -273,8 +254,6 @@ func TestExpandQueryWritesTheBoundInUTC(t *testing.T) {
 	}
 }
 
-// The shipped defaults never reach validate: Load answers with them before it
-// runs, so a token typo in one of them would only surface as a failed search.
 func TestDefaultSectionsExpandCleanly(t *testing.T) {
 	cfg := config.Default()
 

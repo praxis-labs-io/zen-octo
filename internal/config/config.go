@@ -13,7 +13,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// DirEnv overrides the config directory. Tests set it; users generally don't.
+// DirEnv names the environment variable that overrides the config directory.
 const DirEnv = "ZEN_OCTO_CONFIG_DIR"
 
 const (
@@ -29,11 +29,10 @@ type Section struct {
 	Filters string `yaml:"filters"`
 }
 
-// sinceToken matches {{since:24h}} and captures the duration inside it.
 var sinceToken = regexp.MustCompile(`\{\{since:([^}]*)\}\}`)
 
-// ExpandQuery renders a filter's time tokens against now: {{since:24h}} becomes
-// the RFC 3339 instant that long before it, which is all GitHub's dates take.
+// ExpandQuery replaces each {{since:DURATION}} in filters with the RFC 3339 UTC
+// instant that long before now, leaving a token whose duration does not parse as written.
 func ExpandQuery(filters string, now time.Time) string {
 	return sinceToken.ReplaceAllStringFunc(filters, func(token string) string {
 		d, err := time.ParseDuration(sinceToken.FindStringSubmatch(token)[1])
@@ -44,45 +43,31 @@ func ExpandQuery(filters string, now time.Time) string {
 	})
 }
 
-// Defaults holds settings that aren't tied to a single section.
 type Defaults struct {
 	PRsLimit    int `yaml:"prsLimit"`
 	IssuesLimit int `yaml:"issuesLimit"`
 }
 
-// Config is the whole of what's on disk, after defaults are applied.
-//
-// Theme is a set of color overrides rather than a name. The chrome is derived
-// from the terminal, so there is nothing to pick between; what a user wants
-// instead is to pin the one or two colors their terminal gets wrong.
-//
-// Transparent drops the painted surfaces for a terminal running translucent.
-//
-// SyntaxTheme names the palette code is highlighted with, which is a separate
-// question from the one the chrome is drawn in: Chroma's styles are truecolor
-// and none of them is the terminal's. It stays empty by default, where the
-// theme pairs one against the background it read.
+// Config is the config file after defaults are applied.
 type Config struct {
 	PRSections    []Section `yaml:"prSections"`
 	IssueSections []Section `yaml:"issueSections"`
 	Defaults      Defaults  `yaml:"defaults"`
-	Theme         Theme     `yaml:"theme"`
-	Transparent   bool      `yaml:"transparent"`
-	SyntaxTheme   string    `yaml:"syntaxTheme"`
+	// Theme overrides individual colors of the theme derived from the terminal.
+	Theme Theme `yaml:"theme"`
+	// Transparent withholds the painted background and nothing else.
+	Transparent bool `yaml:"transparent"`
+	// SyntaxTheme names the Chroma style for code. Empty pairs one against the background.
+	SyntaxTheme string `yaml:"syntaxTheme"`
 }
 
-// Default is what a user gets before they've written a config file.
+// Default is the config used when no file exists.
 func Default() *Config {
 	return &Config{
-		// GitHub's search API has one index for issues and pull requests, so
-		// every filter needs is:pr or is:issue. Without it the limit gets spent
-		// on the wrong kind and the section quietly undercounts.
 		PRSections: []Section{
 			{Title: "My PRs", Filters: "is:open is:pr author:@me"},
 			{Title: "Needs My Review", Filters: "is:open is:pr review-requested:@me"},
 			{Title: "Involved", Filters: "is:open is:pr involves:@me -author:@me"},
-			// sort:updated-desc because the limit is applied before the list
-			// re-sorts, so relevance order decides which twenty come back.
 			{Title: "Recently Closed", Filters: "is:pr is:closed author:@me closed:>={{since:24h}} sort:updated-desc"},
 		},
 		IssueSections: []Section{
@@ -93,7 +78,7 @@ func Default() *Config {
 	}
 }
 
-// Dir returns the directory holding config, credentials, and logs.
+// Dir returns the directory holding config, credentials, and logs, honouring DirEnv.
 func Dir() (string, error) {
 	if override := os.Getenv(DirEnv); override != "" {
 		return override, nil
@@ -105,7 +90,6 @@ func Dir() (string, error) {
 	return filepath.Join(home, dirName), nil
 }
 
-// Path returns the full path to the config file.
 func Path() (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -180,8 +164,6 @@ func validateSections(field string, sections []Section) error {
 			return fmt.Errorf("%s[%d] (%q): filters is required", field, i, s.Title)
 		}
 		for _, m := range sinceToken.FindAllStringSubmatch(s.Filters, -1) {
-			// Zero and negative parse fine and put the bound now or in the
-			// future, which is a window GitHub answers empty.
 			if d, err := time.ParseDuration(m[1]); err != nil || d <= 0 {
 				return fmt.Errorf("%s[%d] (%q): %q is not a length of time to look back, want something like 24h", field, i, s.Title, m[1])
 			}
