@@ -107,7 +107,7 @@ func (p *Picker) Replace(items []PickerItem, note string) {
 	}
 }
 
-// SetNote sets what the title says about the list as a whole, leaving the list and cursor alone.
+// SetNote sets what the title says about the list as a whole.
 func (p *Picker) SetNote(note string) { p.note = note }
 
 // Move walks the cursor by delta, stopping at either end.
@@ -239,7 +239,6 @@ func (p *Picker) scroll() {
 	}
 }
 
-// Render draws the picker as a modal sized to fit a frame frameWidth wide, for Over to place.
 func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	inner := p.width(frameWidth)
 	shown := p.shown()

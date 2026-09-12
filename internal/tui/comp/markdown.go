@@ -16,7 +16,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Markdown renders GitHub markdown in the theme and caches the output.
 type Markdown struct {
 	style ansi.StyleConfig
 

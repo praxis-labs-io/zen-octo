@@ -12,7 +12,6 @@ import (
 
 const budgetLow = 500
 
-// StatusBar is the line pinned to the bottom of the frame.
 type StatusBar struct {
 	theme theme.Theme
 	width int

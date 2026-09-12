@@ -9,7 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// ToastKind picks the color a toast carries.
 type ToastKind int
 
 const (
@@ -46,7 +45,6 @@ func (t *Toasts) Expire(msg ToastExpiredMsg) {
 	}
 }
 
-// Seq identifies the toast currently showing.
 func (t Toasts) Seq() int { return t.seq }
 
 func (t Toasts) Empty() bool { return t.text == "" }

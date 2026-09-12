@@ -10,7 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Spinner is the themed loading indicator. Each carries its own tag and ignores other spinners' ticks.
 type Spinner struct {
 	theme theme.Theme
 	model spinner.Model
@@ -38,7 +37,6 @@ func (s *Spinner) Advance(msg spinner.TickMsg, loading bool) tea.Cmd {
 // Render is the glyph followed by label, or the glyph alone for an empty label.
 func (s Spinner) Render(label string) string { return s.render(label, s.theme.Subtle) }
 
-// RenderAccent is Render with the label in the accent color, for the status bar.
 func (s Spinner) RenderAccent(label string) string { return s.render(label, s.theme.Accent) }
 
 func (s Spinner) render(label string, c color.Color) string {

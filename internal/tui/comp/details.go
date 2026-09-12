@@ -20,7 +20,6 @@ var detailsBlock = regexp.MustCompile(`(?is)<details>\s*(?:<summary>(.*?)</summa
 
 var tagRun = regexp.MustCompile(`<[^>]*>`)
 
-// SplitDetails breaks body into prose and <details> folds, in order.
 func SplitDetails(body string) []Segment {
 	var out []Segment
 	rest := body
@@ -42,7 +41,6 @@ func SplitDetails(body string) []Segment {
 	return appendText(out, rest)
 }
 
-// Folded reports whether segments hold any fold.
 func Folded(segments []Segment) bool {
 	for _, s := range segments {
 		if s.Summary != "" {

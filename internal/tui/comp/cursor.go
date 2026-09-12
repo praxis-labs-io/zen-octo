@@ -6,7 +6,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Cursor is the terminal's own cursor at (x, y), in the style every text input shares.
 func Cursor(th theme.Theme, x, y int) *tea.Cursor {
 	c := tea.NewCursor(x, y)
 	c.Shape = tea.CursorBlock

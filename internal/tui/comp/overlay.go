@@ -17,7 +17,6 @@ func Over(base, over string, width, height int) string {
 	return At(base, clip(over, width, height), x, y, width, height)
 }
 
-// OverOrigin is the top-left corner Over places over at.
 func OverOrigin(over string, width, height int) (x, y int) {
 	if width <= 0 || height <= 0 {
 		return 0, 0
@@ -57,7 +56,6 @@ func clip(over string, width, height int) string {
 // ModalLead is the columns a modal's border and padding take before its content.
 const ModalLead = 2
 
-// Modal frames content as a focused pane titled title, for Over to place.
 func Modal(th theme.Theme, title, content string) string {
 	padded := lipgloss.NewStyle().Padding(0, 1).Render(content)
 	w, h := lipgloss.Size(padded)

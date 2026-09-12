@@ -44,7 +44,6 @@ func prStateOf(pr gh.PullRequest) prStateKind {
 	return prKindUnknown
 }
 
-// PRStateIcon is the lifecycle glyph and its color: open, draft, merged, or closed.
 func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:
@@ -59,7 +58,6 @@ func PRStateIcon(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	return glyphPROpen, th.Subtle
 }
 
-// PRStateLabel names PRStateIcon's state in words.
 func PRStateLabel(th theme.Theme, pr gh.PullRequest) (string, color.Color) {
 	switch prStateOf(pr) {
 	case prKindMerged:

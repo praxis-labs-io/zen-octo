@@ -72,7 +72,6 @@ func (p Pane) Index(n int) Pane {
 	return p
 }
 
-// Tabs sets the strip in the top border and which entry is current.
 func (p Pane) Tabs(tabs []Tab, active int) Pane {
 	p.tabs, p.active = tabs, active
 	return p
