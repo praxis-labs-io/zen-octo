@@ -10,8 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
 )
 
-// declared pulls every key.Binding off a keymap struct, named by its field, so
-// a binding added to a struct is automatically in scope for these tests.
 func declared(km any) map[string]key.Binding {
 	out := map[string]key.Binding{}
 	v := reflect.ValueOf(km)
@@ -24,12 +22,8 @@ func declared(km any) map[string]key.Binding {
 	return out
 }
 
-// id names a binding by what it is bound to. key.Binding holds a slice, so it
-// cannot be compared directly.
 func id(b key.Binding) string { return strings.Join(b.Keys(), ",") }
 
-// label adds what the help says the key does, which is what tells two bindings
-// on one key apart: space is the fold on the screen and the toggle in a picker.
 func label(b key.Binding) string { return id(b) + " " + b.Help().Desc }
 
 func TestEveryBindingCarriesHelpAndKeys(t *testing.T) {
@@ -57,10 +51,6 @@ func TestEveryBindingCarriesHelpAndKeys(t *testing.T) {
 	}
 }
 
-// The form keys are their own context rather than part of the detail screen's.
-// tab is deliberately both the tab strip's and the compose box's, and the two
-// are never live together: a box takes every key until it closes, which is also
-// why Global is not beside it here.
 func TestNoKeyIsBoundTwiceInOneContext(t *testing.T) {
 	tests := []struct {
 		name string
@@ -89,8 +79,6 @@ func TestNoKeyIsBoundTwiceInOneContext(t *testing.T) {
 	}
 }
 
-// The help view is only trustworthy if it stays in step with the declarations
-// both ways: nothing declared goes unlisted, and nothing listed is invented.
 func TestHelpAndDeclarationsAgree(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -99,29 +87,16 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		full  [][]key.Binding
 	}{
 		{name: "list", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(keys.ListContext{Rows: true, Search: true}), full: keys.List.FullHelp()},
-		// The line a section that has not answered gets. It names fewer keys, and
-		// every one of them still has to be a key this map declares.
 		{name: "list blocked", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(keys.ListContext{}), full: keys.List.FullHelp()},
-		// The search bar's line is the same map read while it has the keyboard,
-		// so it answers to the same rule: a key named there is a key declared.
 		{name: "list search", live: []any{keys.List, keys.Global}, short: keys.List.SearchHelp(), full: keys.List.FullHelp()},
-		// The form keys reach the overlay through the detail screen's help: they
-		// are the answer to what tab does inside a box, and the reader asking
-		// has only the one overlay to ask.
 		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Blocks: true, Expand: true, Rail: true, Column: "file"}), full: keys.Detail.FullHelp()},
-		// The rail's own line: enter and the pane step in place of the keys that
-		// act on the page, none of which the rail answers.
 		{name: "detail rail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Activate: true, Panes: true, Rail: true}), full: keys.Detail.FullHelp()},
-		// A settled query rewrites what esc is named as, and the bar the job
-		// log's own search carries while it is typing is two keys off this map.
 		{name: "detail searched", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{SearchStanding: true, JobLog: true, JobMatches: true}), full: keys.Detail.FullHelp()},
 		{name: "detail search", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.SearchHelp(), full: keys.Detail.FullHelp()},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// The overlay is matched on the label and the bar on the keys alone,
-			// because hint rewrites a bar entry's words on purpose.
 			isDeclared, isLabelled := map[string]bool{}, map[string]bool{}
 			for _, km := range tt.live {
 				for _, b := range declared(km) {
@@ -156,8 +131,6 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 	}
 }
 
-// Two rows reading "quit" tell the reader nothing about why there are two, or
-// which one works out of a pane that is taking text.
 func TestNoTwoBindingsInOneContextReadTheSame(t *testing.T) {
 	tests := []struct {
 		name string
