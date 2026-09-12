@@ -21,7 +21,6 @@ const (
 	checkJobPrefix    = "job\x00"
 )
 
-// RerunCheckMsg asks the root to rerun the failed Actions job JobID.
 type RerunCheckMsg struct {
 	Repo  string
 	JobID int64
@@ -347,7 +346,7 @@ func (m *Model) shownSlot(c gh.Check) int {
 	return at
 }
 
-// Reads the shown set so a held rerun keeps its selection; checkForLogical reads the fetch.
+// Reads the shown set so a held rerun keeps its selection.
 func (m *Model) checkForKey(key string) *gh.Check {
 	for i := range m.check.shown {
 		if m.check.shown[i].Key() == key {
@@ -412,7 +411,6 @@ func laterAttempt(a, b gh.Check) bool {
 	return a.DistinctID > b.DistinctID
 }
 
-// Key is LogicalKey's three fields with a distinct id sometimes appended.
 func logicalOf(key string) string {
 	parts := strings.SplitN(key, "\x00", 4)
 	if len(parts) < 3 {
@@ -594,14 +592,12 @@ func (m *Model) RunRerunSettled(jobIDs []int64) {
 	m.syncContent()
 }
 
-// RunRerunAccepted stamps the marks on jobIDs as accepted, until polling reports the replacements.
 func (m *Model) RunRerunAccepted(jobIDs []int64, acceptedAt time.Time) {
 	for _, id := range jobIDs {
 		m.RerunAccepted(id, acceptedAt)
 	}
 }
 
-// RerunAccepted stamps the mark on jobID as accepted, until polling reports the replacement.
 func (m *Model) RerunAccepted(jobID int64, acceptedAt time.Time) {
 	for key, pending := range m.check.reruns {
 		if pending.jobID == jobID {
@@ -770,7 +766,6 @@ func (m *Model) jobParsed(msg jobParsedMsg) tea.Cmd {
 	return m.armJobRender()
 }
 
-// SetJob applies job and parses its log synchronously.
 func (m *Model) SetJob(id int64, job store.Job) tea.Cmd {
 	c := m.selectedCheck()
 	if c == nil || c.JobID != id {

@@ -24,7 +24,6 @@ const (
 	asyncJobRenderFrom = 256 << 10
 )
 
-// SearchSettleMsg applies Query to the job log search once typing pauses.
 type SearchSettleMsg struct{ Query string }
 
 type jobSection struct {
@@ -144,9 +143,7 @@ func (m Model) jobStepLead() int {
 
 const (
 	checkSearchLabel = "Search: "
-
-	// The space before the label is measured with the row, in checkSearchRow.
-	checkSearchLead = 1
+	checkSearchLead  = 1
 )
 
 // bodyGutter is left out on purpose: it centres the viewport, and this row is the pane's heading.

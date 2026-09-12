@@ -84,7 +84,6 @@ func TestTheEditorIsTheOneTheReaderNamed(t *testing.T) {
 	}
 }
 
-// In the package because editorDoneMsg is unexported.
 func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
 	tests := []struct {
 		name  string

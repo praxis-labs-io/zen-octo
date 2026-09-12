@@ -16,7 +16,6 @@ type EditCommentMsg struct {
 	Body      string
 }
 
-// DeleteCommentMsg asks the root to remove a comment.
 type DeleteCommentMsg struct {
 	ID        string
 	CommentID string
@@ -24,7 +23,6 @@ type DeleteCommentMsg struct {
 	Kind      gh.CommentKind
 }
 
-// SetBodyMsg asks the root to rewrite the pull request's description.
 type SetBodyMsg struct {
 	ID   string
 	Body string

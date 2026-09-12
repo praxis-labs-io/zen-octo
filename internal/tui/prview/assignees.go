@@ -9,7 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// SetAssigneesMsg asks the root to replace the pull request's assignees with Assignees.
 type SetAssigneesMsg struct {
 	ID        string
 	Assignees []gh.Actor

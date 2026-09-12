@@ -20,10 +20,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// BackMsg asks the root to return to the list.
 type BackMsg struct{}
 
-// NeedFilesMsg asks the root to fetch the diff of pull request ID.
 type NeedFilesMsg struct{ ID string }
 
 // NeedJobMsg asks the root for one job attempt's metadata and log. A rerun is a new JobID.
@@ -32,15 +30,12 @@ type NeedJobMsg struct {
 	Refresh bool
 }
 
-// JobSettleMsg reports a check that stayed selected long enough to fetch.
-// It is ignored unless that check is still selected.
 type JobSettleMsg struct {
 	Key     string
 	JobID   int64
 	Refresh bool
 }
 
-// ToggleFileViewedMsg asks the root to mark Path viewed or unviewed.
 type ToggleFileViewedMsg struct {
 	ID     string
 	Path   string
@@ -55,20 +50,17 @@ type RefreshMsg struct {
 	SHA   string
 }
 
-// PostCommentMsg asks the root to post Body as a comment on pull request ID.
 type PostCommentMsg struct {
 	ID   string
 	Body string
 }
 
-// PostReplyMsg asks the root to post Body as a reply to review thread ThreadID on pull request ID.
 type PostReplyMsg struct {
 	ID       string
 	ThreadID string
 	Body     string
 }
 
-// ResolveThreadMsg asks the root to set review thread ThreadID's resolved state to Resolved.
 type ResolveThreadMsg struct {
 	ID       string
 	ThreadID string
@@ -78,16 +70,13 @@ type ResolveThreadMsg struct {
 // SplitTooNarrowMsg reports a refused side-by-side toggle, the pane being Short columns too narrow.
 type SplitTooNarrowMsg struct{ Short int }
 
-// ThreadNotInDiffMsg reports a jump to a review thread whose file is not in the diff.
 type ThreadNotInDiffMsg struct{ Path string }
 
 // EditorFailedMsg reports an external editor that failed. The draft and its box are untouched.
 type EditorFailedMsg struct{ Err error }
 
-// CopyLinkMsg asks the root to copy the pull request's URL to the clipboard.
 type CopyLinkMsg struct{ PR gh.PullRequest }
 
-// BrowseMsg asks the root to open the pull request in a browser.
 type BrowseMsg struct{ PR gh.PullRequest }
 
 // RailPreference is the reader's rail choice, carried to the next screen.
@@ -945,7 +934,6 @@ func (m *Model) scroll() *viewport.Model {
 	return &m.view
 }
 
-// Rail is the rail preference to hand the next screen.
 func (m Model) Rail() RailPreference {
 	return RailPreference{On: m.railOn, Set: m.railUserSet}
 }

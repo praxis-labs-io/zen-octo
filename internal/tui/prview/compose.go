@@ -76,7 +76,6 @@ func textarea(th theme.Theme, rows int) area.Model {
 
 func (c composer) body() string { return strings.TrimSpace(c.area.Value()) }
 
-// Counts wrapped rows rather than LineCount's logical lines, because the textarea folds long lines.
 func (c composer) rows(width int) int { return wrappedRows(c.area.Value(), width) }
 
 func (c composer) caretRow(width int) int {

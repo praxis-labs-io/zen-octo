@@ -13,10 +13,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/paint"
 )
 
-// Every row is one height so scrolling is a multiply rather than a walk over the rows.
 const commitRowHeight = 2
 
-// Walking a long branch would otherwise spend a diff request per commit passed.
 const commitSettleDelay = 150 * time.Millisecond
 
 // sha is painted, pending is asked for; kept apart so a cached diff flashes no spinner.
@@ -29,10 +27,8 @@ type commits struct {
 	diff    diffBody
 }
 
-// NeedCommitMsg asks the root to fetch the diff of commit SHA.
 type NeedCommitMsg struct{ SHA string }
 
-// CommitSettleMsg reports the cursor stopped on SHA. One the cursor has since left is ignored.
 type CommitSettleMsg struct{ SHA string }
 
 // SetCommitFiles shows f if sha is on the pane or asked for, and drops it otherwise.

@@ -13,25 +13,21 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// SetBaseMsg asks the root to retarget the pull request onto the branch named Base.
 type SetBaseMsg struct {
 	ID   string
 	Base string
 }
 
-// NeedBranchesMsg asks the root for Repo's branches matching Query. An empty Query is the unfiltered search.
 type NeedBranchesMsg struct {
 	Repo  string
 	Query string
 }
 
-// BranchSettleMsg reports that the base picker's filter held Query for the settle delay.
 type BranchSettleMsg struct{ Query string }
 
 const branchSettleDelay = 150 * time.Millisecond
 
-// SetBranches holds a branch search, refilling an open base picker or opening one
-// still waiting on it if the reader has not moved off the Base row or opened anything else.
+// SetBranches holds a branch search, refilling an open base picker or opening one still waiting on it.
 func (m *Model) SetBranches(b store.Branches) {
 	m.branches = b
 	if !b.Loaded {

@@ -50,10 +50,8 @@ type picking struct {
 
 func (p picking) open() bool { return p.field != pickNone }
 
-// NeedRepoMetaMsg asks the root to fetch the repository metadata the pickers draw from.
 type NeedRepoMetaMsg struct{ Repo string }
 
-// SetLabelsMsg asks the root to replace the pull request's labels with Labels.
 type SetLabelsMsg struct {
 	ID     string
 	Labels []gh.Label

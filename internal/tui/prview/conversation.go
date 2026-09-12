@@ -784,7 +784,6 @@ func (m *Model) byline(c gh.Comment) string {
 	return m.said(c.Author, "said", m.theme.Subtle, gh.TimelineItem{CreatedAt: c.CreatedAt})
 }
 
-// Stops cover the gaps so the first carries the top border, and scrolling to it keeps the anchor.
 func tile(block string, stops []focusItem) []focusItem {
 	if len(stops) == 0 {
 		return nil

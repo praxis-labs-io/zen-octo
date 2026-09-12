@@ -9,7 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// SetStateMsg asks the root to apply transition To to pull request ID.
 type SetStateMsg struct {
 	ID string
 	To gh.PRTransition

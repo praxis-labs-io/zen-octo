@@ -76,7 +76,6 @@ func (r run) codeRows(column gh.DiffSide) int {
 	return n
 }
 
-// Counts from one; 0 is the stop above the run, and past the end is -1.
 func (r run) rowAt(n int, column gh.DiffSide) int {
 	if n <= 0 {
 		return -1
