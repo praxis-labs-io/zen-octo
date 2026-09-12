@@ -1036,7 +1036,6 @@ func immediate(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
-// Matches on the type name because the root's message types are unexported.
 func holdBack(m tea.Model, msg tea.Msg, want string) (tea.Model, []tea.Msg) {
 	queue := []tea.Msg{msg}
 	var held []tea.Msg

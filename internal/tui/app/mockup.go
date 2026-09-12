@@ -188,7 +188,6 @@ func (Mock) UpdateComment(_ context.Context, kind gh.CommentKind, id, body strin
 	}, nil
 }
 
-// DeleteComment refuses a review's own body, as the real client does.
 func (Mock) DeleteComment(_ context.Context, kind gh.CommentKind, _ string) error {
 	if kind == gh.CommentReview {
 		return fmt.Errorf("deleting a comment: a %q comment cannot be deleted", kind)

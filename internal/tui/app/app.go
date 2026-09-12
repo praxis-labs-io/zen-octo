@@ -53,7 +53,6 @@ type GitHub interface {
 	// DeleteComment refuses a review's own body, which GitHub cannot delete.
 	DeleteComment(ctx context.Context, kind gh.CommentKind, id string) error
 
-	// SetBody replaces the pull request's description.
 	SetBody(ctx context.Context, prID, body string) (gh.BodyResult, error)
 	RepoMeta(ctx context.Context, repo string) (gh.RepoMetaResult, error)
 	SetLabels(ctx context.Context, prID string, labelIDs []string) (gh.LabelsResult, error)
@@ -193,7 +192,6 @@ const (
 	screenDetail
 )
 
-// Model is the root of the UI.
 type Model struct {
 	client GitHub
 	theme  theme.Theme
@@ -262,8 +260,6 @@ const (
 	legCommit
 )
 
-// New builds the root model over the configured sections. Either field of
-// surface is nil where the terminal did not answer.
 func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
 	colors := theme.NewOverrides(cfg.Theme.Colors, cfg.Theme.Named)
 	colorErr := colors.Validate()
@@ -865,7 +861,6 @@ func (m Model) detailSettled(id string, err error) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(armed, owed)
 }
 
-// Update applies every message. Nothing else mutates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -1323,7 +1318,6 @@ func (m Model) screenView() string {
 	return m.list.View()
 }
 
-// View renders the frame and declares the alt screen. It never fetches or mutates.
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
