@@ -8,7 +8,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// pulsed is what a recheck answers with, moving whatever the caller names.
 func pulsed(p gh.Pulse) gh.PulseResult {
 	return gh.PulseResult{
 		Pulse:     p,
@@ -16,8 +15,6 @@ func pulsed(p gh.Pulse) gh.PulseResult {
 	}
 }
 
-// held loads a pull request the way opening one does, with a page under it for
-// the pulse to leave alone.
 func held(t *testing.T) store.Store {
 	t.Helper()
 
@@ -27,12 +24,8 @@ func held(t *testing.T) store.Store {
 	return s
 }
 
-// beginOnCopy is how the app reaches it. Model.pulse has a value receiver and
-// returns only a command, so the Store it marks is a copy that is thrown away.
 func beginOnCopy(s store.Store) bool { return s.BeginPulse("pr1") }
 
-// A map built on first write is built on that copy and goes with it, which
-// leaves every guard below reading a nil map and refusing nothing.
 func TestTheFlightSurvivesTheCopyItIsMarkedOn(t *testing.T) {
 	s := held(t)
 
@@ -44,8 +37,6 @@ func TestTheFlightSurvivesTheCopyItIsMarkedOn(t *testing.T) {
 	}
 }
 
-// The whole point of folding field by field: the pulse carries no timeline, no
-// threads and no reviewers, and a struct replaced wholesale would empty them.
 func TestAPulseLeavesThePageAlone(t *testing.T) {
 	s := held(t)
 
@@ -85,15 +76,11 @@ func TestAPulseMovesTheFieldsItCarries(t *testing.T) {
 	if d.ReviewDecision != gh.ReviewDecisionApproved || d.Merge != gh.MergeBlocked {
 		t.Errorf("review = %q merge = %q, want what the pulse answered", d.ReviewDecision, d.Merge)
 	}
-	// The row's summary as well as the breakdown: the header reads one and the
-	// list row the other, and only the rollup arrives carrying both.
 	if d.Rollup.Failed != 1 || d.Checks != gh.CheckStateFailure {
 		t.Errorf("checks = %q over %+v, want the rollup and its summary", d.Checks, d.Rollup)
 	}
 }
 
-// The diff is measured against a commit that is no longer the tip, and nothing
-// else on the pulse says a push happened.
 func TestAMovedHeadMarksTheDiffStale(t *testing.T) {
 	s := held(t)
 
@@ -121,8 +108,6 @@ func TestAHeadThatDidNotMoveLeavesTheDiffAlone(t *testing.T) {
 	}
 }
 
-// A pull request closed elsewhere has to reach the list behind the screen, the
-// same way a landed detail does.
 func TestAPulseCorrectsTheRowBehindIt(t *testing.T) {
 	s := store.New(configured())
 	s.Applied(0, gh.SearchResult{PullRequests: []gh.PullRequest{{ID: "pr1", State: gh.PRStateOpen}}})
@@ -137,15 +122,12 @@ func TestAPulseCorrectsTheRowBehindIt(t *testing.T) {
 	}
 }
 
-// A write held and not yet answered for is on the screen, and GitHub knows
-// nothing about it. The row has to keep it rather than take the fetched one.
 func TestAPulseDoesNotPutTheRowBackUnderAHeldWrite(t *testing.T) {
 	s := store.New(configured())
 	s.Applied(0, gh.SearchResult{PullRequests: []gh.PullRequest{{ID: "pr1", State: gh.PRStateOpen}}})
 	s.BeginDetail("pr1")
 	s.DetailApplied("pr1", reviewed())
 
-	// Closed on the rail, still in flight.
 	s.PendingState("pr1", gh.TransitionClose)
 
 	s.BeginPulse("pr1")
@@ -156,8 +138,6 @@ func TestAPulseDoesNotPutTheRowBackUnderAHeldWrite(t *testing.T) {
 	}
 }
 
-// The pulse was asked for before the write settled, so it answers from the
-// state the pull request was in beforehand.
 func TestAPulseAnsweringAfterAWriteIsDropped(t *testing.T) {
 	s := held(t)
 	s.BeginPulse("pr1")
@@ -170,15 +150,11 @@ func TestAPulseAnsweringAfterAWriteIsDropped(t *testing.T) {
 	if got := s.Detail("pr1").Detail.State; got != gh.PRStateClosed {
 		t.Errorf("state = %q, want it still closed: the pulse predates the write", got)
 	}
-	// The mark stands after the drop, which is what says another is owed. The
-	// probe spends one wait, so nothing else would ever ask.
 	if !s.StalePulse("pr1") {
 		t.Error("the dropped pulse left no debt, so the row latches on what it had")
 	}
 }
 
-// A full fetch answers everything the pulse would and was asked for later, so
-// the pulse is the one that loses.
 func TestAPulseOvertakenByADetailIsDropped(t *testing.T) {
 	s := held(t)
 	s.BeginPulse("pr1")
@@ -219,8 +195,6 @@ func TestTheStoreRefusesAPulseItCannotUse(t *testing.T) {
 	}
 }
 
-// A write still in flight is on the screen, and a recheck is not evidence it
-// failed.
 func TestAPulseDoesNotDisturbAWriteStillInFlight(t *testing.T) {
 	s := held(t)
 	s.PendingComment("pr1", gh.Comment{Body: "looks right to me", Author: gh.Actor{Login: "drucial"}})
@@ -233,8 +207,6 @@ func TestAPulseDoesNotDisturbAWriteStillInFlight(t *testing.T) {
 	}
 }
 
-// Nothing on the screen was waiting on it, so a failed recheck says nothing and
-// leaves everything where it was.
 func TestAFailedPulseKeepsThePageAndRaisesNoError(t *testing.T) {
 	s := held(t)
 	s.BeginPulse("pr1")

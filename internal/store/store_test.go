@@ -27,8 +27,6 @@ func result(ids ...string) gh.SearchResult {
 	return gh.SearchResult{PullRequests: prs}
 }
 
-// Sections answer in whatever order they finish, so an arrival names its slot
-// rather than the store assuming the one it is waiting on.
 func TestResponsesLandInTheirOwnSectionWhateverTheOrder(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -48,8 +46,6 @@ func TestResponsesLandInTheirOwnSectionWhateverTheOrder(t *testing.T) {
 	}
 }
 
-// A detail is the same row search returned, fetched later, so it corrects every
-// section carrying it rather than only the one the reader opened it from.
 func TestADetailCorrectsTheRowInEverySectionHoldingIt(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -72,8 +68,6 @@ func TestADetailCorrectsTheRowInEverySectionHoldingIt(t *testing.T) {
 	}
 }
 
-// The held slice is inside a snapshot the list screen is already rendering
-// from, so the write goes to a copy.
 func TestCorrectingARowLeavesAnEarlierSnapshotAlone(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -91,8 +85,6 @@ func TestCorrectingARowLeavesAnEarlierSnapshotAlone(t *testing.T) {
 	}
 }
 
-// reviewed is a pull request one reviewer asked for changes on, with two
-// threads open under that review.
 func reviewed() gh.DetailResult {
 	review := gh.Comment{ID: "PRR_1", Author: gh.Actor{Login: "nkr"}}
 	detail := gh.PullRequestDetail{
@@ -109,13 +101,10 @@ func reviewed() gh.DetailResult {
 			{ID: "RT_2", ReviewID: "PRR_1"},
 		},
 	}
-	// The counts arrive derived, the way every fetched detail carries them.
 	gh.RecountThreads(&detail)
 	return gh.DetailResult{Detail: detail}
 }
 
-// The rail colours a reviewer from these two counts, so a resolve that leaves
-// them where they were says the change was never made until the next sync.
 func TestResolvingAThreadMovesTheReviewersCount(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("pr1")
@@ -136,7 +125,6 @@ func TestResolvingAThreadMovesTheReviewersCount(t *testing.T) {
 		t.Errorf("settled at %d of %d, want 1 of 2", got.Unresolved, got.Threads)
 	}
 
-	// The last one closed is what turns the mark from blocking to addressed.
 	second := s.PendingResolve("pr1", "RT_2", true)
 	s.ResolveApplied("pr1", second, gh.ThreadResult{IsResolved: true, CanUnresolve: true})
 	if got := s.Detail("pr1").Detail.Reviewers[0]; got.Unresolved != 0 || got.Threads != 2 {
@@ -144,8 +132,6 @@ func TestResolvingAThreadMovesTheReviewersCount(t *testing.T) {
 	}
 }
 
-// Unresolving is the same move back, and the count is what the rail reads to
-// go red again.
 func TestUnresolvingPutsTheCountBack(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("pr1")
@@ -162,8 +148,6 @@ func TestUnresolvingPutsTheCountBack(t *testing.T) {
 	}
 }
 
-// A reload keeps its rows and its keys, so a pull request can be closed while
-// its section's request is out. That response was answered before the write.
 func TestASectionResponseDoesNotUndoAWriteMadeWhileItWasOut(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -174,7 +158,6 @@ func TestASectionResponseDoesNotUndoAWriteMadeWhileItWasOut(t *testing.T) {
 		PullRequest: gh.PullRequest{ID: "a1"},
 	}})
 
-	// The reader presses s, then closes a1 before the answer comes back.
 	s.Begin(0)
 	key := s.PendingState("a1", gh.TransitionClose)
 	s.StateApplied("a1", key, gh.PRStateResult{State: gh.PRStateClosed})
@@ -186,8 +169,6 @@ func TestASectionResponseDoesNotUndoAWriteMadeWhileItWasOut(t *testing.T) {
 	}
 }
 
-// The same response is entitled to every row nothing was written to, or a
-// stale detail from an hour ago would pin a row nobody has touched since.
 func TestASectionResponseStillReplacesRowsNothingWrote(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -198,7 +179,6 @@ func TestASectionResponseStillReplacesRowsNothingWrote(t *testing.T) {
 		PullRequest: gh.PullRequest{ID: "a1", Title: "from the detail"},
 	}})
 
-	// A fetch started after that detail landed, so its answer is the newer one.
 	s.Begin(0)
 	fresh := gh.SearchResult{PullRequests: []gh.PullRequest{{ID: "a1", Title: "from the search"}}}
 	s.Applied(0, fresh)
@@ -208,8 +188,6 @@ func TestASectionResponseStillReplacesRowsNothingWrote(t *testing.T) {
 	}
 }
 
-// The corrective fetch a lifecycle write fires can fail, and the write is
-// GitHub's own answer either way.
 func TestALifecycleWriteReachesTheRowWithoutARefetch(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -228,8 +206,6 @@ func TestALifecycleWriteReachesTheRowWithoutARefetch(t *testing.T) {
 	}
 }
 
-// The held slice is inside a rail already rendered from a detail handed out
-// earlier, so the recount goes to a copy.
 func TestRecountingLeavesAnEarlierDetailAlone(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("pr1")
@@ -272,8 +248,6 @@ func TestTheBudgetFallsThroughABurst(t *testing.T) {
 			want: 4999,
 		},
 		{
-			// The straggler was issued before the reset, so its exhausted
-			// number describes a window that no longer exists.
 			name: "a straggler from the previous window does not pull it back down",
 			in: []gh.RateLimit{
 				{Limit: 5000, Remaining: 4999, ResetAt: later},
@@ -306,8 +280,6 @@ func TestTheBudgetFallsThroughABurst(t *testing.T) {
 	}
 }
 
-// One request per section is the invariant everything above rests on: it is
-// what lets an arrival be applied to its slot with no staleness check.
 func TestBeginRefusesASectionAlreadyInFlight(t *testing.T) {
 	s := store.New(configured())
 
@@ -351,8 +323,6 @@ func TestAFailedSectionHoldsItsRowsAndItsError(t *testing.T) {
 	}
 }
 
-// The view holds a snapshot across frames. Handing it the live slice would let
-// a screen write into state only Update is allowed to touch.
 func TestTheSnapshotIsACopy(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -367,7 +337,6 @@ func TestTheSnapshotIsACopy(t *testing.T) {
 	}
 }
 
-// Out of range is a caller bug, not a panic in the middle of Update.
 func TestAnIndexOffTheEndIsIgnored(t *testing.T) {
 	s := store.New(configured())
 	off := len(s.Sections())
@@ -411,8 +380,6 @@ func TestADetailIsHeldForTheNextOpen(t *testing.T) {
 	}
 }
 
-// One request per pull request is what makes opening the same row twice in
-// quick succession cost one round trip rather than two.
 func TestBeginDetailRefusesOneAlreadyInFlight(t *testing.T) {
 	s := store.New(configured())
 
@@ -429,8 +396,6 @@ func TestBeginDetailRefusesOneAlreadyInFlight(t *testing.T) {
 	}
 }
 
-// The screen keeps reading through a failed background refetch. Emptying it
-// would be worse news than the news.
 func TestAFailedRefetchKeepsTheDetailItAlreadyHad(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("PR_412")
@@ -452,8 +417,6 @@ func TestAFailedRefetchKeepsTheDetailItAlreadyHad(t *testing.T) {
 	}
 }
 
-// The budget is one number across every call, so a detail has to move it the
-// same way a section does.
 func TestADetailResponseMovesTheBudget(t *testing.T) {
 	s := store.New(configured())
 	s.BeginAll()
@@ -469,8 +432,6 @@ func TestADetailResponseMovesTheBudget(t *testing.T) {
 	}
 }
 
-// The login is asked for once and then read all session. It moves the budget
-// like every other response, because the point it costs comes off the same one.
 func TestTheViewerIsHeldAndMovesTheBudget(t *testing.T) {
 	s := store.New(configured())
 
@@ -491,7 +452,6 @@ func TestTheViewerIsHeldAndMovesTheBudget(t *testing.T) {
 	}
 }
 
-// An empty id is a caller bug, not a map entry nothing can reach.
 func TestAnEmptyIDIsIgnored(t *testing.T) {
 	s := store.New(configured())
 
@@ -599,8 +559,6 @@ func TestSettlingAFileViewedWriteRestoresTheDiffCacheBound(t *testing.T) {
 	}
 }
 
-// Tabbing in and out of Files while the first request is out has to cost one
-// round trip, the same way opening a row twice does.
 func TestBeginFilesRefusesOneAlreadyInFlight(t *testing.T) {
 	s := store.New(configured())
 
@@ -680,8 +638,6 @@ func TestAFailedCommitRefetchKeepsTheDiffItAlreadyHad(t *testing.T) {
 	}
 }
 
-// A commit and a pull request are keyed in separate maps, so a sha that happens
-// to match an id answers for its own diff rather than the other's.
 func TestACommitsDiffIsHeldApartFromThePullRequests(t *testing.T) {
 	s := store.New(configured())
 	s.BeginFiles("PR_412")
@@ -692,8 +648,6 @@ func TestACommitsDiffIsHeldApartFromThePullRequests(t *testing.T) {
 	}
 }
 
-// The two caches are keyed the same but answer different questions. A diff must
-// not read as loaded because the conversation is.
 func TestTheDiffAndTheDetailAreHeldApart(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("PR_412")
@@ -704,8 +658,6 @@ func TestTheDiffAndTheDetailAreHeldApart(t *testing.T) {
 	}
 }
 
-// bodies is the comment bodies on a detail's timeline, in order, which is what
-// the conversation would render.
 func bodies(d store.Detail) []string {
 	var out []string
 	for _, item := range d.Detail.Timeline {
@@ -725,8 +677,6 @@ func detailWith(bodies ...string) gh.DetailResult {
 	return gh.DetailResult{Detail: gh.PullRequestDetail{Timeline: items}}
 }
 
-// A comment written here shows in the conversation before GitHub has seen it.
-// That is the whole of what optimistic means.
 func TestAPendingCommentRendersBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -737,16 +687,12 @@ func TestAPendingCommentRendersBeforeItLands(t *testing.T) {
 		t.Errorf("timeline = %q, want the pending comment at the end", got)
 	}
 
-	// It says it has not landed. A placeholder that looks like the real thing
-	// is a lie the moment the post fails.
 	last := s.Detail("PR_1").Detail.Timeline[1].Said()
 	if !last.Pending {
 		t.Error("the pending comment is not marked pending")
 	}
 }
 
-// The reason pending is held beside the detail rather than written into it. A
-// refetch that answers before the mutation does must not take the comment away.
 func TestARefetchDoesNotDropACommentStillInFlight(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -759,8 +705,6 @@ func TestARefetchDoesNotDropACommentStillInFlight(t *testing.T) {
 	}
 }
 
-// Reading twice gives the same answer. Folding pending into the held slice
-// rather than a copy would append it again on every call.
 func TestReadingADetailTwiceDoesNotDoubleThePending(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -795,8 +739,6 @@ func TestAPostedCommentReplacesItsPlaceholder(t *testing.T) {
 	}
 }
 
-// The revert branch. A post that fails takes its comment back off the screen
-// rather than leaving a card nothing will ever confirm.
 func TestAFailedPostTakesItsCommentBack(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -809,7 +751,6 @@ func TestAFailedPostTakesItsCommentBack(t *testing.T) {
 	}
 }
 
-// Two comments in flight settle independently, and each names its own.
 func TestTwoWritesInFlightSettleSeparately(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -830,8 +771,6 @@ func TestTwoWritesInFlightSettleSeparately(t *testing.T) {
 	}
 }
 
-// A response for a key already settled is a second copy of an answer. Applying
-// it would put the comment in the conversation twice.
 func TestAResponseForAWriteAlreadySettledIsIgnored(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -846,8 +785,6 @@ func TestAResponseForAWriteAlreadySettledIsIgnored(t *testing.T) {
 	}
 }
 
-// Writes belong to the pull request they were written on. One open in a second
-// screen must not show the other's placeholder.
 func TestAPendingCommentStaysOnItsOwnPullRequest(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
@@ -860,15 +797,11 @@ func TestAPendingCommentStaysOnItsOwnPullRequest(t *testing.T) {
 	}
 }
 
-// A refetch that lands while the write is out already carries the comment.
-// Adding it again puts the same one on the page twice, and the two cards share
-// a node id, which is the one thing the focus ring cannot survive.
 func TestACommentARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first"))
 	key := s.PendingComment("PR_1", gh.Comment{Kind: gh.CommentIssue, Body: "mine"})
 
-	// GitHub recorded it and the refetch answered before the mutation did.
 	s.DetailApplied("PR_1", detailWith("first", "mine"))
 
 	s.PendingApplied("PR_1", key, gh.CommentResult{
@@ -880,8 +813,6 @@ func TestACommentARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
 	}
 }
 
-// replies is the comment bodies on one thread, in order, which is what the
-// thread's card would render.
 func replies(d store.Detail, threadID string) []string {
 	for _, t := range d.Detail.Threads {
 		if t.ID != threadID {
@@ -896,12 +827,7 @@ func replies(d store.Detail, threadID string) []string {
 	return nil
 }
 
-// threadWith is a detail carrying one review thread and the comments on it.
-//
-// The comments are appended from nil rather than sized exactly, because that is
-// what the gh package does and the difference is the whole of the aliasing test
-// below: a slice with no spare capacity reallocates on every append, which hides
-// a write that would otherwise land in the held detail.
+// threadWith appends comments from nil, as gh does, so the aliasing tests see spare capacity.
 func threadWith(id string, bodies ...string) gh.DetailResult {
 	var comments []gh.Comment
 	for _, body := range bodies {
@@ -912,7 +838,6 @@ func threadWith(id string, bodies ...string) gh.DetailResult {
 	}}
 }
 
-// A reply hangs off the thread it answers, not off the end of the timeline.
 func TestAPendingReplyRendersUnderItsThread(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -947,11 +872,6 @@ func TestARefetchDoesNotDropAReplyStillInFlight(t *testing.T) {
 	}
 }
 
-// The aliasing bug the two clones are there for. Cloning the threads copies the
-// structs, and each one's comments are still the held slice; a thread with spare
-// capacity takes the append in place, into the array every other caller is
-// reading. A detail already handed out then changes under whoever is holding it,
-// which on this screen is a rendered conversation.
 func TestFoldingAReplyDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "one", "two", "three"))
@@ -962,7 +882,6 @@ func TestFoldingAReplyDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
 		t.Fatalf("thread = %q, want the first reply folded in", got)
 	}
 
-	// A second write folds into the same slot on the next read.
 	s.PendingReverted("PR_1", first)
 	s.PendingReply("PR_1", "RT_1", gh.Comment{Body: "somebody else's"})
 	_ = s.Detail("PR_1")
@@ -972,7 +891,6 @@ func TestFoldingAReplyDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
 	}
 }
 
-// Reading twice gives the same answer.
 func TestReadingADetailTwiceDoesNotDoubleAPendingReply(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -984,8 +902,6 @@ func TestReadingADetailTwiceDoesNotDoubleAPendingReply(t *testing.T) {
 	}
 }
 
-// Two replies to one thread are two writes, and the second must not clobber the
-// slice the first was folded into.
 func TestTwoRepliesToOneThreadBothShow(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -1027,8 +943,6 @@ func TestAFailedReplyTakesItsCommentBack(t *testing.T) {
 	}
 }
 
-// A refetch that landed while the reply was out already carries it. Adding it
-// again gives the thread two comments sharing a node id.
 func TestAReplyARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -1044,8 +958,6 @@ func TestAReplyARefetchAlreadyCarriesIsNotAddedTwice(t *testing.T) {
 	}
 }
 
-// The thread went away under the write: resolved and hidden, or off the first
-// page. The refetch is the truer picture, and there is nowhere honest to put it.
 func TestAReplyToAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -1053,8 +965,6 @@ func TestAReplyToAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
 
 	s.DetailApplied("PR_1", threadWith("RT_OTHER", "elsewhere"))
 
-	// Nothing to fold it into while it is out, and nowhere to land when it
-	// answers. Neither is a panic.
 	if got := replies(s.Detail("PR_1"), "RT_OTHER"); len(got) != 1 {
 		t.Errorf("thread = %q, want the reply nowhere on it", got)
 	}
@@ -1067,8 +977,6 @@ func TestAReplyToAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
 	}
 }
 
-// A comment and a reply in flight together settle in different places, and each
-// answer has to find its own.
 func TestACommentAndAReplyInFlightSettleSeparately(t *testing.T) {
 	s := store.New(configured())
 	d := threadWith("RT_1", "asked")
@@ -1098,7 +1006,6 @@ func TestACommentAndAReplyInFlightSettleSeparately(t *testing.T) {
 	}
 }
 
-// threadIn is one thread out of a detail, by id.
 func threadIn(t *testing.T, d store.Detail, id string) gh.ReviewThread {
 	t.Helper()
 
@@ -1122,8 +1029,6 @@ func TestAPendingResolveShowsResolvedBeforeItLands(t *testing.T) {
 	}
 }
 
-// The permissions are GitHub's to say. Flipping CanUnresolve here would put a
-// key on the card that opens a write the token cannot make.
 func TestAPendingResolveLeavesThePermissionsAlone(t *testing.T) {
 	s := store.New(configured())
 	d := threadWith("RT_1", "asked")
@@ -1163,8 +1068,6 @@ func TestFoldingAResolveDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
 	}
 }
 
-// Both fold into one clone. A second loop cloning from the held slice again
-// would drop the reply the first one folded in.
 func TestAResolveAndAReplyInFlightBothFoldIn(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -1221,8 +1124,6 @@ func TestAFailedResolvePutsTheThreadBack(t *testing.T) {
 	}
 }
 
-// The thread went away under the write. Writing it back to carry one field
-// would be the store inventing state GitHub did not send.
 func TestAResolveForAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))
@@ -1236,8 +1137,6 @@ func TestAResolveForAThreadTheRefetchDroppedIsDiscarded(t *testing.T) {
 	}
 }
 
-// A comment and a resolve out at once take one key each, and each answer finds
-// its own write.
 func TestACommentAndAResolveInFlightSettleSeparately(t *testing.T) {
 	s := store.New(configured())
 	d := threadWith("RT_1", "asked")
@@ -1260,9 +1159,6 @@ func TestACommentAndAResolveInFlightSettleSeparately(t *testing.T) {
 	}
 }
 
-// The screen reads this to keep a second press off a thread already answering
-// for one. Two writes out settle in the order the responses arrive, not the
-// order they were pressed.
 func TestAThreadWithAResolveInFlightIsMarkedPending(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "asked"))

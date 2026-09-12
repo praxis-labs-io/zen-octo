@@ -44,8 +44,6 @@ func TestAPendingLabelSetRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// Unchecking the last label is a real write. An empty set folding as "no edit"
-// would leave the label on the screen with nothing to say why.
 func TestAPendingEmptyLabelSetClearsThem(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -57,7 +55,6 @@ func TestAPendingEmptyLabelSetClearsThem(t *testing.T) {
 	}
 }
 
-// The reason an edit is held beside the detail rather than written into it.
 func TestARefetchDoesNotDropALabelEditStillInFlight(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -75,7 +72,6 @@ func TestLabelsAppliedTakesGitHubsAnswer(t *testing.T) {
 	s.DetailApplied("PR_1", labelled("bug"))
 	key := s.PendingLabels("PR_1", labelSet("bug", "urgent"))
 
-	// GitHub kept one of the two. Its answer is the authority, not the ask.
 	s.LabelsApplied("PR_1", key, gh.LabelsResult{Labels: labelSet("urgent")})
 
 	if got, want := labelNames(s.Detail("PR_1")), []string{"urgent"}; !slices.Equal(got, want) {
@@ -95,9 +91,6 @@ func TestARevertedLabelEditPutsTheFetchedSetBack(t *testing.T) {
 	}
 }
 
-// Two writes out on one field settle last-held wins, which is the order they
-// were pressed in. A map keyed by field would lose the first one's key and
-// leave its response with nothing to settle.
 func TestTwoLabelEditsInFlightSettleByKey(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -112,14 +105,12 @@ func TestTwoLabelEditsInFlightSettleByKey(t *testing.T) {
 		t.Errorf("labels = %q, want the later edit on top", got)
 	}
 
-	// The first answers late and fails. The second is still the reader's ask.
 	s.EditReverted("PR_1", first)
 	if got, want := labelNames(s.Detail("PR_1")), []string{"urgent", "docs"}; !slices.Equal(got, want) {
 		t.Errorf("labels = %q after the first reverted, want %q", got, want)
 	}
 }
 
-// A response for a key already settled must not apply twice.
 func TestASettledLabelEditIgnoresASecondResponse(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -133,9 +124,6 @@ func TestASettledLabelEditIgnoresASecondResponse(t *testing.T) {
 	}
 }
 
-// The fold hands out a clone. Writing into what a reader was handed must not
-// reach the edit still in flight, and a write in place is the one that would:
-// an append past a full slice reallocates and hides the sharing.
 func TestWritingIntoAFoldedLabelSetDoesNotReachTheStore(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -149,8 +137,6 @@ func TestWritingIntoAFoldedLabelSetDoesNotReachTheStore(t *testing.T) {
 	}
 }
 
-// The same guarantee on the way in. A caller that reuses the slice it handed to
-// PendingLabels must not be editing what the store is holding.
 func TestWritingIntoTheSliceHandedToPendingLabelsDoesNotReachTheStore(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -182,7 +168,6 @@ func TestRepoMetaIsHeldForTheNextPicker(t *testing.T) {
 		t.Errorf("labels = %d, want %d", got, want)
 	}
 
-	// Refused twice over: already loaded, so a second picker costs nothing.
 	if s.BeginRepoMeta("acme/rocket") {
 		t.Error("BeginRepoMeta started a second request for metadata already held")
 	}
@@ -227,9 +212,6 @@ func TestFailedRepoMetaCarriesItsError(t *testing.T) {
 	}
 }
 
-// Two writes settle in whatever order the network gives them. The earlier one
-// answering last must not overwrite the reader's newer ask with a set they have
-// already moved on from.
 func TestAnEarlierLabelResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -237,7 +219,6 @@ func TestAnEarlierLabelResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	first := s.PendingLabels("PR_1", labelSet("urgent"))
 	s.PendingLabels("PR_1", labelSet("urgent", "docs"))
 
-	// The first write answers last, carrying the set nobody is asking for now.
 	s.LabelsApplied("PR_1", first, gh.LabelsResult{Labels: labelSet("urgent")})
 
 	if got, want := labelNames(s.Detail("PR_1")), []string{"urgent", "docs"}; !slices.Equal(got, want) {
@@ -245,7 +226,6 @@ func TestAnEarlierLabelResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	}
 }
 
-// Once the last write settles, GitHub's answer is the authority again.
 func TestTheLastLabelResponseWritesTheHeldSet(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -284,7 +264,6 @@ func TestAPendingTransitionRendersBeforeItLands(t *testing.T) {
 		{"draft", gh.PRStateOpen, false, gh.TransitionDraft, gh.PRStateOpen, true},
 		{"close", gh.PRStateOpen, false, gh.TransitionClose, gh.PRStateClosed, false},
 		{"reopen", gh.PRStateClosed, false, gh.TransitionReopen, gh.PRStateOpen, false},
-		// Closing a draft leaves it a draft, and reopening gives that back.
 		{"close a draft", gh.PRStateOpen, true, gh.TransitionClose, gh.PRStateClosed, true},
 		{"reopen a draft", gh.PRStateClosed, true, gh.TransitionReopen, gh.PRStateOpen, true},
 	}
@@ -304,8 +283,6 @@ func TestAPendingTransitionRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// The edit carries the move, not the landing, so two out at once compose in the
-// order they were pressed rather than the second undoing the first.
 func TestTwoTransitionsInFlightCompose(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -336,7 +313,6 @@ func TestStateAppliedTakesGitHubsAnswer(t *testing.T) {
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
 	key := s.PendingState("PR_1", gh.TransitionClose)
 
-	// GitHub says it closed and is a draft. Its answer is the authority.
 	s.StateApplied("PR_1", key, gh.PRStateResult{State: gh.PRStateClosed, IsDraft: true})
 
 	state, draft := lifecycle(s.Detail("PR_1"))
@@ -358,7 +334,6 @@ func TestARevertedTransitionPutsTheFetchedStateBack(t *testing.T) {
 	}
 }
 
-// The earlier write answering last must not overwrite the reader's newer ask.
 func TestAnEarlierStateResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -373,7 +348,6 @@ func TestAnEarlierStateResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	}
 }
 
-// An edit and a label set are different fields, and both fold at once.
 func TestATransitionAndALabelSetFoldTogether(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -393,8 +367,6 @@ func TestATransitionAndALabelSetFoldTogether(t *testing.T) {
 	}
 }
 
-// Two writes on different fields are not evidence about each other. Gating one
-// on the other drops an answer nobody is going to send again.
 func TestAStateWriteDoesNotSuppressALabelAnswer(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -405,10 +377,8 @@ func TestAStateWriteDoesNotSuppressALabelAnswer(t *testing.T) {
 	labels := s.PendingLabels("PR_1", labelSet("bug", "urgent"))
 	state := s.PendingState("PR_1", gh.TransitionClose)
 
-	// The labels answer while the state change is still out.
 	s.LabelsApplied("PR_1", labels, gh.LabelsResult{Labels: labelSet("bug", "urgent")})
 
-	// The state change then fails and takes only itself off the screen.
 	s.EditReverted("PR_1", state)
 
 	if got, want := labelNames(s.Detail("PR_1")), []string{"bug", "urgent"}; !slices.Equal(got, want) {
@@ -437,15 +407,10 @@ func TestALabelWriteDoesNotSuppressAStateAnswer(t *testing.T) {
 	}
 }
 
-// A detail fetch asked for before a write settled answers from the state the
-// pull request was in beforehand. Storing it would put the landed write back on
-// the screen undone, and its fetched permissions would take the row's key with
-// it.
 func TestADetailAskedForBeforeAWriteIsDropped(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
 
-	// The reader syncs, then closes before the sync answers.
 	if !s.BeginDetail("PR_1") {
 		t.Fatal("BeginDetail refused a detail that is not loading")
 	}
@@ -456,7 +421,6 @@ func TestADetailAskedForBeforeAWriteIsDropped(t *testing.T) {
 		t.Error("the fetch in flight is not marked stale")
 	}
 
-	// The sync answers with the pull request as it was before the close.
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
 
 	if got, _ := lifecycle(s.Detail("PR_1")); got != gh.PRStateClosed {
@@ -467,7 +431,6 @@ func TestADetailAskedForBeforeAWriteIsDropped(t *testing.T) {
 	}
 }
 
-// The fetch the caller then owes carries everything, and is not stale.
 func TestTheFetchAfterAWriteIsNotStale(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -488,8 +451,6 @@ func TestTheFetchAfterAWriteIsNotStale(t *testing.T) {
 	}
 }
 
-// The rail reads this to know the permissions beside the state are a round trip
-// behind it.
 func TestAStateWriteInFlightIsVisibleOnTheDetail(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -509,7 +470,6 @@ func TestAStateWriteInFlightIsVisibleOnTheDetail(t *testing.T) {
 	}
 }
 
-// A label write is not a lifecycle write, so it must not hold the State row.
 func TestALabelWriteDoesNotReadAsAStateWrite(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", labelled("bug"))
@@ -560,9 +520,6 @@ func TestAPendingAssigneeSetRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// Unchecking the last assignee is a real write, the same as unchecking the last
-// label. An empty set folding as "no edit" would leave them on the screen with
-// nothing to say why.
 func TestAPendingEmptyAssigneeSetClearsThem(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", assigned("drucial"))
@@ -593,7 +550,6 @@ func TestAnEarlierAssigneeResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	first := s.PendingAssignees("PR_1", people("nkr"))
 	s.PendingAssignees("PR_1", people("nkr", "octocat"))
 
-	// The first write answers last, carrying the set nobody is asking for now.
 	s.AssigneesApplied("PR_1", first, gh.AssigneesResult{Assignees: people("nkr")})
 
 	if got, want := assigneeLogins(s.Detail("PR_1")), []string{"nkr", "octocat"}; !slices.Equal(got, want) {
@@ -601,7 +557,6 @@ func TestAnEarlierAssigneeResponseDoesNotOverwriteALaterEdit(t *testing.T) {
 	}
 }
 
-// A failed write takes only itself off the screen.
 func TestAFailedAssigneeWriteRestoresTheFetchedSet(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", assigned("drucial"))
@@ -614,9 +569,6 @@ func TestAFailedAssigneeWriteRestoresTheFetchedSet(t *testing.T) {
 	}
 }
 
-// The reviewer panel is the one write with no answer worth taking. The endpoint
-// reports the requests it now holds and nothing about who already reviewed, so
-// the optimistic panel stands until the refetch replaces it.
 func TestAReviewerAnswerLeavesTheOptimisticPanelStanding(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -651,8 +603,6 @@ func TestAFailedReviewerWriteRestoresTheFetchedPanel(t *testing.T) {
 	}
 }
 
-// A reviewer write fires a refetch, so a fetch already in flight when it settles
-// is one asked for before it and cannot be taken.
 func TestAReviewerWriteMarksAFetchInFlightStale(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -670,8 +620,6 @@ func TestAReviewerWriteMarksAFetchInFlightStale(t *testing.T) {
 	}
 }
 
-// The four fields are four queues. An answer on one is not evidence about
-// another, and gating them together drops an answer nobody will send again.
 func TestAnAssigneeWriteDoesNotSuppressAReviewerAnswer(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -685,9 +633,7 @@ func TestAnAssigneeWriteDoesNotSuppressAReviewerAnswer(t *testing.T) {
 	})
 	assignees := s.PendingAssignees("PR_1", people("drucial", "nkr"))
 
-	// The reviewers answer while the assignee write is still out.
 	s.ReviewersApplied("PR_1", reviewers)
-	// The assignee write then fails and takes only itself off the screen.
 	s.EditReverted("PR_1", assignees)
 
 	if got, want := reviewerLogins(s.Detail("PR_1")), []string{"nkr", "octocat"}; !slices.Equal(got, want) {
@@ -698,9 +644,6 @@ func TestAnAssigneeWriteDoesNotSuppressAReviewerAnswer(t *testing.T) {
 	}
 }
 
-// Neither of the two new writes holds the State row: the rail reads StateWriting
-// to know the permissions beside the state are a round trip behind it, and only
-// a lifecycle write puts them there.
 func TestNeitherPeopleWriteReadsAsAStateWrite(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", assigned("drucial"))
@@ -733,9 +676,6 @@ func TestAPendingRetargetRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// The old count was measured against a branch the pull request no longer
-// targets, and zero already means up to date. Keeping either renders a number
-// that is wrong under a name that is right.
 func TestARetargetTakesTheBehindCountWithIt(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -747,9 +687,6 @@ func TestARetargetTakesTheBehindCountWithIt(t *testing.T) {
 	}
 }
 
-// The write has landed and the comparison has not been run. Letting the fetched
-// number back here puts a count against the old branch under the name of the
-// new one, for as long as the refetch takes.
 func TestASettledRetargetStillHasNoCount(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -766,8 +703,6 @@ func TestASettledRetargetStillHasNoCount(t *testing.T) {
 	}
 }
 
-// GitHub's answer, not the ask. Somebody retargeting in the browser first is
-// what parts them.
 func TestASettledRetargetTakesTheBranchGitHubNamed(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -796,8 +731,6 @@ func TestARevertedRetargetPutsTheBranchAndItsCountBack(t *testing.T) {
 	}
 }
 
-// Two fields, two writes, no interference. An edit is only ever stale against a
-// later one on its own field.
 func TestARetargetAndALabelSetBothApply(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -838,7 +771,6 @@ func TestABranchSearchIsHeldForThePickerThatAskedForIt(t *testing.T) {
 		t.Errorf("Default = %q, want %q", got, want)
 	}
 
-	// Backspacing back onto a search that has answered costs nothing.
 	if s.BeginBranches(repo, "rel") {
 		t.Error("BeginBranches re-ran a search it already holds the answer to")
 	}
@@ -853,15 +785,11 @@ func TestBeginBranchesRefusesTheSameSearchTwiceInFlight(t *testing.T) {
 	if s.BeginBranches(repo, "rel") {
 		t.Error("BeginBranches started a second request while one was in flight")
 	}
-	// A different question is a different request, even with one out.
 	if !s.BeginBranches(repo, "rele") {
 		t.Error("BeginBranches refused a search for something else")
 	}
 }
 
-// Two searches settle in whatever order the network gives them, which is not
-// the order they were typed. Painting the older one puts a list two keystrokes
-// behind the filter above it.
 func TestAnAnswerToASearchNobodyIsRunningIsDropped(t *testing.T) {
 	s := store.New(configured())
 	s.BeginBranches(repo, "rel")
@@ -874,8 +802,6 @@ func TestAnAnswerToASearchNobodyIsRunningIsDropped(t *testing.T) {
 	}
 }
 
-// Same reason, other leg. A failure for a search two keystrokes ago would tell
-// the reader the search they are waiting on had failed.
 func TestAFailureForAnOldSearchIsDropped(t *testing.T) {
 	s := store.New(configured())
 	s.BeginBranches(repo, "rel")
@@ -888,12 +814,6 @@ func TestAFailureForAnOldSearchIsDropped(t *testing.T) {
 	}
 }
 
-// A failed search is the one state where the same question is worth asking
-// again: the reader is retrying, not the store forgetting.
-// The retry has to survive an earlier search having worked, which is the only
-// way it comes up: the reader types, one keystroke answers, the next one drops
-// the connection. Reading "has answered at least once" as "has this answer"
-// leaves the picker on the older list with no way to ask again.
 func TestAFailedSearchCanBeRunAgain(t *testing.T) {
 	s := store.New(configured())
 	boom := errors.New("boom")
@@ -912,8 +832,6 @@ func TestAFailedSearchCanBeRunAgain(t *testing.T) {
 	}
 }
 
-// A retarget rewrites every file in the diff, and the Files tab asks for one
-// once per open, so the debt has to be recorded rather than acted on.
 func TestARetargetMarksTheDiffStale(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -932,7 +850,6 @@ func TestARetargetMarksTheDiffStale(t *testing.T) {
 	}
 }
 
-// Starting the corrective fetch is what settles the debt.
 func TestBeginningADiffClearsTheStaleMark(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
@@ -947,13 +864,11 @@ func TestBeginningADiffClearsTheStaleMark(t *testing.T) {
 	}
 }
 
-// A fetch already in flight was measured against the old base too, so it cannot
-// settle the debt. The mark stays for the caller to answer once it lands.
 func TestARetargetOverADiffInFlightKeepsTheDebt(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", based("main", 3))
 
-	s.BeginFiles("PR_1") // out, and measured against main
+	s.BeginFiles("PR_1")
 	key := s.PendingBase("PR_1", "develop")
 	s.BaseApplied("PR_1", key, gh.BaseResult{BaseRefName: "develop"})
 
@@ -964,7 +879,6 @@ func TestARetargetOverADiffInFlightKeepsTheDebt(t *testing.T) {
 		t.Error("the refused correction dropped the debt, so nothing owes the refetch")
 	}
 
-	// The one in flight lands, and the caller can now settle it.
 	s.FilesApplied("PR_1", gh.FilesResult{Files: []gh.ChangedFile{{Path: "a.go"}}})
 	if !s.StaleFiles("PR_1") {
 		t.Error("the stale answer landing cleared the debt")
@@ -974,8 +888,6 @@ func TestARetargetOverADiffInFlightKeepsTheDebt(t *testing.T) {
 	}
 }
 
-// BeginBranches refuses a query already answered, so without this a branch made
-// in the browser never reaches the picker.
 func TestInvalidateBranchesLetsTheNextPickerAskAgain(t *testing.T) {
 	s := store.New(configured())
 	s.BeginBranches(repo, "")
@@ -992,8 +904,6 @@ func TestInvalidateBranchesLetsTheNextPickerAskAgain(t *testing.T) {
 	}
 }
 
-// A merge lands the pull request before GitHub answers, the way every other
-// write on this rail paints first.
 func TestAPendingMergeRendersBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -1005,9 +915,6 @@ func TestAPendingMergeRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// A merge is a lifecycle move, so the State row has to wait it out the same way
-// it waits out a close: the state says merged while the permissions still say
-// closable.
 func TestAMergeInFlightReadsAsAStateWrite(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -1026,8 +933,6 @@ func TestAMergeInFlightReadsAsAStateWrite(t *testing.T) {
 	}
 }
 
-// Both are writes on the one field, so the later ask is what shows and the
-// earlier answer must not overwrite it.
 func TestAnEarlierCloseDoesNotOverwriteAMergeStillOut(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -1047,21 +952,17 @@ func TestMergeAppliedTakesGitHubsAnswerAndAsksForTheRest(t *testing.T) {
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
 	key := s.PendingMerge("PR_1")
 
-	s.BeginDetail("PR_1") // a refresh asked for before the write settled
+	s.BeginDetail("PR_1")
 	s.MergeApplied("PR_1", key, gh.MergeResult{State: gh.PRStateMerged})
 
 	if state, _ := lifecycle(s.Detail("PR_1")); state != gh.PRStateMerged {
 		t.Errorf("state = %q, want MERGED", state)
 	}
-	// The timeline, the checks and the merge state all move with it and none of
-	// them can be computed here.
 	if !s.StaleDetail("PR_1") {
 		t.Error("a landed merge did not mark the fetch in flight stale")
 	}
 }
 
-// A merge writes a commit onto the base and changes nothing about the
-// difference between the two branches, so the Files tab owes no refetch.
 func TestAMergeDoesNotMarkTheDiffStale(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
@@ -1076,10 +977,6 @@ func TestAMergeDoesNotMarkTheDiffStale(t *testing.T) {
 	}
 }
 
-// A write whose failure says the screen is behind GitHub owes a refetch, and
-// the answer it takes has to be one asked for after the failure. A response
-// already in flight was asked for before it and carries the same stale picture
-// the write just tripped over.
 func TestARevertThatOwesARefetchMarksTheFetchInFlightStale(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -1095,7 +992,7 @@ func TestARevertThatOwesARefetchMarksTheFetchInFlightStale(t *testing.T) {
 			s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))
 
 			key := tt.hold(&s)
-			s.BeginDetail("PR_1") // asked for before the write came back
+			s.BeginDetail("PR_1")
 			s.EditRevertedStale("PR_1", key)
 
 			if !s.StaleDetail("PR_1") {
@@ -1105,8 +1002,6 @@ func TestARevertThatOwesARefetchMarksTheFetchInFlightStale(t *testing.T) {
 	}
 }
 
-// An ordinary revert says the pull request never moved, so there is nothing to
-// ask again for and no reason to spend the request.
 func TestAnOrdinaryRevertOwesNoRefetch(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", staged(gh.PRStateOpen, false))

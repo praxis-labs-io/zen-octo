@@ -1,9 +1,4 @@
-// Package store owns fetched state and the lifecycle of a refresh. Views read
-// from it; they never fetch.
-//
-// It holds no goroutines and imports nothing from the UI. Concurrency lives in
-// the commands the root model batches, and every mutation here happens in
-// Update, which is what keeps -race quiet.
+// Package store owns fetched state and the writes in flight over it.
 package store
 
 import (
@@ -13,7 +8,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// Status is where a section's last fetch got to.
+// Status is where a fetch got to.
 type Status int
 
 const (
@@ -23,8 +18,7 @@ const (
 	StatusFailed
 )
 
-// Section is one tab's worth of state: what to ask GitHub for, what came back,
-// and where the fetch got to.
+// Section is one tab's query, the rows it returned, and where its fetch got to.
 type Section struct {
 	config.Section
 
@@ -32,43 +26,27 @@ type Section struct {
 	Status Status
 	Err    error
 
-	// Loaded marks a section that has answered at least once. A reload puts it
-	// back into StatusLoading, and without this the tab could not tell "no
-	// count yet" from "a count, being checked".
+	// Loaded is true once the section has answered, so a reload can be told from a first fetch.
 	Loaded bool
 }
 
-// Detail is one pull request's full state, keyed by its id. Same lifecycle as a
-// section: begun, then either applied or failed.
+// Detail is one pull request's full state, keyed by its id.
 type Detail struct {
 	Detail gh.PullRequestDetail
 	Status Status
 	Err    error
 
-	// Loaded marks a detail that has answered at least once, so a background
-	// refetch can be told from a first open.
+	// Loaded is true once the detail has answered, so a refetch can be told from a first open.
 	Loaded bool
 
-	// StateWriting marks a lifecycle change applied here and not yet answered
-	// for. The fold moves the state but never the permissions, so for the length
-	// of the round trip the two disagree: a closed pull request still carries
-	// the CanReopen GitHub gave for an open one. A control reading permissions
-	// to decide whether it has anything to offer has to wait this out rather
-	// than believe them.
+	// StateWriting is true while a lifecycle write is out, when the permissions still describe the old state.
 	StateWriting bool
 
-	// BaseWriting is the same for a retarget, and it exists to tell two
-	// unknowns apart. The count goes to BehindUnknown when the write is held
-	// and stays there until the refetch answers, so the row cannot read the
-	// number to know whether anything is still in flight. Without this a
-	// refetch that never lands leaves it saying "Retargeting" for the rest of
-	// the session about a write that finished.
+	// BaseWriting is true while a retarget is out, which BehindUnknown alone cannot tell from one that landed.
 	BaseWriting bool
 }
 
-// Files is one diff: a pull request's, keyed by the same id as its Detail, or
-// one commit's, keyed by its sha. Both are held apart from the detail because
-// each costs a request of its own, made only when someone asks to see it.
+// Files is one diff: a pull request's, keyed by its id, or a commit's, keyed by its sha.
 type Files struct {
 	Files     []gh.ChangedFile
 	MoreFiles int
@@ -76,14 +54,10 @@ type Files struct {
 	Status    Status
 	Err       error
 
-	// Loaded marks a diff that has answered at least once, so a refetch can be
-	// told from a first open.
 	Loaded bool
 }
 
-// Job is one Actions job's step metadata and downloadable log. It is fetched
-// only when its row is selected, apart from the pull request detail that lists
-// every job.
+// Job is one Actions job's metadata and log.
 type Job struct {
 	Job    gh.Job
 	Log    string
@@ -92,51 +66,33 @@ type Job struct {
 	Loaded bool
 }
 
-// Pending is a write applied here and not yet answered for. It renders as
-// though it had landed, which is what optimistic means.
-//
-// It is held beside the fetched detail rather than inside it, and that is the
-// whole point of the type. A refetch replaces a timeline wholesale, and a
-// timeline fetched before the mutation answered is not evidence the mutation
-// failed. Written into the detail, an optimistic comment would vanish on the
-// next refresh with nothing to say why.
-//
-// Key is minted here and belongs to this session. It is not a node id, and the
-// comment carrying it is marked Pending so nothing mistakes it for one.
+// Pending is a comment applied here and not yet answered for. Key is minted by the store, never a node id.
 type Pending struct {
 	Key     string
 	Comment gh.Comment
 
-	// ThreadID is the review thread a reply hangs off, empty on a top-level
-	// comment. It is what tells Detail which of the two places to fold this
-	// into, and what tells PendingApplied which one GitHub answered for.
+	// ThreadID is the review thread a reply hangs off, empty on a top-level comment.
 	ThreadID string
 }
 
-// Resolution is a review thread closed or opened here and not yet answered for.
-//
-// It is held beside the fetched detail for the reason Pending is, and it folds
-// differently: there is nothing to add to the page, only a field to overwrite on
-// a thread already on it. Resolved is the state the write is asking for.
+// Resolution is a review thread resolved or unresolved here and not yet answered for.
 type Resolution struct {
 	Key      string
 	ThreadID string
 	Resolved bool
 }
 
+// FileView is a file marked viewed or unviewed here and not yet answered for.
 type FileView struct {
 	Key    string
 	Path   string
 	Viewed bool
 }
 
-// Store holds every configured section, every detail opened this session, and
-// the point budget across all of them.
+// Store holds every configured section, what was opened from them, the writes in flight, and the point budget.
 type Store struct {
 	sections []Section
 
-	// The four that grow with use, each bounded and evicted least recently
-	// read first. repos and branches are one per repository and are not.
 	details cache[Detail]
 	files   cache[Files]
 	commits cache[Files]
@@ -147,25 +103,6 @@ type Store struct {
 	rate     gh.RateLimit
 	viewer   gh.Actor
 
-	// pending is the writes in flight, by pull request. The counter names them:
-	// a sequence rather than a clock, so the same run of keystrokes produces the
-	// same keys every time.
-	//
-	// resolving is the same for the toggle on a review thread, sharing the
-	// counter so a comment and a resolve out at once can never take one key
-	// between them.
-	//
-	// edits is the same for the metadata a picker applies, sharing the counter
-	// for the same reason. It is a slice rather than one edit per field because
-	// two writes on one field can be out at once, and the later one wins only
-	// if the order they were held in survives.
-	// rewrites is the same for a comment edited or deleted, sharing the counter
-	// for the same reason. Its writes reach into the timeline and the threads
-	// rather than adding to them, which is what keeps it apart from pending.
-	//
-	// reacting is the same for a reaction toggled, sharing the counter again. It
-	// is apart from rewrites because it reaches one field further out: the
-	// description has no comment to name and carries reactions of its own.
 	pending   map[string][]Pending
 	resolving map[string][]Resolution
 	edits     map[string][]Edit
@@ -174,27 +111,14 @@ type Store struct {
 	viewing   map[string][]FileView
 	writes    int
 
-	// staleFetch marks a detail fetch that was asked for before a write on the
-	// same pull request settled. Its response carries the state from before the
-	// write, so taking it would put the write back on screen undone.
-	//
-	// staleFiles is the same debt for a diff, and it is owed rather than
-	// dropped: a retarget rewrites every file in one, and the Files tab asks
-	// for a diff once per open, so nothing else would ever ask again.
 	staleFetch map[string]bool
 	staleFiles map[string]bool
 
-	// pulsing is the cheap rechecks in flight, stalePulse the ones overtaken.
-	// Here rather than on Detail, which DetailApplied rebuilds from nothing.
 	pulsing    map[string]bool
 	stalePulse map[string]bool
 
-	// staleTimeline is the debt a pulse leaves when GitHub's instant moved: a
-	// comment or a review it cannot carry, which only a full fetch holds.
 	staleTimeline map[string]bool
 
-	// seq orders a section's fetch against the rows written into it since, so a
-	// response that predates a write cannot land on top of one.
 	seq        int
 	sectionSeq []int
 	rowSeq     map[string]int
@@ -211,8 +135,6 @@ func New(sections []config.Section) Store {
 		repos:    make(map[string]Repo),
 		branches: make(map[string]Branches),
 
-		// Built here rather than on first write, because the only writer runs on
-		// a copy of the model: a map made there is dropped with the copy.
 		details:       newCache[Detail](detailCap),
 		files:         newCache[Files](filesCap),
 		commits:       newCache[Files](commitCap),
@@ -229,13 +151,10 @@ func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 // Rate is the point budget as of the responses seen so far.
 func (s Store) Rate() gh.RateLimit { return s.rate }
 
-// Viewer is the account the token belongs to. The zero Actor is one not yet
-// answered for, which reads the same as an account with no login.
+// Viewer is the account the token belongs to, or the zero Actor before it has answered.
 func (s Store) Viewer() gh.Actor { return s.viewer }
 
-// ViewerApplied stores the login and folds the response into the budget. There
-// is no Begin or Failed beside it: the login is asked for once at startup, and
-// nothing on the screen waits on it.
+// ViewerApplied stores the login and folds the response into the budget.
 func (s *Store) ViewerApplied(res gh.ViewerResult) {
 	s.viewer = res.Viewer
 	s.adopt(res.RateLimit)
@@ -244,7 +163,7 @@ func (s *Store) ViewerApplied(res gh.ViewerResult) {
 // Loading reports whether any section has a fetch in flight.
 func (s Store) Loading() bool { return Loading(s.sections) }
 
-// Loading is the same question asked of a snapshot, for a view holding one.
+// Loading is the same question asked of a snapshot.
 func Loading(sections []Section) bool {
 	return slices.ContainsFunc(sections, func(sec Section) bool {
 		return sec.Status == StatusLoading
@@ -259,15 +178,12 @@ func (s *Store) BeginAll() {
 	}
 }
 
-// nextSeq is the one write here a caller can lose: an int where the rest of
-// this store lands in a map or a slice and survives being made on a copy.
+// nextSeq is the one write here held in an int, so a caller on a copy of the model loses it.
 func (s *Store) nextSeq() int {
 	s.seq++
 	return s.seq
 }
 
-// stampSection records when this section's fetch went out, so a row written
-// after it can be told from one the response is entitled to replace.
 func (s *Store) stampSection(i int) {
 	if len(s.sectionSeq) != len(s.sections) {
 		s.sectionSeq = make([]int, len(s.sections))
@@ -275,10 +191,7 @@ func (s *Store) stampSection(i int) {
 	s.sectionSeq[i] = s.nextSeq()
 }
 
-// Begin marks one section in flight and reports whether it started. It refuses
-// a section that already has a request out, which is what holds the invariant
-// the rest of this package rests on: one response per slot, so a late arrival
-// never lands on rows that replaced the ones it was fetched for.
+// Begin marks one section in flight and reports whether it started. It refuses one already in flight.
 func (s *Store) Begin(i int) bool {
 	if i < 0 || i >= len(s.sections) || s.sections[i].Status == StatusLoading {
 		return false
@@ -288,7 +201,7 @@ func (s *Store) Begin(i int) bool {
 	return true
 }
 
-// Applied stores a section's rows and folds the response into the budget.
+// Applied stores a section's rows, keeping any row written since its fetch went out, and folds the budget.
 func (s *Store) Applied(i int, res gh.SearchResult) {
 	if i < 0 || i >= len(s.sections) {
 		return
@@ -301,31 +214,24 @@ func (s *Store) Applied(i int, res gh.SearchResult) {
 	s.adopt(res.RateLimit)
 }
 
-// restoreRows puts back every row a write moved after this section's fetch went
-// out, since GitHub answered it from before the write.
 func (s *Store) restoreRows(i int) {
 	var began int
 	if i < len(s.sectionSeq) {
 		began = s.sectionSeq[i]
 	}
 
-	// The response's own slice, shared with nothing, so this writes into it.
 	rows := s.sections[i].PRs
 	for n, row := range rows {
 		if s.rowSeq[row.ID] <= began {
 			continue
 		}
-		// The folded detail rather than the held one: a write still in flight is
-		// on the screen, and the response must not take it off.
 		if held := s.Detail(row.ID).Detail.PullRequest; held.ID != "" {
 			rows[n] = held
 		}
 	}
 }
 
-// Failed puts a section into its error state, keeping whatever rows it had. The
-// view shows the error rather than the rows, and holding them means a retry
-// that fails again has not also emptied the tab.
+// Failed puts a section into its error state, keeping its rows.
 func (s *Store) Failed(i int, err error) {
 	if i < 0 || i >= len(s.sections) {
 		return
@@ -334,14 +240,11 @@ func (s *Store) Failed(i int, err error) {
 	s.sections[i].Err = err
 }
 
-// PollFailed ends a background poll's flight and keeps everything held, the
-// error state included. A request nobody made must not take the rows off screen.
+// PollFailed ends a background poll's flight, restoring the section's last status without recording the error.
 func (s *Store) PollFailed(i int) {
 	if i < 0 || i >= len(s.sections) || s.sections[i].Status != StatusLoading {
 		return
 	}
-	// Back to whichever answer the section last had. Applied clears the error, so
-	// one still held means the last real answer failed and the reader was told.
 	if s.sections[i].Err != nil {
 		s.sections[i].Status = StatusFailed
 		return
@@ -349,17 +252,8 @@ func (s *Store) PollFailed(i int) {
 	s.sections[i].Status = StatusReady
 }
 
-// Detail is what is held for a pull request, with whatever is still in flight
-// folded into it: a comment onto the timeline, a reply into the thread it
-// answers, a resolve over the thread it settles. The zero value is one never
-// opened, which reads as idle and unloaded.
-//
-// The fold happens here rather than at write time so a refetch cannot drop a
-// pending comment. Callers ask for a detail at settle points, not per frame.
-//
-// The clones are lazy because most calls need none. A detail with nothing in
-// flight returns above, and one with only a comment out must not pay for cloning
-// every thread's comments to append to a timeline.
+// Detail is what is held for a pull request with every write in flight folded in.
+// The zero value is one never opened.
 func (s Store) Detail(id string) Detail {
 	held := s.details.get(id)
 	waiting, settling, editing := s.pending[id], s.resolving[id], s.edits[id]
@@ -369,9 +263,6 @@ func (s Store) Detail(id string) Detail {
 		return held
 	}
 
-	// Edits go first. Each replaces a whole value and none of them touches the
-	// timeline or the threads, so the two folds below neither read what this
-	// wrote nor write what it read.
 	for _, e := range editing {
 		held.Detail = e.Apply(held.Detail)
 		held.StateWriting = held.StateWriting || e.Field() == fieldState
@@ -381,24 +272,14 @@ func (s Store) Detail(id string) Detail {
 	timeline, threads := held.Detail.Timeline, held.Detail.Threads
 	var freshTimeline, freshThreads bool
 
-	// Rewrites go before the appends. They act on comments GitHub already has,
-	// so there is nothing among the pending ones for them to find, and running
-	// them first keeps a delete from having to skip past a placeholder holding a
-	// key rather than a node id.
 	timeline, threads, freshTimeline, freshThreads = foldWrites(
 		rewriting, timeline, threads, freshTimeline, freshThreads)
 
-	// Reactions go before the appends for the reason the rewrites do: every one
-	// of them names something GitHub already has, so there is nothing among the
-	// pending comments for them to find.
 	held.Detail.Reactions, timeline, threads, freshTimeline, freshThreads = foldReactions(
 		reacting, held.Detail.Reactions, timeline, threads, freshTimeline, freshThreads)
 
 	for _, p := range waiting {
 		if p.ThreadID == "" {
-			// A fresh slice, because the held timeline is shared with the map
-			// and appending to it would leave the pending items behind on the
-			// next call.
 			if !freshTimeline {
 				out := make([]gh.TimelineItem, len(timeline), len(timeline)+len(waiting))
 				copy(out, timeline)
@@ -410,10 +291,6 @@ func (s Store) Detail(id string) Detail {
 
 		at := threadAt(threads, p.ThreadID)
 
-		// A refetch that landed while the reply was out may no longer carry the
-		// thread: it was resolved and hidden, or it fell off the first page.
-		// There is nowhere to hang the reply and nowhere honest to invent, so it
-		// waits out of sight until the mutation answers.
 		if at < 0 {
 			continue
 		}
@@ -422,9 +299,6 @@ func (s Store) Detail(id string) Detail {
 			threads, freshThreads = slices.Clone(threads), true
 		}
 
-		// Cloning the outer slice is not enough. Each thread's comments are
-		// their own slice, still the held one, and appending to it writes into
-		// the detail this call was supposed to leave alone.
 		threads[at].Comments = append(slices.Clone(threads[at].Comments), p.Comment)
 	}
 
@@ -438,19 +312,6 @@ func (s Store) Detail(id string) Detail {
 			threads, freshThreads = slices.Clone(threads), true
 		}
 
-		// The outer clone is the whole of it: a resolve writes a field on the
-		// thread and touches no comment, so the second level a reply needs is
-		// not needed here.
-		//
-		// The state alone, never the permissions. A viewer allowed to resolve
-		// and not to reopen has an inert key on the thread they just closed,
-		// and flipping CanUnresolve locally would offer them a write GitHub
-		// rejects.
-		//
-		// Marked pending so the screen keeps a second press off it. Two writes
-		// out on one thread answer in whatever order the network gives them,
-		// and the one that answers last writes its own state whether or not it
-		// was the last one pressed.
 		threads[at].IsResolved = r.Resolved
 		threads[at].Pending = true
 	}
@@ -458,8 +319,6 @@ func (s Store) Detail(id string) Detail {
 	held.Detail.Timeline = timeline
 	held.Detail.Threads = threads
 
-	// A thread that changed moved a count the rail reads off the reviewer who
-	// opened it, and a delete takes a whole thread with it.
 	if freshThreads {
 		held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
 		gh.RecountThreads(&held.Detail)
@@ -467,17 +326,12 @@ func (s Store) Detail(id string) Detail {
 	return held
 }
 
-// PendingComment holds a comment written but not yet acknowledged, and returns
-// the key the response reconciles against. The comment renders from now on; the
-// caller is expected to post it and answer with one of the two calls below.
+// PendingComment holds a comment not yet acknowledged and returns the key its response reconciles against.
 func (s *Store) PendingComment(id string, c gh.Comment) string {
 	return s.hold(id, "", c)
 }
 
-// PendingReply is PendingComment for an answer to a review thread. The kind is
-// set here rather than taken from the caller: a reply is a thread comment
-// whatever the screen thinks it is writing, and the kind picks the mutation that
-// edits it later.
+// PendingReply is PendingComment for a reply to a review thread. The comment's Kind is set to CommentThread.
 func (s *Store) PendingReply(id, threadID string, c gh.Comment) string {
 	c.Kind = gh.CommentThread
 	return s.hold(id, threadID, c)
@@ -495,13 +349,7 @@ func (s *Store) hold(id, threadID string, c gh.Comment) string {
 	return key
 }
 
-// PendingResolve holds a thread closed or opened but not yet acknowledged, and
-// returns the key the response reconciles against.
-//
-// One at a time per thread is the screen's rule, not this one's: the fold marks
-// the thread pending and the key goes inert while it is. Two held here would
-// settle in whatever order the responses arrive, which is not the order they
-// were pressed in.
+// PendingResolve holds a thread resolved or unresolved and returns the key its response reconciles against.
 func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
 	key := s.nextKey()
 
@@ -512,9 +360,7 @@ func (s *Store) PendingResolve(id, threadID string, resolved bool) string {
 	return key
 }
 
-// ResolveApplied takes GitHub's answer for a thread, permissions and all:
-// resolving flips which of the two the next press needs, and only GitHub knows
-// whether this viewer may.
+// ResolveApplied writes GitHub's answer for a thread, permissions included, and drops the write.
 func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 	r, dropped := s.dropResolve(id, key)
 	if !dropped {
@@ -528,32 +374,24 @@ func (s *Store) ResolveApplied(id, key string, res gh.ThreadResult) {
 
 	at := threadAt(held.Detail.Threads, r.ThreadID)
 
-	// A refetch dropped the thread while the write was out. That refetch is the
-	// truer picture, and writing the thread back would be this package
-	// inventing state GitHub did not send.
 	if at < 0 {
 		return
 	}
 
-	// Cloned before the write, because the held slice is inside conversations
-	// already rendered from a detail handed out earlier.
 	threads := slices.Clone(held.Detail.Threads)
 	threads[at].IsResolved = res.IsResolved
 	threads[at].CanResolve = res.CanResolve
 	threads[at].CanUnresolve = res.CanUnresolve
 	held.Detail.Threads = threads
 
-	// The rail counts open threads per reviewer, and this one just changed.
 	held.Detail.Reviewers = slices.Clone(held.Detail.Reviewers)
 	gh.RecountThreads(&held.Detail)
 	s.put(id, held)
 }
 
-// ResolveReverted puts the thread back the way it was fetched. The caller owns
-// saying why.
+// ResolveReverted drops the write, putting the thread back as fetched.
 func (s *Store) ResolveReverted(id, key string) { s.dropResolve(id, key) }
 
-// dropResolve is dropPending, one map over.
 func (s *Store) dropResolve(id, key string) (Resolution, bool) {
 	settling := s.resolving[id]
 	at := slices.IndexFunc(settling, func(r Resolution) bool { return r.Key == key })
@@ -569,17 +407,11 @@ func (s *Store) dropResolve(id, key string) (Resolution, bool) {
 	return r, true
 }
 
-// threadAt is where a thread sits in a detail, or -1.
 func threadAt(threads []gh.ReviewThread, id string) int {
 	return slices.IndexFunc(threads, func(t gh.ReviewThread) bool { return t.ID == id })
 }
 
-// PendingApplied swaps the placeholder for what GitHub recorded. The real
-// comment goes onto the held timeline, so it survives everything the
-// placeholder was standing in for.
-//
-// No budget to fold: a mutation cannot report the rate limit, so the write's
-// cost shows up on the next fetch.
+// PendingApplied replaces the placeholder with the comment GitHub recorded.
 func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	p, dropped := s.dropPending(id, key)
 	if !dropped {
@@ -596,9 +428,6 @@ func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 		return
 	}
 
-	// A refetch that landed while the write was out already carries it. Adding
-	// it again puts the same comment on the page twice, and the two cards share
-	// a node id, which is the one thing the focus ring cannot survive.
 	if hasComment(held.Detail.Timeline, res.Comment.ID) {
 		return
 	}
@@ -607,13 +436,9 @@ func (s *Store) PendingApplied(id, key string, res gh.CommentResult) {
 	s.put(id, held)
 }
 
-// replyApplied puts a confirmed reply into the thread it answers.
 func (s *Store) replyApplied(id string, held Detail, threadID string, c gh.Comment) {
 	at := threadAt(held.Detail.Threads, threadID)
 
-	// A refetch dropped the thread while the reply was out. That refetch is the
-	// truer picture, and writing the thread back to hold one comment would be
-	// this package inventing state GitHub did not send.
 	if at < 0 || hasThreadComment(held.Detail.Threads[at].Comments, c.ID) {
 		return
 	}
@@ -624,7 +449,6 @@ func (s *Store) replyApplied(id string, held Detail, threadID string, c gh.Comme
 	s.put(id, held)
 }
 
-// hasComment reports whether a timeline already holds a comment with this id.
 func hasComment(timeline []gh.TimelineItem, id string) bool {
 	if id == "" {
 		return false
@@ -634,9 +458,6 @@ func hasComment(timeline []gh.TimelineItem, id string) bool {
 	})
 }
 
-// hasThreadComment is the guard above, one level down. A refetch that landed
-// while the reply was out already carries it, and the two copies would share a
-// node id, which is the one thing the focus ring cannot survive.
 func hasThreadComment(comments []gh.Comment, id string) bool {
 	if id == "" {
 		return false
@@ -644,17 +465,9 @@ func hasThreadComment(comments []gh.Comment, id string) bool {
 	return slices.ContainsFunc(comments, func(c gh.Comment) bool { return c.ID == id })
 }
 
-// PendingReverted takes the placeholder back off the screen. The caller owns
-// saying why: the store has no way to tell a rejected write from a lost one.
+// PendingReverted takes the placeholder back off the screen.
 func (s *Store) PendingReverted(id, key string) { s.dropPending(id, key) }
 
-// dropPending removes one write and returns it, with whether it was there. A
-// response for a key already gone is one that already settled, and applying it
-// twice would put the comment in the conversation a second time.
-//
-// It gives back the write rather than a bare yes: the answer says nothing about
-// which of the two places the comment belongs in, and only the write it settles
-// knows.
 func (s *Store) dropPending(id, key string) (Pending, bool) {
 	waiting := s.pending[id]
 	at := slices.IndexFunc(waiting, func(p Pending) bool { return p.Key == key })
@@ -670,8 +483,6 @@ func (s *Store) dropPending(id, key string) (Pending, bool) {
 	return p, true
 }
 
-// timelineComment is a comment as the conversation reads one. A top-level
-// comment is a timeline item whichever direction it arrived from.
 func timelineComment(c gh.Comment) gh.TimelineItem {
 	return gh.TimelineItem{
 		Kind:      gh.TimelineComment,
@@ -681,18 +492,13 @@ func timelineComment(c gh.Comment) gh.TimelineItem {
 	}
 }
 
-// BeginDetail marks a pull request in flight and reports whether it started. It
-// refuses one already on its way, so opening a screen twice in quick succession
-// costs one request rather than two.
+// BeginDetail marks a pull request in flight and reports whether it started. It refuses one already in flight.
 func (s *Store) BeginDetail(id string) bool {
 	held := s.details.get(id)
 	if id == "" || held.Status == StatusLoading {
 		return false
 	}
-	// This one is being asked for now, so it will answer with everything that
-	// has settled so far.
 	delete(s.staleFetch, id)
-	// A pulse already out answers less and answers later, so it is overtaken.
 	s.markPulseStale(id)
 
 	held.Status = StatusLoading
@@ -700,18 +506,8 @@ func (s *Store) BeginDetail(id string) bool {
 	return true
 }
 
-// DetailApplied stores a pull request and folds the response into the budget.
-//
-// A response asked for before a write settled is dropped rather than stored.
-// GitHub answered it from the state the pull request was in beforehand, so
-// taking it would put a landed write back on the screen undone, and the fetched
-// permissions that come with it would take the row's own key away. The detail
-// already holds the write's answer; what it is missing is everything the write
-// changed downstream, and only a fetch made after it can carry that.
-//
-// The caller is expected to ask again. Failing to costs freshness, never
-// correctness: what stays on screen is the last response plus every answer
-// since. StaleDetail is how a caller knows it owes one.
+// DetailApplied stores a pull request and folds the budget. A response asked for before a write
+// settled is dropped rather than stored; StaleDetail reports that another fetch is owed.
 func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 	if id == "" {
 		return
@@ -724,22 +520,16 @@ func (s *Store) DetailApplied(id string, res gh.DetailResult) {
 		s.put(id, held)
 		return
 	}
-	// The whole page is what the debt was for, and this is it. The dropped path
-	// above leaves it standing, because that response was never stored.
 	delete(s.staleTimeline, id)
 	s.put(id, Detail{Detail: res.Detail, Status: StatusReady, Loaded: true})
 	s.syncRow(id)
 }
 
-// syncRow writes the folded row back over every section holding that pull
-// request, on the terms restoreRows reads one: a write in flight stays on.
 func (s *Store) syncRow(id string) {
 	pr := s.Detail(id).Detail.PullRequest
 	if pr.ID == "" {
 		return
 	}
-	// Stamped whether or not a section carries it today: a fetch already out may
-	// bring the row back, and this is what says the write came after it.
 	if s.rowSeq == nil {
 		s.rowSeq = make(map[string]int)
 	}
@@ -752,25 +542,16 @@ func (s *Store) syncRow(id string) {
 		if at < 0 {
 			continue
 		}
-		// Cloned before the write: the held slice is inside a snapshot the list
-		// screen is already rendering from.
 		rows := slices.Clone(s.sections[i].PRs)
 		rows[at] = pr
 		s.sections[i].PRs = rows
 	}
 }
 
-// StaleDetail reports whether the detail fetch in flight, or the one that just
-// answered, was asked for before a write settled. A caller that started a fetch
-// and finds this true owes another one.
+// StaleDetail reports whether the latest detail fetch was asked for before a write settled.
 func (s Store) StaleDetail(id string) bool { return s.staleFetch[id] }
 
-// markStale records that the fetch in flight predates a write that has now
-// settled. Only while one is actually out: with nothing in flight the next
-// fetch is asked for after the write and carries it.
 func (s *Store) markStale(id string) {
-	// A pulse flies under its own flag rather than Status, so every write that
-	// invalidates a fetch has to invalidate one here too.
 	s.markPulseStale(id)
 
 	if s.details.get(id).Status != StatusLoading {
@@ -782,16 +563,9 @@ func (s *Store) markStale(id string) {
 	s.staleFetch[id] = true
 }
 
-// StaleFiles reports whether the diff held for a pull request was measured
-// against a base it no longer has. A caller that can fetch owes one.
+// StaleFiles reports whether the held diff predates a push or a retarget, so another fetch is owed.
 func (s Store) StaleFiles(id string) bool { return s.staleFiles[id] }
 
-// markFilesStale records that a write moved the base out from under the diff.
-//
-// Unconditional, where markStale marks only a fetch in flight. A retarget
-// rewrites every file whether or not anything is out, and a request already on
-// its way was measured against the old base as well, so the answer it brings
-// back is no fresher than what is held.
 func (s *Store) markFilesStale(id string) {
 	if id == "" {
 		return
@@ -802,12 +576,9 @@ func (s *Store) markFilesStale(id string) {
 	s.staleFiles[id] = true
 }
 
-// StaleTimeline reports whether the pull request has changed in ways a pulse
-// cannot carry. A caller showing the conversation owes a full fetch.
+// StaleTimeline reports whether the pull request changed in ways a pulse cannot carry, so a full fetch is owed.
 func (s Store) StaleTimeline(id string) bool { return s.staleTimeline[id] }
 
-// markTimelineStale records that GitHub's instant moved under a pulse.
-// Unconditional, for the reason markFilesStale is.
 func (s *Store) markTimelineStale(id string) {
 	if id == "" {
 		return
@@ -815,9 +586,7 @@ func (s *Store) markTimelineStale(id string) {
 	s.staleTimeline[id] = true
 }
 
-// DetailFailed puts a pull request into its error state, keeping whatever it
-// already held. A background refetch that fails must not empty a screen that
-// was reading fine a moment ago.
+// DetailFailed puts a held pull request into its error state, keeping what it held.
 func (s *Store) DetailFailed(id string, err error) {
 	held, ok := s.details.look(id)
 	if id == "" || !ok {
@@ -830,25 +599,17 @@ func (s *Store) DetailFailed(id string, err error) {
 	s.put(id, held)
 }
 
-// put writes a detail and drops the oldest past the cap, taking each dropped
-// one's debts with it: nothing is owed about a pull request no longer held.
 func (s *Store) put(id string, d Detail) {
 	s.details.put(id, d)
 	for _, gone := range s.details.evict(id, s.detailPinned) {
 		delete(s.staleFetch, gone)
 		delete(s.staleTimeline, gone)
 		delete(s.stalePulse, gone)
-		// The stamp claims a correction restoreRows can no longer make: it
-		// reads the folded row, and there is no longer one to fold.
 		delete(s.rowSeq, gone)
 	}
 }
 
-// detailPinned is a pull request something is still going to write to. A write
-// folds over an evicted detail onto nothing, leaving a comment on no pull request.
 func (s Store) detailPinned(id string) bool {
-	// Not the one on screen, which needs none: every fetch site asks about it
-	// and PulseApplied puts it each beat, so it is already the newest entry.
 	if s.details.get(id).Status == StatusLoading || s.pulsing[id] {
 		return true
 	}
@@ -856,15 +617,11 @@ func (s Store) detailPinned(id string) bool {
 		len(s.rewrites[id]) > 0 || len(s.reacting[id]) > 0
 }
 
-// diffPinned is a commit diff whose own fetch is out. Pull request diffs add
-// their viewed-state writes in filesPinned.
 func diffPinned(held *cache[Files]) func(string) bool {
 	return func(key string) bool { return held.get(key).Status == StatusLoading }
 }
 
 func (s Store) filesPinned(id string) bool {
-	// A pending viewed-state write needs the cached file it will settle into.
-	// Let the cache exceed its cap rather than evicting that rollback target.
 	return s.files.get(id).Status == StatusLoading || len(s.viewing[id]) > 0
 }
 
@@ -875,8 +632,7 @@ func fileViewedState(viewed bool) gh.FileViewedState {
 	return gh.FileUnviewed
 }
 
-// Files is the diff held for a pull request. The zero value is one never
-// fetched, which reads as idle and unloaded.
+// Files is the diff held for a pull request with viewed-state writes in flight folded in.
 func (s Store) Files(id string) Files {
 	held := s.files.get(id)
 	if len(s.viewing[id]) == 0 {
@@ -894,12 +650,7 @@ func (s Store) Files(id string) Files {
 	return held
 }
 
-// BeginFiles marks a diff in flight and reports whether it started. It refuses
-// one already on its way, so tabbing in and out of Files costs one request.
-//
-// Starting clears the stale mark, because this fetch is what settles it. A
-// refusal leaves it set, and the caller owes another once the request already
-// out has answered: that one was measured against the old base too.
+// BeginFiles marks a diff in flight and reports whether it started. Starting clears StaleFiles.
 func (s *Store) BeginFiles(id string) bool {
 	dropped, ok := beginDiff(&s.files, id, s.filesPinned)
 	if !ok {
@@ -910,8 +661,6 @@ func (s *Store) BeginFiles(id string) bool {
 	return true
 }
 
-// dropFileDebts clears the stale marks of diffs that have been evicted. Only the
-// pull request's own cache owes any: staleFiles is keyed by the same id.
 func (s *Store) dropFileDebts(dropped []string) {
 	for _, gone := range dropped {
 		delete(s.staleFiles, gone)
@@ -919,36 +668,30 @@ func (s *Store) dropFileDebts(dropped []string) {
 	}
 }
 
-// FilesApplied stores a pull request's diff and the GraphQL request's budget.
+// FilesApplied stores a pull request's diff and folds the budget.
 func (s *Store) FilesApplied(id string, res gh.FilesResult) {
 	s.adopt(res.RateLimit)
 	s.dropFileDebts(diffApplied(&s.files, id, res, s.filesPinned))
 }
 
-// FilesFailed puts a diff into its error state, keeping whatever it already
-// held. A refetch that fails must not empty a diff that was reading fine.
+// FilesFailed puts a diff into its error state, keeping what it held.
 func (s *Store) FilesFailed(id string, err error) {
 	s.dropFileDebts(diffFailed(&s.files, id, err, s.filesPinned))
 }
 
-// UseFiles restamps a diff read from the cache rather than fetched. Without it
-// the order is time since first fetch, and a diff reopened daily ages out.
+// UseFiles marks a diff read from the cache as recently used.
 func (s *Store) UseFiles(id string) { s.files.touch(id) }
 
-// CommitFiles is the diff held for one commit, keyed by its sha rather than by
-// the pull request. A commit belongs to whichever pull requests carry it, and
-// its diff is the same either way.
+// CommitFiles is the diff held for a commit, keyed by its sha.
 func (s Store) CommitFiles(sha string) Files { return s.commits.get(sha) }
 
-// BeginCommitFiles marks a commit's diff in flight and reports whether it
-// started.
+// BeginCommitFiles marks a commit's diff in flight and reports whether it started.
 func (s *Store) BeginCommitFiles(sha string) bool {
 	_, ok := beginDiff(&s.commits, sha, diffPinned(&s.commits))
 	return ok
 }
 
-// UseCommitFiles is UseFiles for a commit's own diff, which is the cache a
-// reader walking back and forth over a long branch reads most often.
+// UseCommitFiles is UseFiles for a commit's diff.
 func (s *Store) UseCommitFiles(sha string) { s.commits.touch(sha) }
 
 // CommitFilesApplied stores a commit's diff.
@@ -956,14 +699,10 @@ func (s *Store) CommitFilesApplied(sha string, res gh.FilesResult) {
 	diffApplied(&s.commits, sha, res, diffPinned(&s.commits))
 }
 
-// CommitFilesFailed puts a commit's diff into its error state, keeping whatever
-// it already held.
+// CommitFilesFailed puts a commit's diff into its error state, keeping what it held.
 func (s *Store) CommitFilesFailed(sha string, err error) {
 	diffFailed(&s.commits, sha, err, diffPinned(&s.commits))
 }
-
-// The four below are the diff lifecycle, shared by the pull request's own and by
-// each commit's. Each answers with the keys its write evicted, for the debts.
 
 func beginDiff(held *cache[Files], key string, pinned func(string) bool) ([]string, bool) {
 	at := held.get(key)
@@ -1002,6 +741,7 @@ func putDiff(held *cache[Files], key string, f Files, pinned func(string) bool) 
 	return held.evict(key, pinned)
 }
 
+// PendingFileView holds a file marked viewed or unviewed and returns the key its response reconciles against.
 func (s *Store) PendingFileView(id, path string, viewed bool) string {
 	key := s.nextKey()
 	if s.viewing == nil {
@@ -1011,6 +751,7 @@ func (s *Store) PendingFileView(id, path string, viewed bool) string {
 	return key
 }
 
+// FileViewApplied writes the settled viewed state into the held diff and drops the write.
 func (s *Store) FileViewApplied(id, key string) {
 	write, ok := s.dropFileView(id, key)
 	if !ok {
@@ -1030,6 +771,7 @@ func (s *Store) FileViewApplied(id, key string) {
 	s.files.put(id, held)
 }
 
+// FileViewReverted drops the write, putting the file back as fetched.
 func (s *Store) FileViewReverted(id, key string) {
 	if _, ok := s.dropFileView(id, key); !ok {
 		return
@@ -1051,14 +793,7 @@ func (s *Store) dropFileView(id, key string) (FileView, bool) {
 	return write, true
 }
 
-// adopt keeps the budget falling through a burst. Sections answer in whatever
-// order they finish, so the newest arrival is not the truest one: the lowest
-// remaining inside a window is. A later reset means a new window, and there the
-// number legitimately goes back up.
-//
-// The lower-remaining clause is scoped to the held window on purpose. A
-// straggler issued before a reset carries the old window's exhausted number,
-// and taking it would read as an empty budget seconds after it refilled.
+// adopt keeps the lowest remaining within one reset window, because responses arrive out of order.
 func (s *Store) adopt(r gh.RateLimit) {
 	if r.Limit == 0 {
 		return
