@@ -12,8 +12,8 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// fakeDoer answers a GraphQL call with canned JSON, a canned error, or both.
-// go-gh decodes the payload before it reads the errors array, so both is real.
+// Answers with a body and an error at once, because go-gh decodes the payload before it reads the
+// errors array.
 type fakeDoer struct {
 	body string
 	err  error
@@ -100,7 +100,6 @@ func TestSearchPullRequestsMapsResponseToDomainTypes(t *testing.T) {
 		t.Error("UpdatedAt is zero, want the parsed timestamp")
 	}
 
-	// A deleted author and a commit with no checks are both normal, not errors.
 	second := got[1]
 	if second.Author.Login != "" {
 		t.Errorf("Author.Login = %q, want empty for a null author", second.Author.Login)
@@ -133,8 +132,6 @@ func TestSearchPullRequestsReportsWhatTheCallCost(t *testing.T) {
 }
 
 func TestSearchPullRequestsSkipsNonPullRequestNodes(t *testing.T) {
-	// Search returns issues in the same connection; the inline fragment leaves
-	// them as empty nodes.
 	doer := &fakeDoer{body: `{"search": {"nodes": [{}, {"id": "PR_1", "number": 7}, {}]}}`}
 
 	res, err := newWithDoer(doer, nil).SearchPullRequests(context.Background(), "is:open", 20)

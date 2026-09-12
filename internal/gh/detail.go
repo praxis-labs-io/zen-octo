@@ -11,24 +11,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// pullRequestQuery asks by node id rather than owner, name and number. The id
-// came from GitHub with the search result, so there is nothing to split and no
-// ambiguity about which repository is meant.
-//
-// The item types are the lifecycle and the four fields the rail writes. A write
-// nobody can see happen reads as a write that did not land, which is what the
-// metadata types are here to answer. They are the noisy ones, because one
-// picker apply writes a label set as one event per label, and the conversation
-// folds a run of them back into the one line rather than the query dropping
-// them. Renamed, subscribed, mentioned and the rest stay out: nothing here
-// writes them and nobody reads them.
-//
-// The two viewerMerge fields are GitHub's own commit message per method, asked
-// for so the merge form opens holding what GitHub would write rather than
-// something reconstructed here: the repository decides whether a squash title
-// is the pull request's or its single commit's, and nothing on this side can
-// tell. REBASE is not asked for because it answers empty, which is GitHub
-// saying a rebase writes no commit of its own.
+// Only the event types something here writes or renders, and no REBASE message, which GitHub answers empty.
 const pullRequestQuery = `
 query PullRequestDetail($id: ID!, $head: String!) {
   rateLimit { limit cost remaining resetAt }
@@ -214,14 +197,9 @@ query PullRequestDetail($id: ID!, $head: String!) {
   }
 }`
 
-// actorNode is GitHub's nullable actor. It is a pointer everywhere it appears,
-// because a deleted account comes back as null rather than a blank login.
+// A pointer because GitHub returns a deleted account as null, not a blank login.
 type actorNode *struct{ Login string }
 
-// reviewerNode is the RequestedReviewer union, and the Assignee union with it.
-// Only one shape comes back filled: a user or a bot has a login, a team has a
-// slug under an organization and no login at all. Nullable for the reason
-// actorNode is.
 type reviewerNode *struct {
 	Login string
 	Slug  string
@@ -229,8 +207,6 @@ type reviewerNode *struct {
 	Organization struct{ Login string }
 }
 
-// subject is how one of those reads where a handle goes, and empty when GitHub
-// sent nothing to name.
 func subject(n reviewerNode) string {
 	if n == nil {
 		return ""
@@ -238,13 +214,7 @@ func subject(n reviewerNode) string {
 	return cmp.Or(n.Login, teamHandle(n.Organization.Login, n.Slug))
 }
 
-// commentNode is what an issue comment, a review comment and a review body all
-// answer with. It is embedded rather than repeated three times: encoding/json
-// promotes the fields of an embedded struct, so the shape on the wire is flat,
-// and one mapper then guarantees the three arrive as the same domain type.
-//
-// The timestamp is not in here. A comment carries createdAt and a review
-// carries submittedAt, and the review's is the one the conversation sorts by.
+// No timestamp: a review sorts by submittedAt where a comment has createdAt.
 type commentNode struct {
 	ID              string
 	Author          actorNode
@@ -303,8 +273,7 @@ type pullRequestResponse struct {
 		BaseRefName           string
 		HeadRefOid            string
 
-		// Null once the branch is deleted, which is every merged pull request
-		// in a repository that deletes on merge.
+		// Null once the branch is deleted.
 		HeadRef *struct{ ID string }
 
 		MergeHeadline  string
@@ -398,14 +367,8 @@ type pullRequestResponse struct {
 			}
 		}
 
-		// One flat struct for every event type, because each fragment selects a
-		// field no other one does: whichever matched fills its own and leaves
-		// the rest zero.
 		TimelineItems struct {
-			// The count the item types were filtered to. totalCount is the whole
-			// timeline, subscriptions and mentions included, and reading it would
-			// claim a hundred hidden events on a pull request that has none this
-			// build would ever render.
+			// totalCount would count subscriptions and mentions this never renders.
 			FilteredCount int
 			Nodes         []struct {
 				Typename  string `json:"__typename"`
@@ -424,18 +387,15 @@ type pullRequestResponse struct {
 	}
 }
 
-// deletedHeadRef is GitHub refusing the base comparison alone, because the head
-// branch is gone. Match is false unless every error is that one.
+// GitHub answers a merged pull request whole, plus a NOT_FOUND on the compare because the head branch
+// is gone.
 func deletedHeadRef(err error) bool {
 	var gqlErr *api.GraphQLError
 	return errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "node.baseRef.compare")
 }
 
-// PullRequest fetches everything the detail screen shows. It is the most
-// expensive call in the app, which is why the store caches what it returns.
-// headRef is the branch the pull request is merging from. The query needs it up
-// front to ask how far behind the base it has fallen, and GraphQL cannot read
-// it off a sibling field, so the caller passes the one it already has.
+// PullRequest fetches the detail behind a pull request's node id. headRef is its head branch name,
+// which the query needs to count how far behind the base it is.
 func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailResult, error) {
 	var resp pullRequestResponse
 	vars := map[string]any{"id": id, "head": headRef}
@@ -504,8 +464,6 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	detail.Reviewers = reviewers(resp)
 
 	for _, t := range n.ReviewThreads.Nodes {
-		// GitHub nulls line and startLine once a thread goes outdated, so the
-		// original pair is what is left to anchor it by.
 		thread := ReviewThread{
 			ID:           t.ID,
 			Path:         t.Path,
@@ -522,8 +480,6 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 			if thread.ReviewID == "" && c.PullRequestReview != nil {
 				thread.ReviewID = c.PullRequestReview.ID
 			}
-			// Every comment carries the same hunk. The first one is the one the
-			// thread was opened against, which is the context worth showing.
 			if thread.Hunk == nil && c.DiffHunk != "" {
 				if parsed := hunks(c.DiffHunk); len(parsed) > 0 {
 					thread.Hunk = &parsed[0]
@@ -534,8 +490,6 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.Threads = append(detail.Threads, thread)
 	}
 
-	// A comparison that did not run leaves zero, and zero means up to date. Any
-	// answer but a number is the count nobody has.
 	switch ref := n.BaseRef; {
 	case headless, ref == nil, ref.Compare == nil:
 		detail.BehindBy = BehindNoHead
@@ -543,18 +497,13 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 		detail.BehindBy = ref.Compare.BehindBy
 	}
 
-	// A branch already deleted leaves the id empty, which is what says there is
-	// nothing left to delete.
 	if ref := n.HeadRef; ref != nil {
 		detail.HeadRefID = ref.ID
 	}
 
 	detail.Timeline = timeline(resp, detail.Commits)
-	// After the timeline, which is what attributes a thread to its reviewer.
 	RecountThreads(&detail)
 	detail.Rollup = rollup(resp.Node.StatusCheckRollup)
-	// The embedded row's Checks is the same rollup the search result carries, so
-	// a screen reading either one sees the same answer.
 	detail.Checks = detail.Rollup.State
 
 	return DetailResult{
@@ -568,11 +517,9 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}, nil
 }
 
-// RecountThreads rewrites each reviewer's thread tallies in place, from the
-// threads the detail carries. A resolve after a fetch has to run it.
+// RecountThreads rewrites each reviewer's Threads and Unresolved in place from d's threads and timeline.
+// Call it after any change to d.Threads.
 func RecountThreads(d *PullRequestDetail) {
-	// A review's own comment carries its node id, which is what a thread names
-	// as the review that opened it.
 	byReview := make(map[string]string, len(d.Timeline))
 	for _, item := range d.Timeline {
 		if item.Kind == TimelineReview {
@@ -586,8 +533,6 @@ func RecountThreads(d *PullRequestDetail) {
 		at[d.Reviewers[i].Actor.Login] = i
 	}
 
-	// Every thread counts, not only the open ones: all of theirs resolved and
-	// none of theirs opened are opposite answers that both leave zero.
 	for _, t := range d.Threads {
 		i, seen := at[byReview[t.ReviewID]]
 		if !seen {
@@ -600,15 +545,12 @@ func RecountThreads(d *PullRequestDetail) {
 	}
 }
 
-// reviewers is everyone GitHub lists on the panel. A submitted review takes its
-// author off reviewRequests, so requests alone lose whoever has already looked.
+// A submitted review drops its author from reviewRequests, so the panel needs reviews as well.
 func reviewers(n pullRequestResponse) []Reviewer {
 	var out []Reviewer
 	at := make(map[string]int)
 
 	for _, r := range n.Node.Reviews.Nodes {
-		// A pending review is the viewer's own unsubmitted draft, and its state
-		// is not a verdict anyone else can see.
 		if ReviewState(r.State) == ReviewStatePending {
 			continue
 		}
@@ -617,8 +559,6 @@ func reviewers(n pullRequestResponse) []Reviewer {
 			continue
 		}
 
-		// Someone can review more than once, and the last word is the one that
-		// counts.
 		if i, seen := at[login]; seen {
 			out[i].State = ReviewState(r.State)
 			continue
@@ -628,37 +568,24 @@ func reviewers(n pullRequestResponse) []Reviewer {
 	}
 
 	for _, r := range n.Node.ReviewRequests.Nodes {
-		// A requested reviewer is a user, a bot or a team, and only one shape is
-		// filled in. Teams have no login; Copilot is a bot, and leaving its
-		// fragment out drops it from the list entirely.
 		name := subject(r.RequestedReviewer)
 		if name == "" {
 			continue
 		}
 
-		// Somebody already on the list from a review they submitted, whose
-		// review has since been asked for again. They keep the verdict they
-		// gave and gain the open request, because they genuinely have both.
-		// Skipping them here, which is what a plain dedupe does, loses the only
-		// evidence that anyone is still waiting on them.
 		if i, seen := at[name]; seen {
 			out[i].Requested = true
 			continue
 		}
 
 		at[name] = len(out)
-		// A team is what is left when no login came back. The handle under it is
-		// built here rather than sent by GitHub, so nothing may write it back
-		// where a login goes.
 		team := r.RequestedReviewer.Login == ""
 		out = append(out, Reviewer{Actor: Actor{Login: name}, Requested: true, Team: team})
 	}
 	return out
 }
 
-// teamHandle is how a team is written where a login goes. A team's display name
-// is not a handle: it carries spaces and case, it is not unique, and it can
-// collide with somebody's login. The slug under its organization is.
+// A team's display name is neither unique nor a handle; its slug under the organization is.
 func teamHandle(org, slug string) string {
 	if slug == "" {
 		return ""
@@ -669,10 +596,7 @@ func teamHandle(org, slug string) string {
 	return org + "/" + slug
 }
 
-// commits is the branch's last hundred, oldest first, which is the order the
-// connection returns them in and the order the tab reads them. The query asks
-// from the newest end: a long branch is read from its head, and the commits
-// that fall off are the ones already merged into it.
+// Asked from the newest end: a long branch is read from its head.
 func commits(n pullRequestResponse) []Commit {
 	out := make([]Commit, 0, len(n.Node.Commits.Nodes))
 	for _, node := range n.Node.Commits.Nodes {
@@ -684,8 +608,6 @@ func commits(n pullRequestResponse) []Commit {
 			Body:        c.MessageBody,
 			CommittedAt: c.CommittedDate,
 		}
-		// A commit written from an email GitHub cannot match has no account
-		// behind it, and the name git recorded is then all there is.
 		if c.Author != nil {
 			commit.Author, commit.AuthorName = login(c.Author.User), c.Author.Name
 		}
@@ -697,14 +619,7 @@ func commits(n pullRequestResponse) []Commit {
 	return out
 }
 
-// timeline folds comments, reviews, commits and events into one list in the
-// order they happened. GitHub returns them in four connections; the
-// conversation reads top to bottom.
-//
-// Commits are placed by committedDate. GitHub's own timeline uses the push,
-// and pushedDate comes back null from the API for all but the newest commits,
-// so a rebased branch sorts its commits to when they were written rather than
-// when they arrived.
+// Commits sort by committedDate because the API nulls pushedDate on all but the newest.
 func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 	items := make([]TimelineItem, 0,
 		len(n.Node.Comments.Nodes)+len(n.Node.Reviews.Nodes)+
@@ -730,8 +645,6 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 	}
 
 	for _, r := range n.Node.Reviews.Nodes {
-		// A pending review is the viewer's own unsubmitted draft. It has no
-		// timestamp and nobody else can see it.
 		if ReviewState(r.State) == ReviewStatePending {
 			continue
 		}
@@ -752,10 +665,6 @@ func timeline(n pullRequestResponse, made []Commit) []TimelineItem {
 		}
 		item := TimelineItem{Kind: kind, Actor: login(e.Actor), CreatedAt: e.CreatedAt}
 
-		// An event whose subject GitHub nulled is dropped rather than rendered
-		// without one. The assignee and reviewer unions come back null for a
-		// deleted account, and "assigned" with nobody named says less than the
-		// missing row does.
 		switch kind {
 		case TimelineLabeled, TimelineUnlabeled:
 			if e.Label == nil {
@@ -798,9 +707,7 @@ var eventKinds = map[string]TimelineKind{
 	"BaseRefChangedEvent":       TimelineBaseChanged,
 }
 
-// mergeState folds the two fields GitHub answers with. mergeable is the one
-// that knows about conflicts; mergeStateStatus knows everything else, and
-// reports only the topmost reason a merge is held up.
+// mergeable is the field that knows about conflicts; mergeStateStatus reports only the topmost other reason.
 func mergeState(mergeable, status string) MergeState {
 	if mergeable == "CONFLICTING" {
 		return MergeConflicting

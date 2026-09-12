@@ -26,8 +26,6 @@ func TestMergeSendsTheMethodTheOidAndTheMessage(t *testing.T) {
 		{"mergeMethod", "SQUASH"},
 		{"commitHeadline", "ZNO-48: merge from the rail (#24)"},
 		{"commitBody", "* the form\n* the write"},
-		// The commit the reader was looking at. Without it a push that landed
-		// while they read the diff is merged unseen.
 		{"expectedHeadOid", "abc123"},
 	} {
 		if got := f.gotVars[want.name]; got != want.value {
@@ -43,8 +41,6 @@ func TestMergeSendsTheMethodTheOidAndTheMessage(t *testing.T) {
 	}
 }
 
-// A rebase writes no commit of its own, so both fields go over as null rather
-// than as empty strings GitHub has to decide what to do with.
 func TestMergeSendsNoMessageOnARebase(t *testing.T) {
 	f := &fakeDoer{body: `{"mergePullRequest": {"pullRequest":
 	  {"id": "PR_1", "state": "MERGED"}}}`}
@@ -64,8 +60,6 @@ func TestMergeSendsNoMessageOnARebase(t *testing.T) {
 	}
 }
 
-// A body somebody cleared is a body they meant to clear. Sent as null it comes
-// back as GitHub's own default, which is the text they just deleted.
 func TestMergeSendsAnEmptyBodyAsEmpty(t *testing.T) {
 	f := &fakeDoer{body: `{"mergePullRequest": {"pullRequest":
 	  {"id": "PR_1", "state": "MERGED"}}}`}
@@ -94,15 +88,11 @@ func TestMergeWrapsAFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "merging") {
 		t.Errorf("error = %q, want it to name what failed", err)
 	}
-	// GitHub's own sentence is what tells the reader to sync, so it has to
-	// survive being wrapped rather than be replaced with a house message.
 	if !strings.Contains(err.Error(), boom.Error()) {
 		t.Errorf("error = %q, want it to carry what GitHub said", err)
 	}
 }
 
-// A refusal can come back as a 200 with a null pull request. Reading that as a
-// success would leave the rail claiming a merge that never happened.
 func TestMergeRefusesANullPullRequest(t *testing.T) {
 	f := &fakeDoer{body: `{"mergePullRequest": {"pullRequest": null}}`}
 
@@ -117,7 +107,6 @@ func TestDeleteRefSendsTheNodeID(t *testing.T) {
 	if err := newWithDoer(f, nil).DeleteRef(context.Background(), "REF_1"); err != nil {
 		t.Fatalf("DeleteRef: %v", err)
 	}
-	// A node id, not a branch name. deleteRef takes no name at all.
 	if got, want := f.gotVars["refId"], "REF_1"; got != want {
 		t.Errorf("refId = %v, want %v", got, want)
 	}

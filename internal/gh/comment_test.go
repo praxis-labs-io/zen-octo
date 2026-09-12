@@ -52,14 +52,11 @@ func TestAPostedCommentComesBackAsTheReadPathWouldHaveIt(t *testing.T) {
 		t.Errorf("Comment = %+v, want %+v", res.Comment, want)
 	}
 
-	// Nothing this package returns is pending: it has already happened.
 	if res.Comment.Pending {
 		t.Error("a comment GitHub confirmed came back marked pending")
 	}
 }
 
-// The subject and the body are the whole input. Sending the body as part of the
-// document rather than as a variable would break on the first backtick.
 func TestThePostSendsTheSubjectAndBodyAsVariables(t *testing.T) {
 	doer := &fakeDoer{body: postedBody}
 
@@ -78,8 +75,6 @@ func TestThePostSendsTheSubjectAndBodyAsVariables(t *testing.T) {
 	}
 }
 
-// A field missing from the mutation decodes to a zero value from canned JSON,
-// so the test above passes while the field is dead. This is the one that bites.
 func TestTheMutationAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	for _, want := range []string{
 		"id", "createdAt", "body", "author { login }",
@@ -90,15 +85,11 @@ func TestTheMutationAsksForWhatTheViewerMayDoNext(t *testing.T) {
 		}
 	}
 
-	// rateLimit is a field on Query. A mutation selecting it is rejected whole,
-	// and the unit tests above decode canned JSON that never notices.
 	if strings.Contains(addCommentMutation, "rateLimit") {
 		t.Error("the mutation asks for rateLimit, which does not exist on Mutation")
 	}
 }
 
-// GitHub answering with no comment is not a comment with no id. Returning it
-// would put an empty card in the conversation and call the write a success.
 func TestAPostThatReturnsNoCommentIsAnError(t *testing.T) {
 	_, err := newWithDoer(&fakeDoer{body: `{"addComment": {"commentEdge": {"node": {}}}}`}, nil).
 		AddComment(context.Background(), "PR_1", "hi")

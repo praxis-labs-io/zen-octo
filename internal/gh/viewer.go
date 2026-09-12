@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// viewerQuery asks who the token belongs to. GitHub answers per-comment
-// permissions on the detail query already; the login is for everything it does
-// not flag, starting with writing "you" where a name goes.
 const viewerQuery = `
 query Viewer {
   rateLimit { limit cost remaining resetAt }
@@ -26,9 +23,7 @@ type viewerResponse struct {
 	Viewer struct{ Login string }
 }
 
-// Viewer is the account behind the ambient gh token. It is asked once a session:
-// a login does not change under a running program, and nothing else the app
-// does can answer it.
+// Viewer returns the account behind the ambient gh token.
 func (c *Client) Viewer(ctx context.Context) (ViewerResult, error) {
 	var resp viewerResponse
 

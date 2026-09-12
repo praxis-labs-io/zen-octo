@@ -36,8 +36,6 @@ func TestSetLabelsSendsIDsAndReturnsTheSet(t *testing.T) {
 	if !strings.Contains(f.gotQuery, "updatePullRequest") {
 		t.Error("query does not use updatePullRequest")
 	}
-	// rateLimit is a field on Query alone; a mutation naming it is rejected
-	// whole, so the document must not carry it.
 	if strings.Contains(f.gotQuery, "rateLimit") {
 		t.Error("mutation selects rateLimit, which GitHub rejects")
 	}
@@ -50,8 +48,6 @@ func TestSetLabelsSendsIDsAndReturnsTheSet(t *testing.T) {
 	}
 }
 
-// Clearing every label is a real write, not a call to skip. A nil slice would
-// marshal to null and the non-null [ID!]! type rejects it.
 func TestSetLabelsSendsEmptyArrayNotNull(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": {"id": "PR_1", "labels": {"nodes": []}}}}`}
 
@@ -104,9 +100,6 @@ func TestSetLabelsWrapsTransportError(t *testing.T) {
 	}
 }
 
-// Both label pages ask for GitHub's full cap. Applying replaces the whole set,
-// so a page shorter than the one the picker was built from reconciles the rail
-// to a truncated set and takes off labels the write had just kept.
 func TestBothLabelPagesAskForTheFullCap(t *testing.T) {
 	for _, doc := range []struct{ name, query string }{
 		{name: "SetLabels", query: setLabelsMutation},

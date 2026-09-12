@@ -5,24 +5,8 @@ import (
 	"fmt"
 )
 
-// setLabelsMutation replaces a pull request's labels with the set it is handed.
-//
-// updatePullRequest rather than addLabelsToLabelable and
-// removeLabelsFromLabelable, which are the two mutations the name suggests. The
-// picker applies a whole set, and a set is one call here against two there: two
-// would leave the pull request holding half the change when the second fails,
-// and there is no order to run them in that makes that safe.
-//
-// It asks the labels back for the same reason addComment asks for the comment.
-// The caller is holding an optimistic list and GitHub is the only authority on
-// what it actually now carries.
-//
-// A hundred of them, which is GitHub's own page cap and the same number the
-// detail asks for. A shorter page here would reconcile the rail to a truncated
-// set and take labels off it that the write had just kept.
-//
-// It asks for no rateLimit. That field is on Query and nowhere else, and a
-// mutation selecting it is rejected whole.
+// updatePullRequest rather than the add and remove mutations: two calls leave half a set applied when
+// the second fails.
 const setLabelsMutation = `
 mutation SetLabels($pullRequestId: ID!, $labelIds: [ID!]!) {
   updatePullRequest(input: {pullRequestId: $pullRequestId, labelIds: $labelIds}) {
@@ -44,16 +28,9 @@ type setLabelsResponse struct {
 	}
 }
 
-// SetLabels replaces the labels on a pull request and returns the set as GitHub
-// recorded it. prID is the pull request's node id; labelIDs are label node ids,
-// which is the only spelling the mutation takes.
-//
-// An empty slice clears every label, and that is a real call rather than a
-// no-op the caller should skip: unchecking the last label in the picker is how
-// a reader removes it.
+// SetLabels replaces a pull request's labels with labelIDs, label node ids, and returns the set GitHub
+// recorded. An empty slice clears them all.
 func (c *Client) SetLabels(ctx context.Context, prID string, labelIDs []string) (LabelsResult, error) {
-	// A nil slice marshals to null, which the [ID!]! non-null type rejects. An
-	// empty set has to go over the wire as [].
 	if labelIDs == nil {
 		labelIDs = []string{}
 	}
@@ -70,8 +47,6 @@ func (c *Client) SetLabels(ctx context.Context, prID string, labelIDs []string) 
 		return LabelsResult{}, fmt.Errorf("setting labels: GitHub returned no pull request")
 	}
 
-	// Not nil: an empty result is the answer when every label was unchecked,
-	// and the caller folds what it is handed over the list it is showing.
 	out := make([]Label, 0, len(pr.Labels.Nodes))
 	for _, n := range pr.Labels.Nodes {
 		out = append(out, Label{ID: n.ID, Name: n.Name})

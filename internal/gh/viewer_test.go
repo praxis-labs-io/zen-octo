@@ -23,8 +23,6 @@ func TestTheViewerIsWhoTheTokenBelongsTo(t *testing.T) {
 		t.Errorf("Viewer.Login = %q, want drucial", res.Viewer.Login)
 	}
 
-	// The budget is shared with every other query, so the one point this costs
-	// has to arrive with it or the status bar is a point ahead all session.
 	want := RateLimit{
 		Limit:     5000,
 		Cost:      1,
@@ -36,9 +34,6 @@ func TestTheViewerIsWhoTheTokenBelongsTo(t *testing.T) {
 	}
 }
 
-// An empty login is not an account with no name. It is a response that did not
-// answer the question, and returning it would have the UI quietly deciding
-// nothing is the viewer's own writing.
 func TestAViewerWithNoLoginIsAnError(t *testing.T) {
 	_, err := newWithDoer(&fakeDoer{body: `{"viewer": {"login": ""}}`}, nil).Viewer(context.Background())
 	if err == nil {

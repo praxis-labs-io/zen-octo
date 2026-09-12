@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// branchesBody is five branches in the alphabetical order GitHub returns them
-// in, with dates that are deliberately not in that order.
 const branchesBody = `{
   "rateLimit": {"limit": 5000, "cost": 1, "remaining": 4999,
                 "resetAt": "2026-08-12T15:00:00Z"},
@@ -36,17 +34,12 @@ func TestBranchesComeBackNewestFirst(t *testing.T) {
 		t.Fatalf("Branches: %v", err)
 	}
 
-	// GitHub sorts refs/heads alphabetically whatever orderBy it is handed, so
-	// this order exists only because the client built it.
 	want := []string{"main", "beta", "gamma", "alpha", "orphan"}
 	if !slices.Equal(res.Branches, want) {
 		t.Errorf("branches = %v, want %v", res.Branches, want)
 	}
 }
 
-// A branch GitHub sent no commit date for is still a branch somebody can
-// retarget onto. Dropping it makes it unreachable through the only control
-// there is.
 func TestABranchWithNoDateIsKeptAndSortsLast(t *testing.T) {
 	f := &fakeDoer{body: branchesBody}
 
@@ -81,12 +74,9 @@ func TestBranchesSendsTheSearchAndReportsTheOverflow(t *testing.T) {
 		t.Error("query does not scope itself to branches")
 	}
 
-	// Query rides back so a caller can tell an answer to the search being run
-	// from one to a search two keystrokes ago.
 	if got, want := res.Query, "release"; got != want {
 		t.Errorf("Query = %q, want %q", got, want)
 	}
-	// 41 matched, 5 came back.
 	if got, want := res.More, 36; got != want {
 		t.Errorf("More = %d, want %d", got, want)
 	}
@@ -98,8 +88,6 @@ func TestBranchesSendsTheSearchAndReportsTheOverflow(t *testing.T) {
 	}
 }
 
-// A page that reached everything has no overflow. A negative count would render
-// as "-4 more" beside the title.
 func TestBranchesReportsNoOverflowWhenThePageReachedThemAll(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": {"defaultBranchRef": {"name": "main"},
 	  "refs": {"totalCount": 1, "nodes": [{"name": "main", "target": null}]}}}`}
@@ -113,8 +101,6 @@ func TestBranchesReportsNoOverflowWhenThePageReachedThemAll(t *testing.T) {
 	}
 }
 
-// A repository with no default branch is one that has never been pushed to. It
-// is not a failure, and the picker offers whatever branches came back.
 func TestBranchesSurvivesAMissingDefaultBranch(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": {"defaultBranchRef": null,
 	  "refs": {"totalCount": 0, "nodes": []}}}`}
@@ -128,9 +114,6 @@ func TestBranchesSurvivesAMissingDefaultBranch(t *testing.T) {
 	}
 }
 
-// A repository the token cannot see answers 200 with a null node. An empty
-// picker would read as a repository with no branches, which is a different
-// thing entirely.
 func TestBranchesRefusesANullRepository(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": null}`}
 

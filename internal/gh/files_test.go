@@ -12,11 +12,6 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// fakeREST answers a REST call with canned JSON or a canned error.
-//
-// It records the body as well as the method and the path, because the writes
-// carry one and what is in it is the whole of what they do. A read passes nil,
-// which records as empty.
 type fakeREST struct {
 	body string
 	err  error
@@ -41,16 +36,12 @@ func (f *fakeREST) DoWithContext(_ context.Context, method, path string, body io
 	if f.err != nil {
 		return f.err
 	}
-	// A caller that reads nothing back passes no destination, the way the
-	// delete does. go-gh leaves one untouched on a 204 for the same reason.
 	if response == nil {
 		return nil
 	}
 	return json.Unmarshal([]byte(f.body), response)
 }
 
-// RequestWithContext answers the undecoded seam with a 200 carrying f.body
-// verbatim, so a caller reading raw bytes sees exactly what it set.
 func (f *fakeREST) RequestWithContext(_ context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	f.gotMethod, f.gotPath = method, path
 
@@ -223,8 +214,6 @@ func TestAFullPageOfFilesReportsNoOverflow(t *testing.T) {
 	}
 }
 
-// commitBody is the commit endpoint's answer: the same file nodes wrapped in an
-// object rather than returned as a bare array.
 const commitBody = `{
   "sha": "a3f91c2d5e",
   "files": [
@@ -265,8 +254,6 @@ func TestACommitDiffAsksTheCommitEndpointAndParsesItsFiles(t *testing.T) {
 	}
 }
 
-// The commit endpoint carries no changed-file total, so a full page is the only
-// sign GitHub is holding more.
 func TestAFullPageOfCommitFilesReadsAsTruncated(t *testing.T) {
 	nodes := make([]string, filesPage)
 	for i := range nodes {

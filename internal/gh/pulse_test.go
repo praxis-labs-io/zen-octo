@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// pulseBody is one recheck: open, review asked for, blocked on a rule rather
-// than a conflict, and a rollup carrying a re-run so the dedupe is exercised.
 const pulseBody = `{
   "rateLimit": {"limit": 5000, "cost": 2, "remaining": 4402, "resetAt": "2026-08-15T18:00:00Z"},
   "node": {
@@ -52,8 +50,6 @@ func TestAPulseReadsEveryFieldItAsksFor(t *testing.T) {
 	if p.ReviewDecision != ReviewDecisionReviewRequired {
 		t.Errorf("review decision = %q, want REVIEW_REQUIRED", p.ReviewDecision)
 	}
-	// BLOCKED and not CONFLICTING: mergeable is the field that knows about
-	// conflicts, and a rule standing in the way is the other one's news.
 	if p.Merge != MergeBlocked {
 		t.Errorf("merge state = %q, want BLOCKED", p.Merge)
 	}
@@ -65,8 +61,6 @@ func TestAPulseReadsEveryFieldItAsksFor(t *testing.T) {
 	}
 }
 
-// The rollup is parsed by the same code the detail query's is, which is the
-// whole reason the selection and its type are shared.
 func TestAPulseCountsTheChecksTheSameWay(t *testing.T) {
 	doer := &fakeDoer{body: pulseBody}
 
@@ -86,8 +80,6 @@ func TestAPulseCountsTheChecksTheSameWay(t *testing.T) {
 		t.Errorf("tally = %d pending %d passed %d failed", r.Pending, r.Passed, r.Failed)
 	}
 
-	// Reached through the same rollup() the detail query uses, so the id fields
-	// only need proving they arrive here too, not that they decode correctly.
 	var keys = make(map[string]bool)
 	for _, c := range r.Checks {
 		if c.Workflow != "CI" {
@@ -119,8 +111,6 @@ func TestAPulseFoldsTheBudget(t *testing.T) {
 	}
 }
 
-// A merged pull request has no head branch, and that is what makes the detail
-// query need deletedHeadRef. This one asks for no comparison, so it cannot.
 func TestThePulseAsksForNoBranchComparison(t *testing.T) {
 	doer := &fakeDoer{body: pulseBody}
 
@@ -139,8 +129,6 @@ func TestThePulseAsksForNoBranchComparison(t *testing.T) {
 	}
 }
 
-// The inline fragment yields an empty object rather than an error when the id
-// belongs to something else, so a bare zero value would read as a real answer.
 func TestAPulseOnSomethingThatIsNotAPullRequestFails(t *testing.T) {
 	doer := &fakeDoer{body: `{"node": {}}`}
 

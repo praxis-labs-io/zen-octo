@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// GitHub answers with all eight groups on every subject it has ever been asked
-// about, nearly all at zero. Returning them whole puts a row of eight empty
-// pills under every comment on the page.
 func TestOnlyTheReactionsSomebodyGaveComeBack(t *testing.T) {
 	groups := []reactionGroup{
 		{Content: ReactionThumbsUp, ViewerHasReacted: true},
@@ -34,9 +31,6 @@ func TestOnlyTheReactionsSomebodyGaveComeBack(t *testing.T) {
 	}
 }
 
-// A subject nobody has reacted to still answers with eight groups. Nil is what
-// says there is nothing to draw; an empty non-nil slice reads the same to the
-// card and differently to every test comparing sets.
 func TestASubjectWithNoReactionsComesBackWithNone(t *testing.T) {
 	groups := make([]reactionGroup, len(ReactionOrder))
 	for i, c := range ReactionOrder {
@@ -64,8 +58,6 @@ const removedReaction = `{
   }
 }`
 
-// The direction picks the document. Sending the add where a remove was meant
-// puts the reaction back on the card the reader just took it off.
 func TestTheReactionDirectionPicksTheMutation(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -113,8 +105,6 @@ func TestTheReactionDirectionPicksTheMutation(t *testing.T) {
 	}
 }
 
-// Both payloads decode into one struct, and reading whichever came back filled
-// would let an add answered by a remove pass silently.
 func TestEachDirectionReadsItsOwnHalfOfThePayload(t *testing.T) {
 	if _, err := newWithDoer(&fakeDoer{body: removedReaction}, nil).SetReaction(
 		context.Background(), "IC_1", ReactionThumbsUp, true); err == nil {
@@ -122,10 +112,6 @@ func TestEachDirectionReadsItsOwnHalfOfThePayload(t *testing.T) {
 	}
 }
 
-// Taking the last reaction off a subject leaves it with none, and GitHub can
-// answer with an empty list for it. That is the write having worked, and
-// reporting it as a failure would toast an error and put the pill back on a
-// card GitHub had already cleared.
 func TestARemovalThatEmptiesASubjectIsNotAFailure(t *testing.T) {
 	doer := &fakeDoer{body: `{"removeReaction": {"reactionGroups": []}}`}
 
@@ -149,9 +135,6 @@ func TestAFailedReactionSaysWhichDirectionItWas(t *testing.T) {
 	}
 }
 
-// A reaction to the description is addressed to the pull request, so the
-// mutation input takes an ID and not a comment id. The variable is the whole of
-// what says so.
 func TestAReactionTakesWhateverNodeItIsGiven(t *testing.T) {
 	doer := &fakeDoer{body: addedReaction}
 

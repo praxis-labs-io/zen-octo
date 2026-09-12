@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// pulseQuery re-asks the fields that move without anyone here touching them.
-// Three hundred bytes back where the detail query answers with megabytes.
 const pulseQuery = `
 query PullRequestPulse($id: ID!) {
   rateLimit { limit cost remaining resetAt }
@@ -48,8 +46,8 @@ type pulseResponse struct {
 	}
 }
 
-// Pulse re-reads one pull request's lifecycle, review decision, mergeability
-// and checks. It asks for no comparison, so a gone head branch is no error here.
+// Pulse re-reads one pull request's lifecycle, review decision, mergeability and checks.
+// It runs no branch comparison, so a deleted head branch is not an error.
 func (c *Client) Pulse(ctx context.Context, id string) (PulseResult, error) {
 	var resp pulseResponse
 	if err := c.gql.DoWithContext(ctx, pulseQuery, map[string]any{"id": id}, &resp); err != nil {

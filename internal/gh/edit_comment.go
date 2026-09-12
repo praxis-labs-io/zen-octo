@@ -6,18 +6,6 @@ import (
 	"time"
 )
 
-// One comment type up here, three mutations down here. A node id does not name
-// the call that rewrites it, so the kind picks the document the way the
-// direction picks one in SetThreadResolved.
-//
-// The three inputs disagree on what the id is called, which is the whole reason
-// they cannot share one: updateIssueComment takes id, the review comment takes
-// pullRequestReviewCommentId, and the review takes pullRequestReviewId.
-//
-// Each asks the comment back, the same fields addComment does, so a comment
-// just edited and one fetched an hour later are the same shape. None asks for
-// rateLimit: that field is on Query alone and a mutation naming it is rejected
-// whole.
 const updateIssueCommentMutation = `
 mutation UpdateIssueComment($id: ID!, $body: String!) {
   updateIssueComment(input: {id: $id, body: $body}) {
@@ -52,8 +40,6 @@ mutation UpdateReviewComment($id: ID!, $body: String!) {
   }
 }`
 
-// A review's own words. createdAt is when the review was submitted, which is
-// what the conversation already dates the card by.
 const updateReviewMutation = `
 mutation UpdateReview($id: ID!, $body: String!) {
   updatePullRequestReview(input: {pullRequestReviewId: $id, body: $body}) {
@@ -71,15 +57,12 @@ mutation UpdateReview($id: ID!, $body: String!) {
   }
 }`
 
-// editedNode is the comment either half of a payload carries.
 type editedNode struct {
 	commentNode
 	CreatedAt time.Time
 }
 
-// updateCommentResponse decodes all three payloads. The method reads the one
-// its own document produced rather than whichever field came back filled, so a
-// response landing in the wrong one is a failure instead of a silent pass.
+// Read by kind rather than by whichever field came back filled, so a mismatched response fails.
 type updateCommentResponse struct {
 	UpdateIssueComment             struct{ IssueComment editedNode }
 	UpdatePullRequestReviewComment struct {
@@ -88,13 +71,8 @@ type updateCommentResponse struct {
 	UpdatePullRequestReview struct{ PullRequestReview editedNode }
 }
 
-// UpdateComment rewrites a comment's body and returns it as GitHub recorded it.
-// id is the comment's node id, and kind is what it is: an issue comment, a
-// review's own body, or a comment inside a review thread.
-//
-// An unknown kind is an error rather than a guess. Sending the wrong document
-// reaches a mutation that will refuse the id, and the refusal would arrive as
-// GitHub's words about a call this side chose.
+// UpdateComment rewrites the body of the comment with node id id and returns it as GitHub recorded it.
+// An unknown kind is an error.
 func (c *Client) UpdateComment(ctx context.Context, kind CommentKind, id, body string) (CommentResult, error) {
 	doc, doing := "", "editing a comment"
 	switch kind {
@@ -131,10 +109,7 @@ func (c *Client) UpdateComment(ctx context.Context, kind CommentKind, id, body s
 	return CommentResult{Comment: node.comment(kind, node.CreatedAt)}, nil
 }
 
-// Neither delete has anything worth reading back. A payload has to select
-// something, and deleteIssueComment carries nothing but clientMutationId: the
-// comment it removed is gone, so there is no node to ask for. The error is the
-// whole of the answer either way.
+// clientMutationId is all the payload has left once the comment is gone.
 const deleteIssueCommentMutation = `
 mutation DeleteIssueComment($id: ID!) {
   deleteIssueComment(input: {id: $id}) {
@@ -149,13 +124,8 @@ mutation DeleteReviewComment($id: ID!) {
   }
 }`
 
-// DeleteComment removes a comment. id is its node id, and kind is what it is.
-//
-// A review's own body has no delete. deletePullRequestReview takes only a
-// pending review, GitHub's own page offers no control for a submitted one, and
-// viewerCanDelete comes back true on one regardless, which is why this refuses
-// here rather than trusting the flag. Nothing above offers the key on a review,
-// so reaching this is a bug rather than a reader's press.
+// DeleteComment removes an issue or thread comment by node id. A CommentReview is refused: GitHub cannot
+// delete a submitted review, though its viewerCanDelete says otherwise.
 func (c *Client) DeleteComment(ctx context.Context, kind CommentKind, id string) error {
 	doc, doing := "", "deleting a comment"
 	switch kind {
