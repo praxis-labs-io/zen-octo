@@ -5,8 +5,7 @@ import (
 	"fmt"
 )
 
-// updatePullRequest rather than the add and remove mutations: two calls leave half a set applied when
-// the second fails.
+// updatePullRequest rather than the add and remove mutations: two calls leave half a set applied if one fails.
 const setLabelsMutation = `
 mutation SetLabels($pullRequestId: ID!, $labelIds: [ID!]!) {
   updatePullRequest(input: {pullRequestId: $pullRequestId, labelIds: $labelIds}) {
@@ -28,8 +27,7 @@ type setLabelsResponse struct {
 	}
 }
 
-// SetLabels replaces a pull request's labels with labelIDs, label node ids, and returns the set GitHub
-// recorded. An empty slice clears them all.
+// SetLabels replaces a pull request's labels with the label node ids in labelIDs; an empty slice clears them.
 func (c *Client) SetLabels(ctx context.Context, prID string, labelIDs []string) (LabelsResult, error) {
 	if labelIDs == nil {
 		labelIDs = []string{}

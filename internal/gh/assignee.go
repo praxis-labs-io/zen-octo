@@ -27,8 +27,7 @@ type setAssigneesResponse struct {
 	}
 }
 
-// SetAssignees replaces a pull request's assignees with assigneeIDs, user node ids, and returns the set
-// GitHub recorded. An empty slice clears them all.
+// SetAssignees replaces a pull request's assignees with the user node ids in assigneeIDs; an empty slice clears them.
 func (c *Client) SetAssignees(ctx context.Context, prID string, assigneeIDs []string) (AssigneesResult, error) {
 	if assigneeIDs == nil {
 		assigneeIDs = []string{}

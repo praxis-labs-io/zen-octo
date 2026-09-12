@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Shared by the detail and pulse documents so their shapes cannot drift apart.
 const rollupSelection = `
       statusCheckRollup: commits(last: 1) {
         nodes {
@@ -65,8 +64,7 @@ type rollupNode struct {
 	}
 }
 
-// Keeps every context GitHub returns: two jobs may share a name, and CheckRun exposes nothing that
-// proves a rerun.
+// Keeps every context: two jobs may share a name, and CheckRun exposes nothing that proves a rerun.
 func rollup(r rollupNode) CheckRollup {
 	if len(r.Nodes) == 0 || r.Nodes[0].Commit.StatusCheckRollup == nil {
 		return CheckRollup{}

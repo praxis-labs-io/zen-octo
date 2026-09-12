@@ -8,12 +8,10 @@ import (
 	"time"
 )
 
-// Sized to scan rather than page: GitHub pages alphabetically, so narrowing the search is what reaches
-// the rest.
+// Small because GitHub pages alphabetically: a branch is reached by narrowing the search, not by paging.
 const branchPage = 30
 
-// refs ignores orderBy on refs/heads, so the page comes back alphabetical and the date sort can only
-// order it.
+// refs ignores orderBy on refs/heads: the page comes back alphabetical, and the date sort only orders it.
 const branchQuery = `
 query Branches($owner: String!, $name: String!, $query: String!, $first: Int!) {
   rateLimit { limit cost remaining resetAt }
@@ -59,9 +57,8 @@ func (n branchNode) committed() time.Time {
 	return n.Target.CommittedDate
 }
 
-// Branches returns one page of repo's branches whose name contains query, newest commit first, or all
-// of them for an empty query. repo is "owner/name"; More counts matches past the page. A repository
-// the token cannot see is an error.
+// Branches returns one page of repo's branches whose name contains query, newest commit first.
+// repo is "owner/name"; More counts matches past the page.
 func (c *Client) Branches(ctx context.Context, repo, query string) (BranchResult, error) {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" {

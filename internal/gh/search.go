@@ -79,8 +79,6 @@ type searchPullRequestsResponse struct {
 	}
 }
 
-// SearchPullRequests runs query, a raw GitHub search string, and returns up to limit pull requests it
-// matched.
 func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (SearchResult, error) {
 	var resp searchPullRequestsResponse
 	vars := map[string]any{"q": query, "limit": limit}

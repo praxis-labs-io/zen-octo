@@ -33,7 +33,6 @@ type addReplyResponse struct {
 	}
 }
 
-// AddReply posts a reply to the review thread with node id threadID and returns it as GitHub recorded it.
 func (c *Client) AddReply(ctx context.Context, threadID, body string) (CommentResult, error) {
 	var resp addReplyResponse
 	vars := map[string]any{"threadId": threadID, "body": body}

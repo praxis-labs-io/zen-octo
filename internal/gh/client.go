@@ -22,7 +22,6 @@ type restDoer interface {
 	RequestWithContext(ctx context.Context, method, path string, body io.Reader) (*http.Response, error)
 }
 
-// Client is a GitHub API client using the token from the user's gh login.
 type Client struct {
 	gql  graphQLDoer
 	rest restDoer
@@ -45,8 +44,7 @@ func newWithDoer(gql graphQLDoer, rest restDoer) *Client {
 	return &Client{gql: gql, rest: rest}
 }
 
-// ScopeError is a 403 the token's scopes cannot satisfy. Missing names the scopes to add, and Error
-// spells out the fix.
+// ScopeError is a 403 the token's scopes cannot satisfy. Missing names the scopes to add.
 type ScopeError struct {
 	Missing []string
 	err     error

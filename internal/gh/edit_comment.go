@@ -62,7 +62,6 @@ type editedNode struct {
 	CreatedAt time.Time
 }
 
-// Read by kind rather than by whichever field came back filled, so a mismatched response fails.
 type updateCommentResponse struct {
 	UpdateIssueComment             struct{ IssueComment editedNode }
 	UpdatePullRequestReviewComment struct {
@@ -71,8 +70,6 @@ type updateCommentResponse struct {
 	UpdatePullRequestReview struct{ PullRequestReview editedNode }
 }
 
-// UpdateComment rewrites the body of the comment with node id id and returns it as GitHub recorded it.
-// An unknown kind is an error.
 func (c *Client) UpdateComment(ctx context.Context, kind CommentKind, id, body string) (CommentResult, error) {
 	doc, doing := "", "editing a comment"
 	switch kind {
@@ -124,8 +121,7 @@ mutation DeleteReviewComment($id: ID!) {
   }
 }`
 
-// DeleteComment removes an issue or thread comment by node id. A CommentReview is refused: GitHub cannot
-// delete a submitted review, though its viewerCanDelete says otherwise.
+// DeleteComment refuses a CommentReview: GitHub cannot delete a submitted review, though viewerCanDelete says it can.
 func (c *Client) DeleteComment(ctx context.Context, kind CommentKind, id string) error {
 	doc, doing := "", "deleting a comment"
 	switch kind {

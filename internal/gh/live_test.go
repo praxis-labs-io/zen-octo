@@ -207,8 +207,7 @@ func TestLiveViewer(t *testing.T) {
 	}
 }
 
-// Comments on a node that does not exist: GraphQL validates the document before it fails to resolve
-// the id, so nothing is written.
+// Targets a missing node: GraphQL validates the document before resolving the id, so nothing is written.
 func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")

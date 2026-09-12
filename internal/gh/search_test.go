@@ -12,8 +12,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// Answers with a body and an error at once, because go-gh decodes the payload before it reads the
-// errors array.
+// Answers with a body and an error at once: go-gh decodes the payload before it reads the errors array.
 type fakeDoer struct {
 	body string
 	err  error

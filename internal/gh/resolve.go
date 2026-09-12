@@ -36,14 +36,11 @@ type threadNode struct {
 	ViewerCanUnresolve bool
 }
 
-// Read by direction rather than by whichever field came back filled, so a mismatched response fails.
 type threadResolveResponse struct {
 	ResolveReviewThread   struct{ Thread threadNode }
 	UnresolveReviewThread struct{ Thread threadNode }
 }
 
-// SetThreadResolved resolves or unresolves the review thread with node id threadID and returns it as
-// GitHub recorded it.
 func (c *Client) SetThreadResolved(ctx context.Context, threadID string, resolved bool) (ThreadResult, error) {
 	doc, doing := unresolveThreadMutation, "unresolving a review thread"
 	if resolved {

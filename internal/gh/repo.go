@@ -48,8 +48,7 @@ type repoMetaResponse struct {
 	}
 }
 
-// RepoMeta fetches the choices the detail rail's pickers draw from. repo is "owner/name".
-// A repository the token cannot see is an error.
+// RepoMeta fetches the picker choices for repo, "owner/name".
 func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, error) {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" {

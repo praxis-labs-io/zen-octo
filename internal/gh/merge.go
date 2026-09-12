@@ -5,8 +5,7 @@ import (
 	"fmt"
 )
 
-// Headline and body go null only for a rebase; null on another method puts GitHub's default back over
-// the caller's text.
+// Headline and body are null only for a rebase; null on another method puts GitHub's default over the caller's text.
 const mergeMutation = `
 mutation MergePR(
   $pullRequestId: ID!,
@@ -38,8 +37,6 @@ type mergeResponse struct {
 	}
 }
 
-// Merge merges a pull request and returns its resulting state. GitHub refuses it when
-// opts.ExpectedHeadOid is set and the branch has moved since.
 func (c *Client) Merge(ctx context.Context, prID string, opts MergeOptions) (MergeResult, error) {
 	vars := map[string]any{
 		"pullRequestId":   prID,
@@ -76,7 +73,6 @@ mutation DeleteRef($refId: ID!) {
   }
 }`
 
-// DeleteRef deletes a branch by its node id.
 func (c *Client) DeleteRef(ctx context.Context, refID string) error {
 	var resp struct {
 		DeleteRef struct{ ClientMutationID string }

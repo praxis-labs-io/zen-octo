@@ -25,7 +25,6 @@ type reactionGroup struct {
 	Reactors         struct{ TotalCount int }
 }
 
-// GitHub answers with all eight groups on every subject, nearly all empty; the zeroes go and its order stays.
 func reactions(groups []reactionGroup) []Reaction {
 	var out []Reaction
 	for _, g := range groups {
@@ -47,8 +46,6 @@ type reactionResponse struct {
 	RemoveReaction *struct{ ReactionGroups []reactionGroup }
 }
 
-// SetReaction adds content to the subject with node id subjectID, or removes it when on is false, and returns
-// the subject's reactions as GitHub recorded them.
 func (c *Client) SetReaction(ctx context.Context, subjectID string,
 	content ReactionContent, on bool,
 ) (ReactionResult, error) {

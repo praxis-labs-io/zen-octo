@@ -24,7 +24,6 @@ type setBaseResponse struct {
 	}
 }
 
-// The description is a pull request field, not a comment node, so updateIssueComment cannot reach it.
 const setBodyMutation = `
 mutation SetBody($pullRequestId: ID!, $body: String!) {
   updatePullRequest(input: {pullRequestId: $pullRequestId, body: $body}) {
@@ -44,8 +43,6 @@ type setBodyResponse struct {
 	}
 }
 
-// SetBody rewrites a pull request's description and returns it as GitHub recorded it. An empty body
-// clears it.
 func (c *Client) SetBody(ctx context.Context, prID, body string) (BodyResult, error) {
 	var resp setBodyResponse
 	vars := map[string]any{"pullRequestId": prID, "body": body}
@@ -61,8 +58,7 @@ func (c *Client) SetBody(ctx context.Context, prID, body string) (BodyResult, er
 	return BodyResult{Body: pr.Body}, nil
 }
 
-// SetBase retargets a pull request onto base, a branch name without refs/heads/, and returns the base
-// GitHub recorded. GitHub refuses a merged pull request and a base equal to the head.
+// SetBase retargets onto base, a name without refs/heads/. GitHub refuses a merged pull request or base equal to head.
 func (c *Client) SetBase(ctx context.Context, prID, base string) (BaseResult, error) {
 	var resp setBaseResponse
 	vars := map[string]any{"pullRequestId": prID, "baseRefName": base}

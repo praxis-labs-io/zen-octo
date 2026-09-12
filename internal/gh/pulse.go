@@ -46,8 +46,7 @@ type pulseResponse struct {
 	}
 }
 
-// Pulse re-reads one pull request's lifecycle, review decision, mergeability and checks.
-// It runs no branch comparison, so a deleted head branch is not an error.
+// Pulse re-reads a pull request's volatile fields. Unlike PullRequest, a deleted head branch is not an error.
 func (c *Client) Pulse(ctx context.Context, id string) (PulseResult, error) {
 	var resp pulseResponse
 	if err := c.gql.DoWithContext(ctx, pulseQuery, map[string]any{"id": id}, &resp); err != nil {

@@ -36,7 +36,6 @@ type addCommentResponse struct {
 	}
 }
 
-// AddComment posts a comment on the pull request with node id subjectID and returns it as GitHub recorded it.
 func (c *Client) AddComment(ctx context.Context, subjectID, body string) (CommentResult, error) {
 	var resp addCommentResponse
 	vars := map[string]any{"subjectId": subjectID, "body": body}

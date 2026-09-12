@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// Each aliases its payload to result, so one response struct decodes all four.
 const (
 	markReadyMutation = `
 mutation MarkReady($pullRequestId: ID!) {
@@ -60,8 +59,7 @@ func stateMutation(to PRTransition) (string, bool) {
 	return "", false
 }
 
-// SetState applies a lifecycle transition and returns the state GitHub recorded, which may not be the
-// one asked for. An unknown transition is an error, made without calling GitHub.
+// SetState applies a lifecycle transition. The state GitHub returns may not be the one asked for.
 func (c *Client) SetState(ctx context.Context, prID string, to PRTransition) (PRStateResult, error) {
 	doc, ok := stateMutation(to)
 	if !ok {

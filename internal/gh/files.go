@@ -50,8 +50,7 @@ type fileViewsResponse struct {
 	}
 }
 
-// PullRequestFiles fetches one page of a pull request's diff over REST and its viewed states over GraphQL.
-// changedFiles is the pull request's own count, which MoreFiles is measured against.
+// PullRequestFiles fetches one page of a pull request's diff and viewed states; MoreFiles counts against changedFiles.
 func (c *Client) PullRequestFiles(ctx context.Context, prID, repo string, number, changedFiles int) (FilesResult, error) {
 	if !strings.Contains(repo, "/") {
 		return FilesResult{}, fmt.Errorf("fetching files (%s#%d): %q is not owner/name", repo, number, repo)
@@ -98,7 +97,6 @@ func (c *Client) PullRequestFiles(ctx context.Context, prID, repo string, number
 	}, nil
 }
 
-// CommitFiles fetches one page of a commit's diff, setting Truncated on a full page.
 func (c *Client) CommitFiles(ctx context.Context, repo, sha string) (FilesResult, error) {
 	if !strings.Contains(repo, "/") {
 		return FilesResult{}, fmt.Errorf("fetching commit (%s@%s): %q is not owner/name", repo, sha, repo)

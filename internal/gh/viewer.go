@@ -23,7 +23,6 @@ type viewerResponse struct {
 	Viewer struct{ Login string }
 }
 
-// Viewer returns the account behind the ambient gh token.
 func (c *Client) Viewer(ctx context.Context) (ViewerResult, error) {
 	var resp viewerResponse
 

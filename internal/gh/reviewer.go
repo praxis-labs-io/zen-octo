@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	// CopilotLogin is the review bot's login as GraphQL reports it, the spelling everything above this
-	// package uses.
+	// CopilotLogin is the review bot's login as GraphQL reports it, the spelling everything above this package uses.
 	CopilotLogin = "copilot-pull-request-reviewer"
 
 	// POST takes only this form; given "Copilot" it answers 200 and writes nothing.
@@ -98,9 +97,8 @@ func (c *Client) awaitingReview(ctx context.Context, owner, name string, number 
 	return out, nil
 }
 
-// RequestReviews asks for a review from each login and errors unless GitHub then lists every one as
-// requested. REST because GraphQL requestReviews accepts a bot id, reports success, and requests
-// nothing. An empty slice makes no call.
+// RequestReviews requests a review from each login and errors unless GitHub then lists every one as requested.
+// REST because GraphQL requestReviews accepts a bot id, reports success, and requests nothing.
 func (c *Client) RequestReviews(ctx context.Context, repo string, number int, logins []string) error {
 	if len(logins) == 0 {
 		return nil
@@ -136,8 +134,7 @@ func (c *Client) RequestReviews(ctx context.Context, repo string, number int, lo
 	return nil
 }
 
-// RemoveReviewRequests cancels the review requested of each login. It confirms nothing: a login already gone
-// looks the same as one removed. An empty slice makes no call.
+// RemoveReviewRequests cancels each login's request unconfirmed: a login already gone looks the same as one removed.
 func (c *Client) RemoveReviewRequests(ctx context.Context, repo string, number int, logins []string) error {
 	if len(logins) == 0 {
 		return nil

@@ -13,8 +13,7 @@ const (
 	PRStateMerged PRState = "MERGED"
 )
 
-// PRTransition is a move rather than a destination: draft and closed are independent fields, and each
-// move is its own mutation.
+// PRTransition is a move rather than a destination: draft and closed are independent fields.
 type PRTransition string
 
 const (
@@ -49,7 +48,6 @@ const (
 	ReviewDecisionReviewRequired   ReviewDecision = "REVIEW_REQUIRED"
 )
 
-// ReviewState is one reviewer's verdict.
 type ReviewState string
 
 const (
@@ -83,15 +81,12 @@ const (
 	TimelineBaseChanged     TimelineKind = "BASE_REF_CHANGED"
 )
 
-// Actor is a user, organization, or bot. Login is empty for a deleted account, and ID is set
-// only on the lists a picker writes back, because updatePullRequest takes node ids.
+// Actor is a user, organization, or bot. Login is empty for a deleted account; ID is set only on lists a picker writes.
 type Actor struct {
 	ID    string
 	Login string
 }
 
-// Mention is someone nameable in a comment. Name is empty where the account set none. No node id, so
-// it is not an Actor.
 type Mention struct {
 	Login string
 	Name  string
@@ -103,20 +98,16 @@ type Label struct {
 	Name string
 }
 
-// CommentKind picks the mutation: GitHub edits each kind through a different call.
 type CommentKind string
 
 const (
 	// CommentIssue stands alone in the conversation; GitHub calls it an issue comment on a pull request too.
 	CommentIssue CommentKind = "ISSUE"
 
-	// CommentReview is a review's own body, above its threads.
 	CommentReview CommentKind = "REVIEW"
-
 	CommentThread CommentKind = "THREAD"
 )
 
-// ReactionContent values are GitHub's enum words, sent to the mutation as they are.
 type ReactionContent string
 
 const (
@@ -142,8 +133,7 @@ var ReactionOrder = []ReactionContent{
 	ReactionEyes,
 }
 
-// Reaction is one kind of reaction on a subject. Viewer is whether the token's account gave it.
-// GitHub answers with all eight groups on every subject; this package drops the ones nobody gave.
+// Reaction is one kind of reaction on a subject; Viewer is whether the viewer gave it. Kinds nobody gave are dropped.
 type Reaction struct {
 	Content ReactionContent
 	Count   int
@@ -153,8 +143,7 @@ type Reaction struct {
 	Pending bool
 }
 
-// Comment is a standalone comment, a review body, or a thread comment. ViewerDidAuthor is not CanEdit:
-// a maintainer can edit anyone's.
+// Comment's ViewerDidAuthor is not CanEdit: a maintainer can edit anyone's.
 type Comment struct {
 	Kind      CommentKind
 	ID        string
@@ -172,8 +161,7 @@ type Comment struct {
 	// Pending is a comment GitHub has not acknowledged yet. Set by the store, never by this package.
 	Pending bool
 
-	// Editing is a comment on GitHub showing a rewrite it has not confirmed. Set by the store, never
-	// by this package.
+	// Editing is a rewrite GitHub has not confirmed. Set by the store, never by this package.
 	Editing bool
 }
 
@@ -209,8 +197,7 @@ type ReviewThread struct {
 	Comments []Comment
 }
 
-// TimelineItem is one conversation entry. Comment is nil on an event; Review is set only on
-// TimelineReview, Commit only on TimelineCommit.
+// TimelineItem is one conversation entry. Comment is nil on an event; Review and Commit are set only on their kinds.
 type TimelineItem struct {
 	Kind      TimelineKind
 	Actor     Actor
@@ -219,8 +206,7 @@ type TimelineItem struct {
 	Review    ReviewState
 	Commit    *Commit
 
-	// Subject is the label, handle or branch an event acted on, and empty on kinds acting on the whole
-	// pull request.
+	// Subject is the label, handle or branch an event acted on, empty when it acted on the whole pull request.
 	Subject string
 
 	// Was is the value Subject replaced. Only TimelineBaseChanged has one.
@@ -235,9 +221,7 @@ func (i TimelineItem) Said() Comment {
 	return *i.Comment
 }
 
-// Commit is one commit on the pull request. Author is empty when the commit email links to no account;
-// AuthorName is what git recorded. Checks is this commit's own rollup, current only on the head
-// commit.
+// Commit's Author is empty when its email links to no account. Checks is current only on the head commit.
 type Commit struct {
 	SHA         string
 	Short       string
@@ -249,7 +233,6 @@ type Commit struct {
 	Checks      CheckState
 }
 
-// MergeState folds GitHub's mergeable and mergeStateStatus into one answer.
 type MergeState string
 
 const (
@@ -273,16 +256,14 @@ const (
 	MergeMethodRebase MergeMethod = "REBASE"
 )
 
-// MergeMessage is the commit message GitHub would write for one method, empty for a rebase.
-// Fetched rather than built, because repository settings decide the squash title and body.
+// MergeMessage is GitHub's commit message for one method, empty for a rebase. Fetched: repository settings decide it.
 type MergeMessage struct {
 	Headline string
 	Body     string
 }
 
-// Reviewer is someone on the reviewers panel. State is empty until they submit, and Requested can
-// hold beside a State. Threads counts the review threads they opened, Unresolved the open ones.
-// Team marks a team request, whose Login is a synthetic "org/slug" no write accepts.
+// Reviewer's State is empty until they submit, and Requested can hold beside it. Threads counts the review threads they
+// opened, Unresolved the open ones. Team marks a team request, whose "org/slug" Login no write accepts.
 type Reviewer struct {
 	Actor      Actor
 	State      ReviewState
@@ -312,8 +293,7 @@ func (c Check) LogicalKey() string {
 	return strconv.FormatInt(c.RunID, 10) + "\x00" + c.Workflow + "\x00" + c.Name
 }
 
-// Key is unique within one rollup. It equals LogicalKey unless GitHub returned two checks with the
-// same identity.
+// Key is unique within one rollup, equal to LogicalKey unless GitHub returned two checks with the same identity.
 func (c Check) Key() string {
 	key := c.LogicalKey()
 	if c.DistinctID != 0 {
@@ -322,7 +302,7 @@ func (c Check) Key() string {
 	return key
 }
 
-// Job is one Actions job. Step state and timing come from the job endpoint only, not the rollup.
+// Job is one Actions job. Step state and timing come only from the job endpoint, not the rollup.
 type Job struct {
 	ID          int64
 	Name        string
@@ -387,8 +367,7 @@ type PullRequestDetail struct {
 
 	Merge MergeState
 
-	// HeadRefOid is the head tip when fetched, which a merge sends as the commit it means. HeadRefID
-	// is empty once the branch is gone.
+	// HeadRefOid is the fetched head tip a merge sends as expected. HeadRefID is empty once the branch is gone.
 	HeadRefOid string
 	HeadRefID  string
 
@@ -403,15 +382,13 @@ type PullRequestDetail struct {
 	// BehindBy is how many commits the base has that the head lacks, or BehindUnknown or BehindNoHead.
 	BehindBy int
 
-	// MoreComments, MoreThreads, MoreCommits and MoreEvents count what the first page did not reach.
-	// MoreEvents counts only the event types asked for, never the whole timeline.
+	// More* count what the first page missed; MoreEvents counts only the event types asked for.
 	MoreComments int
 	MoreThreads  int
 	MoreCommits  int
 	MoreEvents   int
 }
 
-// MergeMessage is what GitHub would commit for m, and the zero value for a rebase.
 func (d PullRequestDetail) MergeMessage(m MergeMethod) MergeMessage {
 	switch m {
 	case MergeMethodMerge:
@@ -500,7 +477,6 @@ type DetailResult struct {
 	RateLimit RateLimit
 }
 
-// Pulse is the small subset of a detail: lifecycle, review, mergeability and checks.
 type Pulse struct {
 	State          PRState
 	IsDraft        bool
@@ -518,7 +494,6 @@ type PulseResult struct {
 	RateLimit RateLimit
 }
 
-// RateLimit is the GraphQL point budget as of the last response.
 type RateLimit struct {
 	Limit     int
 	Cost      int
@@ -531,8 +506,7 @@ type ViewerResult struct {
 	RateLimit RateLimit
 }
 
-// CommentResult carries no RateLimit, like every mutation result: rateLimit is a Query field a
-// mutation cannot select.
+// CommentResult carries no RateLimit: rateLimit is a Query field a mutation cannot select.
 type CommentResult struct {
 	Comment Comment
 }
@@ -555,9 +529,8 @@ type SearchResult struct {
 	RateLimit    RateLimit
 }
 
-// RepoMeta is a repository's picker choices. Users is who may be assigned, and is offered for review
-// too: GitHub has no requestable-reviewers connection. Mentions is the wider set of everyone who has
-// taken part, and has no ids to write back.
+// RepoMeta is a repository's picker choices. Users is who may be assigned, offered for review too since GitHub has no
+// requestable-reviewers connection. Mentions is everyone who has taken part, with no ids to write back.
 type RepoMeta struct {
 	Labels   []Label
 	Users    []Actor
@@ -568,8 +541,7 @@ type RepoMeta struct {
 type MergeMethods struct {
 	Merge, Squash, Rebase bool
 
-	// DeleteOnMerge is GitHub deleting the head branch itself; a client also deleting it races that
-	// and fails.
+	// DeleteOnMerge is GitHub deleting the head branch itself; a client also deleting it races that and fails.
 	DeleteOnMerge bool
 }
 
@@ -613,8 +585,7 @@ type BodyResult struct {
 	Body string
 }
 
-// MergeOptions is one merge. Headline and Body are empty for a rebase, and may be empty otherwise for
-// GitHub's default.
+// MergeOptions is one merge. Headline and Body are empty for a rebase, or for GitHub's default.
 type MergeOptions struct {
 	Method   MergeMethod
 	Headline string

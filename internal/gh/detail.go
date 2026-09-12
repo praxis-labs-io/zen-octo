@@ -387,15 +387,13 @@ type pullRequestResponse struct {
 	}
 }
 
-// GitHub answers a merged pull request whole, plus a NOT_FOUND on the compare because the head branch
-// is gone.
+// GitHub answers a merged pull request whole, plus a NOT_FOUND on the compare since the head branch is gone.
 func deletedHeadRef(err error) bool {
 	var gqlErr *api.GraphQLError
 	return errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "node.baseRef.compare")
 }
 
-// PullRequest fetches the detail behind a pull request's node id. headRef is its head branch name,
-// which the query needs to count how far behind the base it is.
+// PullRequest fetches the detail for a pull request's node id; headRef is its head branch name.
 func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailResult, error) {
 	var resp pullRequestResponse
 	vars := map[string]any{"id": id, "head": headRef}
@@ -517,8 +515,7 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	}, nil
 }
 
-// RecountThreads rewrites each reviewer's Threads and Unresolved in place from d's threads and timeline.
-// Call it after any change to d.Threads.
+// RecountThreads rewrites d's reviewer Threads and Unresolved in place. Call it after any change to d.Threads.
 func RecountThreads(d *PullRequestDetail) {
 	byReview := make(map[string]string, len(d.Timeline))
 	for _, item := range d.Timeline {
@@ -585,7 +582,6 @@ func reviewers(n pullRequestResponse) []Reviewer {
 	return out
 }
 
-// A team's display name is neither unique nor a handle; its slug under the organization is.
 func teamHandle(org, slug string) string {
 	if slug == "" {
 		return ""
@@ -596,7 +592,6 @@ func teamHandle(org, slug string) string {
 	return org + "/" + slug
 }
 
-// Asked from the newest end: a long branch is read from its head.
 func commits(n pullRequestResponse) []Commit {
 	out := make([]Commit, 0, len(n.Node.Commits.Nodes))
 	for _, node := range n.Node.Commits.Nodes {
