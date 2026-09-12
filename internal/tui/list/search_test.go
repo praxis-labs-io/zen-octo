@@ -16,8 +16,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 )
 
-// searchPromptText is the box's prompt, spelled here rather than imported: the
-// test reads the rendered row the way a person does.
 const searchPromptText = "/ "
 
 var (
@@ -25,7 +23,6 @@ var (
 	esc   = tea.KeyPressMsg{Code: tea.KeyEscape}
 )
 
-// typed presses one key per rune, which is what the bar sees.
 func typed(m list.Model, s string) list.Model {
 	for _, r := range s {
 		m = press(m, key(r))
@@ -33,8 +30,6 @@ func typed(m list.Model, s string) list.Model {
 	return m
 }
 
-// searchBox is the query line inside the box, or "" when the pane draws none.
-// The box is three lines and only the middle one holds anything.
 func searchBox(frame string) string {
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		if strings.Contains(line, "│ / ") {
@@ -44,8 +39,6 @@ func searchBox(frame string) string {
 	return ""
 }
 
-// boxBorders is the box's own top and bottom, which is what says a box was
-// drawn at all rather than a row of text.
 func boxBorders(frame string) int {
 	n := 0
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
@@ -59,8 +52,6 @@ func boxBorders(frame string) int {
 	return n
 }
 
-// mixed is a section whose rows differ in every field the search reads, so one
-// query can be aimed at exactly one of them.
 func mixed() []gh.PullRequest {
 	prs := numbered(4)
 	prs[0].Number = 1204
@@ -110,8 +101,6 @@ func TestTypingNarrowsTheSectionAndTheBarCountsWhatItLeftOut(t *testing.T) {
 	}
 }
 
-// The query is one substring over the whole row rather than a field at a time:
-// a reader types what they can see, and what they can see is a line.
 func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -141,8 +130,6 @@ func TestTheSearchReadsTheNumberRepoTitleAuthorAndBranch(t *testing.T) {
 	}
 }
 
-// The bar takes every key while it has the keyboard. "]" and "s" are characters
-// in a search, and a key that both types and changes tab does the wrong one.
 func TestTheBarTakesTheKeysThatWouldOtherwiseActOnTheList(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(110, 20)
@@ -165,8 +152,6 @@ func TestTheBarTakesTheKeysThatWouldOtherwiseActOnTheList(t *testing.T) {
 	}
 }
 
-// Enter hands the keyboard back and leaves the filter standing. The bar stays
-// drawn: a filter nothing accounts for is a list that looks like it lost rows.
 func TestEnterKeepsTheFilterAndHandsTheKeyboardBack(t *testing.T) {
 	m := press(typed(press(newList(110, 20, mixed()), key('/')), "change"), enter)
 
@@ -205,8 +190,6 @@ func TestEscClearsAFilterThatHasAlreadyBeenApplied(t *testing.T) {
 	}
 }
 
-// The query is the reader's, not the section's. It survives a tab and applies
-// to whatever is arrived at.
 func TestTheQuerySurvivesATabSwitch(t *testing.T) {
 	second := numbered(4)
 	for i := range second {
@@ -240,8 +223,6 @@ func TestASearchThatMatchesNothingSaysSoRatherThanTheSection(t *testing.T) {
 	}
 }
 
-// A filter can take the row the cursor was parked on. It lands on one the
-// filter left rather than on a pull request nothing is drawing.
 func TestTheCursorLandsOnARowTheFilterLeft(t *testing.T) {
 	m := press(newList(110, 20, mixed()), key('j'), key('j'), key('j'))
 	if got := selectedRow(t, m.View()); !strings.Contains(got, "Change 3") {
@@ -259,8 +240,6 @@ func TestTheCursorLandsOnARowTheFilterLeft(t *testing.T) {
 	}
 }
 
-// A section showing a block instead of its rows has nothing to narrow, which is
-// the rule every other key on this screen already answers to.
 func TestTheBarIsRefusedWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(110, 20)
@@ -277,8 +256,6 @@ func TestTheBarIsRefusedWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	}
 }
 
-// A poll landing under an open bar must not drop the filter, and the count it
-// carries moves with the section even where the rows it shows do not.
 func TestASnapshotUnderTheBarKeepsTheFilterAndMovesItsCount(t *testing.T) {
 	m := typed(press(newList(110, 20, mixed()), key('/')), "other")
 	if bar := searchBox(m.View()); !strings.Contains(bar, "1 of 4") {
@@ -301,8 +278,6 @@ func TestASnapshotUnderTheBarKeepsTheFilterAndMovesItsCount(t *testing.T) {
 	}
 }
 
-// The border says where the keys are. This screen is one pane and never takes
-// focus, so the box is the only thing on it that can say so.
 func TestTheBoxBorderFollowsTheKeyboard(t *testing.T) {
 	boxTop := func(frame string) string {
 		plain := strings.Split(stripANSI(frame), "\n")
@@ -330,10 +305,6 @@ func TestTheBoxBorderFollowsTheKeyboard(t *testing.T) {
 	}
 }
 
-// A filter is the reader's own state rather than the section's, so esc lets go
-// of it wherever the section stands. Below the rows guard this key was inert
-// exactly where the screen is hardest to read: the box still names a filter,
-// the rows behind it are gone, and nothing explains either.
 func TestEscClearsASettledFilterOverASectionShowingAnError(t *testing.T) {
 	m := press(typed(press(newList(110, 20, mixed()), key('/')), "other"), enter)
 
@@ -355,9 +326,6 @@ func TestEscClearsASettledFilterOverASectionShowingAnError(t *testing.T) {
 	}
 }
 
-// The pane clips overflow silently and mid-cell, so the box has to fit before
-// the pane sees it. Only a width where the query and the count cannot both fit
-// exercises the clip at all.
 func TestEveryLineFillsThePaneWidthWithTheBoxOpen(t *testing.T) {
 	for _, width := range []int{200, 140, 100, 90, 70, 56, 50, 40, 30, 20} {
 		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
@@ -372,8 +340,6 @@ func TestEveryLineFillsThePaneWidthWithTheBoxOpen(t *testing.T) {
 	}
 }
 
-// The box is three of the pane's own lines and gives them back. Nothing about
-// it reaches past the frame the shell handed down.
 func TestTheBoxCostsItsThreeLinesAndGivesThemBack(t *testing.T) {
 	const width, height = 90, 20
 
@@ -381,8 +347,6 @@ func TestTheBoxCostsItsThreeLinesAndGivesThemBack(t *testing.T) {
 	body := func() int {
 		return strings.Count(stripANSI(m.View()), "Change ")
 	}
-	// A pull request is two lines with a third under it, so the box's three
-	// take one row off the pane and leave a line the padding absorbs.
 	before := body()
 
 	m = press(m, key('/'))
@@ -414,14 +378,6 @@ func TestTheBoxCostsItsThreeLinesAndGivesThemBack(t *testing.T) {
 	}
 }
 
-// The row keeps its right side for the count, so a query long enough to clip
-// stops short of the box's border. A caret measured against that border walks
-// past the ellipsis and sits on the count, which is a cursor pointing at text
-// nobody is editing.
-//
-// The window is a few characters wide: below it nothing clips, above it the
-// caret runs out of box entirely. That is why this is a test and not a check
-// somebody performs, and why holding a key down finds nothing.
 func TestTheCursorNeverSitsPastTheQueryItIsIn(t *testing.T) {
 	for _, width := range []int{56, 80, 120} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
@@ -437,10 +393,6 @@ func TestTheCursorNeverSitsPastTheQueryItIsIn(t *testing.T) {
 					t.Fatalf("a cursor with no box to sit in, at %d characters", n)
 				}
 
-				// The end of the query as drawn, not the end of the row: the
-				// count sits further right with a gap before it, and measuring
-				// to the row's last cell calls a cursor sitting on the count
-				// in bounds.
 				at := strings.Index(row, searchPromptText)
 				if at < 0 {
 					t.Fatalf("no prompt on the box row at %d characters:\n%s", n, row)

@@ -18,8 +18,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/list"
 )
 
-// ready is a store snapshot with everything loaded, which is what the list sees
-// once the root has pushed a settled fetch down.
 func ready(titles []string, prs ...[]gh.PullRequest) []store.Section {
 	sections := make([]store.Section, len(titles))
 	for i, title := range titles {
@@ -55,8 +53,6 @@ func press(m list.Model, keys ...tea.KeyPressMsg) list.Model {
 func key(r rune) tea.KeyPressMsg  { return tea.KeyPressMsg{Code: r, Text: string(r)} }
 func ctrl(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
 
-// fixtureTime is read once, so rows built moments apart do not sort by how long
-// the test took to make them. Ties are what let a fixture state its own order.
 var fixtureTime = time.Now().Add(-2 * time.Hour)
 
 func pr(title string) gh.PullRequest {
@@ -70,8 +66,6 @@ func pr(title string) gh.PullRequest {
 	}
 }
 
-// numbered builds a run of ready pull requests in a known order: one repo, one
-// timestamp, so nothing in the sort can reorder them.
 func numbered(n int) []gh.PullRequest {
 	prs := make([]gh.PullRequest, n)
 	for i := range prs {
@@ -95,24 +89,19 @@ func rowContaining(t *testing.T, frame, want string) string {
 	return ""
 }
 
-// The count glyphs, checked by shape because that is what the row shows.
 const (
-	fileGlyph    = "\uea7b" // nf-cod-file
-	commentGlyph = "\uf41f" // nf-oct-comment
-	reviewGlyph  = "\uedc6" // nf-fa-user_check
-	checksGlyph  = "\uf0ae" // nf-fa-tasks
+	fileGlyph    = "\uea7b"
+	commentGlyph = "\uf41f"
+	reviewGlyph  = "\uedc6"
+	checksGlyph  = "\uf0ae"
 )
 
-// selectionSeq is the SGR sequence that sets the selection background.
 func selectionSeq() string {
 	return sgrParams(lipgloss.NewStyle().Background(testTheme.SelectedBackground))
 }
 
 func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
-// selectedRow returns every line painted with the selection background. A row
-// is two lines now, and the number lives on the second, so a helper returning
-// the first would answer half the question.
 func selectedRow(t *testing.T, frame string) string {
 	t.Helper()
 
@@ -136,7 +125,6 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 	draft := pr("Bump charm deps")
 	draft.IsDraft = true
 
-	// Deliberately out of order: the arrangement is the thing under test.
 	out := stripANSI(screen(t, 120, 24, []gh.PullRequest{closed, pr("Fix auth retry"), merged, draft}))
 
 	at := map[string]int{}
@@ -152,13 +140,10 @@ func TestRowsGroupByStateWithAHeaderOverEach(t *testing.T) {
 	}
 }
 
-// The first group takes a thinner gap than the rest: there is nothing above it
-// to break away from, only the pane's own border.
 func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	draft := pr("Bump charm deps")
 	draft.ID, draft.IsDraft = "PR_draft", true
 
-	// Line zero is the pane's top border, so the gap starts at line one.
 	lines := strings.Split(stripANSI(screen(t, 120, 24, []gh.PullRequest{pr("Fix auth retry"), draft})), "\n")
 
 	if gap := strings.Trim(lines[1], "│ "); gap != "" {
@@ -182,9 +167,6 @@ func TestTheFirstGroupTakesAThinnerGapThanTheRest(t *testing.T) {
 	t.Fatal("no draft header in the frame")
 }
 
-// A single line between rows, and a wider gap between groups. A group's last
-// row skips its own line, or the gap before the next header would be a line
-// more than every other group's.
 func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	last := pr("Bump deps")
 	last.ID = "PR_bump"
@@ -193,7 +175,6 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 
 	lines := strings.Split(stripANSI(screen(t, 140, 24, []gh.PullRequest{pr("Fix auth retry"), last, draft})), "\n")
 
-	// Two content lines a row, so a blank between rows is the third.
 	at := func(title string, offset int) string {
 		for i, l := range lines {
 			if strings.Contains(l, title) {
@@ -211,7 +192,6 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 		t.Errorf("rows are more than a line apart: %q", row)
 	}
 
-	// The last row of the ready group, then the gap, then the draft header.
 	for _, offset := range []int{2, 3} {
 		if gap := at("Bump deps", offset); gap != "" {
 			t.Errorf("line %d of the group gap is not blank: %q", offset-1, gap)
@@ -222,9 +202,6 @@ func TestRowsAreOneLineApartAndGroupsAreMore(t *testing.T) {
 	}
 }
 
-// Going to the bottom and back has to bring the top of the list with it.
-// Anchoring the scroll on the selected row alone left the first group's header
-// stranded above the window with nothing able to reach it again.
 func TestReturningToTheTopBringsTheFirstHeaderBack(t *testing.T) {
 	walked := newList(120, 13, numbered(20))
 	for range 19 {
@@ -249,8 +226,6 @@ func TestReturningToTheTopBringsTheFirstHeaderBack(t *testing.T) {
 	}
 }
 
-// A group's header comes into view with the first row under it, so a row is
-// never on screen above the name of the group it belongs to.
 func TestScrollingToAGroupsFirstRowShowsItsHeader(t *testing.T) {
 	prs := numbered(12)
 	for i := range prs[6:] {
@@ -271,8 +246,6 @@ func TestScrollingToAGroupsFirstRowShowsItsHeader(t *testing.T) {
 	}
 }
 
-// The status pair closes the second line: two spaces off the file count, then
-// review, then the check rollup at the edge.
 func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
 	row := stripANSI(rowContaining(t, screen(t, 140, 12, []gh.PullRequest{pr("Fix auth retry")}), "acme/rocket"))
 
@@ -281,8 +254,6 @@ func TestTheStatusPairClosesTheSecondLine(t *testing.T) {
 	}
 }
 
-// One pane means there is no focus to report, so the border never takes the
-// accent that says "your keys reach this one".
 func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	top := strings.Split(screen(t, 120, 10, []gh.PullRequest{pr("Fix auth retry")}), "\n")[0]
 
@@ -295,8 +266,6 @@ func TestTheBorderNeverReadsAsFocused(t *testing.T) {
 	}
 }
 
-// A draft that was closed is closed. Grouping it as a draft puts abandoned work
-// above merged work, which is the wrong way round.
 func TestAClosedDraftGroupsAsClosed(t *testing.T) {
 	p := pr("Abandoned experiment")
 	p.State, p.IsDraft = gh.PRStateClosed, true
@@ -336,8 +305,6 @@ func TestRepositoriesStayTogetherNewestFirstInsideAGroup(t *testing.T) {
 	}
 }
 
-// Style.Width wraps before it clips, so a title longer than its column used to
-// become a third line and push everything below it down.
 func TestALongTitleTruncatesRatherThanWrapping(t *testing.T) {
 	long := strings.Repeat("a very long pull request title ", 12)
 
@@ -354,8 +321,6 @@ func TestALongTitleTruncatesRatherThanWrapping(t *testing.T) {
 	}
 }
 
-// The cursor indexes the selectable rows, so a header is not something it can
-// land on and then have to move off.
 func TestMovingDownCrossesAGroupHeaderWithoutStoppingOnIt(t *testing.T) {
 	draft := pr("Bump charm deps")
 	draft.ID, draft.IsDraft = "PR_draft", true
@@ -374,9 +339,6 @@ func TestMovingDownCrossesAGroupHeaderWithoutStoppingOnIt(t *testing.T) {
 	}
 }
 
-// The selection has to be baked into every cell of both lines. Wrapping a
-// joined line paints only its first cell: each one ends in a full SGR reset,
-// which clears the background along with the foreground.
 func TestTheSelectedRowIsPaintedCellByCellOnBothLines(t *testing.T) {
 	out := screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), pr("Bump deps")})
 
@@ -394,12 +356,6 @@ func TestTheSelectedRowIsPaintedCellByCellOnBothLines(t *testing.T) {
 	}
 }
 
-// A raw space between two styled runs is a hole in the selection: the run
-// before it ends in a full reset, so the background stops there and the gap
-// shows the pane through it.
-// A width narrow enough to cut the line is its own case: the mark closing the
-// cut is the last cell of the row, and a raw rune there sits outside the
-// background every other cell carries.
 func TestTheSelectionHasNoGaps(t *testing.T) {
 	for _, width := range []int{140, 12} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
@@ -414,8 +370,6 @@ func TestTheSelectionHasNoGaps(t *testing.T) {
 	}
 }
 
-// unpainted is the text of a rendered line that has no selection background
-// behind it, border runes included.
 func unpainted(line string) string {
 	var out strings.Builder
 	painted := false
@@ -439,12 +393,7 @@ func unpainted(line string) string {
 	return out.String()
 }
 
-// A line wider than its pane gets clipped blind: trailing columns vanish
-// mid-cell with no ellipsis and the selection background stops short of the
-// edge. So both lines have to fit at every width, not just roomy ones.
 func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
-	// The fixed columns need 19 cells between them, so the last few widths are
-	// past the point where anything can be dropped and the line has to clip.
 	for _, width := range []int{200, 140, 100, 90, 70, 50, 40, 30, 20, 16, 10} {
 		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
 			out := screen(t, width, 12, []gh.PullRequest{
@@ -461,10 +410,6 @@ func TestEveryLineFillsThePaneWidthAtEveryWidth(t *testing.T) {
 	}
 }
 
-// Under the width the fixed columns need there is nothing left to drop, so the
-// line has to clip itself. Letting it run over means the pane cuts it blind:
-// the trailing column ends mid-cell with nothing saying it was cut, and the
-// width test above passes anyway because the pane still fills its line.
 func TestARowTooNarrowForItsColumnsClipsItself(t *testing.T) {
 	row := stripANSI(selectedRow(t, screen(t, 14, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
 
@@ -473,10 +418,6 @@ func TestARowTooNarrowForItsColumnsClipsItself(t *testing.T) {
 	}
 }
 
-// Past the width even the fixed columns need, a line has to cut itself and say
-// so. Letting it run over hands the job to the pane, which ends it mid-cell
-// with no mark, and the width test above passes either way because the pane
-// fills its line regardless.
 func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	row := stripANSI(selectedRow(t, screen(t, 8, 8, []gh.PullRequest{pr("Fix the auth retry backoff loop")})))
 
@@ -487,11 +428,6 @@ func TestALineTooNarrowForItsFixedColumnsSaysItWasCut(t *testing.T) {
 	}
 }
 
-// Columns drop in a fixed order rather than overflowing. The first line has
-// nothing to give: the title clips, and the comment count takes its room from
-// the title's. The second drops the file count, then the churn, then the status
-// pair, and the identity sheds the author, then the age, before the repository
-// is left to clip. The number never goes.
 func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	tests := []struct {
 		width                                      int
@@ -532,8 +468,6 @@ func TestColumnsDropInOrderAsTheTerminalNarrows(t *testing.T) {
 	}
 }
 
-// The repository, number and author read as one phrase. Laying them out as
-// three columns leaves gaps you have to jump, which is what gh-dash gets right.
 func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
 	lines := strings.Split(stripANSI(selectedRow(t, screen(t, 140, 10, []gh.PullRequest{pr("Fix auth retry")}))), "\n")
 
@@ -545,8 +479,6 @@ func TestTheIdentityReadsAsOnePhrase(t *testing.T) {
 	}
 }
 
-// Author is nil on GitHub once an account is deleted, so the login can be empty
-// on a real pull request. A dangling "by @" is worse than no attribution.
 func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 	p := pr("Fix auth retry")
 	p.Author = gh.Actor{}
@@ -561,15 +493,11 @@ func TestADeletedAuthorDropsTheWholeClause(t *testing.T) {
 	}
 }
 
-// Additions and deletions carry their own colour, which one cell cannot do: a
-// cell is one style all the way through.
 func TestTheChurnColoursAdditionsAndDeletionsApart(t *testing.T) {
 	second := pr("Bump deps")
 	second.Number, second.Additions, second.Deletions = 408, 11, 3
 	second.Author = gh.Actor{Login: "octobot"}
 
-	// The row the cursor is not on. An unselected cell carries the foreground
-	// alone, so the sequence names a colour with no background spliced into it.
 	row := rowContaining(t, screen(t, 140, 14, []gh.PullRequest{pr("Fix auth retry"), second}), "@octobot")
 
 	if got := styleOf(t, row, "+11"); !strings.Contains(got, fgSeq(testTheme.Success)) {
@@ -580,8 +508,6 @@ func TestTheChurnColoursAdditionsAndDeletionsApart(t *testing.T) {
 	}
 }
 
-// styleOf is the SGR parameters of the styled run carrying want. Matching the
-// sequence and the text as one string breaks the moment a cell pads.
 func styleOf(t *testing.T, row, want string) string {
 	t.Helper()
 
@@ -594,8 +520,6 @@ func styleOf(t *testing.T, row, want string) string {
 	return ""
 }
 
-// Both readings always draw. The icon never changes and the dot never goes
-// out, so no state can leave a hole where a reading belongs.
 func TestBothStatusDotsAlwaysDraw(t *testing.T) {
 	checks := []gh.CheckState{
 		gh.CheckStateNone, gh.CheckStateExpected, gh.CheckStatePending,
@@ -619,9 +543,6 @@ func TestBothStatusDotsAlwaysDraw(t *testing.T) {
 	}
 }
 
-// The decision reads out of the dot's colour, since the icon beside it never
-// changes. Two decisions sharing a colour is two decisions you cannot tell
-// apart.
 func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 	tests := []struct {
 		decision gh.ReviewDecision
@@ -630,7 +551,6 @@ func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 		{decision: gh.ReviewDecisionApproved, want: testTheme.Success},
 		{decision: gh.ReviewDecisionChangesRequested, want: testTheme.Error},
 		{decision: gh.ReviewDecisionReviewRequired, want: testTheme.Warning},
-		// Nothing blocking is the same news as an approval, so it says the same.
 		{decision: gh.ReviewDecisionNone, want: testTheme.Success},
 	}
 
@@ -639,16 +559,12 @@ func TestTheReviewDotColoursTellTheDecisionsApart(t *testing.T) {
 		p.ReviewDecision, p.Checks = tt.decision, gh.CheckStateNone
 
 		row := rowContaining(t, screen(t, 140, 12, []gh.PullRequest{p}), "acme/rocket")
-		// The review dot is the first of the two, so the first styled run with a
-		// dot in it is the one under test.
 		if got := styleOf(t, row, "●"); !strings.Contains(got, fgSeq(tt.want)) {
 			t.Errorf("%s renders its dot as %s, want %s", tt.decision, got, fgSeq(tt.want))
 		}
 	}
 }
 
-// Nothing follows the title on its line, so it runs to the edge rather than
-// stopping at a cap that used to keep the columns after it in place.
 func TestALongTitleRunsToTheEdge(t *testing.T) {
 	const width = 200
 
@@ -659,10 +575,6 @@ func TestALongTitleRunsToTheEdge(t *testing.T) {
 	}
 }
 
-// viewport.EnsureVisible acts only once a line is already outside the window
-// and then puts it on the top row, so one press down scrolls a whole page and
-// the next nine move nothing. Variable row heights make the arithmetic that
-// replaces it easy to get wrong in the other direction too.
 func TestWalkingTheListKeepsEverySelectionOnScreen(t *testing.T) {
 	prs := numbered(20)
 	m := newList(120, 14, prs)
@@ -676,8 +588,6 @@ func TestWalkingTheListKeepsEverySelectionOnScreen(t *testing.T) {
 		}
 	}
 
-	// And back up. Scrolling down leaves the window below every earlier row, so
-	// this is the direction the offset arithmetic gets wrong on its own.
 	for i := len(prs) - 2; i >= 0; i-- {
 		m = press(m, key('k'))
 		if got := stripANSI(selectedRow(t, m.View())); !strings.Contains(got, fmt.Sprintf("#%d ", i)) {
@@ -686,13 +596,6 @@ func TestWalkingTheListKeepsEverySelectionOnScreen(t *testing.T) {
 	}
 }
 
-// The window never opens on a row's second line with its title scrolled off
-// above it, which is what plain offset arithmetic does as soon as a row is
-// taller than one line.
-//
-// The bottom is its own case: the viewport clamps any offset to its content
-// height less its own, so an aligned offset past that clamp lands back on a
-// line rather than an item.
 func TestTheWindowNeverOpensMidRow(t *testing.T) {
 	tests := []struct {
 		name string
@@ -704,16 +607,11 @@ func TestTheWindowNeverOpensMidRow(t *testing.T) {
 		{name: "bottom then back up one", keys: []tea.KeyPressMsg{key('G'), key('k')}},
 	}
 
-	// Both parities: at some heights the offsets land on row boundaries by
-	// arithmetic and the alignment never has to do anything.
 	for _, height := range []int{12, 13, 14, 15} {
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%s at %d", tt.name, height), func(t *testing.T) {
 				m := press(newList(120, height, numbered(20)), tt.keys...)
 
-				// The repository only appears on a row's second line, so finding it
-				// on the first line inside the pane means a row was cut in half by
-				// the window.
 				body := strings.Split(stripANSI(m.View()), "\n")[1]
 				if strings.Contains(body, "acme/rocket") {
 					t.Errorf("the window opens on a row's second line: %q", body)
@@ -781,9 +679,6 @@ func TestAnEmptySectionSaysSoRatherThanShowingNothing(t *testing.T) {
 	}
 }
 
-// A message is the only thing in the pane when there are no rows, so it sits in
-// the middle of it. In the corner it reads as the first row of a list that is
-// still filling in.
 func TestAMessageWithNoRowsBehindItSitsInTheMiddleOfThePane(t *testing.T) {
 	const width, height = 120, 12
 
@@ -822,9 +717,6 @@ func TestAMessageWithNoRowsBehindItSitsInTheMiddleOfThePane(t *testing.T) {
 				t.Fatalf("no %q in the frame\n%s", tt.want, strings.Join(lines, "\n"))
 			}
 
-			// The pane spends a line on each border, so the content rows run from
-			// line one. An odd number of them cannot split evenly, which is what
-			// the line of slack is for.
 			above, below := at-1, (height-2)-at
 			if abs(above-below) > 1 {
 				t.Errorf("%q has %d rows above it and %d below, want it centred\n%s",
@@ -847,18 +739,12 @@ func abs(n int) int {
 	return n
 }
 
-// A pane too short for the blank lines above a group still shows the group's
-// name over its first row. Counting those blanks against the header dropped
-// the header with them.
 func TestAShortPaneKeepsTheHeaderOverTheFirstRow(t *testing.T) {
 	prs := numbered(8)
 	for i := range prs[4:] {
 		prs[4+i].IsDraft = true
 	}
 
-	// Four lines inside the border: the header rule and one two-line row, with
-	// nothing left over for the gap above the rule. Approached from below,
-	// which is the direction that has to scroll the header back into view.
 	m := press(newList(120, 6, prs), append(repeat(key('j'), 7), repeat(key('k'), 3)...)...)
 
 	if out := stripANSI(m.View()); !strings.Contains(out, "─ Draft") {
@@ -866,8 +752,6 @@ func TestAShortPaneKeepsTheHeaderOverTheFirstRow(t *testing.T) {
 	}
 }
 
-// The half-page keys move at least a row. A pane short enough to make half a
-// page nothing leaves the key looking broken.
 func TestTheHalfPageKeysMoveOnAShortPane(t *testing.T) {
 	m := press(newList(120, 6, numbered(8)), ctrl('d'))
 
@@ -876,8 +760,6 @@ func TestTheHalfPageKeysMoveOnAShortPane(t *testing.T) {
 	}
 }
 
-// A churn count too wide for its column abbreviates. Clipping renders a
-// different number, with nothing on the row saying it was cut.
 func TestALargeChurnAbbreviatesRatherThanClipping(t *testing.T) {
 	big := pr("Vendor the dependency tree")
 	big.Additions, big.Deletions = 12045, 340000
@@ -891,14 +773,10 @@ func TestALargeChurnAbbreviatesRatherThanClipping(t *testing.T) {
 	}
 }
 
-// A check state the client does not know is not a pass. The rollup comes off
-// the wire unvalidated, so green is the one reading of it that could be wrong.
 func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 	unknown := pr("Fix auth retry")
 	unknown.Checks = gh.CheckState("SOMETHING_GITHUB_ADDED")
 
-	// The review dot comes first, so cutting at its icon leaves the checks dot
-	// as the next one along.
 	_, after, _ := strings.Cut(selectedRow(t, screen(t, 140, 12, []gh.PullRequest{unknown})), reviewGlyph)
 
 	if got := styleOf(t, after, "●"); strings.Contains(got, fgSeq(testTheme.Success)) {
@@ -906,9 +784,6 @@ func TestAnUnknownCheckStateDoesNotReadAsAPass(t *testing.T) {
 	}
 }
 
-// A tab with no badge is a section that has never answered. A zero would claim
-// it is empty, and leaving a failed one blank reads the same as one still on
-// its way.
 func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(160, 20)
@@ -927,9 +802,6 @@ func TestTabsCarryTheirOwnCountAndMarkAFailure(t *testing.T) {
 	}
 }
 
-// A refresh puts every section back into StatusLoading. Blanking the counts for
-// the length of the fetch shifts every label along and then jumps them back,
-// and the store still holds numbers that were true a moment ago.
 func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(160, 20)
@@ -949,8 +821,6 @@ func TestAReloadKeepsTheCountItAlreadyHad(t *testing.T) {
 	}
 }
 
-// A failed section shows the error and not its rows, so every key that reads
-// the cursor would act on a pull request off a screen showing none.
 func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	m := newList(140, 20, numbered(10))
 	m = press(m, key('j'), key('j'))
@@ -981,8 +851,6 @@ func TestKeysDoNothingWhileTheSectionIsNotShowingItsRows(t *testing.T) {
 	}
 }
 
-// A reload keeps its rows and the keyboard with them. They are the rows the key
-// was pressed on, so taking them away locks the screen being refreshed.
 func TestAReloadKeepsItsRowsAndItsKeys(t *testing.T) {
 	m := newList(140, 20, numbered(10))
 	m = press(m, key('j'), key('j'))
@@ -1010,8 +878,6 @@ func TestAReloadKeepsItsRowsAndItsKeys(t *testing.T) {
 	}
 }
 
-// Both keys name the pull request under the cursor rather than the one the
-// section opened on, or walking the list and pressing y copies the wrong link.
 func TestCopyAndBrowseCarryTheSelectedPullRequest(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1037,8 +903,6 @@ func TestCopyAndBrowseCarryTheSelectedPullRequest(t *testing.T) {
 	}
 }
 
-// A refresh reorders a section nobody is looking at. Parking a row index rather
-// than the pull request means coming back to a different one.
 func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(140, 20)
@@ -1049,8 +913,6 @@ func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
 		t.Fatalf("setup: selection = %q, want it on Change 3", got)
 	}
 
-	// Back on the first tab, a refresh drops two rows from the top of the
-	// section being held.
 	m = press(m, key('['))
 	m.SetSections(ready([]string{"Mine", "Review"}, numbered(4), numbered(6)[2:]))
 
@@ -1059,8 +921,6 @@ func TestTheParkedCursorFollowsThePullRequestNotTheRow(t *testing.T) {
 	}
 }
 
-// Every section is loaded, so a tab switch is a move rather than a reload.
-// Landing back on row zero would be throwing the user's place away.
 func TestSwitchingSectionsAndBackKeepsTheCursor(t *testing.T) {
 	m := list.New(testTheme)
 	m.SetSize(140, 20)
@@ -1081,7 +941,6 @@ func TestSwitchingSectionsAndBackKeepsTheCursor(t *testing.T) {
 	}
 }
 
-// stripANSI drops SGR sequences so a test can reason about layout positions.
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -1096,34 +955,18 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// sgrParams is the parameter run lipgloss emits for a style, read back off a
-// rendered cell rather than rebuilt from the color. A slot goes over the wire as
-// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
-// doing the arithmetic itself asserts against a sequence the app never writes.
 func sgrParams(s lipgloss.Style) string {
 	out := s.Render("x")
 	end := strings.Index(out, "m")
 	if end < 0 {
-		// NoColor is the terminal's own, and nothing is written for it.
 		return ""
 	}
 	return out[len("\x1b["):end]
 }
 
-// Rows sort byRepoThenRecency, so a fixture's repository name decides the order
-// the rows come out in, and the cursor tests in search_test.go navigate by that
-// order without saying so. ZNO-79 renamed the fixtures and flipped it: two of
-// them failed with messages about the wrong row being selected, and nothing
-// pointed at why.
-//
-// This is the premise, stated once and read off the fixtures themselves. A
-// rename that breaks it fails here, naming what it broke, rather than in the
-// tests that stand on it.
 func TestTheFixtureReposSortInTheOrderTheFixturesAssume(t *testing.T) {
 	main := pr("Fix auth retry").Repository
 
-	// mixed gives one row its own repository so a query can aim at it, and it is
-	// written expecting that row to sort first.
 	odd := mixed()[1].Repository
 	if odd == main {
 		t.Fatalf("setup: the odd row shares %q with the rest, so it aims at nothing", main)
