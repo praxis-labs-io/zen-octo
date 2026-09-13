@@ -71,15 +71,15 @@ func recordCache(path, tag string, at time.Time) error {
 		LatestTag: tag,
 	}, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal update cache: %w", err)
+		return fmt.Errorf("encoding the update cache: %w", err)
 	}
 	encoded = append(encoded, '\n')
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create the update cache directory: %w", err)
+		return fmt.Errorf("creating the update cache directory: %w", err)
 	}
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
-		return fmt.Errorf("write update cache: %w", err)
+		return fmt.Errorf("writing the update cache: %w", err)
 	}
 
 	return nil

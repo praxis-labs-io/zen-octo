@@ -99,14 +99,14 @@ func fetchLatestTag(ctx context.Context, opts Options) (string, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", fmt.Errorf("build update request: %w", err)
+		return "", fmt.Errorf("building the release request: %w", err)
 	}
 	req.Header.Set("User-Agent", "zen-octo/"+opts.Current)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request the latest release: %w", err)
+		return "", fmt.Errorf("requesting the latest release: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -118,7 +118,7 @@ func fetchLatestTag(ctx context.Context, opts Options) (string, error) {
 		TagName string `json:"tag_name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBodyBytes)).Decode(&payload); err != nil {
-		return "", fmt.Errorf("parse the latest release: %w", err)
+		return "", fmt.Errorf("parsing the latest release: %w", err)
 	}
 	if payload.TagName == "" {
 		return "", fmt.Errorf("the latest release named no tag")

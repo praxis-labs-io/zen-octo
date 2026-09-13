@@ -252,7 +252,7 @@ func TestAFailedInstallerIsReported(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	if !strings.Contains(err.Error(), "run the installer") {
+	if !strings.Contains(err.Error(), "running the installer") {
 		t.Fatalf("error = %v", err)
 	}
 }

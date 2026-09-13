@@ -86,12 +86,12 @@ func fetchInstallScript(ctx context.Context, opts InstallOptions) ([]byte, error
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build the installer request: %w", err)
+		return nil, fmt.Errorf("building the installer request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download the installer: %w", err)
+		return nil, fmt.Errorf("downloading the installer: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -101,7 +101,7 @@ func fetchInstallScript(ctx context.Context, opts InstallOptions) ([]byte, error
 
 	script, err := io.ReadAll(io.LimitReader(resp.Body, maxScriptBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read the installer: %w", err)
+		return nil, fmt.Errorf("reading the installer: %w", err)
 	}
 	if len(script) == 0 {
 		return nil, errors.New("the installer download was empty")
@@ -122,7 +122,7 @@ func stageScript(goos string, script []byte) (string, func(), error) {
 
 	file, err := os.CreateTemp("", pattern)
 	if err != nil {
-		return "", nil, fmt.Errorf("stage the installer: %w", err)
+		return "", nil, fmt.Errorf("staging the installer: %w", err)
 	}
 	path := file.Name()
 	cleanup := func() { _ = os.Remove(path) }
@@ -130,11 +130,11 @@ func stageScript(goos string, script []byte) (string, func(), error) {
 	if _, err := file.Write(script); err != nil {
 		_ = file.Close()
 		cleanup()
-		return "", nil, fmt.Errorf("stage the installer: %w", err)
+		return "", nil, fmt.Errorf("staging the installer: %w", err)
 	}
 	if err := file.Close(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("stage the installer: %w", err)
+		return "", nil, fmt.Errorf("staging the installer: %w", err)
 	}
 
 	return path, cleanup, nil
@@ -156,7 +156,7 @@ func runInstallScript(ctx context.Context, script, dir string, out io.Writer) er
 	cmd.Stderr = out
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run the installer: %w", err)
+		return fmt.Errorf("running the installer: %w", err)
 	}
 
 	return nil
@@ -166,12 +166,12 @@ func runInstallScript(ctx context.Context, script, dir string, out io.Writer) er
 func InstallDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("resolve the running binary: %w", err)
+		return "", fmt.Errorf("resolving the running binary: %w", err)
 	}
 
 	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
-		return "", fmt.Errorf("resolve the running binary: %w", err)
+		return "", fmt.Errorf("resolving the running binary: %w", err)
 	}
 
 	return filepath.Dir(resolved), nil

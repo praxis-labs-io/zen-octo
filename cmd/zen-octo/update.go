@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -31,7 +32,7 @@ func newUpdateCmd() *cobra.Command {
 			case version.Version == update.DevVersion:
 				_, _ = fmt.Fprintln(out, "This is a locally built binary. Installing the latest release over it.")
 			case result.Available:
-				_, _ = fmt.Fprintf(out, "%s is available, running %s.\n", result.Latest, version.Version)
+				_, _ = fmt.Fprintf(out, "%s is available, running v%s.\n", result.Latest, strings.TrimPrefix(version.Version, "v"))
 			case result.Latest != "":
 				_, _ = fmt.Fprintf(out, "%s is the latest release. Nothing to install.\n", result.Latest)
 				return nil
