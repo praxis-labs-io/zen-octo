@@ -116,7 +116,8 @@ the way to every key the room could not hold. `q` is not on it at all.
 
 The right side carries whatever there is to say: a toast from a write, the
 spinner while a sync is out, the GraphQL budget once it is low enough to be
-worth reading, and on a pull request who raised it and how long ago.
+worth reading, and on a pull request who raised it and how long ago. On the
+list, once a newer release is out, it names the version and `zen-octo update`.
 
 ## Sizing
 

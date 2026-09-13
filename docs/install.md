@@ -78,25 +78,42 @@ zen-octo
 
 You land on the pull request list, in the first section your config declares.
 
-There is one subcommand:
+`zen-octo config-path` prints where config is read from, which is
+`~/.zen-octo/config.yml` unless `ZEN_OCTO_CONFIG_DIR` says otherwise.
+[Configuration](configuration.md) covers what goes in it.
 
-```sh
-zen-octo config-path
-```
-
-It prints where config is read from, which is `~/.zen-octo/config.yml` unless
-`ZEN_OCTO_CONFIG_DIR` says otherwise. [Configuration](configuration.md) covers
-what goes in it.
+`zen-octo update` installs the latest release, covered under
+[Upgrading](#upgrading).
 
 `zen-octo --version` says what you are running.
 
 ## Upgrading
 
-Re-run the installer, or from a clone:
+```sh
+zen-octo update
+```
+
+It asks GitHub for the latest release and stops if you already have it.
+Otherwise it runs the same installer as above into the directory the running
+binary lives in, so the new one replaces it in place. If the lookup fails it
+says so and installs anyway.
+
+A binary built from a clone reports `dev`, and `zen-octo update` replaces it
+with the latest release. To stay on your own build, upgrade from the clone
+instead:
 
 ```sh
 git pull
 make install
 ```
 
-Nothing checks for updates and nothing phones home.
+### The launch check
+
+At launch zen-octo asks the same endpoint whether a newer release is out, and
+when one is, the status bar names it and the command. The answer is kept for a
+day in `~/.zen-octo/update-check.json`, so it's at most one request a day. The
+request carries no token, only the running version in its user agent, and a
+failed one shows nothing.
+
+A `dev` build never asks, and neither does `--mockup`. `updateCheck: false`
+turns it off, covered in [Configuration](configuration.md#updates).

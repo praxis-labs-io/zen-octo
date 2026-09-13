@@ -43,10 +43,13 @@ agreeing. actionlint is pinned once, in the `Makefile`, and CI runs it through
 These are the architecture, and breaking one is a review-stopper rather than a
 nit.
 
-- **`internal/gh` is the only package that touches the network.** It returns
+- **`internal/gh` is the only package that talks to GitHub as you.** It returns
   domain types, never raw API structs, so everything above it is testable
   against a fake. Two transports: GraphQL for everything else, REST for the
   diff, the Actions jobs with their logs and reruns, and review requests.
+  `internal/update` is the one other package on the network: the anonymous
+  latest-release lookup and the installer download, which `zen-octo update`
+  needs without a gh login.
 - **`internal/store` owns fetched state and what is owed a refetch.** Views read
   from it, they never fetch. It owns no clock: ordering is a counter and
   staleness is a mark, and every duration lives in the TUI layer where the

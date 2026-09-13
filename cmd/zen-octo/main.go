@@ -14,6 +14,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
+	"github.com/praxis-labs-io/zen-octo/internal/update"
 	"github.com/praxis-labs-io/zen-octo/internal/version"
 )
 
@@ -39,7 +40,7 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: false,
 	}
 	cmd.Flags().Bool("mockup", false, "Render the UI over fixture data, with no network and no account")
-	cmd.AddCommand(newConfigPathCmd())
+	cmd.AddCommand(newConfigPathCmd(), newUpdateCmd())
 	return cmd
 }
 
@@ -56,8 +57,21 @@ func run(mockup bool) error {
 
 	surface := theme.Query(os.Stdin, os.Stdout)
 
-	_, err = tea.NewProgram(app.New(cfg, client, surface)).Run()
+	_, err = tea.NewProgram(app.New(cfg, client, surface, releaseCheck(mockup))).Run()
 	return err
+}
+
+func releaseCheck(mockup bool) app.ReleaseCheck {
+	if mockup {
+		return nil
+	}
+	return func(ctx context.Context) (update.Result, error) {
+		path, err := update.Path()
+		if err != nil {
+			return update.Result{}, err
+		}
+		return update.Check(ctx, update.Options{Current: version.Version, CachePath: path})
+	}
 }
 
 func newClient(mockup bool) (app.GitHub, error) {

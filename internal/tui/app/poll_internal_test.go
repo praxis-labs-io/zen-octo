@@ -13,7 +13,7 @@ import (
 const settleBudget = time.Second
 
 func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
-	m := New(pollConfig(), Mock{}, testSurface)
+	m := New(pollConfig(), Mock{}, testSurface, nil)
 
 	if !carries[pollTickMsg](m.Init(), pollBeat+time.Second) {
 		t.Error("nothing at startup arms the background beat, so nothing ever polls")
@@ -21,7 +21,7 @@ func TestTheBackgroundBeatStartsWithTheSession(t *testing.T) {
 }
 
 func TestABeatArmsTheNextEvenHavingAskedForNothing(t *testing.T) {
-	m := New(pollConfig(), Mock{}, testSurface)
+	m := New(pollConfig(), Mock{}, testSurface, nil)
 
 	_, cmd := m.Update(pollTickMsg{at: time.Now()})
 	if cmd == nil {

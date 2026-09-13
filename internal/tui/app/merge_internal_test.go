@@ -51,7 +51,7 @@ func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 // Waits the delay out rather than dropping it, the only way to watch the tick arrive.
 func TestADetailLandingArmsTheProbe(t *testing.T) {
 	cfg := &config.Config{Defaults: config.Defaults{PRsLimit: 20}}
-	m := New(cfg, nil, testSurface)
+	m := New(cfg, nil, testSurface, nil)
 
 	landed := gh.DetailResult{Detail: gh.PullRequestDetail{
 		PullRequest: gh.PullRequest{ID: "PR_1", State: gh.PRStateOpen},
