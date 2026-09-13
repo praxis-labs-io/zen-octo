@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,10 @@ func TestTheDeviceAttributesEndTheRead(t *testing.T) {
 
 // An os.Pipe, not any blocking reader: the cancel reader interrupts a file descriptor, not an arbitrary Read.
 func TestASilentTerminalGivesUpAndReportsNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows the cancel reader interrupts only a console's stdin, and a pipe gets a fallback Cancel can't unblock")
+	}
+
 	silent, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("opening a pipe: %v", err)

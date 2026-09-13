@@ -149,8 +149,8 @@ gh release create vX.Y.Z dist/* --notes-file docs/release-notes/vX.Y.Z.md --veri
 Resume once Drew reports the tag pushed, and check what landed rather than
 trusting the workflow's exit code.
 
-- `gh release view vX.Y.Z --json assets` shows **six** assets: four tarballs, the
-  windows zip, and `checksums.txt`. A missing archive is a matrix leg that failed
+- `gh release view vX.Y.Z --json assets` shows **seven** assets: four tarballs, the
+  two windows zips, and `checksums.txt`. A missing archive is a matrix leg that failed
   after the others published.
 - Download one archive and match it against the published checksum. The
   checksums are generated in a different job from the builds.
@@ -178,7 +178,7 @@ No Linear status work. Shipped tickets are already Done from their merges.
 
 **Verification**
 - Docs: <n> read, <n> updated
-- Assets: <n> of 6
+- Assets: <n> of 7
 - Checksum: <matched or not>
 - Installer: <result against the live release>
 - Version: <what the installed binary reports>

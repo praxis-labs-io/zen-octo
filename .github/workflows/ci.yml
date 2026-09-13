@@ -41,6 +41,9 @@ concurrency:
 env:
   GO_VERSION: "1.26"
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint + Format
@@ -78,6 +81,10 @@ jobs:
           # stop agreeing about what passes.
           version: v2.12.2
 
+      - name: Run actionlint
+        run: make lint-actions
+
+  # Not a matrix: that renames the required "Test" check, and every PR then waits on one that never reports.
   test:
     name: Test
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -95,6 +102,23 @@ jobs:
       - name: Run tests
         run: go test -race -coverprofile=coverage.out ./...
 
+  test-windows:
+    name: Test (windows)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
   build:
     name: Build
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -103,9 +127,6 @@ jobs:
       matrix:
         goos: [darwin, linux, windows]
         goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -122,3 +143,47 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: go build -v ./cmd/zen-octo
+
+  # Installs the published release, not this branch: the download, checksum and move are what's under test.
+  install-script:
+    name: Install script (${{ matrix.shell }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # Resolved with a token because runners share the anonymous API rate limit.
+      - name: Resolve the release to install
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release view --repo ${{ github.repository }} --json tagName --jq .tagName
+          if (-not $tag) { throw "could not resolve a published release to install" }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      # shell: takes no matrix context, so the shell under test runs as a child of the default one.
+      - name: Install the latest release
+        env:
+          VERSION: ${{ steps.release.outputs.tag }}
+        run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File ./install.ps1
+
+      - name: Check it runs and reports a released version
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\zen-octo\zen-octo.exe'
+          if (-not (Test-Path $exe)) { throw "the installer left no binary at $exe" }
+          $reported = & $exe --version
+          Write-Host $reported
+          if ($reported -match 'zen-octo version dev') { throw "installed binary reports dev: $reported" }
+          if ($reported -notmatch 'zen-octo version \d+\.\d+\.\d+') { throw "unexpected version line: $reported" }
+
+      # Piped the way the docs say to run it, and over the first install, which is the upgrade Windows makes awkward.
+      - name: Install again, the way the docs say to run it
+        env:
+          VERSION: ${{ steps.release.outputs.tag }}
+        run: ${{ matrix.shell }} -NoProfile -Command "Get-Content ./install.ps1 -Raw | Invoke-Expression"
