@@ -34,7 +34,6 @@ func (s *Spinner) Advance(msg spinner.TickMsg, loading bool) tea.Cmd {
 	return cmd
 }
 
-// Render is the glyph followed by label, or the glyph alone for an empty label.
 func (s Spinner) Render(label string) string { return s.render(label, s.theme.Subtle) }
 
 func (s Spinner) RenderAccent(label string) string { return s.render(label, s.theme.Accent) }

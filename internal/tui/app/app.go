@@ -27,7 +27,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// GitHub is the client the UI calls, declared here so tests can drive the UI without a network.
+// GitHub is the client the UI calls.
 type GitHub interface {
 	Viewer(ctx context.Context) (gh.ViewerResult, error)
 	SearchPullRequests(ctx context.Context, query string, limit int) (gh.SearchResult, error)
@@ -50,7 +50,6 @@ type GitHub interface {
 	SetReaction(ctx context.Context, subjectID string, content gh.ReactionContent, on bool) (gh.ReactionResult, error)
 
 	UpdateComment(ctx context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error)
-	// DeleteComment refuses a review's own body, which GitHub cannot delete.
 	DeleteComment(ctx context.Context, kind gh.CommentKind, id string) error
 
 	SetBody(ctx context.Context, prID, body string) (gh.BodyResult, error)
@@ -65,7 +64,6 @@ type GitHub interface {
 
 	Branches(ctx context.Context, repo, query string) (gh.BranchResult, error)
 
-	// Addressed by repository and number over REST: GraphQL cannot request Copilot.
 	RequestReviews(ctx context.Context, repo string, number int, logins []string) error
 	RemoveReviewRequests(ctx context.Context, repo string, number int, logins []string) error
 }

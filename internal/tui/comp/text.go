@@ -29,7 +29,6 @@ func RelativeTime(t time.Time) string {
 	}
 }
 
-// Plural is n and noun, with an s unless n is one.
 func Plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun

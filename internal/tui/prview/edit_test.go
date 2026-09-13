@@ -16,7 +16,6 @@ const (
 	tabReview      = 3
 )
 
-// A review's body and its comment both report viewerCanDelete, and only the comment can be deleted.
 func writable() gh.PullRequestDetail {
 	d := sampleDetail()
 

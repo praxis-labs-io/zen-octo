@@ -44,7 +44,6 @@ type composer struct {
 
 	onPost bool
 
-	// Only terminals speaking the Kitty keyboard protocol tell ctrl+enter from enter.
 	chords bool
 }
 

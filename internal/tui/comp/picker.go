@@ -29,9 +29,8 @@ const (
 
 // PickerItem is one choice. A nil Color renders the name in the theme's Text.
 type PickerItem struct {
-	ID   string
-	Name string
-	// Always a theme color, never GitHub's: a label hex chosen for a white page vanishes on a dark terminal.
+	ID    string
+	Name  string
 	Color color.Color
 }
 

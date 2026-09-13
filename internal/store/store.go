@@ -138,7 +138,6 @@ func New(sections []config.Section) Store {
 	}
 }
 
-// Sections is a snapshot for the view.
 func (s Store) Sections() []Section { return slices.Clone(s.sections) }
 
 func (s Store) Rate() gh.RateLimit { return s.rate }

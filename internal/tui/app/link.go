@@ -10,7 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// Vars so a test can stand in front of the real clipboard and browser.
 var (
 	copyLink = link.Copy
 	browse   = link.Browse

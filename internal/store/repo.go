@@ -52,7 +52,6 @@ func (s *Store) putRepo(repo string, r Repo) {
 	s.repos[repo] = r
 }
 
-// Branches is the latest branch search for one repository.
 type Branches struct {
 	Query   string
 	Default string

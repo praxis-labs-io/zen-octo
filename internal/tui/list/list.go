@@ -62,7 +62,6 @@ func New(th theme.Theme) Model {
 
 func (m Model) Init() tea.Cmd { return m.spinner.Tick() }
 
-// Update handles this screen's keys and spinner ticks. Anything for the root leaves as a command.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -372,7 +371,6 @@ func (m Model) Keys() keys.ListMap { return keys.List }
 // Capturing reports whether the search bar has the keyboard, so the root lets letters through.
 func (m Model) Capturing() bool { return m.searching }
 
-// ShortHelp is the status bar line for this screen.
 func (m Model) ShortHelp() []key.Binding {
 	if m.searching {
 		return keys.List.SearchHelp()

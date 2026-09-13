@@ -52,7 +52,6 @@ func Query(in, out *os.File) Surface {
 	return s
 }
 
-// A method so the tests drive this dispatch rather than a copy of it.
 func (s *Surface) take(seq string, pa *ansi.Parser) bool {
 	switch {
 	case ansi.HasOscPrefix(seq):

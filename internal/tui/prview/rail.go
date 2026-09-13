@@ -201,7 +201,6 @@ func (m Model) actorRows(d gh.PullRequestDetail, width int) []railEntry {
 	return append(out, m.addRow(focusAddAssignee, "Add assignee", width))
 }
 
-// Accent rather than the label's GitHub color, which is chosen against a white page.
 func (m Model) labelRows(labels []gh.Label, width int) []railEntry {
 	out := make([]railEntry, 0, len(labels)+1)
 	for _, l := range labels {
