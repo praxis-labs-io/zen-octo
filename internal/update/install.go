@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -157,6 +158,7 @@ func runInstallScript(ctx context.Context, script, dir string, out io.Writer) er
 }
 
 // InstallDir returns the running binary's directory, symlinks resolved.
+// Errors when the binary isn't named what the installer writes, since the install would land beside it.
 func InstallDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -168,5 +170,18 @@ func InstallDir() (string, error) {
 		return "", fmt.Errorf("resolving the running binary: %w", err)
 	}
 
-	return filepath.Dir(resolved), nil
+	return installDirFor(resolved, runtime.GOOS)
+}
+
+func installDirFor(binary, goos string) (string, error) {
+	want, got := "zen-octo", filepath.Base(binary)
+	matches := got == want
+	if goos == "windows" {
+		want += ".exe"
+		matches = strings.EqualFold(got, want)
+	}
+	if !matches {
+		return "", fmt.Errorf("the installer writes %s, not %s", want, got)
+	}
+	return filepath.Dir(binary), nil
 }

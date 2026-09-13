@@ -186,25 +186,37 @@ func TestInstallRefusesAnEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestInstallDirIsTheRunningBinarysDirectory(t *testing.T) {
-	dir, err := InstallDir()
-	if err != nil {
-		t.Fatalf("InstallDir: %v", err)
-	}
-	if !filepath.IsAbs(dir) {
-		t.Fatalf("InstallDir = %q, want an absolute path", dir)
+func TestInstallDirRefusesABinaryTheInstallerWouldNotReplace(t *testing.T) {
+	tests := []struct {
+		name    string
+		binary  string
+		goos    string
+		wantDir string
+	}{
+		{name: "the installed name", binary: "/opt/bin/zen-octo", goos: "darwin", wantDir: "/opt/bin"},
+		{name: "a renamed build", binary: "/tmp/zen-octo-old", goos: "darwin"},
+		{name: "windows with its extension", binary: "/opt/bin/zen-octo.exe", goos: "windows", wantDir: "/opt/bin"},
+		{name: "windows in another case", binary: "/opt/bin/Zen-Octo.EXE", goos: "windows", wantDir: "/opt/bin"},
+		{name: "windows without the extension", binary: "/opt/bin/zen-octo", goos: "windows"},
+		{name: "the extension off windows", binary: "/opt/bin/zen-octo.exe", goos: "linux"},
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := filepath.EvalSymlinks(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dir != filepath.Dir(resolved) {
-		t.Fatalf("InstallDir = %q, want %q", dir, filepath.Dir(resolved))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, err := installDirFor(tc.binary, tc.goos)
+			if tc.wantDir == "" {
+				if err == nil {
+					t.Fatalf("installDirFor(%q) = %q, want a refusal", tc.binary, dir)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("installDirFor(%q): %v", tc.binary, err)
+			}
+			if dir != tc.wantDir {
+				t.Fatalf("installDirFor(%q) = %q, want %q", tc.binary, dir, tc.wantDir)
+			}
+		})
 	}
 }
 
