@@ -40,14 +40,20 @@ the keys.
 
 ## Install
 
+macOS and Linux:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.sh | sh
 ```
 
-Downloads the binary for macOS or Linux, on arm64 or amd64, and needs no Go.
-Windows takes the `.zip` off the
-[releases page](https://github.com/praxis-labs-io/zen-octo/releases), the
-installer being a POSIX script.
+Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1 | iex
+```
+
+Either one downloads the binary for your machine, on arm64 or amd64, and needs
+no Go.
 
 From a clone, which is what you want if you intend to change anything:
 

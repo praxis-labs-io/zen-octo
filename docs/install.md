@@ -13,20 +13,28 @@
   of a screen, so a drawer beside an editor still works and a window smaller
   than the merge form does not pretend to.
 
-Releases carry macOS and Linux on arm64 and amd64, and Windows on amd64.
+Releases carry macOS, Linux and Windows, each on arm64 and amd64.
 
 ## Install
+
+macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.sh | sh
 ```
 
-It downloads the binary for your platform and puts it in `~/.local/bin`. It is a
-POSIX script, so Windows takes the `.zip` off the
-[releases page](https://github.com/praxis-labs-io/zen-octo/releases) instead.
+Windows:
 
-`INSTALL_DIR` overrides where it lands, and `VERSION` pins a release. Every
-release carries a `checksums.txt` beside the archives.
+```powershell
+irm https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1 | iex
+```
+
+Both download the binary for your machine, check it against the `checksums.txt`
+the release publishes, and install nothing that doesn't match. `install.sh` puts
+it in `~/.local/bin` and `install.ps1` in `%LOCALAPPDATA%\Programs\zen-octo`.
+
+`INSTALL_DIR` overrides where it lands, and `VERSION` pins a release, as
+`VERSION=v0.2.0`.
 
 ### From a clone
 
@@ -39,11 +47,21 @@ make install
 That builds this tree into `~/.local/bin/zen-octo`. Run it again after every
 change or you keep running the old binary.
 
-If `~/.local/bin` is not on your `PATH`:
+### PATH
+
+If the installer says `~/.local/bin` isn't on your `PATH`:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+On Windows:
+
+```powershell
+[Environment]::SetEnvironmentVariable('Path', "$env:PATH;$env:LOCALAPPDATA\Programs\zen-octo", 'User')
+```
+
+Then open a new terminal. Neither installer edits `PATH` for you.
 
 ## Running it
 
