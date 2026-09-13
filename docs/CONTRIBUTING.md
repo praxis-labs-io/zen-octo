@@ -24,7 +24,8 @@ change or you keep testing the old binary.
 | --- | --- |
 | `make all` | lint, test, build. What has to be green |
 | `make test` | `go test -race -coverprofile ./...` |
-| `make lint` | gofmt, go.mod tidiness, golangci-lint |
+| `make lint` | gofmt, go.mod tidiness, actionlint, golangci-lint |
+| `make lint-actions` | actionlint over the workflow files |
 | `make fmt-fix` | `gofmt -w .` |
 | `make golden` | Regenerate the golden files |
 | `go test ./internal/gh/ -run TestName` | A single test |
@@ -34,7 +35,8 @@ Run them directly, never through a pipe that swallows the exit code.
 
 CI pins golangci-lint to match the local brew version, in
 `.github/workflows/ci.yml`. Keep the pin current or CI and local runs stop
-agreeing.
+agreeing. actionlint is pinned once, in the `Makefile`, and CI runs it through
+`make lint-actions`.
 
 ## Boundaries
 
@@ -74,7 +76,7 @@ again before a release:
 | `internal/tui/**` | [`guide.md`](guide.md), [`keys.md`](keys.md) |
 | `internal/config/**`, `internal/tui/theme/**` | [`configuration.md`](configuration.md) |
 | `internal/gh/**`, `internal/store/**` | [`guide.md`](guide.md) |
-| `Makefile`, `install.sh`, `.github/workflows/**` | [`install.md`](install.md), [`README.md`](../README.md) |
+| `Makefile`, `install.sh`, `install.ps1`, `.github/workflows/**` | [`install.md`](install.md), [`README.md`](../README.md) |
 | the boundaries, the test conventions | this file |
 
 `git diff --name-only <ref>..HEAD` gives the left column, so the set of documents

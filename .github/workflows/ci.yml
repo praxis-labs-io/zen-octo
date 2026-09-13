@@ -41,6 +41,9 @@ concurrency:
 env:
   GO_VERSION: "1.26"
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint + Format
@@ -78,6 +81,10 @@ jobs:
           # stop agreeing about what passes.
           version: v2.12.2
 
+      - name: Run actionlint
+        run: make lint-actions
+
+  # Not a matrix: that renames the required "Test" check, and every PR then waits on one that never reports.
   test:
     name: Test
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -94,6 +101,23 @@ jobs:
 
       - name: Run tests
         run: go test -race -coverprofile=coverage.out ./...
+
+  test-windows:
+    name: Test (windows)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
 
   build:
     name: Build
@@ -122,3 +146,4 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: go build -v ./cmd/zen-octo
+
