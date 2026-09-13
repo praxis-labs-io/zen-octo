@@ -193,12 +193,12 @@ func TestInstallDirRefusesABinaryTheInstallerWouldNotReplace(t *testing.T) {
 		goos    string
 		wantDir string
 	}{
-		{name: "the installed name", binary: "/opt/bin/zen-octo", goos: "darwin", wantDir: "/opt/bin"},
-		{name: "a renamed build", binary: "/tmp/zen-octo-old", goos: "darwin"},
-		{name: "windows with its extension", binary: "/opt/bin/zen-octo.exe", goos: "windows", wantDir: "/opt/bin"},
-		{name: "windows in another case", binary: "/opt/bin/Zen-Octo.EXE", goos: "windows", wantDir: "/opt/bin"},
-		{name: "windows without the extension", binary: "/opt/bin/zen-octo", goos: "windows"},
-		{name: "the extension off windows", binary: "/opt/bin/zen-octo.exe", goos: "linux"},
+		{name: "the installed name", binary: filepath.Join("opt", "bin", "zen-octo"), goos: "darwin", wantDir: filepath.Join("opt", "bin")},
+		{name: "a renamed build", binary: filepath.Join("tmp", "zen-octo-old"), goos: "darwin"},
+		{name: "windows with its extension", binary: filepath.Join("opt", "bin", "zen-octo.exe"), goos: "windows", wantDir: filepath.Join("opt", "bin")},
+		{name: "windows in another case", binary: filepath.Join("opt", "bin", "Zen-Octo.EXE"), goos: "windows", wantDir: filepath.Join("opt", "bin")},
+		{name: "windows without the extension", binary: filepath.Join("opt", "bin", "zen-octo"), goos: "windows"},
+		{name: "the extension off windows", binary: filepath.Join("opt", "bin", "zen-octo.exe"), goos: "linux"},
 	}
 
 	for _, tc := range tests {
