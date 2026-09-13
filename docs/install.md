@@ -33,8 +33,15 @@ Both download the binary for your machine, check it against the `checksums.txt`
 the release publishes, and install nothing that doesn't match. `install.sh` puts
 it in `~/.local/bin` and `install.ps1` in `%LOCALAPPDATA%\Programs\zen-octo`.
 
-`INSTALL_DIR` overrides where it lands, and `VERSION` pins a release, as
-`VERSION=v0.2.0`.
+`INSTALL_DIR` overrides where it lands, and `VERSION` pins a release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.sh | VERSION=v0.2.0 sh
+```
+
+```powershell
+$env:VERSION = 'v0.2.0'; irm https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1 | iex
+```
 
 ### From a clone
 
