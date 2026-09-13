@@ -1411,6 +1411,9 @@ func (m Model) statusMessage() string {
 	if m.refreshRunning() {
 		return m.refreshSpin.RenderAccent("Refreshing")
 	}
+	if m.statusReadout() == "" {
+		return m.releaseNotice()
+	}
 	return ""
 }
 
@@ -1425,11 +1428,10 @@ func (m Model) statusReadout() string {
 		}
 	}
 	if m.screen == screenDetail {
-		if readout := m.detail.Readout(); readout != "" {
-			return lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).Render(readout)
-		}
+		return lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).
+			Render(m.detail.Readout())
 	}
-	return m.releaseNotice()
+	return ""
 }
 
 func (m Model) helpBody() string {

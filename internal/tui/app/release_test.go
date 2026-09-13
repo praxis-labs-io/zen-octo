@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -37,6 +38,23 @@ func TestANewerReleaseIsNamedOnTheListBar(t *testing.T) {
 	raw := lines[len(lines)-1]
 	if !strings.Contains(raw, fgSeq(testTheme.Subtle)) || strings.Contains(raw, fgSeq(testTheme.Error)) {
 		t.Error("the release notice is not drawn as quiet text")
+	}
+}
+
+func TestTheNoticeKeepsItsWordsOnANarrowBar(t *testing.T) {
+	for _, width := range []int{app.MinWidth, 80, 120} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface, newerRelease),
+				tea.WindowSizeMsg{Width: width, Height: 40})
+
+			bar := lastLine(render(t, m))
+			if !strings.Contains(bar, releaseNotice) {
+				t.Errorf("status bar = %q, want %q whole", strings.TrimSpace(bar), releaseNotice)
+			}
+			if !strings.Contains(bar, "?") {
+				t.Errorf("status bar = %q, want the way to every key kept", strings.TrimSpace(bar))
+			}
+		})
 	}
 }
 
