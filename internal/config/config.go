@@ -59,7 +59,7 @@ type Config struct {
 	Transparent bool `yaml:"transparent"`
 	// SyntaxTheme names the Chroma style for code. Empty pairs one against the background.
 	SyntaxTheme string `yaml:"syntaxTheme"`
-	UpdateCheck *bool `yaml:"updateCheck"`
+	UpdateCheck *bool  `yaml:"updateCheck"`
 }
 
 // ChecksForUpdates reports updateCheck, which is on when the key is absent.
