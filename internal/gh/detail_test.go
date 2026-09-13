@@ -10,9 +10,6 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// detailBody is one pull request with everything the conversation reads: a
-// comment from a deleted account, two reviews, a thread under each, an event,
-// a truncated comment page, and a rollup that is neither all green nor all red.
 const detailBody = `{
   "rateLimit": {"limit": 5000, "cost": 3, "remaining": 4712, "resetAt": "2026-08-05T18:00:00Z"},
   "node": {
@@ -216,35 +213,15 @@ func TestPullRequestMapsResponseToDomainTypes(t *testing.T) {
 	if len(d.Labels) != 1 || d.Labels[0].Name != "bug" {
 		t.Errorf("Labels = %+v, want [bug]", d.Labels)
 	}
-	// The id as well as the login: the assignee picker checks by id, and a set
-	// decoded without one applies as a set with nobody in it.
 	if len(d.Assignees) != 1 || d.Assignees[0] != (Actor{ID: "U_1", Login: "drucial"}) {
 		t.Errorf("Assignees = %+v, want [drucial]", d.Assignees)
 	}
 
 }
 
-// A submitted review takes its author off reviewRequests, so the panel is the
-// two lists together. Copilot reviews and then vanishes from the requests,
-// which is how it went missing.
-//
-// Off, and back on if the review is asked for again. Somebody can hold a
-// verdict and an open request at the same time, so the two lists overlap rather
-// than partition, and the reviewer they name once carries both facts.
 func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 	want := []Reviewer{
-		// nkr reviewed twice, and the last word is the one that counts. The
-		// open thread on the first review is still theirs.
-		//
-		// They are on reviewRequests as well, which is a re-request: a verdict
-		// given and a review wanted again, both true at once. Requested is a
-		// field of its own for exactly this, because an empty State cannot say
-		// it and a dedupe that drops the second mention loses the only evidence
-		// anyone is still waiting.
 		{Actor: Actor{Login: "nkr"}, State: ReviewStateApproved, Unresolved: 1, Threads: 2, Requested: true},
-		// A bot and a team, neither of which has answered yet. The team is
-		// marked as one: its handle is built here rather than sent, so nothing
-		// may write it back where a login goes.
 		{Actor: Actor{Login: "copilot-pull-request-reviewer"}, Requested: true},
 		{Actor: Actor{Login: "acme/core-maintainers"}, Requested: true, Team: true},
 	}
@@ -260,8 +237,6 @@ func TestReviewersAreWhoHasReviewedAndWhoWasAsked(t *testing.T) {
 	}
 }
 
-// Comments, reviews and events arrive in three separate connections. The
-// conversation reads top to bottom, so they have to be one list in time order.
 func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 	got := fetchDetail(t).Timeline
 
@@ -269,19 +244,18 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 		kind  TimelineKind
 		login string
 	}{
-		{TimelineCommit, "drucial"}, // a3f91c2, 2nd Aug 08:00
-		{TimelineComment, ""},       // the deleted account, 2nd Aug 09:00
+		{TimelineCommit, "drucial"},
+		{TimelineComment, ""},
 		{TimelineReview, "nkr"},
-		{TimelineCommit, ""}, // 7b20ef4, from an email GitHub matched to nobody
+		{TimelineCommit, ""},
 		{TimelineComment, "octobot"},
 		{TimelineForcePushed, "drucial"},
 		{TimelineLabeled, "drucial"},
 		{TimelineUnlabeled, "drucial"},
 		{TimelineAssigned, "drucial"},
-		// The unassign at 14:30 named nobody and is gone.
 		{TimelineReviewRequested, "drucial"},
 		{TimelineReviewRequested, "drucial"},
-		{TimelineReviewCancelled, ""}, // asked for by a deleted account
+		{TimelineReviewCancelled, ""},
 		{TimelineBaseChanged, "drucial"},
 		{TimelineReview, "nkr"},
 	}
@@ -297,9 +271,6 @@ func TestTheTimelineIsOneListInTheOrderThingsHappened(t *testing.T) {
 	}
 }
 
-// Every metadata event names what it was done to. Six fragments select six
-// different fields for it, and a subject read off the wrong one is an event
-// that renders as a verb with nothing after it.
 func TestEveryMetadataEventNamesWhatItWasDoneTo(t *testing.T) {
 	got := fetchDetail(t).Timeline
 
@@ -327,24 +298,12 @@ func TestEveryMetadataEventNamesWhatItWasDoneTo(t *testing.T) {
 	}
 }
 
-// Every event type shares one window, and the metadata ones are the ones that
-// fill it. What fell out of it has to be counted off the filtered connection:
-// totalCount is the whole timeline, subscriptions and mentions included, and
-// reading it claims a hundred hidden events on a pull request that has none
-// this build would ever render.
 func TestTheEventsTheWindowCutOffAreCounted(t *testing.T) {
-	// Ten nodes came back against a filtered count of fourteen, so four were
-	// left behind. Two of the ten were dropped on the way in, and neither is
-	// one of those four: a row this build cannot render is still a row GitHub
-	// sent.
 	if got := fetchDetail(t).MoreEvents; got != 4 {
 		t.Errorf("MoreEvents = %d, want 4", got)
 	}
 }
 
-// The reviewer union is three shapes and only one comes back filled. A team has
-// no login at all, so reading one drops the request that is hardest to see
-// anywhere else.
 func TestAReviewRequestEventNamesABotAndATeamTheWayTheRailDoes(t *testing.T) {
 	var got []string
 	for _, item := range fetchDetail(t).Timeline {
@@ -359,8 +318,6 @@ func TestAReviewRequestEventNamesABotAndATeamTheWayTheRailDoes(t *testing.T) {
 	}
 }
 
-// An event whose subject GitHub nulled is dropped rather than rendered without
-// one. "unassigned" with nobody named says less than the missing row does.
 func TestAnEventThatNamesNobodyStaysOut(t *testing.T) {
 	for _, item := range fetchDetail(t).Timeline {
 		if item.Kind == TimelineUnassigned {
@@ -369,8 +326,6 @@ func TestAnEventThatNamesNobodyStaysOut(t *testing.T) {
 	}
 }
 
-// A pending review is the viewer's own unsubmitted draft. Nobody else can see
-// it, and it has no timestamp to sort by.
 func TestAnUnsubmittedReviewStaysOut(t *testing.T) {
 	for _, item := range fetchDetail(t).Timeline {
 		if item.Said().ID == "REV_3" {
@@ -396,8 +351,6 @@ func TestAThreadNamesTheReviewThatOpenedIt(t *testing.T) {
 		t.Errorf("first comment = %q, want the one that opened the thread", first.Comments[0].Body)
 	}
 
-	// An outdated thread has no current line, only the one it was written
-	// against. Falling back is what keeps the anchor readable.
 	second := threads[1]
 	if !second.IsResolved || !second.IsOutdated {
 		t.Errorf("second thread = resolved %v outdated %v, want both", second.IsResolved, second.IsOutdated)
@@ -418,8 +371,6 @@ func TestAThreadCarriesTheSideAndSpanItAnchorsTo(t *testing.T) {
 		t.Errorf("StartLine = %d, want 40", first.StartLine)
 	}
 
-	// An outdated thread has neither line nor start line, so both fall back to
-	// what it was written against.
 	second := threads[1]
 	if second.Side != SideLeft {
 		t.Errorf("Side = %q, want LEFT", second.Side)
@@ -429,8 +380,6 @@ func TestAThreadCarriesTheSideAndSpanItAnchorsTo(t *testing.T) {
 	}
 }
 
-// A thread GitHub returns with no side at all still has to anchor somewhere,
-// and the right is where a single-sided comment lives.
 func TestAThreadWithNoSideDefaultsToTheRight(t *testing.T) {
 	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 1, "nodes": [
 	  {"path": "a.go", "line": 3, "comments": {"totalCount": 0, "nodes": []}}
@@ -445,8 +394,6 @@ func TestAThreadWithNoSideDefaultsToTheRight(t *testing.T) {
 	}
 }
 
-// A page that stopped short has to say so. A dropped comment that reads as no
-// comment is the failure worth a field.
 func TestWhatThePageDidNotReachIsReported(t *testing.T) {
 	d := fetchDetail(t)
 
@@ -461,8 +408,6 @@ func TestWhatThePageDidNotReachIsReported(t *testing.T) {
 	}
 }
 
-// The connection is chronological, so asking for the first hundred on a long
-// branch returns the oldest hundred and leaves the head commit unreachable.
 func TestTheCommitsAreAskedForFromTheNewestEnd(t *testing.T) {
 	doer := &fakeDoer{body: detailBody}
 	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
@@ -501,8 +446,6 @@ func TestTheCommitsCarryTheirShaHeadlineAndOwnRollup(t *testing.T) {
 		t.Errorf("Checks = %q, want this commit's own rollup", first.Checks)
 	}
 
-	// A commit whose email matches no account has no login, and no checks have
-	// reported against it either.
 	second := commits[1]
 	if second.Author.Login != "" || second.AuthorName != "Drew White" {
 		t.Errorf("second author = %q/%q, want the git name alone",
@@ -513,8 +456,6 @@ func TestTheCommitsCarryTheirShaHeadlineAndOwnRollup(t *testing.T) {
 	}
 }
 
-// A timeline commit carries the commit behind it, so the conversation can name
-// the sha without going back to the list for it.
 func TestATimelineCommitCarriesItsCommit(t *testing.T) {
 	for _, item := range fetchDetail(t).Timeline {
 		if item.Kind != TimelineCommit {
@@ -540,17 +481,14 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 		t.Errorf("passed/failed/pending/skipped = %v, want %v", counts, want)
 	}
 
-	// A rollup that says "failing" does not say which one, so the checks come
-	// back too, in the order GitHub listed them. A job is named for what it
-	// does, so the workflow it ran under is what tells two "test" jobs apart.
 	want := []Check{
 		{Name: "test", Workflow: "Rails Unit Tests"},
 		{Name: "test", Workflow: "Rails Lint"},
 		{Name: "build", Workflow: "Build"},
-		{Name: "windows"}, // a suite with no workflow run behind it
+		{Name: "windows"},
 		{Name: "e2e", Workflow: "E2E Tests"},
-		{Name: "e2e", Workflow: "E2E Tests"}, // a same-name check remains reachable
-		{Name: "codecov"},                    // status contexts have no workflow at all
+		{Name: "e2e", Workflow: "E2E Tests"},
+		{Name: "codecov"},
 		{Name: "netlify"},
 		{Name: "sonar"},
 	}
@@ -563,8 +501,6 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 		}
 	}
 
-	// A check run and a status context are different types on the wire saying
-	// the same thing, and they fold into one vocabulary.
 	states := []CheckState{
 		CheckStateSuccess, CheckStateSuccess, CheckStateFailure, CheckStateSkipped,
 		CheckStatePending, CheckStateFailure, CheckStateSuccess, CheckStatePending, CheckStateFailure,
@@ -574,13 +510,10 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 			t.Errorf("check %q = %q, want %q", want[i].Name, got, state)
 		}
 	}
-	// The embedded row carries the same answer, so a screen reading either the
-	// search result or the detail sees one state.
 	if d.Checks != CheckStateFailure {
 		t.Errorf("Checks = %q, want the rollup state", d.Checks)
 	}
 
-	// These ride along on a check run's own arm of the fragment.
 	build := d.Rollup.Checks[2]
 	if build.JobID != 8700123456 {
 		t.Errorf("build.JobID = %d, want 8700123456", build.JobID)
@@ -601,8 +534,6 @@ func TestTheRollupCountsWhatIsBehindIt(t *testing.T) {
 	}
 }
 
-// The rail builds its state menu from these, so a flag lost in decoding offers
-// a write GitHub refuses or hides one it would have taken.
 func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
@@ -618,10 +549,6 @@ func TestPullRequestReadsWhatTheViewerMayDo(t *testing.T) {
 	}
 }
 
-// Four levels carry reactions and each decodes through its own path: three
-// comment types through commentNode and the description through the pull
-// request. A level wired up in the query and not in the fold renders a card
-// whose pills never appear.
 func TestReactionsComeBackAtEveryLevel(t *testing.T) {
 	res, err := newWithDoer(&fakeDoer{body: detailBody}, nil).PullRequest(context.Background(), "PR_412", "fix-auth")
 	if err != nil {
@@ -633,8 +560,6 @@ func TestReactionsComeBackAtEveryLevel(t *testing.T) {
 		t.Errorf("description reactions = %+v, want %+v", d.Reactions, want)
 	}
 
-	// A group at zero is dropped. GitHub answers with all eight on every
-	// subject, so keeping them puts six empty pills under every card.
 	want := []Reaction{
 		{Content: ReactionThumbsUp, Count: 3, Viewer: true},
 		{Content: ReactionRocket, Count: 1},
@@ -653,8 +578,6 @@ func TestReactionsComeBackAtEveryLevel(t *testing.T) {
 		t.Errorf("RC_1 reactions = %+v, want four EYES the viewer is in", rc.Reactions)
 	}
 
-	// A comment the fixture gave no groups reads as one nobody reacted to,
-	// never as one whose reactions were dropped in decoding.
 	if got := commentIn(d.Timeline, "IC_1"); got.Reactions != nil {
 		t.Errorf("IC_1 reactions = %+v, want none", got.Reactions)
 	}
@@ -669,10 +592,6 @@ func commentIn(timeline []TimelineItem, id string) Comment {
 	return Comment{}
 }
 
-// The merge form sends the oid as the commit it means and the ref id as the
-// branch to delete afterwards. Neither is recoverable from anything else on the
-// detail: the oid is not the last commit in the list once a rebase reorders it,
-// and deleteRef takes no branch name at all.
 func TestPullRequestReadsTheHeadCommitAndItsBranch(t *testing.T) {
 	d := fetchDetail(t)
 
@@ -684,9 +603,6 @@ func TestPullRequestReadsTheHeadCommitAndItsBranch(t *testing.T) {
 	}
 }
 
-// GitHub nulls headRef once the branch is gone, which is every merged pull
-// request in a repository that deletes on merge. That has to leave the id empty
-// rather than fail the parse: the whole detail would go with it.
 func TestPullRequestSurvivesADeletedHeadBranch(t *testing.T) {
 	body := strings.Replace(detailBody, `"headRef": {"id": "REF_88"}`, `"headRef": null`, 1)
 
@@ -699,8 +615,6 @@ func TestPullRequestSurvivesADeletedHeadBranch(t *testing.T) {
 	}
 }
 
-// compareErr is GitHub refusing the base comparison because the head branch is
-// gone: the whole pull request comes back beside it.
 func compareErr(paths ...[]any) *api.GraphQLError {
 	items := make([]api.GraphQLErrorItem, len(paths))
 	for i, p := range paths {
@@ -709,8 +623,6 @@ func compareErr(paths ...[]any) *api.GraphQLError {
 	return &api.GraphQLError{Errors: items}
 }
 
-// A merged pull request has its branch deleted, so GitHub nulls the head and
-// refuses the comparison. Reading the error array as fatal threw the rest away.
 func TestPullRequestSurvivesARefusedBaseComparison(t *testing.T) {
 	body := strings.Replace(detailBody, `"headRef": {"id": "REF_88"}`, `"headRef": null`, 1)
 	doer := &fakeDoer{body: body, err: compareErr([]any{"node", "baseRef", "compare"})}
@@ -727,8 +639,6 @@ func TestPullRequestSurvivesARefusedBaseComparison(t *testing.T) {
 	}
 }
 
-// A refused comparison beside a head that still exists is not the merged case,
-// and it still costs the count rather than the screen.
 func TestARefusedComparisonCostsTheCountAndNotTheScreen(t *testing.T) {
 	doer := &fakeDoer{body: detailBody, err: compareErr([]any{"node", "baseRef", "compare"})}
 
@@ -744,8 +654,6 @@ func TestARefusedComparisonCostsTheCountAndNotTheScreen(t *testing.T) {
 	}
 }
 
-// GitHub can null the comparison without saying why. Zero already means up to
-// date, so leaving it there claims a distance nobody measured.
 func TestPullRequestCountsNothingWhereTheComparisonIsNull(t *testing.T) {
 	tests := []struct {
 		name string
@@ -772,8 +680,6 @@ func TestPullRequestCountsNothingWhereTheComparisonIsNull(t *testing.T) {
 	}
 }
 
-// Only that one path is tolerated. A second error beside the comparison means
-// the response cannot be trusted, and Match is what refuses it.
 func TestPullRequestStillFailsOnAnyOtherError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -797,9 +703,6 @@ func TestPullRequestStillFailsOnAnyOtherError(t *testing.T) {
 	}
 }
 
-// GitHub's own commit message per method, which is the whole reason the form
-// does not compute one: the repository decides whether a squash title is the
-// pull request's or its single commit's.
 func TestPullRequestReadsTheMergeMessages(t *testing.T) {
 	d := fetchDetail(t)
 
@@ -816,8 +719,6 @@ func TestPullRequestReadsTheMergeMessages(t *testing.T) {
 		t.Errorf("MergeMessage(SQUASH) = %+v, want %+v", got, squash)
 	}
 
-	// A rebase writes no commit of its own, so the form drops both fields and
-	// this must not hand back the merge commit's text to fill them.
 	if got := d.MergeMessage(MergeMethodRebase); got != (MergeMessage{}) {
 		t.Errorf("MergeMessage(REBASE) = %+v, want empty", got)
 	}
@@ -845,15 +746,11 @@ func TestPullRequestPassesTheNodeID(t *testing.T) {
 	if doer.gotVars["id"] != "PR_412" {
 		t.Errorf("id = %v, want the node id unmodified", doer.gotVars["id"])
 	}
-	// The head branch goes with it: the query asks how far behind the base it
-	// has fallen, and GraphQL cannot read it off a sibling field.
 	if doer.gotVars["head"] != "fix-auth" {
 		t.Errorf("head = %v, want the branch it is merging from", doer.gotVars["head"])
 	}
 }
 
-// An id that is not a pull request comes back as an empty node rather than an
-// error, which would otherwise decode into a blank screen.
 func TestAnIDBehindNoPullRequestIsAnError(t *testing.T) {
 	doer := &fakeDoer{body: `{"node": {}}`}
 
@@ -866,8 +763,6 @@ func TestAnIDBehindNoPullRequestIsAnError(t *testing.T) {
 	}
 }
 
-// Display names do not prove identity. Two workflow jobs may share one, and
-// dropping either silently removes its log and rerun control.
 func TestSameNamedChecksRemainDistinct(t *testing.T) {
 	var got []Check
 	for _, check := range fetchDetail(t).Rollup.Checks {
@@ -886,8 +781,6 @@ func TestSameNamedChecksRemainDistinct(t *testing.T) {
 	}
 }
 
-// No two checks in one rollup share a key. A screen names a row by it, and two
-// rows answering to one key is one row the reader cannot reach.
 func TestNoTwoChecksShareAKey(t *testing.T) {
 	seen := make(map[string]Check)
 	for _, check := range fetchDetail(t).Rollup.Checks {
@@ -899,8 +792,6 @@ func TestNoTwoChecksShareAKey(t *testing.T) {
 	}
 }
 
-// The separator is not a slash, because a workflow name may hold one and the
-// two halves would then run together.
 func TestAKeyTellsTheWorkflowFromTheJob(t *testing.T) {
 	a := Check{Workflow: "Lint / Format", Name: "go"}
 	b := Check{Workflow: "Lint", Name: "Format / go"}
@@ -928,10 +819,7 @@ func TestMergeabilityFoldsTheTwoFieldsGitHubAnswersWith(t *testing.T) {
 		{name: "clean", mergeable: "MERGEABLE", status: "CLEAN", want: MergeClean},
 		{name: "behind", mergeable: "MERGEABLE", status: "BEHIND", want: MergeBehind},
 		{name: "hooks read as clean", mergeable: "MERGEABLE", status: "HAS_HOOKS", want: MergeClean},
-		// mergeable is the field that knows about conflicts, and it overrules
-		// whatever the status says.
 		{name: "conflicts win", mergeable: "CONFLICTING", status: "BLOCKED", want: MergeConflicting},
-		// GitHub computes this lazily and says UNKNOWN until it has.
 		{name: "not computed yet", mergeable: "UNKNOWN", status: "UNKNOWN", want: MergeUnknown},
 		{name: "a state we do not know", mergeable: "MERGEABLE", status: "SOMETHING_NEW", want: MergeUnknown},
 	}
@@ -951,10 +839,7 @@ func TestHowFarBehindTheBaseComesBack(t *testing.T) {
 	}
 }
 
-// A fake doer never executes the query, so nothing else in this file can catch
-// a missing fragment: the fixture decodes whatever it is handed. Copilot is
-// requested as a Bot, and leaving that fragment out drops it from the list
-// with no error anywhere.
+// A fake never runs the query, so a missing Bot fragment would drop Copilot with no error anywhere.
 func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
 	for _, want := range []string{"... on User { login }", "... on Bot { login }", "... on Team { slug"} {
 		if !strings.Contains(pullRequestQuery, want) {
@@ -963,8 +848,6 @@ func TestTheQueryAsksForEveryShapeOfReviewer(t *testing.T) {
 	}
 }
 
-// Same reasoning: the fixture would decode a thread with no side and the Files
-// tab would anchor every comment to the right half of the diff.
 func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
 	for _, want := range []string{"startLine", "originalStartLine", "diffSide", "diffHunk"} {
 		if !strings.Contains(pullRequestQuery, want) {
@@ -973,9 +856,6 @@ func TestTheQueryAsksForWhatAnchorsAThread(t *testing.T) {
 	}
 }
 
-// And again: a permission left out of the query decodes to false, which reads
-// as a comment nobody is allowed to touch. Every key would go quiet with no
-// error to say why.
 func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 	for _, want := range []string{
 		"viewerDidAuthor", "viewerCanUpdate", "viewerCanDelete", "viewerCanReact",
@@ -987,17 +867,11 @@ func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 		}
 	}
 
-	// One asked for once is asked for on comments alone. Three comment types
-	// carry these, and the count is what says the fragment reached all three.
 	if got := strings.Count(pullRequestQuery, "viewerDidAuthor"); got != 3 {
 		t.Errorf("viewerDidAuthor appears %d times, want 3: issue comments, reviews and thread comments", got)
 	}
 }
 
-// Reactions are asked for on the three comment types and on the pull request
-// itself, which is the subject a reaction to the description is addressed to.
-// A level left out renders a card whose pills are always absent, and the key
-// over it toggles something nobody can see.
 func TestTheQueryAsksForReactionsAtEveryLevel(t *testing.T) {
 	for _, want := range []string{"reactionGroups", "viewerHasReacted", "reactors", "totalCount"} {
 		if !strings.Contains(pullRequestQuery, want) {
@@ -1010,8 +884,6 @@ func TestTheQueryAsksForReactionsAtEveryLevel(t *testing.T) {
 	}
 }
 
-// Nothing can be edited, deleted or replied to without a node id, and the id
-// GitHub answers with is the only one there is.
 func TestEveryCommentAndThreadComesBackWithItsID(t *testing.T) {
 	d := fetchDetail(t)
 
@@ -1038,8 +910,6 @@ func TestEveryCommentAndThreadComesBackWithItsID(t *testing.T) {
 	}
 }
 
-// A comment's kind is what names the mutation that edits it. Three GraphQL
-// types answer with a body, and the id alone does not say which one this was.
 func TestEachCommentSaysWhichKindItIs(t *testing.T) {
 	d := fetchDetail(t)
 
@@ -1068,10 +938,6 @@ func TestEachCommentSaysWhichKindItIs(t *testing.T) {
 	}
 }
 
-// Whose writing it is and what may be done to it are two questions. A
-// maintainer can edit and delete a comment they did not write, and a screen
-// that offers the keys on authorship alone hides them from the person holding
-// the permission.
 func TestAuthorshipAndPermissionAreSeparateAnswers(t *testing.T) {
 	byID := make(map[string]Comment)
 	for _, item := range fetchDetail(t).Timeline {
@@ -1102,15 +968,12 @@ func TestAuthorshipAndPermissionAreSeparateAnswers(t *testing.T) {
 		}
 	}
 
-	// The one comment in the fixture the viewer wrote.
 	own := fetchDetail(t).Threads[0].Comments[1]
 	if !own.ViewerDidAuthor || !own.CanEdit {
 		t.Errorf("RC_2 is the viewer's own: authored=%v edit=%v", own.ViewerDidAuthor, own.CanEdit)
 	}
 }
 
-// Resolve and unresolve are one control with two directions, and GitHub
-// permissions them apart. A thread already closed answers with the other one.
 func TestAThreadCarriesReplyAndBothDirectionsOfResolve(t *testing.T) {
 	threads := fetchDetail(t).Threads
 
@@ -1127,13 +990,10 @@ func TestAThreadCarriesReplyAndBothDirectionsOfResolve(t *testing.T) {
 	}
 }
 
-// A reviewer who left unanswered questions is waiting on the same thing as one
-// who asked for changes, whatever they called the review.
 func TestOpenThreadsCountAgainstTheReviewerWhoOpenedThem(t *testing.T) {
 	for _, r := range fetchDetail(t).Reviewers {
 		switch r.Actor.Login {
 		case "nkr":
-			// One thread open on REV_1, one resolved on REV_2.
 			if r.Unresolved != 1 {
 				t.Errorf("nkr has %d open threads, want 1", r.Unresolved)
 			}
@@ -1145,9 +1005,6 @@ func TestOpenThreadsCountAgainstTheReviewerWhoOpenedThem(t *testing.T) {
 	}
 }
 
-// A team's display name is not a handle: it carries spaces and case, it is not
-// unique, and it can collide with somebody's login. The rail writes whatever
-// this returns with an @ in front of it.
 func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1169,8 +1026,6 @@ func TestATeamIsNamedByItsSlugNotItsDisplayName(t *testing.T) {
 	}
 }
 
-// A comment about a line nobody can see is an assertion about nothing. GitHub
-// returns the hunk it was written against on every comment in the thread.
 func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
 	threads := fetchDetail(t).Threads
 
@@ -1190,17 +1045,11 @@ func TestAThreadCarriesTheDiffItWasWrittenAgainst(t *testing.T) {
 		t.Errorf("last line = %+v, want the added line at 40", last)
 	}
 
-	// A thread whose comments carry no hunk keeps a nil one rather than an
-	// empty box on the screen.
 	if threads[1].Hunk != nil {
 		t.Errorf("Hunk = %+v, want nil where GitHub sent none", threads[1].Hunk)
 	}
 }
 
-// Every thread is attributed, not only the open ones. A reviewer whose asks
-// have all been met and one who opened none both leave Unresolved at zero, and
-// the rail reads them as opposite answers, so the total is what tells them
-// apart.
 func TestAReviewersThreadsAreCountedResolvedOrNot(t *testing.T) {
 	var nkr Reviewer
 	for _, r := range fetchDetail(t).Reviewers {
@@ -1209,7 +1058,6 @@ func TestAReviewersThreadsAreCountedResolvedOrNot(t *testing.T) {
 		}
 	}
 
-	// Two threads under nkr's reviews: one open on REV_1, one resolved on REV_2.
 	if nkr.Threads != 2 {
 		t.Errorf("Threads = %d, want both of them counted", nkr.Threads)
 	}

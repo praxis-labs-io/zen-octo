@@ -9,8 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/comp"
 )
 
-// filled builds a base frame of a single repeated rune, so anything of that
-// rune left inside the overlay's rectangle is bleed-through.
 func filled(r string, width, height int) string {
 	rows := make([]string, height)
 	for i := range rows {

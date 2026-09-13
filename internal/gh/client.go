@@ -1,6 +1,4 @@
-// Package gh talks to GitHub. It is the only package in zen-octo that touches
-// the network, and it returns domain types rather than API response shapes, so
-// everything above it can be tested against a fake.
+// Package gh is the only package that touches the network, and returns domain types rather than API shapes.
 package gh
 
 import (
@@ -14,21 +12,16 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// graphQLDoer is the slice of go-gh's GraphQL client this package uses.
-// Tests substitute a fake; nothing else in zen-octo sees it.
 type graphQLDoer interface {
 	DoWithContext(ctx context.Context, query string, variables map[string]any, response any) error
 }
 
-// restDoer is the same seam over REST. GraphQL has no field carrying a patch,
-// so the diff is the one thing this package cannot ask for in a query.
+// GraphQL has no field carrying a patch, so the diff needs REST.
 type restDoer interface {
 	DoWithContext(ctx context.Context, method, path string, body io.Reader, response any) error
-	// RequestWithContext is the undecoded half, for a body that is not JSON.
 	RequestWithContext(ctx context.Context, method, path string, body io.Reader) (*http.Response, error)
 }
 
-// Client is a GitHub API client riding the token from the user's gh login.
 type Client struct {
 	gql  graphQLDoer
 	rest restDoer
@@ -47,13 +40,11 @@ func New() (*Client, error) {
 	return &Client{gql: gql, rest: rest}, nil
 }
 
-// newWithDoer builds a client around substitute transports, for tests.
 func newWithDoer(gql graphQLDoer, rest restDoer) *Client {
 	return &Client{gql: gql, rest: rest}
 }
 
-// ScopeError is a 403 the token can't satisfy. It carries the command that
-// fixes it, because "HTTP 403" on its own sends people to the wrong place.
+// ScopeError is a 403 the token's scopes cannot satisfy. Missing names the scopes to add.
 type ScopeError struct {
 	Missing []string
 	err     error
@@ -78,8 +69,6 @@ func (e *ScopeError) Error() string {
 
 func (e *ScopeError) Unwrap() error { return e.err }
 
-// classify turns a raw API error into a ScopeError when the token is the
-// problem, so callers can show the fix instead of the status code.
 func classify(err error) error {
 	if err == nil {
 		return nil

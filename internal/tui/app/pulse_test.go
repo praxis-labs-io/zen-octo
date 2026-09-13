@@ -9,8 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
-// setDetailState moves the staged pull request the way somebody working in the
-// browser would, so the next recheck answers with it.
 func (f *fakeSearcher) setDetailState(id string, state gh.PRState) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -20,8 +18,6 @@ func (f *fakeSearcher) setDetailState(id string, state gh.PRState) {
 	f.details[id] = held
 }
 
-// A recheck is a question nobody asked, so it owes no account of itself. A
-// spinner or a toast for one would report a fetch the reader never made.
 func TestAPulseSaysNothingOnTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -39,8 +35,6 @@ func TestAPulseSaysNothingOnTheStatusBar(t *testing.T) {
 	}
 }
 
-// The screen keeps what it had. Nothing was waiting on the answer, so an error
-// painted over a page the reader is reading fine is the loudest thing on it.
 func TestAFailedPulseSaysNothingAndKeepsThePage(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -58,21 +52,17 @@ func TestAFailedPulseSaysNothingAndKeepsThePage(t *testing.T) {
 	}
 }
 
-// A write settling mid-flight makes the store drop the answer, and the probe
-// has spent its one wait. Without another, the Merge row latches on "Checking".
 func TestAPulseDroppedByAWriteIsAskedAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	m := press(loaded(t, client, 160, 44), "enter")
 
-	// The probe's recheck is held back, so a write can settle underneath it.
 	m, held := holdBack(m, app.MergeProbe("PR_412"), "pulseFetched")
 	if len(held) == 0 {
 		t.Fatal("setup: the probe started no recheck")
 	}
 
-	// Convert to draft while that answer is on its way.
 	m = press(m, "1", "enter", "enter")
 	client.serveMergeable("PR_412")
 
@@ -87,15 +77,12 @@ func TestAPulseDroppedByAWriteIsAskedAgain(t *testing.T) {
 	}
 }
 
-// The pulse carries the lifecycle, so a pull request merged elsewhere reaches
-// the row behind the screen without the whole page being fetched for it.
 func TestAPulseCorrectsTheRowBehindTheScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	m := press(loaded(t, client, 160, 44), "enter")
 
-	// Somebody merged it in the browser while the reader had it open.
 	client.setDetailState("PR_412", gh.PRStateMerged)
 	m = settle(m, app.MergeProbe("PR_412"))
 

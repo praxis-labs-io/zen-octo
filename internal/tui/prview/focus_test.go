@@ -14,8 +14,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// The conversation in sampleDetail, in the order the ring walks it. The resolved
-// thread is last and has no card, so it is not here; it is asserted on its own.
 const (
 	cardDescription = "drucial · opened this"
 	cardComment     = "octobot · commented"
@@ -25,9 +23,6 @@ const (
 	cardCompose     = "write a comment"
 )
 
-// A screen opens with its cursor on the description, and the first press of a
-// motion key moves rather than arrives. What is lit is what says where the next
-// key acts, so a screen with nothing lit is one whose keys name nowhere.
 func TestAScreenOpensWithItsCursorOnTheDescription(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
@@ -39,9 +34,6 @@ func TestAScreenOpensWithItsCursorOnTheDescription(t *testing.T) {
 	}
 }
 
-// The leading pane takes the keys on the way in to the screen. It is the one
-// the reader navigates with and it is numbered first, so the number and the
-// keyboard would otherwise disagree about where the eye lands.
 func TestTheLeadingPaneHoldsTheKeysOnArrival(t *testing.T) {
 	m := opened(held(sampleDetail()), 200, 44)
 
@@ -53,11 +45,7 @@ func TestTheLeadingPaneHoldsTheKeysOnArrival(t *testing.T) {
 	}
 }
 
-// Once, and not again. A reader changing tab has already chosen a pane, and
-// handing the keys back to the rail on every press of the strip would make them
-// ask for the page again each time they came round to it.
 func TestTheStripLeavesTheKeysWhereTheReaderPutThem(t *testing.T) {
-	// Off the rail and onto the page, then round the strip and back.
 	m := press(opened(held(sampleDetail()), 200, 44), "l")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("setup: the page holds %q, want the description", got)
@@ -72,11 +60,6 @@ func TestTheStripLeavesTheKeysWhereTheReaderPutThem(t *testing.T) {
 	}
 }
 
-// A frame that opens too narrow for a rail has no lead to take, and widening it
-// is the terminal getting bigger rather than an arrival. Latched on having
-// found a lead rather than on having arrived, the first widen past railMinFrame
-// would take the keys off a reader who was already working in the only pane
-// there was.
 func TestWideningAFrameDoesNotTakeTheKeys(t *testing.T) {
 	m := opened(held(sampleDetail()), 100, 40)
 	if got := markedRailRow(t, m.View()); got != "" {
@@ -95,9 +78,6 @@ func TestWideningAFrameDoesNotTakeTheKeys(t *testing.T) {
 	}
 }
 
-// The rail marks its cursor line the way the diff marks its row: a bar in the
-// leading cell, in accent. One glyph for one fact, so crossing from the diff to
-// the rail is not a second mark to learn.
 func TestTheRailCursorCarriesTheBar(t *testing.T) {
 	m := opened(held(sampleDetail()), 200, 44)
 
@@ -120,16 +100,10 @@ func TestTheRailCursorCarriesTheBar(t *testing.T) {
 		t.Error("the bar is not in the accent the diff draws its own in")
 	}
 
-	// A cell of gutter is left between the bar and the row it marks. Against it,
-	// a dot or a glyph leading a name reads as one mark rather than as a row
-	// that has been marked.
 	if !strings.Contains(stripANSI(lit), paint.BarGlyph+" ") {
 		t.Errorf("the content sits against the bar: %q", stripANSI(lit))
 	}
 
-	// It goes in the gutter every row already holds open, so nothing steps.
-	// Counted over the rail rather than over the frame: the tab strip marks its
-	// own current tab with the same glyph, a row above and outside every pane.
 	bars := func(frame string) int {
 		n := 0
 		for _, row := range railRaw(t, frame) {
@@ -146,14 +120,11 @@ func TestTheRailCursorCarriesTheBar(t *testing.T) {
 		t.Errorf("the rail carries %d bars, want the one under the cursor", got)
 	}
 
-	// And it goes with the keys.
 	if got := bars(press(m, "l").View()); got != 0 {
 		t.Error("the bar is still on the rail once the page took the keys")
 	}
 }
 
-// A cursor belongs to the pane the keys are going to. Two panes holding one
-// says the keys go to both.
 func TestTheRailGivesUpItsCursorWhenItGivesUpTheKeys(t *testing.T) {
 	m := opened(held(sampleDetail()), 200, 44)
 	if markedRailRow(t, m.View()) == "" {
@@ -173,33 +144,15 @@ func TestTheRailGivesUpItsCursorWhenItGivesUpTheKeys(t *testing.T) {
 	}
 }
 
-// walked steps the ring to the card a caller names. The counts every caller
-// uses are from the top of the page, so a model left somewhere else goes
-// through fromTop first: the ring stops at its ends and no longer laps round to
-// the description.
-// walked puts the ring on the nth card, counting from one. A screen opens with
-// its cursor already on the first, so the nth is n-1 steps away.
 func walked(m prview.Model, n int) prview.Model {
-	// The leading pane holds the keys on arrival, and the cards are in the one
-	// beside it. 2 is always that pane, and it is a no-op where there is only
-	// one on the frame.
 	m = press(m, "2")
 	return press(m, strings.Fields(strings.Repeat("} ", max(0, n-1)))...)
 }
 
-// fromTop takes the page and the ring back to the first card, which is where
-// the step counts are measured from. Esc used to do the ring half of it by
-// dropping the focus; it leaves the screen now, so the way back is to walk it.
-// The ring stops at its ends, so more steps than there are cards land on the
-// first one and stay there.
 func fromTop(m prview.Model) prview.Model {
 	return press(press(m, "g"), strings.Fields(strings.Repeat("{ ", 40))...)
 }
 
-// The ring walks the cards in the order they were written, and stops at the
-// end. Every card is a stop, replies included: a card the motion key walks past
-// is one the reader can see and cannot reach, and crossing a heavily reviewed
-// page is what the scroll keys are for.
 func TestTheRingWalksTheCardsInOrder(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
@@ -211,39 +164,27 @@ func TestTheRingWalksTheCardsInOrder(t *testing.T) {
 		}
 	}
 
-	// The fifth is the reply hanging off that thread, which is a card of its own
-	// and so a stop of its own.
 	if got := focusedCard(t, walked(m, 5).View()); !strings.HasPrefix(got, "octobot · said") {
 		t.Errorf("the fifth step focused %q, want the reply on the thread", got)
 	}
 
-	// The sixth is the resolved thread. It is a card like the rest, closed
-	// rather than absent, so it takes the accent on its border the same way, and
-	// the replies it is hiding are no stops while it is closed.
 	if got := focusedCard(t, walked(m, 6).View()); !strings.HasPrefix(got, "✓ internal/store/store.go:88") {
 		t.Errorf("the sixth step focused %q, want the resolved thread", got)
 	}
 
-	// The seventh and eighth are the threads no review owns, which render at the
-	// end of the page in the order the query returned them.
 	if got := focusedCard(t, walked(m, 7).View()); !strings.HasPrefix(got, cardLocked) {
 		t.Errorf("the seventh step focused %q, want the unowned thread", got)
 	}
 
-	// The ninth is the comment box, which closes the conversation the way it
-	// closes GitHub's page.
 	if got := focusedCard(t, walked(m, 9).View()); !strings.HasPrefix(got, cardCompose) {
 		t.Errorf("the ninth step focused %q, want the comment box", got)
 	}
 
-	// A page is deep enough that coming back round is the longest throw the key
-	// can make, and it arrives at the end the reader walked away from.
 	if got := focusedCard(t, walked(m, 10).View()); !strings.HasPrefix(got, cardCompose) {
 		t.Errorf("a step past the last card focused %q, want it to stay on the comment box", got)
 	}
 }
 
-// And stops at the other end the same way.
 func TestTheRingStopsAtTheFirstCard(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "}", "{")
 
@@ -255,8 +196,6 @@ func TestTheRingStopsAtTheFirstCard(t *testing.T) {
 	}
 }
 
-// The brace walks the other way, and from nothing it takes the last card on
-// screen rather than the first.
 func TestTheRingWalksBack(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 60)
 
@@ -266,16 +205,12 @@ func TestTheRingWalksBack(t *testing.T) {
 	}
 }
 
-// Focus does not survive being scrolled out of the window. A reader who
-// scrolled away has moved on, and hauling them back to the card they left is
-// the one thing the ring must not do.
 func TestTheRingReanchorsToWhatIsOnScreen(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 16), "}", "}", "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus started on %q, want the thread card", got)
 	}
 
-	// Back to the top, which the thread is a long way below.
 	top := press(m, "g")
 	if strings.Contains(stripANSI(top.View()), cardThread) {
 		t.Fatal("the thread is still on screen, so nothing was re-anchored")
@@ -287,8 +222,6 @@ func TestTheRingReanchorsToWhatIsOnScreen(t *testing.T) {
 	}
 }
 
-// A card scrolled to goes to the top of the window. Landed at the foot of it,
-// the replies the card is worth reading for are all below the fold.
 func TestTheRingScrollsACardToTheTopOfTheWindow(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 16)
 
@@ -296,28 +229,18 @@ func TestTheRingScrollsACardToTheTopOfTheWindow(t *testing.T) {
 		t.Fatal("the thread is already on screen, so this proves nothing")
 	}
 
-	// Three presses reach the thread card, which is well below the fold: the
-	// cursor opens on the description, so the first one moves off it.
 	got, at := focusedCardAt(t, press(m, "}", "}", "}").View())
 	if !strings.HasPrefix(got, cardThread) {
 		t.Fatalf("focus landed on %q, want the thread card whole", got)
 	}
-	// Row zero is the pane's own border, so row one is the top of the window.
 	if at != 1 {
 		t.Errorf("the card's border landed on pane row %d, want row 1", at)
 	}
 }
 
-// A card already on screen whole leaves the page alone. The highlight says
-// where focus is, and scrolling under a reader who can see it is worse.
 func TestTheRingDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
-	// Tall enough that the first two cards are both on screen whole, which is
-	// the precondition the rule is about.
 	m := detailed(held(sampleDetail()), 200, 60)
 
-	// The line a fixed block sits on, rather than the whole frame: focus paints
-	// a border and writes a hint into it, so the frames differ without the page
-	// having moved at all.
 	before := lineOf(t, m.View(), cardDescription)
 	after := lineOf(t, press(m, "}", "}").View(), cardDescription)
 	if before != after {
@@ -325,7 +248,6 @@ func TestTheRingDoesNotScrollACardAlreadyOnScreen(t *testing.T) {
 	}
 }
 
-// lineOf is the frame line a string landed on.
 func lineOf(t *testing.T, frame, want string) int {
 	t.Helper()
 
@@ -338,8 +260,6 @@ func lineOf(t *testing.T, frame, want string) int {
 	return -1
 }
 
-// A card taller than the window pins to its top. Bottom-aligning it opens on
-// the end of a comment with the line saying whose it is above the window.
 func TestTheRingPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
@@ -350,9 +270,6 @@ func TestTheRingPinsACardTallerThanTheWindowToItsTop(t *testing.T) {
 	}
 }
 
-// A review thread renders in the conversation and again inside the diff, and
-// unfolding it is a fact about the thread rather than about the tab. The diff
-// caches its file blocks, so the fold has to reach through that too.
 func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[0].Comments[0].Body = "Look.\n\n<details>\n<summary>What it does</summary>\n\nIt retries forever.\n\n</details>\n"
@@ -360,14 +277,11 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 	m := detailed(held(d), 200, 60)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	// The Files tab renders the thread against the line it hangs off.
 	onFiles := press(m, "]", "]", "]")
 	if !strings.Contains(stripANSI(onFiles.View()), "▸ What it does") {
 		t.Fatal("the diff is not showing the thread's fold")
 	}
 
-	// Unfold it in the conversation: the fourth card is that thread, and K steps
-	// the sub-cursor off its last comment onto the one holding the fold.
 	m = press(m, "}", "}", "}", "K", "space")
 	if !strings.Contains(stripANSI(m.View()), "It retries forever") {
 		t.Fatal("o did not unfold the thread in the conversation")
@@ -378,9 +292,6 @@ func TestUnfoldingAThreadReachesTheDiff(t *testing.T) {
 	}
 }
 
-// The note on an empty Checks section is not a row to stop on: there is
-// nothing to do to a check that is not there. Sharing the first check's key
-// would leave focus parked here to light up whatever arrived in its place.
 func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
 	d := sampleDetail()
 	d.Rollup = gh.CheckRollup{}
@@ -399,8 +310,6 @@ func TestTheEmptyChecksNoteIsNotWalkable(t *testing.T) {
 	}
 }
 
-// A row with no state dot has two more cells for its name than one with a dot.
-// Reserving for a mark that is not there clips a name that would have fitted.
 func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
 	d := sampleDetail()
 	d.Assignees = []gh.Actor{{Login: strings.Repeat("a", 31)}}
@@ -418,8 +327,6 @@ func TestARowWithNoMarkKeepsTheCellsTheMarkWouldHaveTaken(t *testing.T) {
 	t.Fatalf("no Assignees section in the rail: %q", rows)
 }
 
-// tall is a screen whose description runs well past the pane, so the reader can
-// be inside one card with its byline off the top.
 func tall() prview.Model {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 20)
@@ -427,7 +334,6 @@ func tall() prview.Model {
 	return detailed(held(d), 200, 20)
 }
 
-// scrolledIn takes the page twelve lines into that description.
 func scrolledIn(t *testing.T, m prview.Model) prview.Model {
 	t.Helper()
 
@@ -438,9 +344,6 @@ func scrolledIn(t *testing.T, m prview.Model) prview.Model {
 	return m
 }
 
-// Forward from inside a card is the next card, in one press. Taking the card
-// the window is full of would light a byline the reader cannot see and haul the
-// page up to it, which is the page moving against the key.
 func TestTheBraceForwardFromInsideACardLeavesIt(t *testing.T) {
 	m := press(scrolledIn(t, tall()), "}")
 
@@ -452,8 +355,6 @@ func TestTheBraceForwardFromInsideACardLeavesIt(t *testing.T) {
 	}
 }
 
-// Back from inside a card is that card's own byline. It is what { means in vim,
-// and the one motion this screen had no way to make.
 func TestTheBraceBackFromInsideACardOpensOnItsByline(t *testing.T) {
 	got, at := focusedCardAt(t, press(scrolledIn(t, tall()), "{").View())
 	if !strings.HasPrefix(got, cardDescription) {
@@ -464,22 +365,14 @@ func TestTheBraceBackFromInsideACardOpensOnItsByline(t *testing.T) {
 	}
 }
 
-// Back re-enters at the foot of the window, on the last card whole on the
-// screen. A long comment with its tail on the top row and cards whole
-// underneath is a screen of travel on a key asked for one step, and it lands on
-// a byline nobody pointed at.
 func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Body = strings.Repeat("The retry path backs off forever.\n\n", 12)
 
-	// The description's tail on the top rows, two cards whole beneath it, and
-	// the thread under the second one cut off by the foot of the window.
 	m := press(detailed(held(d), 200, 40), strings.Fields(strings.Repeat("j ", 12))...)
 	if strings.Contains(stripANSI(m.View()), cardDescription) {
 		t.Fatal("setup: the description's byline is still on screen")
 	}
-	// The reply hanging off that thread is below the fold, so the thread's own
-	// card is cut off and the review above it is the last one whole.
 	if strings.Contains(stripANSI(m.View()), "octobot · said") {
 		t.Fatal("setup: the thread is whole on screen, so it is the card { should take")
 	}
@@ -487,8 +380,6 @@ func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
 	before := lineOf(t, m.View(), cardReview)
 	after := press(m, "{")
 
-	// Not the description, which the top row sits inside and which is a screen
-	// of travel away.
 	if got := focusedCard(t, after.View()); !strings.HasPrefix(got, cardReview) {
 		t.Errorf("{ landed on %q, want the last card whole on the screen", got)
 	}
@@ -497,23 +388,17 @@ func TestTheBraceBackReentersOnTheLastCardWholeOnScreen(t *testing.T) {
 	}
 }
 
-// A focus scrolled until its own byline is off the top is no longer where the
-// reader is standing, so the brace stops stepping from it. Stepping would land
-// a screen or more above the window, on a card they left.
 func TestAFocusScrolledOffItsBylineStopsBeingTheStep(t *testing.T) {
 	m := tall()
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
 		t.Fatalf("setup: focus landed on %q, want the description", got)
 	}
 
-	// Not the card before the description, which the ring would step to.
 	if got := focusedCard(t, press(scrolledIn(t, m), "{").View()); !strings.HasPrefix(got, cardDescription) {
 		t.Errorf("{ landed on %q, want the byline of the card the reader is in", got)
 	}
 }
 
-// The ring's lines sit one below the viewport's, and converting between them
-// has to be reversible. Clamping one way and not the other moves the page.
 func TestTheRingAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 24)
 
@@ -529,8 +414,6 @@ func TestTheRingAtTheTopOfAScrollablePaneDoesNotMoveThePage(t *testing.T) {
 	}
 }
 
-// Focus scrolled out of the window is nothing the reader can see, so esc means
-// the screen rather than the highlight they cannot find.
 func TestEscBacksOutWhenTheFocusIsOffScreen(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 16), "}", "G")
 	if strings.Contains(stripANSI(m.View()), cardDescription) {
@@ -546,8 +429,6 @@ func TestEscBacksOutWhenTheFocusIsOffScreen(t *testing.T) {
 	}
 }
 
-// Nor does o act on it. Unfolding a card out of sight moves the page back to
-// somewhere the reader already left.
 func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Body = "Look.\n\n<details>\n<summary>Hidden</summary>\n\nThe secret.\n\n</details>\n"
@@ -560,7 +441,6 @@ func TestOLeavesThePageAloneWhenTheFocusIsOffScreen(t *testing.T) {
 	}
 }
 
-// One pane answers the keys, so one pane paints. Two lit at once says both do.
 func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, 44)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardDescription) {
@@ -580,23 +460,16 @@ func TestOnlyThePaneHoldingTheKeysPaintsItsFocus(t *testing.T) {
 	}
 }
 
-// tab steps the column that drives the pane, on the three tabs that have one,
-// and from the pane rather than from the column: the reader is standing where
-// the result lands, and leaving to move the selector is three keys for one
-// intention.
 func TestTabStepsTheColumnThatDrivesThePane(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
 
-	// On the page, not the column, so this is the move made without leaving it.
 	m := press(detailed(held(d), 200, 40), "]")
 	if got := conversationBorder(t, press(m, "2").View()); got != fgSeq(testTheme.Accent) {
 		t.Fatal("setup: 2 did not put the keys on the page")
 	}
 	m = press(m, "2")
 
-	// Read off the fill rather than off the text: the column marks its cursor
-	// with a background, which stripping the frame takes away with the colour.
 	before := stripANSI(selectedRow(m.View()))
 	after := stripANSI(selectedRow(press(m, "tab").View()))
 	if before == "" || after == "" {
@@ -609,16 +482,11 @@ func TestTabStepsTheColumnThatDrivesThePane(t *testing.T) {
 		t.Errorf("shift+tab landed on %q, want back on %q", back, before)
 	}
 
-	// And the keys stayed on the page: the point of the key is stepping the
-	// column without leaving the pane the result lands in.
 	if got := conversationBorder(t, press(m, "tab").View()); got != fgSeq(testTheme.Accent) {
 		t.Error("tab took the keys to the column it stepped")
 	}
 }
 
-// And it is dead on the conversation, which has no such column. The rail is a
-// menu whose cursor moves nothing until the rail has the keys, and it is off
-// the screen entirely below the width that gives it a column.
 func TestTabIsInertOnTheConversation(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 40), "2")
 
@@ -630,17 +498,12 @@ func TestTabIsInertOnTheConversation(t *testing.T) {
 	}
 }
 
-// A tab gives back the pane it was left on. Focus is one field where the scroll
-// is four, and Commits takes the column on arrival, so a round trip through it
-// used to come back on whatever layout was left holding: the column goes off
-// screen on the way back and the keys fell to the page.
 func TestATabGivesBackThePaneItWasLeftOn(t *testing.T) {
 	var (
 		lit  = fgSeq(testTheme.Accent)
 		idle = fgSeq(testTheme.BorderSubtle)
 	)
 
-	// Left alone, the rail leads and keeps the keys across the round trip.
 	m := opened(held(sampleDetail()), 200, 40)
 	if got := conversationBorder(t, m.View()); got != idle {
 		t.Fatalf("setup: the page holds the keys on arrival, want the rail")
@@ -649,8 +512,6 @@ func TestATabGivesBackThePaneItWasLeftOn(t *testing.T) {
 		t.Error("the round trip took the keys off the rail")
 	}
 
-	// And a reader who chose the page keeps that instead: the tab gives back
-	// what it was left on, not the pane that leads.
 	page := press(m, "2")
 	if got := conversationBorder(t, page.View()); got != lit {
 		t.Fatalf("setup: 2 did not put the keys on the page")
@@ -660,9 +521,6 @@ func TestATabGivesBackThePaneItWasLeftOn(t *testing.T) {
 	}
 }
 
-// Commits and Checks take their column on arrival and only on arrival. A reader
-// who walked off it once meant it, and coming back to a column they left is the
-// strip handing the keys back on a key that only changes what is on screen.
 func TestACommitsColumnIsTakenOnArrivalAndNotAgain(t *testing.T) {
 	idle := fgSeq(testTheme.BorderSubtle)
 
@@ -671,18 +529,12 @@ func TestACommitsColumnIsTakenOnArrivalAndNotAgain(t *testing.T) {
 		t.Fatal("setup: Commits did not take its column on arrival")
 	}
 
-	// Off the column, away, and back.
 	m = press(m, "2")
 	if got := conversationBorder(t, press(m, "[", "]").View()); got == idle {
 		t.Error("Commits took its column again on a tab the reader had left")
 	}
 }
 
-// The strip is ] and [ here and on the list screen, and nothing else reaches
-// it: the braces walk blocks and tab is the file key on the tab with files.
-//
-// It is on no pane now, so the other half of what this once asserted is free:
-// the strip cannot be moved across the screen by anything, only through.
 func TestOnlyTheBracketsMoveTheTabStrip(t *testing.T) {
 	m := detailed(held(sampleDetail()), 160, 24)
 
@@ -699,10 +551,6 @@ func TestOnlyTheBracketsMoveTheTabStrip(t *testing.T) {
 	}
 }
 
-// Esc leaves, first press, with a card lit. Letting go used to come first, and
-// with a cursor landed on every screen that would be a key that never leaves:
-// there is always something to let go of now, so the reader wanting the list
-// would pay two presses every time.
 func TestEscBacksOutWithACardFocused(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "}")
 	if got := focusedCard(t, m.View()); got == "" {
@@ -718,8 +566,6 @@ func TestEscBacksOutWithACardFocused(t *testing.T) {
 	}
 }
 
-// A tab with a column shows no ring. Focus held over from the conversation is
-// invisible there, and swallowing esc for it strands the reader on the screen.
 func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "}", "]")
 
@@ -732,14 +578,9 @@ func TestEscBacksOutFromATabWithNoRing(t *testing.T) {
 	}
 }
 
-// The rail is a list of controls rather than blocks, so it takes the movement
-// keys the file column takes. Its rows have no border to take the accent, so
-// the row itself is painted, the way the column paints its own.
 func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
-	// The cursor is there with the focus. The state row leads: it is the first
-	// thing in the column and the first thing there is anything to do to.
 	if got := markedRailRow(t, m.View()); !strings.Contains(got, "Open") {
 		t.Errorf("taking the rail marked %q, want the state row", got)
 	}
@@ -749,18 +590,12 @@ func TestTheRailCursorWalksItsRowsOnTheMovementKeys(t *testing.T) {
 		}
 	}
 
-	// Nothing in the conversation is lit while the focus is in the rail.
 	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("card %q is lit while the rail holds the focus", got)
 	}
 }
 
-// The cursor stops at each end of the rail rather than coming back round. It
-// wrapped once, on a ring whose step is modular, so one k on the first control
-// hauled the reader to the bottom of a pane they had just arrived at.
 func TestTheRailCursorStopsAtItsEnds(t *testing.T) {
-	// Short enough that the rail runs past the frame, so a wrap would be a jump
-	// the reader could see rather than a move inside one screen.
 	m := press(detailed(held(sampleDetail()), 200, 20), "h")
 
 	first := markedRailRow(t, m.View())
@@ -777,14 +612,11 @@ func TestTheRailCursorStopsAtItsEnds(t *testing.T) {
 		t.Errorf("past the last control the cursor marked %q, want it held on %q", got, last)
 	}
 
-	// And nothing is stranded below it: the rail's own last row is on screen.
 	if !strings.Contains(stripANSI(walkDown.View()), "Blocked") {
 		t.Errorf("the rail's last row is off screen with the cursor at its end:\n%s", stripANSI(walkDown.View()))
 	}
 }
 
-// The braces are block motion, and the rail has no blocks. Leaving them live on
-// it as well would give one pane two ways to do the same thing.
 func TestTheBracesDoNothingOnTheRail(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
@@ -795,8 +627,6 @@ func TestTheBracesDoNothingOnTheRail(t *testing.T) {
 	}
 }
 
-// The add row closes the Reviewers section rather than sitting under the
-// section heading or at the end of the column.
 func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 	rows := railRows(t, detailed(held(sampleDetail()), 200, 44).View())
 
@@ -811,20 +641,16 @@ func TestTheAddReviewerRowFollowsTheReviewers(t *testing.T) {
 		t.Fatalf("no Reviewers section in the rail: %q", rows)
 	}
 
-	// Three reviewers in the fixture, then the row that adds a fourth.
 	if got := rows[at+4]; got != "+ Add reviewer" {
 		t.Errorf("the row after the reviewers is %q, want the add row", got)
 	}
 
-	// Four steps past the state row: three reviewers, then the add row.
 	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 	if got := markedRailRow(t, press(m, "j", "j", "j", "j").View()); got != "+ Add reviewer" {
 		t.Errorf("the fourth step marked %q, want the add row", got)
 	}
 }
 
-// The rail sections the reader can act on are walkable and the rest are not,
-// so the ring does not stop on the churn or on a merge that cannot be made.
 func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
@@ -833,7 +659,6 @@ func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 		seen[markedRailRow(t, press(m, strings.Fields(strings.Repeat("j ", i))...).View())] = true
 	}
 
-	// The state row leads with a glyph, so it is read by what it says.
 	reached := func(text string) bool {
 		for row := range seen {
 			if strings.Contains(row, text) {
@@ -852,10 +677,6 @@ func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 		}
 	}
 
-	// The churn only reports. The merge row is blocked, and this reader is not
-	// an administrator, so there is no merge to open a form for; the base beside
-	// it says how far behind the branch is and is still a control, because
-	// retargeting is a change to the branch that number is measured against.
 	for _, skip := range []string{"+42", "Blocked"} {
 		if reached(skip) {
 			t.Errorf("the ring stopped on %q, which there is nothing to do to", skip)
@@ -863,8 +684,6 @@ func TestTheRingSkipsTheRailRowsThereIsNothingToDoTo(t *testing.T) {
 	}
 }
 
-// Focus names the card, not the place it sat in. A rebase re-sorts commits into
-// the timeline by date, and the reader comes back to the comment they left.
 func TestFocusHoldsThroughAReorderedTimeline(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 60), "}")
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardComment) {
@@ -878,8 +697,6 @@ func TestFocusHoldsThroughAReorderedTimeline(t *testing.T) {
 	}
 }
 
-// An unfold is keyed the same way, so a reorder does not hand it to whichever
-// card took the place.
 func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
 	folded := func() gh.PullRequestDetail {
 		d := sampleDetail()
@@ -903,20 +720,14 @@ func TestAnUnfoldHoldsThroughAReorderedTimeline(t *testing.T) {
 	}
 }
 
-// reordered swaps the comment and the review, which is the shape a refetch
-// after a rebase comes back in.
 func reordered(d gh.PullRequestDetail) gh.PullRequestDetail {
 	d.Timeline[0], d.Timeline[1] = d.Timeline[1], d.Timeline[0]
 	return d
 }
 
-// The rail keys on the row's own name. A label added above the one the reader
-// is pointing at leaves the cursor where it was.
 func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 200, 44), "h")
 
-	// Seven steps past the state row: three reviewers and their add row, the
-	// assignee and its add row, then the one label.
 	m = press(m, strings.Fields(strings.Repeat("j ", 7))...)
 	if got := markedRailRow(t, m.View()); got != "bug" {
 		t.Fatalf("seven steps marked %q, want the label", got)
@@ -931,7 +742,6 @@ func TestRailFocusHoldsThroughAnInsertedLabel(t *testing.T) {
 	}
 }
 
-// A frame with a card focused is still exactly the size it was given.
 func TestAFocusedFrameFillsItsSizeExactly(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 40},
@@ -961,9 +771,6 @@ func escape() tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}
 }
 
-// focusedCard is the heading of the card whose border is in the accent, or ""
-// when no card holds the focus. The border is the only signal there is, and
-// reading the heading under it proves the card is on the screen whole.
 func focusedCard(t *testing.T, frame string) string {
 	t.Helper()
 
@@ -971,9 +778,6 @@ func focusedCard(t *testing.T, frame string) string {
 	return head
 }
 
-// focusedCardAt is the same, with the row of the pane the card's top border
-// landed on. Row zero is the pane's own top border, so a card at the top of the
-// window sits on row one.
 func focusedCardAt(t *testing.T, frame string) (string, int) {
 	t.Helper()
 
@@ -982,7 +786,6 @@ func focusedCardAt(t *testing.T, frame string) (string, int) {
 	top := paneTopAt(frame)
 
 	for i, line := range lines {
-		// A line opening with a corner is a pane's own border, not a card's.
 		at := strings.Index(line, "╭")
 		if at < 0 || i+1 >= len(lines) || strings.HasPrefix(stripANSI(line), "╭") {
 			continue
@@ -996,10 +799,6 @@ func focusedCardAt(t *testing.T, frame string) (string, int) {
 	return "", -1
 }
 
-// cardHeading is the heading row read out of the card whose top border is on
-// the line above it. The card sits at some column inside the pane, with the
-// thread rail to its left and the details pane to its right, so it is cut out
-// by the column its own border is in.
 func cardHeading(row, border string) string {
 	col := utf8.RuneCountInString(border[:strings.Index(border, "╭")])
 
@@ -1015,7 +814,6 @@ func cardHeading(row, border string) string {
 	return strings.TrimSpace(inner)
 }
 
-// markedRailRow is the text of the rail row painted as the cursor line.
 func markedRailRow(t *testing.T, frame string) string {
 	t.Helper()
 

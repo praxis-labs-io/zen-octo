@@ -8,12 +8,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Over composites over on top of base, centered in a frame of the given size.
-//
-// The compositor works on a cell buffer rather than joining strings, which is
-// what keeps the layer beneath from showing through the gaps in the one on top.
-// Canvas.Compose looks like the same thing and is not: it ignores a layer's
-// position and draws every layer at the origin.
+// Over composites over on top of base, centered in a width by height frame.
 func Over(base, over string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return base
@@ -22,13 +17,6 @@ func Over(base, over string, width, height int) string {
 	return At(base, clip(over, width, height), x, y, width, height)
 }
 
-// OverOrigin is the corner Over puts an overlay on, measured against the
-// overlay once it has been clipped and clamped the way At will clamp it.
-//
-// Exported because a caller drawing a cursor inside an overlay has to know
-// where the overlay landed, and Over answers with a string. Deriving the corner
-// a second time at the call site is two answers to one question, and the one
-// that drifts is the one nothing renders.
 func OverOrigin(over string, width, height int) (x, y int) {
 	if width <= 0 || height <= 0 {
 		return 0, 0
@@ -39,18 +27,13 @@ func OverOrigin(over string, width, height int) (x, y int) {
 	return max(0, min(x, width-lipgloss.Width(over))), max(0, min(y, height-lipgloss.Height(over)))
 }
 
-// At composites over on top of base with its top-left corner at (x, y), held
-// inside a frame of the given size. Over is this with the corner worked out
-// rather than handed in.
+// At composites over on top of base with its top-left at (x, y), clipped and clamped inside a width by height frame.
 func At(base, over string, x, y, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return base
 	}
 	over = clip(over, width, height)
 
-	// Clamped against the clipped size, never the size asked for: an overlay
-	// wider than the frame is cut down first, and a corner measured before that
-	// puts what is left of it off the right edge.
 	x = max(0, min(x, width-lipgloss.Width(over)))
 	y = max(0, min(y, height-lipgloss.Height(over)))
 
@@ -59,10 +42,6 @@ func At(base, over string, x, y, width, height int) string {
 		lipgloss.NewLayer(over).X(x).Y(y).Z(1),
 	).Render()
 
-	// The compositor trims each line's trailing spaces, so a base line that ends
-	// in padding rather than in a border rune comes back short and the frame no
-	// longer fills the width it was given. Every pane line ends in a border; the
-	// header pinned above them does not.
 	lines := strings.Split(out, "\n")
 	for i, line := range lines {
 		lines[i] = line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
@@ -70,20 +49,13 @@ func At(base, over string, x, y, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-// clip holds an overlay inside the frame. One larger than it would otherwise
-// grow the composite past the terminal, which is the one thing the frame must
-// never do.
 func clip(over string, width, height int) string {
 	return lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(over)
 }
 
-// ModalLead is the columns a modal spends before its content: its pane border
-// and the padding inside it. Anything placing a cursor in a modal clears this,
-// and it is named here so it moves with Modal rather than with a caller.
+// ModalLead is the columns a modal's border and padding take before its content.
 const ModalLead = 2
 
-// Modal frames content as a dialog for Over to place. It is a focused pane, so
-// modals, pickers, and confirms all inherit the same chrome.
 func Modal(th theme.Theme, title, content string) string {
 	padded := lipgloss.NewStyle().Padding(0, 1).Render(content)
 	w, h := lipgloss.Size(padded)

@@ -10,8 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// serveReactable stages a thread whose one comment GitHub will take a reaction
-// for, with one somebody else already gave.
 func (f *fakeSearcher) serveReactable(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -31,9 +29,6 @@ func (f *fakeSearcher) serveReactable(id string) {
 	f.details[id] = held
 }
 
-// reactingOn opens the staged pull request, puts the ring on its one thread and
-// opens the reaction list. Two tabs, because the ring walks the description
-// first.
 func reactingOn(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -43,8 +38,6 @@ func reactingOn(t *testing.T, client *fakeSearcher) tea.Model {
 	return press(loaded(t, client, 160, 40), "enter", "2", "}", "+")
 }
 
-// The pill moves before GitHub has seen it, which is the whole of what
-// optimistic means, and the write goes out addressed to the comment's node.
 func TestAReactionShowsBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -59,8 +52,6 @@ func TestAReactionShowsBeforeItLands(t *testing.T) {
 	}
 }
 
-// GitHub's answer is the subject's whole set, so the count it reports replaces
-// the one the press guessed.
 func TestALandedReactionTakesGitHubsCount(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -71,8 +62,6 @@ func TestALandedReactionTakesGitHubsCount(t *testing.T) {
 	}
 }
 
-// It says nothing. The pill is already on the card, and a toast per reaction
-// would spend the status bar on the smallest write on this screen.
 func TestALandedReactionRaisesNoToast(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -83,8 +72,6 @@ func TestALandedReactionRaisesNoToast(t *testing.T) {
 	}
 }
 
-// The revert branch. Nothing was typed, so the pill going back is the whole of
-// it, and the toast carries the reason.
 func TestAFailedReactionGoesBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -102,8 +89,6 @@ func TestAFailedReactionGoesBack(t *testing.T) {
 	}
 }
 
-// A sync landing while a reaction is out must not take the pill off. The store
-// holds it beside the fetched detail for exactly this.
 func TestASyncDoesNotUndoAReactionStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()

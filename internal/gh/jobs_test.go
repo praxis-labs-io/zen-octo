@@ -79,16 +79,12 @@ func TestJobLogsAsksTheJobsLogEndpoint(t *testing.T) {
 	if want := "repos/acme/rocket/actions/jobs/9001/logs"; rest.gotPath != want {
 		t.Errorf("path = %q, want %q", rest.gotPath, want)
 	}
-	// A log is plain text, not JSON: this proves JobLogs never tries to decode
-	// it the way every other REST call in this package does.
 	if string(got) != "line one\nline two\n" {
 		t.Errorf("body = %q, want the log verbatim", got)
 	}
 }
 
 func TestJobLogLimitKeepsTheCompleteTailAndReportsTruncation(t *testing.T) {
-	// One-byte reads exercise the full ring instead of the single oversized
-	// Write a strings.Reader can otherwise hand io.Copy.
 	got, truncated, err := readJobLog(iotest.OneByteReader(strings.NewReader(
 		"first line\nsecond line\nfailure\n")), 20)
 	if err != nil {

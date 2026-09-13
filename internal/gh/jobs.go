@@ -15,9 +15,6 @@ const (
 	maxJobLogTransferBytes = 32 << 20
 )
 
-// Job fetches the step metadata beside a log. The downloadable text names
-// groups, but only this endpoint says which steps failed, which were skipped,
-// and how long each one ran.
 func (c *Client) Job(ctx context.Context, repo string, jobID int64) (Job, error) {
 	if !strings.Contains(repo, "/") {
 		return Job{}, fmt.Errorf("fetching job (%s job %d): %q is not owner/name", repo, jobID, repo)
@@ -71,8 +68,7 @@ func (c *Client) Job(ctx context.Context, repo string, jobID int64) (Job, error)
 	return job, nil
 }
 
-// JobLogs fetches one job's raw log text via the undecoded request path: the
-// endpoint redirects to a blob-storage URL, not a JSON body.
+// JobLogs fetches a job's raw log, keeping the last 8 MiB and stopping after 32 MiB, with a marker line at each cut.
 func (c *Client) JobLogs(ctx context.Context, repo string, jobID int64) ([]byte, error) {
 	if !strings.Contains(repo, "/") {
 		return nil, fmt.Errorf("fetching job logs (%s job %d): %q is not owner/name", repo, jobID, repo)
@@ -114,9 +110,6 @@ func readJobLogDownload(r io.Reader, keep, transfer int) ([]byte, bool, bool, er
 	return body, truncated, n > 0, nil
 }
 
-// readJobLog keeps the diagnostic end of a log while bounding memory. Failures
-// are normally at the end; retaining the first bytes would preserve setup and
-// discard the reason the reader opened the job.
 func readJobLog(r io.Reader, limit int) ([]byte, bool, error) {
 	if limit <= 0 {
 		return nil, false, nil
@@ -129,9 +122,6 @@ func readJobLog(r io.Reader, limit int) ([]byte, bool, error) {
 	truncated := writer.total > int64(limit)
 	body := window
 	if truncated {
-		// The ring keeps one byte before the retained tail, which says whether
-		// that tail starts on a line boundary without shifting the buffer on
-		// every network read.
 		partial := window[0] != '\n'
 		body = window[1:]
 		if partial {
@@ -192,7 +182,7 @@ func (w *tailWriter) bytes() []byte {
 	return out
 }
 
-// RerunJob re-runs one Actions job and any jobs that depend on it.
+// RerunJob re-runs a job and the jobs depending on it, returning when GitHub accepted it, or the zero time.
 func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64) (time.Time, error) {
 	if !strings.Contains(repo, "/") {
 		return time.Time{}, fmt.Errorf("rerunning job (%s job %d): %q is not owner/name", repo, jobID, repo)
@@ -209,18 +199,15 @@ func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64) (time.T
 	return acceptedAt, nil
 }
 
-// RerunFailedJobs re-runs only the failed jobs of a workflow run.
 func (c *Client) RerunFailedJobs(ctx context.Context, repo string, runID int64) error {
 	return c.postRerun(ctx, repo, runID, "rerun-failed-jobs", "rerunning failed jobs")
 }
 
-// RerunAllJobs re-runs every job of a workflow run.
 func (c *Client) RerunAllJobs(ctx context.Context, repo string, runID int64) error {
 	return c.postRerun(ctx, repo, runID, "rerun", "rerunning all jobs")
 }
 
-// postRerun is what RerunFailedJobs and RerunAllJobs share: same shape, same
-// undocumented 201 body DoWithContext cannot safely decode, different path.
+// Undecoded because the 201 body is undocumented.
 func (c *Client) postRerun(ctx context.Context, repo string, runID int64, action, verb string) error {
 	if !strings.Contains(repo, "/") {
 		return fmt.Errorf("%s (%s run %d): %q is not owner/name", verb, repo, runID, repo)

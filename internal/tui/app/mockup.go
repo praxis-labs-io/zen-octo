@@ -13,16 +13,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// Mock stands in for the GitHub client behind --mockup. It serves fixtures, so
-// the production render path runs unchanged over data we control and the layout
-// can be judged at a real terminal width without a network or an account.
+// Mock is a fixture-backed GitHub client for --mockup.
 type Mock struct{}
 
-// mockViewer authors the pull request and half the conversation, so the fixture
-// has both sides of "is this mine" in it.
 const mockViewer = "drucial"
 
-// Viewer answers with the account the rest of the fixture is written around.
 func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
 	return gh.ViewerResult{
 		Viewer:    gh.Actor{Login: mockViewer},
@@ -30,9 +25,6 @@ func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
 	}, nil
 }
 
-// AddComment takes the write and hands it straight back as though GitHub had
-// recorded it. The mockup exists to judge the layout, and a compose pane that
-// posts to nothing never shows what a posted comment looks like.
 func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, error) {
 	return gh.CommentResult{
 		Comment: gh.Comment{
@@ -49,9 +41,6 @@ func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, err
 	}, nil
 }
 
-// mockLabels is the repository's whole label set. The first three are the ones
-// the mock pull request carries, so the picker opens with them checked and the
-// rest are there to check.
 var mockLabels = []gh.Label{
 	{ID: "LA_MOCK_1", Name: "bug"},
 	{ID: "LA_MOCK_2", Name: "needs-design"},
@@ -64,17 +53,12 @@ var mockLabels = []gh.Label{
 	{ID: "LA_MOCK_9", Name: "question"},
 }
 
-// mockUsers is who the repository will let you assign. The first is the one the
-// mock pull request already carries, so the picker opens with them checked.
 var mockUsers = []gh.Actor{
 	{ID: "U_MOCK_1", Login: "drucial"},
 	{ID: "U_MOCK_2", Login: "nkr"},
 	{ID: "U_MOCK_3", Login: "octobot"},
 }
 
-// mockMentions is who can be named in a comment. Wider than mockUsers, the way
-// the real connection is, and one of them has no name so the popup draws both
-// row shapes.
 var mockMentions = []gh.Mention{
 	{Login: "drucial", Name: "Drew White"},
 	{Login: "nkr", Name: "Nikita Rushmanov"},
@@ -82,13 +66,6 @@ var mockMentions = []gh.Mention{
 	{Login: "outsider", Name: "Sam Reed"},
 }
 
-// RepoMeta hands back a label set wide enough to exercise the picker's filter
-// row, which only appears once a list outgrows what fits on screen, and a
-// people list short enough to show the same picker without one.
-// The merge methods are all three, so the form opens here at all: a zero
-// MergeMethods forbids every one of them, and startMerge refuses to open a
-// modal with nothing to choose. Deleting on merge is off, so the delete row is
-// on the form too.
 func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
 	return gh.RepoMetaResult{Meta: gh.RepoMeta{
 		Labels:   mockLabels,
@@ -98,9 +75,6 @@ func (Mock) RepoMeta(context.Context, string) (gh.RepoMetaResult, error) {
 	}}, nil
 }
 
-// SetLabels hands back what it was asked for, resolved against the repository's
-// own set. An id the repository does not carry is dropped, which is what the
-// real one does to a label deleted since the picker was filled.
 func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.LabelsResult, error) {
 	out := make([]gh.Label, 0, len(labelIDs))
 	for _, l := range mockLabels {
@@ -111,14 +85,7 @@ func (Mock) SetLabels(_ context.Context, _ string, labelIDs []string) (gh.Labels
 	return gh.LabelsResult{Labels: out}, nil
 }
 
-// SetState answers each transition from the fixture's own starting point, which
-// is open and not a draft, rather than from wherever the previous call left it.
-//
-// It keeps no state, so it cannot do what the real one does with the draft
-// flag: closing a draft there leaves it a draft, and reopening gives that back.
-// Here a close always answers not-draft. Mock has value receivers and no per
-// pull request store behind it, and the fixture exists to render the screen
-// rather than to model GitHub.
+// SetState answers from the fixture's open, non-draft start, so a closed draft comes back not-draft.
 func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStateResult, error) {
 	out := gh.PRStateResult{State: gh.PRStateOpen}
 	switch to {
@@ -130,15 +97,11 @@ func (Mock) SetState(_ context.Context, _ string, to gh.PRTransition) (gh.PRStat
 	return out, nil
 }
 
-// mockBranches is long enough to earn the picker's filter row, so the search
-// path is exercised rather than just the list.
 var mockBranches = []string{
 	"main", "develop", "release/2.0", "release/1.9", "feature/rail-pickers",
 	"feature/base-retarget", "fix/scroll-arithmetic", "spike/glamour-width",
 }
 
-// Branches filters the fixture the way GitHub does, on a case-insensitive
-// substring of the name, and reports no overflow: the whole list comes back.
 func (Mock) Branches(_ context.Context, _, query string) (gh.BranchResult, error) {
 	out := make([]string, 0, len(mockBranches))
 	for _, b := range mockBranches {
@@ -149,8 +112,6 @@ func (Mock) Branches(_ context.Context, _, query string) (gh.BranchResult, error
 	return gh.BranchResult{Query: query, Default: "main", Branches: out}, nil
 }
 
-// SetBase hands back the branch it was asked for. The real one answers with
-// what GitHub recorded, which is the same thing whenever nobody else is writing.
 func (Mock) SetBase(_ context.Context, _, base string) (gh.BaseResult, error) {
 	return gh.BaseResult{BaseRefName: base}, nil
 }
@@ -161,8 +122,6 @@ func (Mock) Merge(_ context.Context, _ string, _ gh.MergeOptions) (gh.MergeResul
 
 func (Mock) DeleteRef(_ context.Context, _ string) error { return nil }
 
-// SetAssignees hands back what it was asked for, resolved against the
-// repository's own list, the way SetLabels does.
 func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.AssigneesResult, error) {
 	out := make([]gh.Actor, 0, len(assigneeIDs))
 	for _, u := range mockUsers {
@@ -173,14 +132,9 @@ func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.
 	return gh.AssigneesResult{Assignees: out}, nil
 }
 
-// RequestReviews and RemoveReviewRequests answer without recording anything.
-// The fixture renders the screen rather than modelling GitHub, and Mock has
-// value receivers with nowhere to keep a panel.
 func (Mock) RequestReviews(context.Context, string, int, []string) error       { return nil }
 func (Mock) RemoveReviewRequests(context.Context, string, int, []string) error { return nil }
 
-// SetThreadResolved hands the toggle straight back, with the permissions the
-// real one flips: a thread just resolved can only be unresolved.
 func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool) (gh.ThreadResult, error) {
 	return gh.ThreadResult{
 		ID:           threadID,
@@ -190,11 +144,6 @@ func (Mock) SetThreadResolved(_ context.Context, threadID string, resolved bool)
 	}, nil
 }
 
-// SetReaction answers with the one reaction that moved and nothing else.
-//
-// That is all the settle reads: it takes the group the write was for and leaves
-// the rest of the card alone. Mock has value receivers and nowhere to keep a
-// subject's set, and it does not need one.
 func (Mock) SetReaction(_ context.Context, _ string,
 	content gh.ReactionContent, on bool,
 ) (gh.ReactionResult, error) {
@@ -206,9 +155,6 @@ func (Mock) SetReaction(_ context.Context, _ string,
 	}}, nil
 }
 
-// AddReply is AddComment for a review thread. The id counts up so two replies
-// to one thread do not come back sharing a node id, which is the one thing the
-// focus ring cannot survive.
 func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error) {
 	n := mockReplies.Add(1)
 	return gh.CommentResult{
@@ -226,12 +172,6 @@ func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error
 	}, nil
 }
 
-// UpdateComment hands the new body back under the id it was given, which is
-// what GitHub does for a rewrite: the comment keeps its node.
-//
-// The time is now rather than the one the comment was written at. The fixture
-// does not hold the comment it is editing, and the card shows a time either
-// way; the real one answers with what GitHub recorded.
 func (Mock) UpdateComment(_ context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error) {
 	return gh.CommentResult{
 		Comment: gh.Comment{
@@ -248,8 +188,6 @@ func (Mock) UpdateComment(_ context.Context, kind gh.CommentKind, id, body strin
 	}, nil
 }
 
-// DeleteComment refuses a review's body the way the real one does, so the
-// mockup cannot make a key look live that is not.
 func (Mock) DeleteComment(_ context.Context, kind gh.CommentKind, _ string) error {
 	if kind == gh.CommentReview {
 		return fmt.Errorf("deleting a comment: a %q comment cannot be deleted", kind)
@@ -257,20 +195,13 @@ func (Mock) DeleteComment(_ context.Context, kind gh.CommentKind, _ string) erro
 	return nil
 }
 
-// SetBody hands back the description it was asked for, the way SetBase hands
-// back the branch.
 func (Mock) SetBody(_ context.Context, _, body string) (gh.BodyResult, error) {
 	return gh.BodyResult{Body: body}, nil
 }
 
-// mockReplies numbers the replies this mockup has taken. Atomic because a write
-// leaves on a command goroutine: two replies in flight would otherwise race here
-// and could hand back one id twice, which is the one thing the focus ring cannot
-// survive.
+// Atomic because writes leave on command goroutines, and a repeated id breaks the focus ring.
 var mockReplies atomic.Int64
 
-// SearchPullRequests answers from the fixtures, keyed by the query so the tabs
-// carry counts that differ.
 func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.SearchResult, error) {
 	return gh.SearchResult{
 		PullRequests: mockSubset(query),
@@ -278,9 +209,6 @@ func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.Searc
 	}, nil
 }
 
-// PullRequest answers with one conversation whatever is asked for, wrapped
-// round the row that was opened. The fixture exists to judge the detail layout,
-// and every row leading to the same discussion is what makes it reachable.
 func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	var row gh.PullRequest
 	for _, pr := range mockPullRequests() {
@@ -300,7 +228,6 @@ func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error
 	}, nil
 }
 
-// Pulse answers with the fixture's own fields, so nothing moves under a recheck.
 func (Mock) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
 	d := mockDetail()
 	return gh.PulseResult{
@@ -317,18 +244,12 @@ func (Mock) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
 	}, nil
 }
 
-// PullRequestFiles answers with one diff whatever is asked for. It covers what
-// the Files tab has to tell apart: nesting deep enough to fold, a rename, a
-// file with no patch, and lines two of the fixture's review threads anchor to.
 func (Mock) PullRequestFiles(_ context.Context, _, _ string, _, _ int) (gh.FilesResult, error) {
 	return gh.FilesResult{Files: mockFiles(), MoreFiles: 2}, nil
 }
 
 func (Mock) SetFileViewed(_ context.Context, _, _ string, _ bool) error { return nil }
 
-// CommitFiles answers with the first file of the same diff whatever commit is
-// asked for. One file is enough to judge the Commits tab's two panes against
-// each other, which is what the fixture is for.
 func (Mock) CommitFiles(_ context.Context, _, _ string) (gh.FilesResult, error) {
 	return gh.FilesResult{Files: mockFiles()[:1]}, nil
 }
@@ -437,13 +358,6 @@ func mockFiles() []gh.ChangedFile {
 	}
 }
 
-// mockDetail covers what the conversation has to tell apart: a description with
-// every markdown element the renderer styles, comments, both review verdicts, a
-// resolved thread beside two open ones, and a rollup that is neither all green
-// nor all red.
-// mockCommits is the branch behind the fixture, oldest first. It covers what
-// the column has to tell apart: the three check states, and an author GitHub
-// has no account for.
 func mockCommits() []gh.Commit {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
@@ -462,7 +376,6 @@ func mockCommits() []gh.Commit {
 	}
 }
 
-// commitItem is how a commit reads on the timeline.
 func commitItem(c gh.Commit) gh.TimelineItem {
 	return gh.TimelineItem{
 		Kind:      gh.TimelineCommit,
@@ -472,17 +385,11 @@ func commitItem(c gh.Commit) gh.TimelineItem {
 	}
 }
 
-// ptr is for the fixture's timeline items, which hold a comment by pointer
-// while the threads around them hold theirs by value.
 func ptr[T any](v T) *T { return &v }
 
 func mockDetail() gh.PullRequestDetail {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
-	// The viewer has write access here, so it may edit, delete and react to
-	// every comment on the page. Authorship is the only thing that differs
-	// between mine and theirs, which is the pair a screen keyed off "did I
-	// write this" would collapse.
 	perms := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
 		return gh.Comment{
 			Kind: kind, ID: id, Author: gh.Actor{Login: who}, CreatedAt: at, Body: body,
@@ -499,8 +406,6 @@ func mockDetail() gh.PullRequestDetail {
 		return perms(kind, id, who, at, body)
 	}
 
-	// Reactions on some cards and not others, so the pill row and its absence
-	// are both on the page, and one the viewer is in beside one they are not.
 	reacted := func(c gh.Comment, rs ...gh.Reaction) gh.Comment {
 		c.Reactions = rs
 		return c
@@ -512,18 +417,11 @@ func mockDetail() gh.PullRequestDetail {
 			{Content: gh.ReactionRocket, Count: 3},
 		},
 
-		// Capped as well as sliced: the full set is a package-level literal, and
-		// a window over it with room to spare would let an append write into the
-		// labels every other mock call hands out.
 		Labels:    mockLabels[:3:3],
 		Assignees: []gh.Actor{mockUsers[0]},
 		Reviewers: []gh.Reviewer{
 			{Actor: gh.Actor{Login: "nkr"}, State: gh.ReviewStateChangesRequested},
 			{Actor: gh.Actor{Login: "copilot-pull-request-reviewer"}, State: gh.ReviewStateCommented},
-			// Marked as a team, which is what the decoder does with one. Without
-			// the flag the reviewer picker reads it as somebody with an
-			// outstanding request and offers to cancel a request that is not
-			// theirs to cancel.
 			{Actor: gh.Actor{Login: "praxis-labs/maintainers"}, Requested: true, Team: true},
 		},
 
@@ -542,9 +440,6 @@ func mockDetail() gh.PullRequestDetail {
 		Merge:    gh.MergeBlocked,
 		BehindBy: 4,
 
-		// The viewer wrote it, so the state menu has both moves an open pull
-		// request takes and the Assignees section is theirs to change.
-		// CanReopen is what GitHub answers for one already open.
 		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true, CanReact: true},
 
 		Commits: mockCommits(),
@@ -561,8 +456,6 @@ func mockDetail() gh.PullRequestDetail {
 				Comment: ptr(theirs(gh.CommentReview, "REV_1", "nkr", ago(6*time.Hour),
 					"Close. Two things on the retry path, then this is good to go."))},
 
-			// A run of three and a lone one, so the fold and the single line
-			// both show at a glance.
 			commitItem(mockCommits()[0]),
 			commitItem(mockCommits()[1]),
 			commitItem(mockCommits()[2]),
@@ -571,8 +464,6 @@ func mockDetail() gh.PullRequestDetail {
 
 			commitItem(mockCommits()[3]),
 
-			// A deleted account, so the conversation has one comment with no name
-			// on it. Write access still reaches it.
 			{Kind: gh.TimelineComment, Actor: gh.Actor{}, CreatedAt: ago(2 * time.Hour),
 				Comment: ptr(perms(gh.CommentIssue, "IC_2", "", ago(2*time.Hour),
 					"Rebased onto main. The ceiling is a constant now."))},
@@ -606,9 +497,6 @@ func mockDetail() gh.PullRequestDetail {
 			{ID: "RT_2", ReviewID: "REV_1", Path: "internal/gh/search.go", Line: 118, Side: gh.SideRight,
 				IsOutdated: true,
 				CanReply:   true, CanResolve: true,
-				// Outdated, so the hunk is the code as it stood when the comment
-				// was written. The sum it asks about is gone from the diff the
-				// Files tab shows, which is what outdated means.
 				Hunk: &gh.Hunk{
 					Header: "@@ -116,3 +116,3 @@ func total(res searchResponse) int {",
 					Lines: []gh.DiffLine{
@@ -625,8 +513,6 @@ func mockDetail() gh.PullRequestDetail {
 			{ID: "RT_3", ReviewID: "REV_1", Path: "internal/store/store.go", Line: 88, Side: gh.SideLeft,
 				IsResolved: true,
 				CanReply:   true, CanUnresolve: true,
-				// On the left of the diff, so the hunk ends on the line that was
-				// deleted rather than on one that survived.
 				Hunk: &gh.Hunk{
 					Header: "@@ -86,4 +86,3 @@ func (s *Store) Begin(i int) bool {",
 					Lines: []gh.DiffLine{
@@ -668,21 +554,13 @@ func backoff(attempt int) time.Duration {
 Closes [ZNO-9](https://linear.app/praxis-labs/issue/ZNO-9).
 `
 
-// mockSubset is the fixtures a section gets. The one asking for the user's own
-// pull requests gets all of them: it is the default first tab and the one the
-// layout is judged on. The rest take a rotated slice, which still spans states
-// because the list buckets by state before it renders.
 func mockSubset(query string) []gh.PullRequest {
 	const least = 4
 
 	rows := mockPullRequests()
-	// Ahead of authored, which this query also matches: a section asking for
-	// what closed must not be handed the open rows.
 	if settled(query) {
 		return closedRows(rows)
 	}
-	// The floor is also what keeps the modulus below from dividing by zero if
-	// the fixtures are ever cut back.
 	if authored(query) || len(rows) <= least {
 		return rows
 	}
@@ -701,18 +579,13 @@ func mockSubset(query string) []gh.PullRequest {
 	return out
 }
 
-// authored reports the section asking for the user's own pull requests. The
-// exclusion is the point: "Involved" filters on -author:@me, and a plain
-// substring check hands it the full set too.
+// A plain substring check would also match "Involved", which filters on -author:@me.
 func authored(query string) bool {
 	return strings.Contains(query, "author:@me") && !strings.Contains(query, "-author:@me")
 }
 
-// settled reports the section asking for what is finished rather than open.
 func settled(query string) bool { return strings.Contains(query, "is:closed") }
 
-// closedRows is the merged and closed fixtures, which is all a settled section
-// can honestly show.
 func closedRows(rows []gh.PullRequest) []gh.PullRequest {
 	out := make([]gh.PullRequest, 0, len(rows))
 	for _, pr := range rows {
@@ -723,12 +596,6 @@ func closedRows(rows []gh.PullRequest) []gh.PullRequest {
 	return out
 }
 
-// mockPullRequests covers what the list has to tell apart: all four states,
-// every check rollup, every review decision, three repositories, ages from
-// seconds to years, a deleted author, and a title long enough to truncate.
-//
-// Every row is distinct. Repeating a handful to fill the screen made the groups
-// unreadable as a design reference, which is the only thing this data is for.
 func mockPullRequests() []gh.PullRequest {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 

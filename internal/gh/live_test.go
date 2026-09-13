@@ -11,12 +11,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// TestLiveSearchPullRequests runs the real query against the real schema.
-// GraphQL rejects the whole document for one unknown field, so a unit test
-// against canned JSON can pass while the query is dead. This is the check that
-// catches that. It needs a working `gh` login.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveSearchPullRequests(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -35,8 +29,6 @@ func TestLiveSearchPullRequests(t *testing.T) {
 		t.Fatalf("SearchPullRequests() error = %v", err)
 	}
 
-	// The budget comes back on every response, so it is checkable even when the
-	// account has nothing matching.
 	if res.RateLimit.Remaining == 0 {
 		t.Error("RateLimit.Remaining is 0, want the live budget")
 	}
@@ -67,12 +59,6 @@ func TestLiveSearchPullRequests(t *testing.T) {
 	}
 }
 
-// TestLiveDetailAndFiles covers the three calls the detail screen makes. The
-// detail query is GraphQL and dies whole on one unknown field; the two diff
-// calls are REST and die on a path, a media type, or a token scope instead.
-// None of those failures is reachable from canned JSON.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveDetailAndFiles(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -86,8 +72,6 @@ func TestLiveDetailAndFiles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Open, because the detail query compares against the head branch and a
-	// merged pull request has usually had its branch deleted.
 	found, err := client.SearchPullRequests(ctx, "is:pr is:open author:@me", 1)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v", err)
@@ -105,9 +89,6 @@ func TestLiveDetailAndFiles(t *testing.T) {
 		t.Errorf("detail is for %q, want %q", detail.Detail.ID, pr.ID)
 	}
 
-	// Every comment and thread the account can reach carries an id. Nothing on
-	// the real schema answers a comment without one, so an empty id here is a
-	// field the query asked for under a name GitHub does not use.
 	for _, item := range detail.Detail.Timeline {
 		if item.Comment != nil && item.Said().ID == "" {
 			t.Errorf("a %s carries a comment with no id", item.Kind)
@@ -160,9 +141,6 @@ func TestLiveDetailAndFiles(t *testing.T) {
 	}
 }
 
-// TestLiveThePulseDocumentMatchesTheSchema proves the recheck resolves live:
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -176,8 +154,6 @@ func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Merged, which the detail query survives only through deletedHeadRef. This
-	// one asks for no comparison, so it is meant to answer cleanly.
 	found, err := client.SearchPullRequests(ctx, "is:pr is:merged author:@me", 1)
 	if err != nil {
 		t.Fatalf("SearchPullRequests() error = %v", err)
@@ -192,8 +168,6 @@ func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
 		t.Fatalf("Pulse() error = %v", err)
 	}
 
-	// The budget is what says every field resolved rather than the query coming
-	// back an empty shell, the way the repo-meta check reads it.
 	if res.RateLimit.Limit == 0 {
 		t.Error("no rate limit came back, so the query is not selecting it")
 	}
@@ -208,11 +182,6 @@ func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
 	}
 }
 
-// TestLiveViewer is the same schema check over the one query that has no
-// variables. A token that authenticates always has an account behind it, so an
-// empty login here is the query being wrong rather than the account being odd.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveViewer(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -238,23 +207,7 @@ func TestLiveViewer(t *testing.T) {
 	}
 }
 
-// TestLiveTheAddCommentDocumentMatchesTheSchema validates the mutation without
-// writing anything, by asking it to comment on a node that does not exist.
-//
-// The other live tests read, so they can run against the real thing freely. A
-// write cannot: there is no delete beside it to clean up after one, and a test
-// that leaves a comment on somebody's pull request every time it runs is worse
-// than no test. So this one stops at the step that matters.
-//
-// GraphQL validates a document before it resolves anything. A misspelled field
-// fails at that step, whatever the variables say, which is exactly how
-// `rateLimit` shipped on a mutation that never worked: it is a field on Query,
-// and every unit test decodes canned JSON that never notices. A well-formed
-// document gets past validation and dies resolving the id instead.
-//
-// So an error is expected. Which error is the assertion.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
+// Targets a missing node: GraphQL validates the document before resolving the id, so nothing is written.
 func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -268,8 +221,6 @@ func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// A node id that belongs to no repository, so nothing is written wherever
-	// this runs and there is nothing to tidy up after it.
 	_, err = client.AddComment(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
 	if err == nil {
 		t.Fatal("commenting on a node that does not exist came back as a success")
@@ -278,12 +229,9 @@ func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
-// assertValidated reads a rejection for which step it failed at.
 func assertValidated(t *testing.T, err error) {
 	t.Helper()
 
-	// The shapes a rejected document comes back as. Any of them means the
-	// mutation is wrong, not the id.
 	for _, broken := range []string{
 		"doesn't exist on type",
 		"Unknown argument",
@@ -295,17 +243,11 @@ func assertValidated(t *testing.T, err error) {
 		}
 	}
 
-	// And the shape that means it validated and then could not find the node,
-	// which is the whole document proved good.
 	if !strings.Contains(err.Error(), "Could not resolve to") {
 		t.Logf("unexpected error shape, read it before trusting this test: %v", err)
 	}
 }
 
-// TestLiveTheAddReplyDocumentMatchesTheSchema is the check above, for the reply
-// mutation. Same reasoning, same bad node id, and nothing written either way.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -327,11 +269,6 @@ func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
-// TestLiveTheThreadResolveDocumentsMatchTheSchema is the same check for both
-// halves of the resolve toggle. It is the only thing that catches the input
-// field being named wrong: canned JSON decodes whatever it is sent.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheThreadResolveDocumentsMatchTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -357,11 +294,6 @@ func TestLiveTheThreadResolveDocumentsMatchTheSchema(t *testing.T) {
 	}
 }
 
-// TestLiveTheSetLabelsDocumentMatchesTheSchema is the same check for the label
-// write. Nothing is written: the id belongs to no pull request, so the document
-// validates and then fails to resolve.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheSetLabelsDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -383,12 +315,6 @@ func TestLiveTheSetLabelsDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
-// TestLiveTheSetAssigneesDocumentMatchesTheSchema is the SetLabels test's twin,
-// and exists for the same reason: both ride updatePullRequest, so a wrong field
-// name in either is caught by the schema rather than by a reader pressing the
-// key. Nothing is written.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheSetAssigneesDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -410,11 +336,6 @@ func TestLiveTheSetAssigneesDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
-// TestLiveTheRepoMetaQueryMatchesTheSchema reads rather than writes, so it runs
-// against a real repository and proves every field resolves. It asserts the
-// shape rather than the contents: labels and branches change under it.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -433,9 +354,6 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 		t.Fatalf("RepoMeta: %v", err)
 	}
 
-	// A repository can genuinely have no labels, so the count proves nothing.
-	// The rate limit is what says the query resolved rather than came back an
-	// empty shell.
 	if res.RateLimit.Limit == 0 {
 		t.Error("no rate limit came back, so the query is not selecting it")
 	}
@@ -445,10 +363,6 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 		}
 	}
 
-	// The assignee write sets people by node id and has no spelling that takes
-	// a login, so a user without one is a row the picker can show and never
-	// apply. Every repository has at least the viewer here, which is why this
-	// one can assert the list is not empty where the labels cannot.
 	if len(res.Meta.Users) == 0 {
 		t.Error("no assignable users came back, so the query is not selecting them")
 	}
@@ -459,12 +373,6 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 	}
 }
 
-// TestLiveTheStateDocumentsMatchTheSchema checks all four transitions the same
-// way, against a node id that belongs to nothing. Four documents rather than
-// one, and each aliases its own payload, so a typo in any of them would
-// otherwise only surface the first time somebody pressed that menu item.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheStateDocumentsMatchTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -492,13 +400,6 @@ func TestLiveTheStateDocumentsMatchTheSchema(t *testing.T) {
 	}
 }
 
-// TestLiveTheSetBaseDocumentMatchesTheSchema is the third of the
-// updatePullRequest checks, and the one that needed it most: baseRefName is the
-// only field on that input this client sends as a name rather than a node id,
-// so a document that reached for an id would validate nowhere but here.
-// Nothing is written.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheSetBaseDocumentMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -520,15 +421,6 @@ func TestLiveTheSetBaseDocumentMatchesTheSchema(t *testing.T) {
 	assertValidated(t, err)
 }
 
-// TestLiveTheBranchSearchMatchesTheSchema runs the real search, because unlike
-// the mutations there is nothing to write and no id to get wrong.
-//
-// It holds two things the schema cannot. GitHub takes an orderBy on refs/heads
-// and ignores it, so the order has to be built here, and the query argument has
-// to match a substring of the name rather than a prefix. Both are load-bearing
-// and both are only observable against a repository with real branches.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -542,8 +434,6 @@ func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// A repository with thousands of branches, which is the case the search
-	// exists for: its first page alphabetically is names nobody would look for.
 	res, err := client.Branches(ctx, "microsoft/vscode", "notebook")
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
@@ -559,8 +449,6 @@ func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 		t.Errorf("Query = %q, want the search it answers", res.Query)
 	}
 
-	// Mid-name, not a prefix. The picker's own filter matches the same way, and
-	// a prefix search would disagree with it on every branch under a handle.
 	var midName bool
 	for _, b := range res.Branches {
 		if !strings.HasPrefix(strings.ToLower(b), "notebook") {
@@ -579,17 +467,6 @@ func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 	}
 }
 
-// TestLiveTheMergeDocumentsMatchTheSchema validates the two writes that end a
-// pull request against the real schema. Nothing is written: both are sent
-// against a node id that does not exist, and a document GitHub cannot parse
-// fails before it ever reaches one that does.
-//
-// expectedHeadOid is why this matters more here than elsewhere. It is a
-// GitObjectID rather than a String, and a variable declared as the wrong scalar
-// is rejected at validation, which is exactly the failure a fake doer cannot
-// see.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheMergeDocumentsMatchTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")

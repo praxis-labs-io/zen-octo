@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// startedAt and completedAt are independently nullable on the wire. A
-// completed timestamp with no start must not compute against the zero time.
 func TestDurationNeedsBothTimestamps(t *testing.T) {
 	const body = `{"nodes": [{"commit": {"statusCheckRollup": {
 	  "state": "SUCCESS",

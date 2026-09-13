@@ -10,10 +10,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// The probe is a timer, and the harness outside this package drops one rather
-// than sleeping on it. So the rule about when one is armed at all has to be
-// checked here: everything else about the probe is driven through the real
-// interface in merge_test.go.
 func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 	landed := func(state gh.PRState, merge gh.MergeState) gh.DetailResult {
 		return gh.DetailResult{Detail: gh.PullRequestDetail{
@@ -28,19 +24,12 @@ func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 		res    gh.DetailResult
 		wantOn bool
 	}{
-		// The first query is what starts GitHub computing, so the answer is
-		// usually there a moment later.
 		{"a first landing that does not know", false, landed(gh.PRStateOpen, gh.MergeUnknown), true},
 
-		// One extra request, not a loop: a refetch lands over a detail already
-		// held, so a pull request GitHub keeps answering UNKNOWN for is asked
-		// twice and then left alone.
 		{"a refetch that does not know", true, landed(gh.PRStateOpen, gh.MergeUnknown), false},
 
 		{"a first landing that knows", false, landed(gh.PRStateOpen, gh.MergeClean), false},
 
-		// Nothing is going to be merged, so an answer would change nothing on
-		// the screen.
 		{"merged", false, landed(gh.PRStateMerged, gh.MergeUnknown), false},
 		{"closed", false, landed(gh.PRStateClosed, gh.MergeUnknown), false},
 	}
@@ -59,14 +48,7 @@ func TestTheMergeabilityProbeIsArmedOnlyWhereItBuysSomething(t *testing.T) {
 	}
 }
 
-// And that the arming is actually wired into the response, which the harness
-// outside this package cannot see either: it drops a timer rather than sleeping
-// on one, so a probe that is never armed and a probe that is armed and dropped
-// look the same from there.
-//
-// This one waits the delay out rather than dropping it, which is the only way
-// to watch a tick arrive. One test paying that is worth the call site being
-// covered at all.
+// Waits the delay out rather than dropping it, the only way to watch the tick arrive.
 func TestADetailLandingArmsTheProbe(t *testing.T) {
 	cfg := &config.Config{Defaults: config.Defaults{PRsLimit: 20}}
 	m := New(cfg, nil, testSurface)
@@ -86,11 +68,7 @@ func TestADetailLandingArmsTheProbe(t *testing.T) {
 	}
 }
 
-// carries runs a command and everything it batches, and reports whether any of
-// them answers with the message type asked for inside the budget.
 func carries[T tea.Msg](cmd tea.Cmd, budget time.Duration) bool {
-	// No command carries nothing, which is a real answer where a caller is
-	// asking whether one was armed at all.
 	if cmd == nil {
 		return false
 	}

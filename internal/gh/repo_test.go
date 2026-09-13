@@ -52,10 +52,6 @@ func TestRepoMetaSendsOwnerAndName(t *testing.T) {
 	}
 }
 
-// The whole selection in one assertion. A substring test for "name" would pass
-// off the labels and one for "id" would pass off them too, so the only thing
-// that pins the connection, the page cap, both fields and the absence of an id
-// is the selection written out.
 func TestRepoMetaAsksForTheMentionableUsersByHandleAndName(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -87,9 +83,6 @@ func TestRepoMetaMapsTheMentionableUsers(t *testing.T) {
 	}
 }
 
-// An account that has set no name comes back null. Falling back to the login
-// would make it read exactly like an account whose name is its handle, and the
-// row would say the same thing twice.
 func TestRepoMetaLeavesAMissingNameEmpty(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -107,8 +100,6 @@ func TestRepoMetaLeavesAMissingNameEmpty(t *testing.T) {
 	}
 }
 
-// The two lists are two sets, and the folds are one copy-paste apart. A login in
-// one and not the other is what catches a fold written over the wrong nodes.
 func TestRepoMetaKeepsTheMentionableAndAssignableListsApart(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -137,8 +128,6 @@ func TestRepoMetaMapsTheLabels(t *testing.T) {
 	if got, want := len(meta.Labels), 2; got != want {
 		t.Fatalf("labels = %d, want %d", got, want)
 	}
-	// The id is what the write path needs and the one field nothing renders,
-	// so it is the one worth asserting.
 	if got, want := meta.Labels[0].ID, "LA_1"; got != want {
 		t.Errorf("labels[0].ID = %q, want %q", got, want)
 	}
@@ -177,8 +166,6 @@ func TestRepoMetaMapsTheMergeMethods(t *testing.T) {
 	if res.Meta.Methods != want {
 		t.Errorf("methods = %+v, want %+v", res.Meta.Methods, want)
 	}
-	// A method the repository forbids must read as forbidden rather than as a
-	// field nobody asked for: the form offers exactly what Allows answers true.
 	if res.Meta.Methods.Allows(MergeMethodMerge) {
 		t.Error("Allows(MERGE) is true on a repository that forbids merge commits")
 	}
@@ -187,10 +174,6 @@ func TestRepoMetaMapsTheMergeMethods(t *testing.T) {
 	}
 }
 
-// The query asks for what the rail renders and nothing else. Every extra
-// connection is billed to the reader on the first control they open, so a field
-// arrives with the control that reads it. Branches never join it: they are a
-// search keyed by what somebody typed, not a set fetched once per repository.
 func TestRepoMetaAsksForNothingNobodyReads(t *testing.T) {
 	f := &fakeDoer{body: repoMetaBody}
 
@@ -215,8 +198,6 @@ func TestRepoMetaRejectsMalformedName(t *testing.T) {
 	}
 }
 
-// A repository the token cannot see comes back as a null node with no error.
-// Reading that as an empty set would render a repository with no labels.
 func TestRepoMetaNullRepositoryIsAnError(t *testing.T) {
 	f := &fakeDoer{body: `{"repository": null}`}
 

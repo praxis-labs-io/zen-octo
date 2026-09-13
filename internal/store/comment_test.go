@@ -7,8 +7,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// An edit shows before GitHub has seen it, which is what optimistic means, and
-// says it has not landed.
 func TestAnEditedCommentRendersBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("typo"))
@@ -37,8 +35,6 @@ func TestAnEditedThreadCommentRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// The card comes off the page at once. There is no placeholder for a delete:
-// the gap is the acknowledgement.
 func TestADeletedCommentComesOffThePageBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first", "second"))
@@ -50,8 +46,6 @@ func TestADeletedCommentComesOffThePageBeforeItLands(t *testing.T) {
 	}
 }
 
-// GitHub drops a thread whose last comment goes, and an empty card would say a
-// discussion is still there with nothing in it.
 func TestDeletingTheLastCommentTakesTheThreadWithIt(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", threadWith("RT_1", "only"))
@@ -74,9 +68,6 @@ func TestDeletingOneCommentLeavesTheThreadStanding(t *testing.T) {
 	}
 }
 
-// The aliasing rule the clones are there for. The timeline item holds a pointer
-// to its comment, so an edit written through it reaches the detail already
-// handed out and rendered.
 func TestFoldingAnEditDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("typo"))
@@ -103,8 +94,6 @@ func TestFoldingAThreadEditDoesNotWriteIntoADetailAlreadyHandedOut(t *testing.T)
 	}
 }
 
-// Reading twice gives the same answer. A delete folded into the held slice
-// would take another comment off on every call.
 func TestReadingADetailTwiceFoldsTheSameDelete(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first", "second", "third"))
@@ -116,8 +105,6 @@ func TestReadingADetailTwiceFoldsTheSameDelete(t *testing.T) {
 	}
 }
 
-// A refetch that landed while the write was out may not carry the comment at
-// all. There is nothing to rewrite and nothing honest to invent.
 func TestAnEditOfACommentTheRefetchDroppedIsSkipped(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("typo"))
@@ -143,7 +130,6 @@ func TestAnEditedCommentTakesGitHubsAnswer(t *testing.T) {
 	if got := bodies(d); len(got) != 1 || got[0] != "fixed by GitHub" {
 		t.Fatalf("timeline = %q, want what GitHub recorded", got)
 	}
-	// The write is gone, so nothing is still claiming to be in flight.
 	if d.Detail.Timeline[0].Said().Editing {
 		t.Error("the settled comment still reads as being written")
 	}
@@ -167,8 +153,6 @@ func TestAnEditedThreadCommentTakesGitHubsAnswer(t *testing.T) {
 	}
 }
 
-// The settle writes the removal into the held detail. Dropping the write alone
-// would put the card back until something refetched.
 func TestASettledDeleteKeepsTheCommentOff(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first", "second"))
@@ -217,8 +201,6 @@ func TestAFailedDeletePutsTheCommentBack(t *testing.T) {
 	}
 }
 
-// A response for a key already gone is one that settled already. Applying it
-// again would take a second comment off the page.
 func TestAResponseForACommentWriteAlreadySettledIsIgnored(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("first", "second"))
@@ -232,8 +214,6 @@ func TestAResponseForACommentWriteAlreadySettledIsIgnored(t *testing.T) {
 	}
 }
 
-// An edit and a comment being posted are two writes with one counter behind
-// them, and each settles on its own key.
 func TestAnEditAndAPostInFlightSettleSeparately(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", detailWith("typo"))
@@ -251,8 +231,6 @@ func TestAnEditAndAPostInFlightSettleSeparately(t *testing.T) {
 	}
 }
 
-// The description is a field of the pull request rather than a comment, so it
-// goes through the edit queue the labels and the base go through.
 func TestAnEditedDescriptionRendersBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{Detail: gh.PullRequestDetail{Body: "old"}})

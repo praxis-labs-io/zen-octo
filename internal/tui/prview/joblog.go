@@ -24,8 +24,6 @@ const (
 	asyncJobRenderFrom = 256 << 10
 )
 
-// SearchSettleMsg applies a query only after typing pauses. The heading still
-// echoes every key immediately; only the full-log scan waits.
 type SearchSettleMsg struct{ Query string }
 
 type jobSection struct {
@@ -41,8 +39,6 @@ func (m Model) checkStepFoldable() bool {
 		m.check.step < len(m.check.stepStarts)
 }
 
-// moveCheckStep is block motion. Line motion is j and k; braces move between
-// headings and leave every expanded output line to those keys.
 func (m *Model) moveCheckStep(delta int) bool {
 	if !m.check.job.Loaded || len(m.check.job.Job.Steps) == 0 {
 		return false
@@ -142,38 +138,20 @@ func (m *Model) showCheckLine() {
 }
 
 func (m Model) jobStepLead() int {
-	return 6 // five summary-card rows and the blank below it
+	return 6
 }
 
-// checkSearchLabel opens the search heading. checkSearchLead is everything
-// before the query on that row: the pane's left border and the space
-// mainHeading writes in front of the label.
 const (
 	checkSearchLabel = "Search: "
-
-	// checkSearchLead is the pane's own left border. The space in front of the
-	// label belongs to the row and is measured with it, in checkSearchRow.
-	checkSearchLead = 1
+	checkSearchLead  = 1
 )
 
-// checkCursor is where the terminal draws its cursor while the Checks search is
-// taking text, relative to this screen's frame. lead is the header's height,
-// handed down the way mentionAnchor takes it.
-//
-// bodyGutter is deliberately absent, and would be absent even if it were not
-// zero here: it centres the measure inside the viewport, and this row is the
-// pane's own heading. It happens to be zero on this tab anyway, because Checks
-// carries a side column and bodyWidth gives a tab with one the whole pane. Both
-// reasons are worth writing down, since only the first survives a layout
-// change.
+// bodyGutter is left out on purpose: it centres the viewport, and this row is the pane's heading.
 func (m Model) checkCursor(lead int) *tea.Cursor {
 	if m.tab != tabChecks || !m.check.searching {
 		return nil
 	}
 
-	// Clamped to where checkLine stopped drawing. The row keeps its right side
-	// for the match counter, so a caret measured against the pane's edge walks
-	// off the end of a clipped query and onto the count.
 	left, right, width := m.checkSearchRow()
 	room := max(0, width-lipgloss.Width(right)-1)
 
@@ -190,10 +168,6 @@ func (m Model) mainHeading() string {
 	return m.checkLine(left, right, width, lipgloss.NewStyle())
 }
 
-// checkSearchRow is what the search heading holds: the label and the query on
-// the left, the match counter on the right, and the width checkLine fits them
-// into. mainHeading draws from it and checkCursor measures from it, so the
-// caret lands where the query stopped rather than where the pane ends.
 func (m Model) checkSearchRow() (left, right string, width int) {
 	left = " " + m.faint().Render(checkSearchLabel) + m.check.search.Query()
 	if !m.check.search.Empty() && m.check.renderQuery == m.check.search.Query() {
@@ -304,16 +278,10 @@ func (m *Model) jumpFirstCheckFailure() {
 	}
 }
 
-// jobNote is a line of prose where the steps would be. The steps are drawn in
-// a pane, so bare text at column zero sat outside the frame above it and its
-// glyph sat left of the border; and unwrapped it ran off the pane, which clips
-// silently and mid-cell. It takes the same inset the pane's own text has.
 func (m Model) jobNote(text string, width int) string {
 	return indent(wrap(text, max(1, width-jobNoteInset*2)), jobNoteInset)
 }
 
-// jobNoteInset is the border and the space inside it, which is where the
-// summary pane's own words start.
 const jobNoteInset = 2
 
 func (m *Model) jobBody(check gh.Check, width int) string {
@@ -326,8 +294,6 @@ func (m *Model) jobBody(check gh.Check, width int) string {
 	switch {
 	case m.check.parsing:
 		body = m.jobNote(m.faint().Render("Processing the job log…"), width)
-	// A rerun is out and there is no attempt to fetch yet, so nothing is
-	// loading and saying so would be a claim about a request nobody made.
 	case m.checkRerunning(m.check.selected):
 		body = m.jobNote(m.spinner.Render("Waiting for the new attempt"), width)
 	case m.check.job.Loaded:
@@ -497,9 +463,6 @@ func (m *Model) jobRendered(msg jobRenderMsg) tea.Cmd {
 	return nil
 }
 
-// renderJobSteps pays the highlighting and clipping cost only when the log's
-// shape changes. Cursor and match motion then repaint one row and join the
-// already-rendered lines instead of parsing the whole log again.
 func (m *Model) renderJobSteps(width int) {
 	sections := m.check.sections
 	totalLogLines := 0
@@ -587,9 +550,6 @@ func (m Model) jobStepRow(
 		plain := section.plain[i]
 		if lineMatches[i] {
 			matches = append(matches, len(lines))
-			// Search spans are coordinates in printable text. Rendering the
-			// matching line from that text avoids slicing through an SGR sequence;
-			// its original colors return when the search closes.
 			line = m.check.search.Highlight(plain, mark)
 		} else {
 			line = m.styleJobLogLine(line)
@@ -602,8 +562,6 @@ func (m Model) jobStepRow(
 	return strings.Join(lines, "\n"), matches
 }
 
-// paintCheckCursor keeps cursor motion out of the viewport content. The joined
-// unselected log stays cached; only the one visible row changes at render time.
 func (m Model) paintCheckCursor(view string) string {
 	if !m.check.job.Loaded || m.check.parsing || m.check.stepLines == 0 {
 		return view
@@ -623,11 +581,7 @@ func (m Model) paintCheckCursor(view string) string {
 	return strings.Join(rows, "\n")
 }
 
-// selectedJobLogLine reapplies the cursor background after every SGR run. A
-// log line may reset or set its own colours, so wrapping the finished string in
-// a background style would paint only as far as its first reset.
-//
-// A nil fill is a theme that could offer no surface, and RGBA() panics on one.
+// Reapplies the fill after every SGR run; a nil fill must never reach RGBA, which panics on one.
 func selectedJobLogLine(line string, width int, fill color.Color, faint lipgloss.Style) string {
 	line = clipTo(line, width, faint)
 	if pad := width - lipgloss.Width(line); pad > 0 {
@@ -663,9 +617,6 @@ func selectedJobLogLine(line string, width int, fill color.Color, faint lipgloss
 	return out.String()
 }
 
-// splitJobLog uses the timestamps GitHub prefixes to every downloaded line to
-// assign it to the step whose interval contains it. Step metadata remains the
-// authority, so a skipped step still gets a row even when it has no lines.
 func splitJobLog(job gh.Job, raw string) []jobSection {
 	if len(job.Steps) == 0 {
 		return nil
@@ -718,9 +669,7 @@ func jobLogLine(line string) (time.Time, string, bool) {
 	return at, rest, true
 }
 
-// Logs are untrusted terminal text. SGR changes how their own text looks and
-// is safe to keep; every other escape and control could move the cursor,
-// rewrite chrome, or open a terminal command, so it is dropped.
+// Logs are untrusted: SGR is kept, and every other escape and control is dropped.
 func cleanJobLabel(label string) string {
 	label = xansi.Strip(label)
 	label = strings.Map(func(r rune) rune {
@@ -773,9 +722,6 @@ func sgrSequence(seq string, parser *xansi.Parser) bool {
 }
 
 func printableSequence(seq string) bool {
-	// Raw C1 controls are invalid UTF-8 but terminals that accept their 8-bit
-	// form can still execute them. DecodeSequence preserves those bytes, so
-	// reject the sequence before RuneError makes them look printable.
 	if !utf8.ValidString(seq) {
 		return false
 	}
@@ -787,12 +733,8 @@ func printableSequence(seq string) bool {
 	return seq != ""
 }
 
-// styleJobLogLine is the fallback for GitHub's own annotations, which carry a
-// semantic marker even when the command that wrote them emitted no ANSI.
 func (m Model) styleJobLogLine(line string) string {
 	plain := strings.TrimSpace(xansi.Strip(line))
-	// A tool that chose its own colors keeps them. Wrapping ANSI in another
-	// style loses the outer color at the first inner reset.
 	if plain != strings.TrimSpace(line) {
 		return line
 	}

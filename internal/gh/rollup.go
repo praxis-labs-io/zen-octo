@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// rollupSelection is the head commit's checks, as both the detail query and the
-// pulse ask for them. One document changing the shape has to change the other.
 const rollupSelection = `
       statusCheckRollup: commits(last: 1) {
         nodes {
@@ -34,8 +32,7 @@ const rollupSelection = `
         }
       }`
 
-// rollupNode decodes rollupSelection. The inner pointer is null on a commit
-// nothing has run against, which is not the same as one whose checks all passed.
+// StatusCheckRollup is null on a commit nothing has run against, which is not all checks passing.
 type rollupNode struct {
 	Nodes []struct {
 		Commit struct {
@@ -67,8 +64,7 @@ type rollupNode struct {
 	}
 }
 
-// rollup counts the head commit's checks. GitHub gives the summary state; the
-// breakdown behind it is what makes the rail worth reading.
+// Keeps every context: two jobs may share a name, and CheckRun exposes nothing that proves a rerun.
 func rollup(r rollupNode) CheckRollup {
 	if len(r.Nodes) == 0 || r.Nodes[0].Commit.StatusCheckRollup == nil {
 		return CheckRollup{}
@@ -77,10 +73,6 @@ func rollup(r rollupNode) CheckRollup {
 	src := r.Nodes[0].Commit.StatusCheckRollup
 	out := CheckRollup{State: CheckState(src.State)}
 
-	// statusCheckRollup already chooses the attempts GitHub considers current.
-	// Preserve every node it returns: two distinct jobs may legally share a
-	// display name, and no field on CheckRun exposes the YAML job id needed to
-	// prove that such a collision is a rerun attempt.
 	ids := make([]int64, 0, len(src.Contexts.Nodes))
 	for _, c := range src.Contexts.Nodes {
 		check := Check{
@@ -90,13 +82,9 @@ func rollup(r rollupNode) CheckRollup {
 			CompletedAt: c.CompletedAt,
 			DetailsURL:  c.DetailsURL,
 		}
-		// A job is named for what it does, so half a repository's checks are
-		// called "test". The workflow it ran under is what tells them apart.
 		if run := c.CheckSuite.WorkflowRun; run != nil {
 			check.Workflow = run.Workflow.Name
 			check.RunID = run.DatabaseID
-			// A third-party CheckRun has a database id too, but it is not an
-			// Actions job and the jobs endpoint will always answer 404 for it.
 			check.JobID = c.DatabaseID
 		}
 		if !check.StartedAt.IsZero() && !check.CompletedAt.IsZero() {
@@ -136,8 +124,6 @@ func rollup(r rollupNode) CheckRollup {
 	return out
 }
 
-// checkState folds a check run and a status context into the one vocabulary. A
-// check run has a status and a conclusion, a status context only a state.
 func checkState(typename, status, conclusion, state string) CheckState {
 	if typename != "CheckRun" {
 		switch state {

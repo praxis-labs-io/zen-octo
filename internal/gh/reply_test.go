@@ -27,9 +27,6 @@ const repliedBody = `{
   }
 }`
 
-// A reply is a thread comment, not an issue comment. The kind is what picks the
-// mutation that edits it later, so getting it wrong here is a delete that fails
-// three tickets from now.
 func TestARepliedCommentComesBackAsAThreadComment(t *testing.T) {
 	doer := &fakeDoer{body: repliedBody}
 
@@ -77,9 +74,6 @@ func TestTheReplySendsTheThreadAndBodyAsVariables(t *testing.T) {
 	}
 }
 
-// The same trap as the comment mutation: a field the document never asks for
-// decodes to a zero value from canned JSON, so every other test here stays green
-// while the field is dead.
 func TestTheReplyMutationAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	for _, want := range []string{
 		"id", "createdAt", "body", "author { login }",
@@ -95,9 +89,6 @@ func TestTheReplyMutationAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	}
 }
 
-// The reply goes to the thread, not to the pull request. addComment takes a
-// Commentable and a review thread is not one, so a mutation that drifted back to
-// the wrong input would post the reply as a loose comment.
 func TestTheReplyIsAddressedToTheThread(t *testing.T) {
 	if !strings.Contains(addReplyMutation, "pullRequestReviewThreadId: $threadId") {
 		t.Error("the mutation does not address the thread")

@@ -672,15 +672,6 @@ with nothing. The column is a side of the diff to read rather than a claim about
 where a file has content. `walkColumn` is the one place that decides it, so the
 count the walk reads and the column the bar is painted in cannot disagree.
 
-**A block the focused column has no rows in at all is walked in the other one.**
-That is a different question from the row rule below, and it answers what the
-row rule cannot: a newly added file has every line on one side, and the column
-outlives the file it was chosen in, so a reader who had stepped to the base
-reached one, pressed `j` at code plainly on the screen, and the client answered
-with nothing. The column is a side of the diff to read rather than a claim about
-where a file has content. `walkColumn` is the one place that decides it, so the
-count the walk reads and the column the bar is painted in cannot disagree.
-
 A row the focused column has no line on is not a row the cursor can sit on, so
 walking the head column of a deletion-only block steps over it: `run.rowAt`
 counts only the rows that column has, which is the same rule that keeps the walk
@@ -1322,6 +1313,19 @@ landed, and deriving that corner again at the call site is two answers to one
 question with the wrong one being the one nothing renders. The picker and the
 merge form each build their rows once and both measure and draw from them, so a
 row added to either moves the cursor with it.
+
+## GitHub API behaviors
+
+Things GitHub does that the code depends on and cannot show.
+
+- **An outdated review thread has no `line` or `startLine`.** GitHub nulls both once the code under it moves, so the thread is anchored by `originalLine` and `originalStartLine` instead.
+- **A nil slice goes over the wire as `null`, and `[ID!]!` rejects it.** An empty label or assignee set has to be sent as `[]`.
+- **A null merge headline or body puts GitHub's default text back.** Only a rebase sends null, since it writes no commit of its own. Every other method sends what the form holds, an empty body included.
+- **A third-party check run has a database id and no Actions job.** The jobs endpoint answers 404 for it every time.
+- **A job's log doesn't exist until the job finishes.** Asking while it runs follows a signed redirect to a blob that isn't there yet and 404s, so a running job is never asked for one.
+- **Only the single-job rerun answers with a Date header.** The two bulk reruns report no time, so their marks are stamped with the local clock.
+- **`UNSTABLE` means the commit status isn't passing, which includes a check that is still running.** A failing commit status that no check run produced can also sit under a green rollup.
+- **A commit from an email GitHub can't match has no account.** The author is then just the name git recorded.
 
 ## Rendering traps
 

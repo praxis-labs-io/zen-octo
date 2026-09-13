@@ -13,12 +13,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// canAct is a viewer who owns an open pull request: both moves an open one
-// takes, and nothing to reopen.
 var canAct = gh.ViewerActions{CanUpdate: true, CanClose: true}
 
-// stateDetail is the sample pull request sitting somewhere else in its
-// lifecycle, with the viewer allowed whatever the case is testing.
 func stateDetail(state gh.PRState, draft bool, v gh.ViewerActions) store.Detail {
 	d := sampleDetail()
 	d.State = state
@@ -27,14 +23,9 @@ func stateDetail(state gh.PRState, draft bool, v gh.ViewerActions) store.Detail 
 	return held(d)
 }
 
-// onStateRow walks the rail to the State row, which is named by its glyph and
-// its label rather than by the label alone, so it is matched by substring.
 func onStateRow(t *testing.T, m prview.Model) prview.Model {
 	t.Helper()
 
-	// Back to the first control before walking down. The cursor stops at each
-	// end rather than coming back round, so a caller already standing below the
-	// State row would never reach it.
 	m = press(m, "1")
 	m = press(m, strings.Fields(strings.Repeat("k ", 30))...)
 	for range 30 {
@@ -47,14 +38,6 @@ func onStateRow(t *testing.T, m prview.Model) prview.Model {
 	return m
 }
 
-// isStateRow reads a marked rail row as the state one: a lifecycle glyph, then
-// the label PRStateLabel gives it.
-//
-// The label alone is not enough. MergeStateLabel renders a draft merge state as
-// "Draft" as well, and the Merge row is a stop on the same ring, so a fixture
-// carrying one would match there instead. The glyph tells them apart, and it is
-// read as a private-use codepoint rather than copied out of badge.go: a glyph
-// transcribed by hand is one that silently matches nothing.
 func isStateRow(row string) bool {
 	glyph, size := utf8.DecodeRuneInString(row)
 	if glyph < 0xE000 || glyph > 0xF8FF {
@@ -63,7 +46,6 @@ func isStateRow(row string) bool {
 	return slices.Contains([]string{"Open", "Draft", "Closed", "Merged"}, strings.TrimSpace(row[size:]))
 }
 
-// reachesStateRow is whether the cursor ever stops on the State row at all.
 func reachesStateRow(t *testing.T, m prview.Model) bool {
 	t.Helper()
 
@@ -78,8 +60,6 @@ func reachesStateRow(t *testing.T, m prview.Model) bool {
 	return false
 }
 
-// openStateMenu walks to the State row and opens what it holds. Nothing is
-// fetched for it, unlike the label picker, so the modal is up on the way back.
 func openStateMenu(t *testing.T, d store.Detail) prview.Model {
 	t.Helper()
 
@@ -91,20 +71,11 @@ func openStateMenu(t *testing.T, d store.Detail) prview.Model {
 	return m
 }
 
-// stateMenu cuts the State modal out of the frame it is composited over.
 func stateMenu(t *testing.T, m prview.Model) string {
 	t.Helper()
 	return menuBox(t, m, "State")
 }
 
-// menuBox cuts the modal with this title out of the frame it is composited
-// over.
-//
-// Asserting against the whole frame cannot say what a menu offers. The rail row
-// and the header both read "Closed" on a closed pull request, so a search for
-// "Close" across the frame finds one whether or not the menu holds it, and a
-// handle in the Assignees picker reads in the conversation as readily as on the
-// rail.
 func menuBox(t *testing.T, m prview.Model, title string) string {
 	t.Helper()
 
@@ -142,8 +113,6 @@ func menuBox(t *testing.T, m prview.Model, title string) string {
 	return strings.Join(out, "\n")
 }
 
-// runeIndex is strings.Index counted in runes, which is what slicing a frame by
-// column needs: every border in it is multi-byte and one cell wide.
 func runeIndex(haystack []rune, needle string) int {
 	at := strings.Index(string(haystack), needle)
 	if at < 0 {
@@ -152,9 +121,6 @@ func runeIndex(haystack []rune, needle string) int {
 	return len([]rune(string(haystack)[:at]))
 }
 
-// The menu is built from where the pull request sits and what the viewer may
-// do to it, never from the word on the row: a closed draft reads as "Draft" and
-// takes none of a draft's moves.
 func TestTheStateMenuOffersOnlyTheMovesAvailable(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -181,16 +147,12 @@ func TestTheStateMenuOffersOnlyTheMovesAvailable(t *testing.T) {
 			absent: []string{"Close", "Convert to draft", "Ready for review"},
 		},
 		{
-			// Closed and still a draft. The row says "Draft", and the only move
-			// it has is the one a closed pull request has.
 			name: "closed draft", state: gh.PRStateClosed, draft: true,
 			viewer: gh.ViewerActions{CanUpdate: true, CanReopen: true},
 			want:   []string{"Reopen"},
 			absent: []string{"Ready for review", "Close"},
 		},
 		{
-			// Write access to the branch but not to the pull request's own
-			// lifecycle. Only the move GitHub says it will take.
 			name: "may update but not close", state: gh.PRStateOpen,
 			viewer: gh.ViewerActions{CanUpdate: true},
 			want:   []string{"Convert to draft"},
@@ -216,8 +178,6 @@ func TestTheStateMenuOffersOnlyTheMovesAvailable(t *testing.T) {
 	}
 }
 
-// Nothing moves a merged pull request, so the row states a fact and the ring
-// walks past it the way it does an empty Checks section.
 func TestTheStateRowIsNotAStopOnAMergedPullRequest(t *testing.T) {
 	m := detailed(stateDetail(gh.PRStateMerged, false, canAct), 200, 60)
 
@@ -226,8 +186,6 @@ func TestTheStateRowIsNotAStopOnAMergedPullRequest(t *testing.T) {
 	}
 }
 
-// A reader with no write access can move none of them, and a row that stops the
-// cursor to do nothing is worse than one it walks past.
 func TestTheStateRowIsNotAStopWithoutPermission(t *testing.T) {
 	m := detailed(stateDetail(gh.PRStateOpen, false, gh.ViewerActions{}), 200, 60)
 
@@ -236,16 +194,12 @@ func TestTheStateRowIsNotAStopWithoutPermission(t *testing.T) {
 	}
 }
 
-// Before the detail lands nothing is known about what the viewer may do, which
-// is not the same as nothing being allowed. Dropping the row early would move
-// every rail stop by one the moment the answer arrived.
 func TestTheStateRowIsAStopBeforeTheDetailLands(t *testing.T) {
 	if !reachesStateRow(t, screen(200, 60)) {
 		t.Error("tab walks past the State row before the detail has landed")
 	}
 }
 
-// It is inert until then, though: openRailPicker refuses a detail not loaded.
 func TestEnterOnTheStateRowDoesNothingBeforeTheDetailLands(t *testing.T) {
 	m := onStateRow(t, screen(200, 60))
 
@@ -258,8 +212,6 @@ func TestEnterOnTheStateRowDoesNothingBeforeTheDetailLands(t *testing.T) {
 	}
 }
 
-// The state menu is built from the detail already on screen, so it costs no
-// round trip. Only the label picker asks the root for anything.
 func TestEnterOnTheStateRowOpensWithoutAsking(t *testing.T) {
 	m := onStateRow(t, detailed(held(sampleDetail()), 200, 60))
 
@@ -304,8 +256,6 @@ func TestPickingAStateAsksTheRootToWriteIt(t *testing.T) {
 	}
 }
 
-// Reopen is the one move a closed pull request has, and it comes off a menu
-// built from a different branch of the rules.
 func TestPickingReopenAsksForIt(t *testing.T) {
 	m := openStateMenu(t, stateDetail(gh.PRStateClosed, false, gh.ViewerActions{CanReopen: true}))
 
@@ -318,7 +268,6 @@ func TestPickingReopenAsksForIt(t *testing.T) {
 	}
 }
 
-// Esc is layered: it closes the menu before it means anything else.
 func TestEscClosesTheStateMenuBeforeItMeansBack(t *testing.T) {
 	m := openStateMenu(t, stateDetail(gh.PRStateOpen, false, canAct))
 
@@ -334,16 +283,12 @@ func TestEscClosesTheStateMenuBeforeItMeansBack(t *testing.T) {
 	}
 }
 
-// Two items is well under the threshold that earns a filter row, so the menu
-// has none and every key is a binding rather than a character.
 func TestTheStateMenuHasNoFilterRow(t *testing.T) {
 	if menu := stateMenu(t, openStateMenu(t, stateDetail(gh.PRStateOpen, false, canAct))); strings.Contains(menu, "Type to filter") {
 		t.Errorf("the state menu shows a filter row:\n%s", menu)
 	}
 }
 
-// A single-select menu applies the row it is on rather than a checked set, and
-// says so.
 func TestTheStateMenuNamesItsOwnKeys(t *testing.T) {
 	menu := stateMenu(t, openStateMenu(t, stateDetail(gh.PRStateOpen, false, canAct)))
 
@@ -355,7 +300,6 @@ func TestTheStateMenuNamesItsOwnKeys(t *testing.T) {
 	}
 }
 
-// The modal is composited over the frame, so it must not change its size.
 func TestTheStateMenuDoesNotGrowTheFrame(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 40},
@@ -379,10 +323,6 @@ func TestTheStateMenuDoesNotGrowTheFrame(t *testing.T) {
 	}
 }
 
-// The store moves the state and never the permissions, so for the length of the
-// round trip a freshly closed pull request still carries the CanReopen GitHub
-// gave for an open one. Believing it drops the row the reader is standing on,
-// and the rail cursor goes with it.
 func TestTheStateRowKeepsTheCursorThroughAWrite(t *testing.T) {
 	m := onStateRow(t, detailed(stateDetail(gh.PRStateOpen, false, canAct), 200, 60))
 
@@ -390,8 +330,6 @@ func TestTheStateRowKeepsTheCursorThroughAWrite(t *testing.T) {
 		t.Fatalf("the cursor is on %q before the write, want the State row", got)
 	}
 
-	// The optimistic close, exactly as the root applies it: the new state, the
-	// permissions from before it, and the write still out.
 	closing := stateDetail(gh.PRStateClosed, false, canAct)
 	closing.StateWriting = true
 	m.SetDetail(closing)
@@ -401,12 +339,9 @@ func TestTheStateRowKeepsTheCursorThroughAWrite(t *testing.T) {
 	}
 }
 
-// Once the write answers and the refetch brings the real permissions, a row
-// with nothing left to offer goes back to stating a fact.
 func TestTheStateRowLetsGoOnceTheWriteHasAnswered(t *testing.T) {
 	m := onStateRow(t, detailed(stateDetail(gh.PRStateOpen, false, canAct), 200, 60))
 
-	// Closed, permissions caught up, nothing offered, and nothing in flight.
 	m.SetDetail(stateDetail(gh.PRStateClosed, false, gh.ViewerActions{}))
 
 	if got := markedRailRow(t, m.View()); isStateRow(got) {
@@ -414,21 +349,14 @@ func TestTheStateRowLetsGoOnceTheWriteHasAnswered(t *testing.T) {
 	}
 }
 
-// A metadata response outlives the ask that started it. By the time it lands
-// the reader may have opened a menu that needed no fetch, and dropping the
-// label picker over that one would change the choices under their hands between
-// one key and the next.
 func TestRepoMetaNeverOpensAPickerOverAnOpenOne(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
 
-	// The label picker is asked for. Nothing opens: its choices are a round trip
-	// away.
 	m, _ = key(m, "enter")
 	if m.Capturing() {
 		t.Fatal("the label picker opened before its choices arrived")
 	}
 
-	// The reader moves on to the State row, whose menu needs no fetch.
 	m = onStateRow(t, m)
 	m, _ = key(m, "enter")
 	if !m.Capturing() {

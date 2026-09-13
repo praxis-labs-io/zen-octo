@@ -24,8 +24,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// fakeSearcher answers every section with the same rows. Sections fetch
-// concurrently, so it locks: the -race detector is the point of the suite.
 type fakeSearcher struct {
 	rate   gh.RateLimit
 	viewer gh.ViewerResult
@@ -33,51 +31,45 @@ type fakeSearcher struct {
 
 	viewerErr error
 
-	mu          sync.Mutex
-	prs         []gh.PullRequest
-	queries     []string
-	opens       []string
-	pulses      []string
-	diffs       []string
-	commitDiffs []string
-	jobAsks     []int64
-	jobLogAsks  []int64
-	reruns      []int64
-	runReruns   []runRerun
-	details     map[string]gh.PullRequestDetail
-	files       map[int][]gh.ChangedFile
-	commitFiles map[string][]gh.ChangedFile
-	jobs        map[int64]gh.Job
-	jobLogs     map[int64][]byte
-	posted      []string
-	replied     []string
-	edited      []string
-	deleted     []string
-	bodies      []string
-	settled     []string
-	toggled     []string
-	labelled    []string
-	assigned    []string
-	reviewed    []string
-	moved       []string
-	retargeted  []string
-	merged      []gh.MergeOptions
-	// mergeState is what GitHub answers with, MERGED unless a test says
-	// otherwise: any pull request comes back as a success from the real one.
-	mergeState  gh.PRState
-	deletedRefs []string
-	states      map[string]*gh.PRStateResult
-	metaAsked   []string
-	repoMetas   map[string]gh.RepoMeta
-	metaErr     error
-	// branchQueries records every search that reached the client, which is what
-	// a test holds the debounce against: five keystrokes, one entry.
-	branchQueries []string
-	branches      []string
-	branchErr     error
-	diffCounts    []int
-	// retargetedFiles is what the pull request touches once its base has moved,
-	// zero to leave the count alone.
+	mu              sync.Mutex
+	prs             []gh.PullRequest
+	queries         []string
+	opens           []string
+	pulses          []string
+	diffs           []string
+	commitDiffs     []string
+	jobAsks         []int64
+	jobLogAsks      []int64
+	reruns          []int64
+	runReruns       []runRerun
+	details         map[string]gh.PullRequestDetail
+	files           map[int][]gh.ChangedFile
+	commitFiles     map[string][]gh.ChangedFile
+	jobs            map[int64]gh.Job
+	jobLogs         map[int64][]byte
+	posted          []string
+	replied         []string
+	edited          []string
+	deleted         []string
+	bodies          []string
+	settled         []string
+	toggled         []string
+	labelled        []string
+	assigned        []string
+	reviewed        []string
+	moved           []string
+	retargeted      []string
+	merged          []gh.MergeOptions
+	mergeState      gh.PRState
+	deletedRefs     []string
+	states          map[string]*gh.PRStateResult
+	metaAsked       []string
+	repoMetas       map[string]gh.RepoMeta
+	metaErr         error
+	branchQueries   []string
+	branches        []string
+	branchErr       error
+	diffCounts      []int
 	retargetedFiles int
 	detailErr       error
 	pulseErr        error
@@ -88,14 +80,8 @@ type fakeSearcher struct {
 	rerunErr        error
 	runRerunErr     error
 	postErr         error
-	// requestErr fails the second half of a reviewer write alone, which is the
-	// one shape postErr cannot stage: the cancellation has already landed by
-	// then, so the revert puts back a request that is really gone.
-	requestErr error
+	requestErr      error
 
-	// deleteErr fails the branch delete alone, which postErr cannot stage: the
-	// merge has landed by then, and the pull request stays merged whatever
-	// happens to the branch.
 	deleteErr   error
 	commitHold  time.Duration
 	postHold    time.Duration
@@ -116,10 +102,6 @@ func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, lim
 	f.queries = append(f.queries, query)
 	f.gotLimit = limit
 	f.gotDeadline, f.hadDeadline = ctx.Deadline()
-	// Cloned rather than handed out. Assigning the slice copies the header and
-	// leaves the caller on this fake's own backing array, so a write landing
-	// later edits rows a reader is already holding. A real client answers with
-	// a snapshot.
 	prs := slices.Clone(f.prs)
 	f.mu.Unlock()
 
@@ -129,7 +111,6 @@ func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string, lim
 	return gh.SearchResult{PullRequests: prs, RateLimit: f.rate}, nil
 }
 
-// serve replaces what the next fetch returns.
 func (f *fakeSearcher) serve(prs []gh.PullRequest) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -144,16 +125,10 @@ func (f *fakeSearcher) asked() []string {
 
 func (f *fakeSearcher) calls() int { return len(f.asked()) }
 
-// PullRequest answers with the row it was asked for, wrapped in whatever detail
-// the test staged. Echoing the row matters: a detail response replaces what the
-// list had, so a fake that returned a bare id would blank the header.
 func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
 	f.mu.Lock()
 	f.opens = append(f.opens, id)
 	detail, err := f.details[id], f.detailErr
-	// The row is copied out under the lock, not the slice holding it: ranging
-	// it after unlocking reads this fake's own backing array, which a write
-	// still in flight is meanwhile editing.
 	for _, pr := range f.prs {
 		if pr.ID == id {
 			detail.PullRequest = pr
@@ -167,8 +142,6 @@ func (f *fakeSearcher) PullRequest(_ context.Context, id, _ string) (gh.DetailRe
 	return gh.DetailResult{Detail: detail, RateLimit: f.rate}, nil
 }
 
-// Pulse answers off the same staged detail, so serveMergeable stages a recheck
-// as readily as a fetch. Recorded apart from opens, which is what tells them apart.
 func (f *fakeSearcher) Pulse(_ context.Context, id string) (gh.PulseResult, error) {
 	f.mu.Lock()
 	f.pulses = append(f.pulses, id)
@@ -192,39 +165,23 @@ func (f *fakeSearcher) Pulse(_ context.Context, id string) (gh.PulseResult, erro
 	}, nil
 }
 
-// pulsed is every recheck that reached the client, in order.
 func (f *fakeSearcher) pulsed() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.pulses)
 }
 
-// serveDetail stages one pull request's conversation. It is per id because a
-// response that lands after the reader moved on has to be told apart from the
-// one they are looking at.
 func (f *fakeSearcher) serveDetail(id, body string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.details == nil {
 		f.details = make(map[string]gh.PullRequestDetail)
 	}
-	// Staged as the viewer's own open pull request. Without the flags the rail's
-	// State row has nothing to offer and the Assignees section loses its add
-	// row, and either one stops being somewhere tab lands, which would move
-	// every rail row in these tests up by one.
-	//
-	// UNKNOWN rather than the zero value, because that is what the real client
-	// answers for a mergeability GitHub has not worked out: mergeState folds
-	// everything it does not recognise onto it, so an empty string never
-	// reaches the app and a fixture carrying one would not be a fixture of
-	// anything.
 	detail := gh.PullRequestDetail{
 		Body:   body,
 		Merge:  gh.MergeUnknown,
 		Viewer: gh.ViewerActions{CanUpdate: true, CanClose: true, CanAssign: true},
 	}
-	// Seeded with the row and a rollup summarising it. A pulse answers off this
-	// without the echo a fetch gets, so a bare one has the first recheck moving.
 	for _, pr := range f.prs {
 		if pr.ID == id {
 			detail.PullRequest = pr
@@ -234,7 +191,6 @@ func (f *fakeSearcher) serveDetail(id, body string) {
 	f.details[id] = detail
 }
 
-// serveLabels stages the labels one pull request carries.
 func (f *fakeSearcher) serveLabels(id string, labels []gh.Label) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -246,7 +202,6 @@ func (f *fakeSearcher) serveLabels(id string, labels []gh.Label) {
 	f.details[id] = held
 }
 
-// serveAssignees stages who one pull request is assigned to.
 func (f *fakeSearcher) serveAssignees(id string, assignees []gh.Actor) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -258,7 +213,6 @@ func (f *fakeSearcher) serveAssignees(id string, assignees []gh.Actor) {
 	f.details[id] = held
 }
 
-// serveReviewers stages the reviewer panel one pull request carries.
 func (f *fakeSearcher) serveReviewers(id string, reviewers []gh.Reviewer) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -270,7 +224,6 @@ func (f *fakeSearcher) serveReviewers(id string, reviewers []gh.Reviewer) {
 	f.details[id] = held
 }
 
-// serveCommits stages the commits behind one pull request.
 func (f *fakeSearcher) serveCommits(id string, commits []gh.Commit) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -282,28 +235,21 @@ func (f *fakeSearcher) serveCommits(id string, commits []gh.Commit) {
 	f.details[id] = held
 }
 
-// failDetails makes every open fail from here on.
 func (f *fakeSearcher) failDetails(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.detailErr = err
 }
 
-// opened is the pull request ids the model asked for, in order.
 func (f *fakeSearcher) opened() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.opens)
 }
 
-// PullRequestFiles answers with whatever diff the test staged for that number.
-// It is keyed by number rather than id because the diff comes over REST, which
-// addresses a pull request by repository and number.
 func (f *fakeSearcher) PullRequestFiles(_ context.Context, _, repo string, number, changed int) (gh.FilesResult, error) {
 	f.mu.Lock()
 	f.diffs = append(f.diffs, repo+"#"+strconv.Itoa(number))
-	// The count the caller measured overflow against, recorded apart from the
-	// path so a test can hold a refetch to the fresh one.
 	f.diffCounts = append(f.diffCounts, changed)
 	files, err := f.files[number], f.filesErr
 	f.mu.Unlock()
@@ -359,8 +305,6 @@ func (f *fakeSearcher) RerunAllJobs(_ context.Context, _ string, runID int64) er
 	return f.runRerunErr
 }
 
-// runRerun is one bulk call the fake was asked to make, so a test can say
-// which run was named and which of the two endpoints answered it.
 type runRerun struct {
 	runID int64
 	all   bool
@@ -396,7 +340,6 @@ func (f *fakeSearcher) askedReruns() []int64 {
 	return slices.Clone(f.reruns)
 }
 
-// serveFiles stages one pull request's diff.
 func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -406,28 +349,24 @@ func (f *fakeSearcher) serveFiles(number int, files []gh.ChangedFile) {
 	f.files[number] = files
 }
 
-// failFiles makes every diff fetch fail from here on.
 func (f *fakeSearcher) failFiles(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.filesErr = err
 }
 
-// diffAsks is the changed-file count each diff request was made with, in order.
 func (f *fakeSearcher) diffAsks() []int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.diffCounts)
 }
 
-// fetched is the pull requests the model asked a diff for, in order.
 func (f *fakeSearcher) fetched() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.diffs)
 }
 
-// CommitFiles answers with whatever diff the test staged for that sha.
 func (f *fakeSearcher) CommitFiles(_ context.Context, repo, sha string) (gh.FilesResult, error) {
 	f.mu.Lock()
 	f.commitDiffs = append(f.commitDiffs, repo+"@"+sha)
@@ -482,8 +421,6 @@ func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.Co
 	}, nil
 }
 
-// SetReaction records the toggle as "subject content on", and answers with a
-// set that leaves no doubt it was GitHub's rather than the optimistic one.
 func (f *fakeSearcher) SetReaction(_ context.Context, subjectID string,
 	content gh.ReactionContent, on bool,
 ) (gh.ReactionResult, error) {
@@ -505,7 +442,6 @@ func (f *fakeSearcher) SetReaction(_ context.Context, subjectID string,
 	}}, nil
 }
 
-// reactions is the toggles the model sent, in order.
 func (f *fakeSearcher) reactions() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -528,8 +464,6 @@ func (f *fakeSearcher) SetThreadResolved(_ context.Context, threadID string, res
 	}, nil
 }
 
-// UpdateComment answers the way GitHub does for a rewrite: the same node,
-// carrying the new words.
 func (f *fakeSearcher) UpdateComment(_ context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error) {
 	f.mu.Lock()
 	f.edited = append(f.edited, string(kind)+" "+id+": "+body)
@@ -574,7 +508,6 @@ func (f *fakeSearcher) SetBody(_ context.Context, prID, body string) (gh.BodyRes
 	return gh.BodyResult{Body: body}, nil
 }
 
-// edits, deletedComments and describes are the writes the model made, in order.
 func (f *fakeSearcher) edits() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -593,16 +526,12 @@ func (f *fakeSearcher) describes() []string {
 	return slices.Clone(f.bodies)
 }
 
-// resolved is the threads the model settled, in order.
 func (f *fakeSearcher) resolved() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.settled)
 }
 
-// RepoMeta answers with whatever choices the test staged, recording which
-// repositories were asked for so a test can hold that the cache spares the
-// second request.
 func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResult, error) {
 	f.mu.Lock()
 	f.metaAsked = append(f.metaAsked, repo)
@@ -615,15 +544,10 @@ func (f *fakeSearcher) RepoMeta(_ context.Context, repo string) (gh.RepoMetaResu
 	return gh.RepoMetaResult{Meta: meta}, nil
 }
 
-// serveRepoMeta stages the choices every picker draws from, for the repository
-// the sample pull requests live in.
 func (f *fakeSearcher) serveRepoMeta(meta gh.RepoMeta) {
 	f.serveRepoMetaFor("acme/rocket", meta)
 }
 
-// serveRepoMetaFor stages one repository's choices. Keyed, because the cache is:
-// a response carries the repository it answered for, and handing one to a pull
-// request in another opens a picker whose ids GitHub rejects.
 func (f *fakeSearcher) serveRepoMetaFor(repo string, meta gh.RepoMeta) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -633,16 +557,12 @@ func (f *fakeSearcher) serveRepoMetaFor(repo string, meta gh.RepoMeta) {
 	f.repoMetas[repo] = meta
 }
 
-// metaCalls is the repositories the model asked about, in order.
 func (f *fakeSearcher) metaCalls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.metaAsked)
 }
 
-// SetLabels records the ask and answers with the labels the staged repository
-// carries, dropping any id it does not: the real one does the same to a label
-// deleted since the picker was filled.
 func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []string) (gh.LabelsResult, error) {
 	f.mu.Lock()
 	f.labelled = append(f.labelled, prID+": "+strings.Join(labelIDs, ","))
@@ -664,13 +584,6 @@ func (f *fakeSearcher) SetLabels(_ context.Context, prID string, labelIDs []stri
 	return gh.LabelsResult{Labels: out}, nil
 }
 
-// SetAssignees is SetLabels for people: it records the ask and answers with the
-// staged repository's own users, dropping an id it does not carry the way the
-// real one drops somebody who lost access since the picker was filled.
-//
-// It writes the answer back onto the staged detail, the way SetState writes
-// onto f.prs. Assignees live on the detail rather than on the row, so this is
-// the channel a refetch would read them back through.
 func (f *fakeSearcher) SetAssignees(_ context.Context, prID string, assigneeIDs []string) (gh.AssigneesResult, error) {
 	f.mu.Lock()
 	f.assigned = append(f.assigned, prID+": "+strings.Join(assigneeIDs, ","))
@@ -700,17 +613,12 @@ func (f *fakeSearcher) SetAssignees(_ context.Context, prID string, assigneeIDs 
 	return gh.AssigneesResult{Assignees: out}, nil
 }
 
-// assigneeWrites is the assignee sets the model asked for, in order.
 func (f *fakeSearcher) assigneeWrites() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.assigned)
 }
 
-// RequestReviews records the ask and puts each login on the staged panel as
-// somebody being waited on, so the refetch the write fires reports it rather
-// than the panel from before. It reuses postErr and postHold the way the other
-// writes do.
 func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int, logins []string) error {
 	f.mu.Lock()
 	f.reviewed = append(f.reviewed, "+"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
@@ -727,8 +635,6 @@ func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int
 	id := f.idOf(number)
 	held := f.details[id]
 	for _, l := range logins {
-		// Somebody already on the panel from a review they gave keeps it and
-		// gains the request, which is what the decoder does with a re-request.
 		if at := slices.IndexFunc(held.Reviewers, func(r gh.Reviewer) bool { return r.Actor.Login == l }); at >= 0 {
 			held.Reviewers[at].Requested = true
 			continue
@@ -739,9 +645,6 @@ func (f *fakeSearcher) RequestReviews(_ context.Context, repo string, number int
 	return nil
 }
 
-// RemoveReviewRequests records the ask and takes each login off the staged
-// panel, but only where no verdict has been submitted: cancelling reaches an
-// outstanding request and nothing else, which is what the real endpoint does.
 func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, number int, logins []string) error {
 	f.mu.Lock()
 	f.reviewed = append(f.reviewed, "-"+repo+"#"+strconv.Itoa(number)+": "+strings.Join(logins, ","))
@@ -757,8 +660,6 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 	defer f.mu.Unlock()
 	id := f.idOf(number)
 	held := f.details[id]
-	// Cancelling clears the request and nothing else. Somebody who has already
-	// given a verdict keeps it and stays on the panel.
 	panel := slices.Clone(held.Reviewers)
 	for i := range panel {
 		if panel[i].Requested && !panel[i].Team && slices.Contains(logins, panel[i].Actor.Login) {
@@ -772,12 +673,6 @@ func (f *fakeSearcher) RemoveReviewRequests(_ context.Context, repo string, numb
 	return nil
 }
 
-// idOf is the node id of the pull request with this number. The two reviewer
-// calls address one by repository and number, which is how REST names it, and
-// everything the fake stages is keyed by id.
-// A search answers with a snapshot, the way a real client does. Handing the
-// slice out copies the header and leaves the caller on this fake's own backing
-// array, where a write landing later edits rows already given away.
 func TestTheFakeAnswersASearchWithRowsALaterWriteCannotEdit(t *testing.T) {
 	f := &fakeSearcher{prs: samplePRs()}
 
@@ -796,10 +691,6 @@ func TestTheFakeAnswersASearchWithRowsALaterWriteCannotEdit(t *testing.T) {
 	}
 }
 
-// The mutex is not enough on its own, and only the race detector says so: a
-// read that ranges the rows after unlocking is on the same backing array as the
-// write it was meant to be held apart from. This is the shape CI caught between
-// a retarget still in flight and the refetch it fired.
 func TestTheFakeReadsItsRowsUnderItsOwnLock(t *testing.T) {
 	f := &fakeSearcher{prs: samplePRs()}
 	id := f.prs[0].ID
@@ -823,8 +714,7 @@ func TestTheFakeReadsItsRowsUnderItsOwnLock(t *testing.T) {
 	wg.Wait()
 }
 
-// The caller holds the lock, so this must not take it: both callers are inside
-// their own critical section already and a Go mutex is not reentrant.
+// Callers already hold the lock, and a Go mutex is not reentrant.
 func (f *fakeSearcher) idOf(number int) string {
 	for _, pr := range f.prs {
 		if pr.Number == number {
@@ -834,21 +724,12 @@ func (f *fakeSearcher) idOf(number int) string {
 	return ""
 }
 
-// reviewerWrites is the reviewer changes the model asked for, in order, each
-// marked with the direction it went.
 func (f *fakeSearcher) reviewerWrites() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.reviewed)
 }
 
-// SetState answers with where the transition lands, so a test reads the rail
-// rather than the fake's own bookkeeping. It reuses postErr and postHold, the
-// way SetLabels does, so a test stages one failure for whichever write it is
-// driving.
-//
-// serveState overrides the answer, for the tests that need GitHub to say
-// something other than what was asked for.
 func (f *fakeSearcher) SetState(_ context.Context, prID string, to gh.PRTransition) (gh.PRStateResult, error) {
 	f.mu.Lock()
 	f.moved = append(f.moved, prID+": "+string(to))
@@ -881,9 +762,6 @@ func (f *fakeSearcher) SetState(_ context.Context, prID string, to gh.PRTransiti
 		out.State = gh.PRStateOpen
 	}
 
-	// A backend remembers what it was told. Without this the refetch the write
-	// fires reports the state from before it, which reads on the rail as the
-	// write undoing itself.
 	f.mu.Lock()
 	for i := range f.prs {
 		if f.prs[i].ID == prID {
@@ -895,8 +773,6 @@ func (f *fakeSearcher) SetState(_ context.Context, prID string, to gh.PRTransiti
 	return out, nil
 }
 
-// serveState stages the answer a state write comes back with, whatever it was
-// asked for.
 func (f *fakeSearcher) serveState(id string, state gh.PRState, draft bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -906,51 +782,42 @@ func (f *fakeSearcher) serveState(id string, state gh.PRState, draft bool) {
 	f.states[id] = &gh.PRStateResult{State: state, IsDraft: draft}
 }
 
-// stateWrites is the transitions the model asked for, in order.
 func (f *fakeSearcher) stateWrites() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.moved)
 }
 
-// labelWrites is the label sets the model asked for, in order.
 func (f *fakeSearcher) labelWrites() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.labelled)
 }
 
-// answered is the replies the model sent, in order.
 func (f *fakeSearcher) answered() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.replied)
 }
 
-// written is the comments the model sent, in order.
 func (f *fakeSearcher) written() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.posted)
 }
 
-// holdPosts makes every write answer later than the pump waits, which is how a
-// test gets its hands on a comment that is still in flight.
 func (f *fakeSearcher) holdPosts() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.postHold = 50 * time.Millisecond
 }
 
-// holdCommits makes every commit diff answer later than the pump above waits,
-// which is how a test gets its hands on a request that is still in flight.
 func (f *fakeSearcher) holdCommits() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commitHold = 50 * time.Millisecond
 }
 
-// serveCommit stages one commit's diff.
 func (f *fakeSearcher) serveCommit(sha string, files []gh.ChangedFile) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -960,22 +827,18 @@ func (f *fakeSearcher) serveCommit(sha string, files []gh.ChangedFile) {
 	f.commitFiles[sha] = files
 }
 
-// failCommits makes every commit diff fetch fail from here on.
 func (f *fakeSearcher) failCommits(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commitErr = err
 }
 
-// fetchedCommits is the commits the model asked a diff for, in order.
 func (f *fakeSearcher) fetchedCommits() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.commitDiffs)
 }
 
-// querySearcher answers per query, so a test can hold one section's fetch back
-// and let another land first.
 type querySearcher struct {
 	results map[string]gh.SearchResult
 	errs    map[string]error
@@ -1120,8 +983,6 @@ func samplePRs() []gh.PullRequest {
 	}
 }
 
-// drive runs the model's Init command and then applies the given messages,
-// following every command each one produces.
 func drive(t *testing.T, m tea.Model, msgs ...tea.Msg) tea.Model {
 	t.Helper()
 
@@ -1129,15 +990,11 @@ func drive(t *testing.T, m tea.Model, msgs ...tea.Msg) tea.Model {
 	return settle(m, msgs...)
 }
 
-// loaded is the common setup: a sized terminal with the first fetch settled.
 func loaded(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	t.Helper()
 	return drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: width, Height: height})
 }
 
-// settle applies messages and keeps going until the model stops producing any.
-// A key press can be three hops from its effect: r yields a RefreshMsg, which
-// yields a fetch, which yields the rows.
 func settle(m tea.Model, msgs ...tea.Msg) tea.Model {
 	queue := append([]tea.Msg(nil), msgs...)
 	for range 64 {
@@ -1152,9 +1009,7 @@ func settle(m tea.Model, msgs ...tea.Msg) tea.Model {
 	return m
 }
 
-// immediate runs a command and returns its messages, unpacking batches. A
-// command that does not answer at once is a timer, and following the spinner or
-// a toast expiry would just make the suite sleep, so those get dropped.
+// A command that does not answer at once is a timer, and is dropped so the suite never sleeps.
 func immediate(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
@@ -1181,18 +1036,6 @@ func immediate(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
-// holdBack settles a message the way settle does, but keeps every message whose
-// type name contains want instead of delivering it. The caller delivers them
-// later, which is how a test makes one response land after another.
-//
-// responses cannot do this for a detail: the key produces a RefreshMsg, and the
-// fetch it starts is a hop further in. Nor can a slow fake, because the pump
-// drops any command that does not answer inside its own window, so the response
-// never arrives at all.
-//
-// Matching on the type name rather than the type is the price of driving the
-// root from outside its package. A rename fails the test loudly, because nothing
-// is held and the caller checks for that.
 func holdBack(m tea.Model, msg tea.Msg, want string) (tea.Model, []tea.Msg) {
 	queue := []tea.Msg{msg}
 	var held []tea.Msg
@@ -1216,9 +1059,6 @@ func holdBack(m tea.Model, msg tea.Msg, want string) (tea.Model, []tea.Msg) {
 	return m, held
 }
 
-// responses runs a command and keeps the fetch results, dropping the spinner
-// tick that rides in the same batch. It is what lets a test hold one section's
-// answer back and let another land first.
 func responses(cmd tea.Cmd) []tea.Msg {
 	var out []tea.Msg
 	for _, msg := range immediate(cmd) {
@@ -1241,9 +1081,6 @@ func press(m tea.Model, keys ...string) tea.Model {
 	return m
 }
 
-// settleOn stands in for a cursor that has stopped on a commit. The screen arms
-// a wait longer than immediate gives any command, so the message it would have
-// carried is delivered by hand.
 func settleOn(m tea.Model, sha string) tea.Model {
 	return settle(m, prview.CommitSettleMsg{SHA: sha})
 }
@@ -1254,10 +1091,6 @@ func settleJob(m tea.Model, check gh.Check, refresh bool) tea.Model {
 	})
 }
 
-// settleSearch fires the waits a run of keystrokes armed, in the order they
-// were armed. immediate drops a tea.Tick rather than sleeping on it, so the
-// branch picker's debounce has to be driven by hand the way the commit
-// cursor's is.
 func settleSearch(m tea.Model, queries ...string) tea.Model {
 	for _, q := range queries {
 		m = settle(m, prview.BranchSettleMsg{Query: q})
@@ -1284,7 +1117,6 @@ func keyMsg(k string) tea.KeyPressMsg {
 	}
 }
 
-// write sends a string a character at a time, the way it reaches a text pane.
 func write(m tea.Model, text string) tea.Model {
 	for _, r := range text {
 		m = settle(m, tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -1303,8 +1135,6 @@ func TestRendersFetchedPullRequests(t *testing.T) {
 	}
 }
 
-// Every section fetches at startup, not just the one on screen. That is what
-// lets a tab the user has not opened carry a count.
 func TestEverySectionFetchesOnceWithItsOwnFilters(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	drive(t, app.New(testConfig(), client, testSurface))
@@ -1363,7 +1193,6 @@ func TestRendersTheFixCommandWhenAScopeIsMissing(t *testing.T) {
 func TestCursorMovesAndStopsAtTheEnds(t *testing.T) {
 	base := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
-	// Two rows, so one "j" lands on the second and a second "j" holds there.
 	moved := press(base, "j", "j")
 	if !strings.Contains(selectedText(t, moved), "#408") {
 		t.Errorf("selection = %q, want it clamped to the last row", selectedText(t, moved))
@@ -1375,8 +1204,6 @@ func TestCursorMovesAndStopsAtTheEnds(t *testing.T) {
 	}
 }
 
-// The tab counts are on screen alongside the rows, so a refresh that left them
-// as they were would be making only part of the frame true.
 func TestRefreshRefetchesEverySection(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
@@ -1423,9 +1250,6 @@ func TestSelectionPaintsEveryCellNotJustTheFirst(t *testing.T) {
 		t.Fatal("no row carries the selection background")
 	}
 
-	// Every cell terminates in a full SGR reset, which drops the background
-	// too. So the background has to be re-set per cell: one occurrence means
-	// only the first cell is highlighted and the row reads as unselected.
 	if got := strings.Count(line, selectionSeq()); got < 7 {
 		t.Errorf("selection background appears %d times, want one per cell (>=7)\n%q", got, line)
 	}
@@ -1439,9 +1263,6 @@ func TestRefreshClearsTheStaleError(t *testing.T) {
 		t.Fatal("setup: expected the first fetch to render a failure")
 	}
 
-	// The retry is in flight: the fetch commands are held rather than run, so
-	// the old error has to be gone and the spinner up, or the user cannot tell
-	// that r did anything.
 	next, _ := m.Update(list.RefreshMsg{})
 	out := render(t, next)
 	if strings.Contains(out, "boom, the first attempt failed") {
@@ -1454,9 +1275,8 @@ func TestRefreshClearsTheStaleError(t *testing.T) {
 
 func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	m := press(loaded(t, client, 120, 40), "j") // now on #408
+	m := press(loaded(t, client, 120, 40), "j")
 
-	// A new PR lands at the top, pushing #408 down a row.
 	client.serve(append([]gh.PullRequest{{
 		ID: "PR_NEW", Number: 500, Title: "Brand new", Repository: "acme/rocket",
 		State: gh.PRStateOpen, UpdatedAt: time.Now(),
@@ -1470,9 +1290,9 @@ func TestRefreshKeepsTheCursorOnTheSamePullRequest(t *testing.T) {
 
 func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	m := press(loaded(t, client, 120, 40), "j") // now on #408
+	m := press(loaded(t, client, 120, 40), "j")
 
-	client.serve(samplePRs()[:1]) // #408 merged and dropped out of the section
+	client.serve(samplePRs()[:1])
 	m = settle(m, keyMsg("s"))
 
 	if got := selectedText(t, m); !strings.Contains(got, "#412") {
@@ -1480,9 +1300,6 @@ func TestRefreshClampsTheCursorWhenTheRowIsGone(t *testing.T) {
 	}
 }
 
-// This is the property the old chromeLines constant was holding by hand, and
-// getting wrong. Nothing derives a height from a count of chrome lines now, so
-// it should hold at any size and on either screen.
 func TestTheFrameNeverExceedsTheTerminal(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 60},
@@ -1490,8 +1307,6 @@ func TestTheFrameNeverExceedsTheTerminal(t *testing.T) {
 		{width: 90, height: 24},
 		{width: app.MinWidth + 1, height: app.MinHeight + 1},
 		{width: app.MinWidth, height: app.MinHeight},
-		// Under the floor, where the size message is the frame rather than the
-		// panes. It owes the same fit, and on a frame too small to say it in full.
 		{width: 40, height: 5},
 		{width: 20, height: 2},
 	}
@@ -1540,13 +1355,10 @@ func TestCursorStaysVisibleWhenScrollingPastTheFold(t *testing.T) {
 }
 
 func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
-	m := press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "j") // on #408
+	m := press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "j")
 
 	detail := press(m, "enter")
 	out := render(t, detail)
-	// Stripped, the way the line under it reads: the current tab is underlined
-	// and lipgloss writes that one run per rune, so the raw frame carries no
-	// contiguous "Conversation" to match on.
 	if !strings.Contains(stripANSI(out), "Conversation") {
 		t.Errorf("detail = %q, want the conversation tab strip", out)
 	}
@@ -1563,9 +1375,6 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	}
 }
 
-// The bar pairs two opposed keys under one verb, which no single binding can
-// say. It is the one place the hints are not read straight off a declaration,
-// so it is the one place they can drift from the keys that actually work.
 func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1601,9 +1410,6 @@ func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
 }
 
 func TestTheRailCollapsesOnANarrowTerminal(t *testing.T) {
-	// "Author" is a rail section heading. The pane title reads "Details", which
-	// also appears in the status bar hints, and the header spells the login with
-	// an @ and no heading, so this tells the two columns apart.
 	const railOnly = "Author"
 
 	wide := press(loaded(t, &fakeSearcher{prs: samplePRs()}, 160, 40), "enter")
@@ -1616,7 +1422,6 @@ func TestTheRailCollapsesOnANarrowTerminal(t *testing.T) {
 		t.Error("the rail is still on screen at 100 columns, want it collapsed")
 	}
 
-	// The toggle overrides the automatic decision in either direction.
 	if !strings.Contains(render(t, press(narrow, "d")), railOnly) {
 		t.Error("the toggle did not bring the rail back on a narrow terminal")
 	}
@@ -1633,8 +1438,6 @@ func TestHelpOverlaysTheScreenAndDismisses(t *testing.T) {
 	if !strings.Contains(out, "Keys") {
 		t.Errorf("help = %q, want the overlay title", out)
 	}
-	// The help renders from the binding declarations, so a description only
-	// reaches the screen if it was declared alongside its key.
 	if !strings.Contains(out, "half page down") {
 		t.Errorf("help = %q, want a binding's declared description", out)
 	}
@@ -1644,9 +1447,6 @@ func TestHelpOverlaysTheScreenAndDismisses(t *testing.T) {
 	}
 }
 
-// The help bubble sizes columns from their contents and never wraps, so a set
-// one column too wide used to get sheared by the overlay: the modal lost its
-// right border and its rows ran to the frame edge.
 func TestHelpReflowsRatherThanLosingItsBorder(t *testing.T) {
 	for _, width := range []int{160, 100, 80, 60} {
 		t.Run(fmt.Sprintf("%d", width), func(t *testing.T) {
@@ -1672,8 +1472,6 @@ func TestHelpReflowsRatherThanLosingItsBorder(t *testing.T) {
 	}
 }
 
-// Help owns the keyboard while it is up. Otherwise a stray j scrolls the screen
-// under the thing covering it.
 func TestHelpSwallowsScreenKeys(t *testing.T) {
 	m := press(loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40), "?")
 
@@ -1685,11 +1483,6 @@ func TestHelpSwallowsScreenKeys(t *testing.T) {
 	}
 }
 
-// Every section is already held, so a tab switch is a move through state rather
-// than a round trip. Refetching here is what made switching tabs feel slow.
-// tab is the detail screen's key for stepping the column that drives its pane,
-// and the list has no such column. Leaving it on sections here was what made it
-// mean one thing on one screen and another on the next.
 func TestTabDoesNotChangeSectionOnTheList(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
@@ -1726,9 +1519,6 @@ func TestTheStatusBarCarriesTheRateLimit(t *testing.T) {
 	}
 }
 
-// A refresh that returns identical rows moves nothing on screen. The toast is
-// the only signal that anything happened, and one press earns one of them
-// however many sections it fired at.
 func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, 120, 40)
@@ -1743,8 +1533,6 @@ func TestRefreshAnnouncesItselfOnceButTheFirstLoadDoesNot(t *testing.T) {
 	}
 }
 
-// A toast used to take the hints' place. It sits at the other end of the line
-// now, so the keys stay where the reader's eye already found them.
 func TestAToastLandsOnTheRightAndLeavesTheHintsAlone(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
@@ -1760,9 +1548,6 @@ func TestAToastLandsOnTheRightAndLeavesTheHintsAlone(t *testing.T) {
 	}
 }
 
-// The bar is one line on four tabs that hold different things. A hint for a key
-// that is inert on the tab under it is worse than no hint: the reader presses
-// it, nothing happens, and the whole line stops being worth reading.
 func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -1773,9 +1558,6 @@ func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
 		want, gone []string
 	}{
 		{
-			// The rail leads the conversation, and it is a list of controls: the
-			// braces are dead on it and space folds nothing, so the line names
-			// what it does answer and the pane step that reaches the page.
 			name: "conversation",
 			want: []string{"⏎ open", "h/l panes", "d details"},
 			gone: []string{"{/} block", "space expand"},
@@ -1824,9 +1606,6 @@ func TestTheDetailHintsNameOnlyWhatTheTabCanDo(t *testing.T) {
 	}
 }
 
-// A picker has taken the keys the line names and carries a hint line of its
-// own, so the bar stands down rather than spending its width on keys that
-// stopped working when the modal opened.
 func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -1842,8 +1621,6 @@ func TestTheBarGoesQuietWhileAModalHoldsTheKeyboard(t *testing.T) {
 	}
 }
 
-// The section title is the current tab in the top border. Naming it again on
-// the bar spent the line on a fact the reader is looking straight at.
 func TestTheListBarNamesNeitherTheSectionNorAHealthyBudget(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), rate: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4821}}
 
@@ -1857,12 +1634,9 @@ func TestTheListBarNamesNeitherTheSectionNorAHealthyBudget(t *testing.T) {
 	}
 }
 
-// The toast waits for the last section. Firing on the first arrival claims a
-// refresh that two of the tabs on screen have not finished.
 func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
-	// One section's response delivered, the rest held.
 	next, cmd := m.Update(list.RefreshMsg{})
 	landed := responses(cmd)
 	if len(landed) < 2 {
@@ -1879,23 +1653,17 @@ func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
 	}
 }
 
-// store.Begin refuses a section already in flight. Dropping it there let the
-// toast count a tab this refresh never refetched, so it waits on it instead.
 func TestTheRefreshWaitsOnASectionAlreadyInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	var m tea.Model = app.New(testConfig(), client, testSurface)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// Every startup fetch, held rather than delivered: the viewer first, then
-	// one per section, in the order Init batches them.
 	initial := responses(m.Init())
 	if len(initial) != 3 {
 		t.Fatalf("setup: startup produced %d responses, want the viewer and one per section", len(initial))
 	}
 	sections := initial[1:]
 
-	// One section home, the other still out, and then r: only the settled one
-	// can be refetched, and the other is adopted where it stands.
 	m, _ = m.Update(sections[0])
 	m, cmd := m.Update(list.RefreshMsg{})
 
@@ -1933,9 +1701,6 @@ func TestFetchCarriesADeadline(t *testing.T) {
 	}
 }
 
-// A theme name is what the last release took, so one is still on disk. It buys
-// nothing now and has to say so, or the reader changes a line that does nothing
-// and has no way to find out.
 func TestALeftoverThemeNameSaysSoRatherThanBeingDropped(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
@@ -1961,7 +1726,6 @@ func TestOverridesShowNoNotice(t *testing.T) {
 	}
 }
 
-// The override has to reach the frame, or the setting is a note in a file.
 func TestAnOverrideReachesTheScreen(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Colors: map[string]string{"accent": "#ff0000"}}
@@ -1974,8 +1738,6 @@ func TestAnOverrideReachesTheScreen(t *testing.T) {
 	}
 }
 
-// The theme carrying a background proves nothing on its own: the root has to
-// hand it to Bubble Tea, which is the only thing that paints it.
 func TestTheRootPaintsTheThemesBackground(t *testing.T) {
 	m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
 
@@ -1988,8 +1750,6 @@ func TestTheRootPaintsTheThemesBackground(t *testing.T) {
 	}
 }
 
-// A reader on a translucent terminal asked for nothing to be painted, and the
-// background is the one that would fill the whole window.
 func TestTransparentPaintsNoBackground(t *testing.T) {
 	cfg := testConfig()
 	cfg.Transparent = true
@@ -2001,8 +1761,6 @@ func TestTransparentPaintsNoBackground(t *testing.T) {
 	}
 }
 
-// Config naming a background is how a reader asks for a chrome that disagrees
-// with their terminal, so that is the one that has to reach the paint.
 func TestANamedBackgroundReachesThePaint(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Colors: map[string]string{"background": "#faf4ed"}}
@@ -2018,9 +1776,6 @@ func TestANamedBackgroundReachesThePaint(t *testing.T) {
 	}
 }
 
-// Scrolling has to follow the cursor by a row. viewport.EnsureVisible acts only
-// once the cursor is already outside the window and then puts it on the top
-// line, which turned one press into a page jump and the next ten into nothing.
 func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 24)
 
@@ -2040,7 +1795,6 @@ func TestScrollingFollowsTheCursorARowAtATime(t *testing.T) {
 	}
 }
 
-// topRow is the number of the first pull request with a title line on screen.
 func topRow(t *testing.T, m tea.Model) int {
 	t.Helper()
 
@@ -2059,8 +1813,6 @@ func topRow(t *testing.T, m tea.Model) int {
 	return 0
 }
 
-// The old root model clamped the scroll on every resize. Losing that put the
-// selection below the fold, where the next enter opens a row nobody can see.
 func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: manyPRs(60)}, 120, 40)
 	for range 30 {
@@ -2074,8 +1826,6 @@ func TestShrinkingTheTerminalKeepsTheSelectionOnScreen(t *testing.T) {
 	}
 }
 
-// These are declared and advertised in the help, so they need driving through
-// the path a user takes rather than trusted because the binding exists.
 func TestPageKeysMoveTheCursor(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2102,9 +1852,6 @@ func TestPageKeysMoveTheCursor(t *testing.T) {
 	}
 }
 
-// A failure belongs to the section that had it. One section timing out used to
-// take over whatever was on screen, leaving an error with no fetch in flight
-// and no spinner to explain it.
 func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 	client := &querySearcher{
 		errs:    map[string]error{"is:open is:pr author:@me": errors.New("context deadline exceeded")},
@@ -2127,14 +1874,9 @@ func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 	}
 }
 
-// Responses arrive in whatever order they finish, so the newest is not the
-// truest. A budget that ticked back up mid-burst would be reading the wrong one.
 func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	client := &querySearcher{results: map[string]gh.SearchResult{
-		// The lower number lands first, so a status bar reading the newest
-		// response rather than the lowest shows 420 and reads as a budget that
-		// went back up.
 		"is:open is:pr author:@me": {
 			PullRequests: samplePRs(),
 			RateLimit:    gh.RateLimit{Limit: 5000, Remaining: 419, ResetAt: window},
@@ -2150,10 +1892,6 @@ func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 	}
 }
 
-// The detail's header is two lines and does not carry who opened the pull
-// request, so the bar's right side is where that goes. It is the last thing on
-// that side: everything else there either changes or reports something that
-// just happened.
 func TestTheBarCarriesWhoOpenedItWhenNothingElseNeedsTheSide(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2163,14 +1901,11 @@ func TestTheBarCarriesWhoOpenedItWhenNothingElseNeedsTheSide(t *testing.T) {
 		t.Errorf("status bar = %q, want who opened the pull request on it", strings.TrimSpace(got))
 	}
 
-	// And the list screen has no pull request to say it about.
 	if got := lastLine(render(t, loaded(t, client, 160, 40))); strings.Contains(got, "@drucial") {
 		t.Errorf("list bar = %q, want the readout off a screen with no pull request", strings.TrimSpace(got))
 	}
 }
 
-// A budget running low outranks it. One is a number that runs out and the other
-// is a fact that does not change.
 func TestALowBudgetOutranksTheReadout(t *testing.T) {
 	window := time.Now().Add(time.Hour)
 	client := &querySearcher{results: map[string]gh.SearchResult{
@@ -2180,8 +1915,6 @@ func TestALowBudgetOutranksTheReadout(t *testing.T) {
 		},
 	}}
 
-	// No detail served: the readout comes off the row the list opened with, so
-	// the screen has one to give up.
 	m := press(drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40}), "enter")
 
 	got := lastLine(render(t, m))
@@ -2193,14 +1926,9 @@ func TestALowBudgetOutranksTheReadout(t *testing.T) {
 	}
 }
 
-// The tick chain re-arms from the list's own Update. Delegating by focus killed
-// it the moment the detail opened over a fetch in flight, and coming back
-// showed a spinner frozen on one frame.
 func TestTheSpinnerKeepsTickingBehindTheDetailScreen(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
-	// Holding the fetch commands back leaves the sections loading, which is the
-	// state the chain has to survive.
 	m, _ = m.Update(list.RefreshMsg{})
 
 	var open tea.Cmd
@@ -2225,8 +1953,6 @@ func TestHidingTheRailSticksAcrossPullRequests(t *testing.T) {
 	}
 }
 
-// In the chrome grey the notice reads as decoration, which is the outcome it
-// exists to prevent.
 func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
@@ -2245,8 +1971,6 @@ func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	t.Fatal("the notice is not on screen")
 }
 
-// Falling back silently reads as "my config is ignored", and a syntax theme
-// nobody notices is one the diff was never going to be styled by.
 func TestAnUnknownSyntaxThemeIsReported(t *testing.T) {
 	cfg := testConfig()
 	cfg.SyntaxTheme = "not-a-chroma-style"
@@ -2258,7 +1982,6 @@ func TestAnUnknownSyntaxThemeIsReported(t *testing.T) {
 	}
 }
 
-// The theme names its own, so a config that says nothing gets no warning.
 func TestAThemesOwnSyntaxStyleRaisesNoNotice(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 200, 40)
 
@@ -2267,10 +1990,6 @@ func TestAThemesOwnSyntaxStyleRaisesNoNotice(t *testing.T) {
 	}
 }
 
-// The login is asked for at startup, alongside the sections rather than after
-// them. Nothing renders it yet, and the budget its response carries is the one
-// place it reaches the frame: every section here fails, so the number on screen
-// can only have come from the viewer.
 func TestTheViewerIsAskedForAtStartup(t *testing.T) {
 	client := &fakeSearcher{
 		err: errors.New("every section is down"),
@@ -2285,9 +2004,6 @@ func TestTheViewerIsAskedForAtStartup(t *testing.T) {
 	}
 }
 
-// A login that cannot be read degrades rather than fails. Nothing on the screen
-// depends on it yet, and a toast here would be the only one at startup, for the
-// one failure with no visible effect.
 func TestAViewerThatCannotBeReadChangesNothingOnScreen(t *testing.T) {
 	rate := gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4820}
 
@@ -2316,11 +2032,9 @@ func TestTheBudgetShowsAtZeroAndNotBeforeItIsKnown(t *testing.T) {
 
 func ctrl(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
 
-// fgSeq is the SGR sequence that sets a foreground to the given color.
 func fgSeq(c color.Color) string { return sgrParams(lipgloss.NewStyle().Foreground(c)) }
 
-// manyPRs builds a run in a known order: one repo and one clock reading, so the
-// sort's newest-first tiebreak cannot reorder rows by how long the loop took.
+// One repo and one clock reading, so the newest-first tiebreak cannot reorder rows.
 func manyPRs(n int) []gh.PullRequest {
 	at := time.Now()
 
@@ -2334,16 +2048,11 @@ func manyPRs(n int) []gh.PullRequest {
 	return prs
 }
 
-// selectionSeq is the SGR sequence that sets the selection background.
 func selectionSeq() string {
 	r, g, b, _ := testTheme.SelectedBackground.RGBA()
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// selectedLine returns every rendered line painted with the selection
-// background, joined. Matching the exact color keeps this from picking up other
-// styled chrome. A row is two lines, and its number is on the second, so
-// returning only the first would answer half the question.
 func selectedLine(t *testing.T, m tea.Model) string {
 	t.Helper()
 
@@ -2356,16 +2065,11 @@ func selectedLine(t *testing.T, m tea.Model) string {
 	return strings.Join(out, "\n")
 }
 
-// selectedText is the selected row with its styling dropped, for assertions
-// about what it says rather than how it is painted.
 func selectedText(t *testing.T, m tea.Model) string {
 	t.Helper()
 	return stripANSI(selectedLine(t, m))
 }
 
-// stripANSI drops SGR sequences so an assertion can reason about the text. A
-// cell ends in a reset, so "#5 " is not a substring of the styled frame even
-// when the number is followed by its padding.
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -2380,9 +2084,6 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// opening presses enter and stops before the detail response lands, so a test
-// can see the frame the reader gets first. The pending fetch comes back with
-// it, to be delivered when the test is ready.
 func opening(m tea.Model) (tea.Model, tea.Cmd) {
 	m, cmd := m.Update(keyMsg("enter"))
 	for _, msg := range immediate(cmd) {
@@ -2405,8 +2106,6 @@ func TestOpeningAPullRequestFetchesItOnce(t *testing.T) {
 	}
 }
 
-// The point of holding a detail is that the second open costs no wait. The
-// refetch still goes out; it swaps in behind whatever is already being read.
 func TestReopeningPaintsFromWhatIsHeldAndRefetchesBehindIt(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2427,8 +2126,6 @@ func TestReopeningPaintsFromWhatIsHeldAndRefetchesBehindIt(t *testing.T) {
 	}
 }
 
-// Open one, escape, open another, and the first response still arrives. It
-// must not land on the screen that replaced it.
 func TestAResponseForAPullRequestYouLeftDoesNotReachTheScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "the auth retry description")
@@ -2451,8 +2148,6 @@ func TestAResponseForAPullRequestYouLeftDoesNotReachTheScreen(t *testing.T) {
 	}
 }
 
-// The screen keeps reading through a failed refetch, so the toast is the only
-// thing saying it happened.
 func TestAFailedRefetchKeepsTheConversationAndSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2471,8 +2166,6 @@ func TestAFailedRefetchKeepsTheConversationAndSaysSo(t *testing.T) {
 	}
 }
 
-// Nothing held and nothing back yet is its own state, and it is the one the
-// reader sees most often.
 func TestAFirstOpenSaysItIsLoading(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2483,16 +2176,11 @@ func TestAFirstOpenSaysItIsLoading(t *testing.T) {
 	if !strings.Contains(out, "Loading the conversation") {
 		t.Error("the first open renders nothing while it waits")
 	}
-	// The glyph is the only thing saying the wait is going somewhere. Its first
-	// frame is what a screen that never armed its spinner would also render, so
-	// the moving part is asserted in the prview suite.
 	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
 		t.Errorf("frame = %q, want a spinner beside the label", out)
 	}
 }
 
-// The detail query is the most expensive call in the app, so the budget on
-// screen has to move with it rather than only with the sections.
 func TestOpeningMovesTheBudget(t *testing.T) {
 	client := &fakeSearcher{
 		prs:  samplePRs(),
@@ -2508,9 +2196,6 @@ func TestOpeningMovesTheBudget(t *testing.T) {
 	}
 }
 
-// The glyph appearing is not the same as the glyph moving. This is the wiring
-// between the two: the screen arms its own chain, and the root routes the ticks
-// back to it.
 func TestOpeningArmsTheDetailSpinner(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2535,15 +2220,10 @@ func TestOpeningArmsTheDetailSpinner(t *testing.T) {
 	}
 }
 
-// The screen is new on every open, and so is its spinner. Arming the chain with
-// the fetch leaves it frozen here, because the request is already out and the
-// old chain's ticks carry a tag the new spinner drops.
 func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
-	// Open and leave without letting the response land, so the store still has
-	// the request out when the second open happens.
 	opened, pending := opening(loaded(t, client, 160, 40))
 	back := settle(opened, keyMsg("esc"))
 
@@ -2566,15 +2246,12 @@ func TestReopeningWhileTheFetchIsStillOutKeepsTheSpinnerRunning(t *testing.T) {
 		t.Error("the tick did not reach the reopened screen")
 	}
 
-	// The fetch was not started twice: the first one is still out.
 	settle(again, immediate(pending)...)
 	if got := client.opened(); len(got) != 1 {
 		t.Errorf("opened %v, want the one request that was already in flight", got)
 	}
 }
 
-// The diff is a second request and often a large one. A pull request opened to
-// read the conversation must not pay for it.
 func TestTheDiffIsNotFetchedUntilTheFilesTabIsOpened(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2594,25 +2271,20 @@ func TestTheDiffIsNotFetchedUntilTheFilesTabIsOpened(t *testing.T) {
 	}
 }
 
-// Tabbing in and out has to cost one request. The store refuses a second while
-// the first is out, and holds the answer for the rest of the session.
 func TestTabbingBackToFilesDoesNotFetchAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, sampleFiles())
 
 	m := press(loaded(t, client, 160, 40), "enter")
-	m = press(m, "]", "]", "]") // to Files
-	m = press(m, "]")           // round to the conversation
-	press(m, "]", "]", "]")     // and back
+	m = press(m, "]", "]", "]")
+	m = press(m, "]")
+	press(m, "]", "]", "]")
 
 	if got := client.fetched(); len(got) != 1 {
 		t.Errorf("fetched %v, want one request", got)
 	}
 }
 
-// Reopening a pull request refetches its conversation. The diff has to follow,
-// or a push lands and the Files tab reads the change from before it for the
-// rest of the session, under a header carrying the new counts.
 func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, sampleFiles())
@@ -2622,7 +2294,6 @@ func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 		t.Fatalf("setup: fetched %v, want one request", got)
 	}
 
-	// Back to the list and in again, which is what a reader does after a push.
 	m = press(m, "esc", "enter", "]", "]", "]")
 
 	if got := client.fetched(); len(got) != 2 {
@@ -2633,9 +2304,6 @@ func TestReopeningAPullRequestRefetchesItsDiff(t *testing.T) {
 	}
 }
 
-// A commit's diff is its own request, so the cursor passing over one costs
-// nothing and stopping on it is what pays. Walking a long branch a keystroke at
-// a time would otherwise spend a request per commit gone by.
 func TestOnlyTheCommitTheCursorStopsOnIsFetched(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2644,13 +2312,11 @@ func TestOnlyTheCommitTheCursorStopsOnIsFetched(t *testing.T) {
 	})
 	client.serveCommit("7b20ef4a11", sampleFiles())
 
-	// Open, on to Commits, into the column, down a row.
 	m := press(loaded(t, client, 160, 40), "enter", "]", "1", "j")
 	if got := client.fetchedCommits(); len(got) != 0 {
 		t.Fatalf("fetched %v before the cursor stopped anywhere", got)
 	}
 
-	// Landing on the tab armed a wait naming the first commit, and j left it.
 	m = settleOn(m, "a3f91c2d5e")
 	if got := client.fetchedCommits(); len(got) != 0 {
 		t.Fatalf("fetched %v for a commit the cursor walked past", got)
@@ -2665,16 +2331,12 @@ func TestOnlyTheCommitTheCursorStopsOnIsFetched(t *testing.T) {
 		t.Error("the commit's diff never reached the screen")
 	}
 
-	// Settling again on the commit already showing is answered by the screen.
 	if settleOn(m, "7b20ef4a11"); len(client.fetchedCommits()) != 1 {
 		t.Errorf("fetched %v, want the second settle to cost nothing",
 			client.fetchedCommits())
 	}
 }
 
-// Landing on the tab is a cursor stopping like any other, so the commit it
-// opens on loads without a keypress. Files opens on content and this is the
-// same idea.
 func TestTheCommitsTabFetchesWhatItOpensOn(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2692,8 +2354,6 @@ func TestTheCommitsTabFetchesWhatItOpensOn(t *testing.T) {
 	}
 }
 
-// The cache is keyed by sha because a commit's diff is the same wherever it is
-// opened from. Walking back up a branch to a commit already read costs nothing.
 func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2703,7 +2363,6 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	client.serveCommit("a3f91c2d5e", sampleFiles())
 	client.serveCommit("7b20ef4a11", sampleFiles())
 
-	// The first, the second, then back to the first.
 	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
 	m = settleOn(press(m, "j"), "7b20ef4a11")
 	m = settleOn(press(m, "k"), "a3f91c2d5e")
@@ -2717,9 +2376,6 @@ func TestACommitAlreadyReadIsNotFetchedAgain(t *testing.T) {
 	}
 }
 
-// A commit already read comes back from the store in the hop it takes the root
-// to answer. The pane used to clear itself on the way there, and the frame in
-// between is the whole of the complaint: a spinner over a diff nobody waited for.
 func TestWalkingBackToACachedCommitNeverSpins(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2732,8 +2388,6 @@ func TestWalkingBackToACachedCommitNeverSpins(t *testing.T) {
 	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
 	m = settleOn(press(m, "j"), "7b20ef4a11")
 
-	// One hop at a time on the way back. settleOn runs the queue to the end and
-	// would render straight past the frame this is about.
 	m = press(m, "k")
 	m, _ = m.Update(prview.CommitSettleMsg{SHA: "a3f91c2d5e"})
 
@@ -2745,9 +2399,6 @@ func TestWalkingBackToACachedCommitNeverSpins(t *testing.T) {
 	}
 }
 
-// Settling on a commit resets the pane to idle, and a spinner over an idle pane
-// stops ticking. Coming back to one whose request is still out has to put the
-// pane back into its loading state or the glyph sits there frozen.
 func TestReturningToACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2756,7 +2407,6 @@ func TestReturningToACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 	})
 	client.holdCommits()
 
-	// The first, on to the second, then back before either answers.
 	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]", "1"), "a3f91c2d5e")
 	m = settleOn(press(m, "j"), "7b20ef4a11")
 	m = settleOn(press(m, "k"), "a3f91c2d5e")
@@ -2768,8 +2418,6 @@ func TestReturningToACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 		t.Errorf("fetched %v, want the return to ride the request already out", got)
 	}
 
-	// The glyph is the tell. A pane the reselection left reading idle renders
-	// the spinner and then never advances it again.
 	before := spinnerGlyph(render(t, m), "Loading the diff")
 	m, _ = m.Update(spinner.TickMsg{})
 	after := spinnerGlyph(render(t, m), "Loading the diff")
@@ -2782,7 +2430,6 @@ func TestReturningToACommitStillInFlightKeepsTheSpinnerAlive(t *testing.T) {
 	}
 }
 
-// spinnerGlyph is the frame of the spinner sitting beside a label.
 func spinnerGlyph(frame, label string) string {
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
 		at := strings.Index(line, label)
@@ -2808,9 +2455,6 @@ func TestAFailedCommitDiffSaysSoOnTheTab(t *testing.T) {
 	}
 }
 
-// A failed fetch leaves its error on the pane. With no key left to ask again,
-// walking off the commit and back is the retry, and it has to be one or the
-// error sits there for as long as the screen is open.
 func TestWalkingBackOntoAFailedCommitRetriesIt(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{
@@ -2837,9 +2481,6 @@ func TestWalkingBackOntoAFailedCommitRetriesIt(t *testing.T) {
 	}
 }
 
-// refreshing presses r and stops before the responses land, so a test can see
-// the frame the reader gets while the requests are out. The pending fetches
-// come back with it, to be delivered when the test is ready.
 func refreshing(m tea.Model) (tea.Model, tea.Cmd) {
 	m, cmd := m.Update(keyMsg("s"))
 	for _, msg := range immediate(cmd) {
@@ -2848,8 +2489,6 @@ func refreshing(m tea.Model) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// Backing out to the list to refresh and opening again is three keys to answer
-// "has anything happened since". The detail screen refetches in place.
 func TestRefreshingTheDetailRefetchesTheConversation(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2866,9 +2505,6 @@ func TestRefreshingTheDetailRefetchesTheConversation(t *testing.T) {
 	}
 }
 
-// The conversation and the checks read the detail alone. A diff is a second
-// request and the most expensive one on the screen; a refresh must not spend it
-// on a tab that is not showing one.
 func TestRefreshingTheConversationAsksForNoDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
@@ -2882,15 +2518,12 @@ func TestRefreshingTheConversationAsksForNoDiff(t *testing.T) {
 		t.Errorf("fetched commits %v, want none", got)
 	}
 
-	// The Checks tab reads the same response, so it asks for nothing extra either.
 	press(m, "]", "]", "s")
 	if got := client.fetched(); len(got) != 0 {
 		t.Errorf("fetched %v, want no diff for a refresh on the checks", got)
 	}
 }
 
-// A push lands and the Files tab is showing the change from before it. The
-// detail carries the new counts but not the diff, so the diff has to go too.
 func TestRefreshingOnTheFilesTabRefetchesTheDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, sampleFiles())
@@ -2910,8 +2543,6 @@ func TestRefreshingOnTheFilesTabRefetchesTheDiff(t *testing.T) {
 	}
 }
 
-// A commit's diff is cached by sha and nothing else asks for one twice, so the
-// refresh is the only way to see an amended commit.
 func TestRefreshingOnTheCommitsTabRefetchesTheCommitOnThePane(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
@@ -2933,9 +2564,6 @@ func TestRefreshingOnTheCommitsTabRefetchesTheCommitOnThePane(t *testing.T) {
 	}
 }
 
-// The screen keeps what it has through the refresh. Clearing it would take the
-// conversation away from the reader for as long as the request is out, which is
-// the whole reason the detail screen does not spin over content.
 func TestARefreshKeepsTheConversationOnScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2953,8 +2581,6 @@ func TestARefreshKeepsTheConversationOnScreen(t *testing.T) {
 	settle(waiting, immediate(pending)...)
 }
 
-// Nothing moves on the screen during a refresh, so the bar is the only place
-// anything can say s did something.
 func TestARefreshSpinsInTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -2972,8 +2598,6 @@ func TestARefreshSpinsInTheStatusBar(t *testing.T) {
 	}
 }
 
-// The list keeps its rows through a reload, so the bar is the only place a
-// sync can say it is running.
 func TestASyncOnTheListSpinsInTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -2990,13 +2614,9 @@ func TestASyncOnTheListSpinsInTheStatusBar(t *testing.T) {
 	}
 }
 
-// A first load has the pane to spin over, and the bar is where a toast lands.
-// Spinning in both places says one fetch is two.
 func TestAFirstLoadDoesNotSpinInTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	// Sized but not settled: New marks every section in flight, so this is the
-	// frame between startup and the first response.
 	m, _ := app.New(testConfig(), client, testSurface).Update(tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	out := stripANSI(render(t, m))
@@ -3008,8 +2628,6 @@ func TestAFirstLoadDoesNotSpinInTheStatusBar(t *testing.T) {
 	}
 }
 
-// A refresh usually comes back with the same conversation, so the toast is the
-// only sign it happened.
 func TestTheDetailRefreshToastNamesThePullRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -3021,8 +2639,6 @@ func TestTheDetailRefreshToastNamesThePullRequest(t *testing.T) {
 	}
 }
 
-// One press is one toast. Reporting the detail the moment it lands would call
-// the refresh done while its diff was still out.
 func TestTheDetailRefreshToastWaitsForTheDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, sampleFiles())
@@ -3047,10 +2663,6 @@ func TestTheDetailRefreshToastWaitsForTheDiff(t *testing.T) {
 	}
 }
 
-// The summary is the one toast a refresh raises. The per-request failures the
-// reopen path uses would report the same failure twice beside it, and with at
-// most two requests out, naming which leg failed is what says whether the thing
-// in front of the reader is the stale one.
 func TestADetailRefreshReportsItselfOnce(t *testing.T) {
 	boom := errors.New("context deadline exceeded")
 
@@ -3087,9 +2699,6 @@ func TestADetailRefreshReportsItselfOnce(t *testing.T) {
 	}
 }
 
-// The Conversation and Checks tabs ask for no diff, so a refresh that failed
-// there failed whole. Reading the failure flags alone made the toast name a
-// request this press never sent.
 func TestARefreshWithNoDiffOutNeverBlamesTheDiff(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -3108,17 +2717,12 @@ func TestARefreshWithNoDiffOutNeverBlamesTheDiff(t *testing.T) {
 	}
 }
 
-// A second r asks for whatever the first did not. Replacing the record rather
-// than merging into it dropped the leg the first press was still waiting on,
-// and its response then reported nothing at all.
 func TestASecondRefreshJoinsTheOneStillRunning(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.serveCommits("PR_412", []gh.Commit{{SHA: "a3f91c2d5e", Short: "a3f91c2", Headline: "Cap the backoff"}})
 	client.serveCommit("a3f91c2d5e", sampleFiles())
 
-	// A commit already read, so the second r has a diff leg to start while the
-	// first press's detail is still out.
 	m := settleOn(press(loaded(t, client, 160, 40), "enter", "]"), "a3f91c2d5e")
 	m = press(m, "[")
 
@@ -3138,8 +2742,6 @@ func TestASecondRefreshJoinsTheOneStillRunning(t *testing.T) {
 	}
 }
 
-// Every Begin refuses a request already out, so leaning on r costs one round
-// trip rather than one per press.
 func TestRefreshingTwiceWhileTheFirstIsOutCostsOneRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -3154,8 +2756,6 @@ func TestRefreshingTwiceWhileTheFirstIsOutCostsOneRequest(t *testing.T) {
 	}
 }
 
-// A diff that failed has nothing worth keeping, so the refresh puts the pane
-// back into its loading state and the retry lands on it.
 func TestRefreshingRetriesADiffThatFailed(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.failFiles(errors.New("context deadline exceeded"))
@@ -3174,9 +2774,6 @@ func TestRefreshingRetriesADiffThatFailed(t *testing.T) {
 	}
 }
 
-// Every settle path drops a response for a screen the reader has left, so a
-// refresh abandoned by esc never settles. Without clearing it the bar spins
-// over the list with nothing coming.
 func TestLeavingTheDetailStopsTheRefreshSpinner(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -3189,15 +2786,11 @@ func TestLeavingTheDetailStopsTheRefreshSpinner(t *testing.T) {
 	}
 }
 
-// The detail screen names its pull request in its own header, so the bar was
-// spending the line on a fact already on the screen, and spending it on the
-// side a toast lands on.
 func TestTheDetailStatusBarCarriesNothingButItsHints(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
 	for _, width := range []int{100, 120, 160, 200} {
-		// The number is in the header too, so only the bar's own line answers.
 		bar := stripANSI(lastLine(render(t, press(loaded(t, client, width, 40), "enter"))))
 		for _, unwanted := range []string{"#412", "acme/rocket"} {
 			if strings.Contains(bar, unwanted) {
@@ -3222,8 +2815,6 @@ func TestAFailedDiffFetchSaysSoOnTheTab(t *testing.T) {
 	}
 }
 
-// Both caches are keyed by pull request. Opening a second one must not paint
-// the first one's diff under it.
 func TestADiffDoesNotFollowTheReaderToTheNextPullRequest(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, sampleFiles())
@@ -3262,7 +2853,6 @@ func lastLine(frame string) string {
 	return lines[len(lines)-1]
 }
 
-// composed is a detail screen with a comment written and not yet sent.
 func composed(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	t.Helper()
 
@@ -3271,8 +2861,6 @@ func composed(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	return write(m, body)
 }
 
-// The whole of what optimistic means: the card is on the screen before GitHub
-// has been told, and it says it has not landed yet.
 func TestAPostedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3308,22 +2896,15 @@ func TestACommentThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. The card comes off, the reason goes up, and the words go
-// back in the pane: a comment lost to a dropped connection is the one thing
-// here that cannot be fetched again.
 func TestAFailedPostTakesTheCardBackAndKeepsTheWords(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
 	m := press(composed(t, client, "ship it"), "ctrl+enter")
 	out := stripANSI(render(t, m))
 
-	// Twice would mean the card is still in the conversation as well as in the
-	// pane the words came back into.
 	if n := strings.Count(out, "ship it"); n != 1 {
 		t.Errorf("%q appears %d times, want it only in the composer:\n%s", "ship it", n, out)
 	}
-	// The box takes the keyboard back with the words, so the reader is looking
-	// at the comment they have to do something about.
 	if !strings.Contains(out, "ctrl+e editor") {
 		t.Error("the box did not take the keyboard back with the failed comment")
 	}
@@ -3332,8 +2913,6 @@ func TestAFailedPostTakesTheCardBackAndKeepsTheWords(t *testing.T) {
 	}
 }
 
-// A refresh landing while a comment is out must not take it off the screen.
-// The store holds it beside the fetched detail for exactly this.
 func TestARefreshDoesNotTakeAwayACommentStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3346,8 +2925,6 @@ func TestARefreshDoesNotTakeAwayACommentStillInFlight(t *testing.T) {
 	}
 }
 
-// q is a letter in the compose pane. The root answers it everywhere else, and
-// a quit on the way to "quick" would be unforgivable.
 func TestQIsALetterWhileACommentIsBeingWritten(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -3362,7 +2939,6 @@ func TestQIsALetterWhileACommentIsBeingWritten(t *testing.T) {
 	}
 }
 
-// ? opens the help overlay everywhere else. In the composer it is punctuation.
 func TestTheHelpKeyIsPunctuationWhileACommentIsBeingWritten(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -3373,8 +2949,6 @@ func TestTheHelpKeyIsPunctuationWhileACommentIsBeingWritten(t *testing.T) {
 	}
 }
 
-// The list's search bar takes text too, so the root stands aside for it the
-// same way. q would otherwise quit on the first letter of "question".
 func TestQAndTheHelpKeyAreLettersInTheListsSearchBar(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 	m = settle(m, keyMsg("/"), keyMsg("q"), keyMsg("?"))
@@ -3385,8 +2959,6 @@ func TestQAndTheHelpKeyAreLettersInTheListsSearchBar(t *testing.T) {
 	}
 }
 
-// The bar names the two keys that answer while it holds the keyboard. The rest
-// of the screen's hints are keys that would type rather than act.
 func TestTheStatusBarNamesTheSearchKeysWhileTheBarIsOpen(t *testing.T) {
 	m := loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40)
 
@@ -3403,7 +2975,6 @@ func TestTheStatusBarNamesTheSearchKeysWhileTheBarIsOpen(t *testing.T) {
 	}
 }
 
-// One way out has to work from anywhere, including out of a pane taking text.
 func TestCtrlCStillQuitsFromTheComposer(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -3418,10 +2989,6 @@ func TestCtrlCStillQuitsFromTheComposer(t *testing.T) {
 	}
 }
 
-// The help overlay stays inside the frame. It is sized from an estimate of how
-// wide a column of bindings renders, and an estimate that reads narrow puts the
-// modal's right border off the screen: the frame is still the right width, so
-// nothing catches it but this.
 func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{width: 200, height: 50},
@@ -3447,8 +3014,6 @@ func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
 				}
 			}
 
-			// The corner is the tell. A modal one column too wide loses it, and
-			// every row under it loses its right border with it.
 			out := stripANSI(render(t, m))
 			at := strings.Index(out, "╭─Keys")
 			if at < 0 {
@@ -3461,15 +3026,10 @@ func TestTheHelpOverlayStaysInsideTheFrame(t *testing.T) {
 	}
 }
 
-// The viewer query answers after a screen is already open at startup. Taken
-// only on open, the comment box is headed by nobody for the rest of the session.
 func TestTheViewerReachesAScreenAlreadyOpen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
-	// Init's messages, with the viewer's held back so the detail screen opens
-	// before it lands. The type is unexported and this test is outside the
-	// package, so it is named rather than asserted on.
 	m := app.New(testConfig(), client, testSurface)
 	var viewer, rest []tea.Msg
 	for _, msg := range immediate(m.Init()) {
@@ -3494,13 +3054,10 @@ func TestTheViewerReachesAScreenAlreadyOpen(t *testing.T) {
 	}
 }
 
-// The overlay is drawn over the screen rather than into a pane, so a list too
-// tall for the frame is cut off the bottom with nothing to say what went.
 func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "body")
 
-	// Wide enough for every binding, so nothing is hidden and nothing is said.
 	roomy := stripANSI(render(t, press(loaded(t, client, 120, 34), "enter", "?")))
 	for _, want := range []string{"comment", "reply", "quote reply", "$EDITOR", "quit from anywhere", "sync"} {
 		if !strings.Contains(roomy, want) {
@@ -3511,15 +3068,12 @@ func TestTheHelpOverlaySaysWhenItCannotShowEverything(t *testing.T) {
 		t.Error("a frame with room for the help claims it is short of room")
 	}
 
-	// Too small to hold it, so it says so rather than quietly dropping nine.
 	cramped := stripANSI(render(t, press(loaded(t, client, app.MinWidth, app.MinHeight), "enter", "?")))
 	if !strings.Contains(cramped, "more keys than this frame") {
 		t.Errorf("the overlay drops bindings without saying so:\n%s", cramped)
 	}
 }
 
-// serveThread stages a review thread on a pull request, so the reply keys have
-// something to answer.
 func (f *fakeSearcher) serveThread(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -3538,9 +3092,6 @@ func (f *fakeSearcher) serveThread(id string) {
 	f.details[id] = held
 }
 
-// answering opens the reply box on the staged thread and writes into it. Two
-// tabs, because the ring walks the description and then the thread's one
-// comment; there is no timeline on this fixture.
 func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	t.Helper()
 
@@ -3551,7 +3102,6 @@ func answering(t *testing.T, client *fakeSearcher, body string) tea.Model {
 	return write(m, body)
 }
 
-// The reply is in the thread before GitHub has seen it, and it says so.
 func TestAPostedReplyIsInItsThreadBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3590,8 +3140,6 @@ func TestAReplyThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. The words go back to the thread they were written for, not
-// to the box at the foot of the page, which files against the pull request.
 func TestAFailedReplyGoesBackToItsThread(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -3612,8 +3160,6 @@ func TestAFailedReplyGoesBackToItsThread(t *testing.T) {
 	}
 }
 
-// A sync landing while a reply is out must not take it off the thread. The
-// store holds it beside the fetched detail for exactly this.
 func TestASyncDoesNotTakeAwayAReplyStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3626,8 +3172,6 @@ func TestASyncDoesNotTakeAwayAReplyStillInFlight(t *testing.T) {
 	}
 }
 
-// settling opens the staged pull request and puts the ring on its one review
-// thread. Two tabs, because the ring walks the description first.
 func settling(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -3637,8 +3181,6 @@ func settling(t *testing.T, client *fakeSearcher) tea.Model {
 	return press(loaded(t, client, 160, 40), "enter", "2", "}")
 }
 
-// The card collapsing is the acknowledgement, the same way the optimistic
-// comment is one for a comment.
 func TestAResolvedThreadReadsResolvedBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3670,8 +3212,6 @@ func TestAResolveThatLandsSaysSo(t *testing.T) {
 	}
 }
 
-// The revert branch. Nothing was typed, so putting the thread back is the whole
-// of it, and the toast carries the reason.
 func TestAFailedResolvePutsTheThreadBack(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
@@ -3686,8 +3226,6 @@ func TestAFailedResolvePutsTheThreadBack(t *testing.T) {
 	}
 }
 
-// A sync landing while a resolve is out must not open the thread again. The
-// store holds it beside the fetched detail for exactly this.
 func TestASyncDoesNotUndoAResolveStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3699,8 +3237,6 @@ func TestASyncDoesNotUndoAResolveStillInFlight(t *testing.T) {
 	}
 }
 
-// The diff is a request of its own, so v on a cold tab asks the root for it and
-// lands when it arrives.
 func TestVFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, []gh.ChangedFile{{
@@ -3725,8 +3261,6 @@ func TestVFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
 	}
 }
 
-// Nothing failed: the reader asked for a place the diff does not have, and the
-// screen has nowhere of its own to say so.
 func TestAThreadWhoseFileIsNotInTheDiffSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, []gh.ChangedFile{{
@@ -3744,9 +3278,6 @@ func TestAThreadWhoseFileIsNotInTheDiffSaysSo(t *testing.T) {
 	}
 }
 
-// One write per thread. A second press while the first is out would settle
-// against whichever response arrived first, and the card would then read the
-// opposite of what was pressed last.
 func TestASecondXWhileTheResolveIsOutSendsNothing(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
@@ -3761,9 +3292,6 @@ func TestASecondXWhileTheResolveIsOutSendsNothing(t *testing.T) {
 	}
 }
 
-// Branches filters the staged list the way GitHub does, on a case-insensitive
-// substring of the name, and records every search that reached it. A test holds
-// the debounce against that record: a word typed at speed is one entry.
 func (f *fakeSearcher) Branches(_ context.Context, _, query string) (gh.BranchResult, error) {
 	f.mu.Lock()
 	f.branchQueries = append(f.branchQueries, query)
@@ -3783,15 +3311,12 @@ func (f *fakeSearcher) Branches(_ context.Context, _, query string) (gh.BranchRe
 	return gh.BranchResult{Query: query, Default: "main", Branches: out}, nil
 }
 
-// failBranches makes every search from here on fail, so a test can drive the
-// leg that leaves the picker holding what it already had.
 func (f *fakeSearcher) failBranches(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.branchErr = err
 }
 
-// serveBranches stages the branches every search draws from.
 func (f *fakeSearcher) serveBranches(names ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -3804,12 +3329,6 @@ func (f *fakeSearcher) searches() []string {
 	return slices.Clone(f.branchQueries)
 }
 
-// SetBase records the ask and answers with the branch, writing it back onto the
-// staged pull request for the reason SetState does: the refetch the write fires
-// would otherwise report the base from before it, which reads on the rail as
-// the write undoing itself.
-//
-// It reuses postErr and postHold, the way the other writes do.
 func (f *fakeSearcher) SetBase(_ context.Context, prID, base string) (gh.BaseResult, error) {
 	f.mu.Lock()
 	f.retargeted = append(f.retargeted, prID+": "+base)
@@ -3826,9 +3345,6 @@ func (f *fakeSearcher) SetBase(_ context.Context, prID, base string) (gh.BaseRes
 	for i := range f.prs {
 		if f.prs[i].ID == prID {
 			f.prs[i].BaseRefName = base
-			// A retarget rewrites what the pull request contains, so the count
-			// the diff's overflow is measured against moves with it. A test
-			// holds the refetch to the new one.
 			if f.retargetedFiles > 0 {
 				f.prs[i].ChangedFiles = f.retargetedFiles
 			}
@@ -3836,9 +3352,6 @@ func (f *fakeSearcher) SetBase(_ context.Context, prID, base string) (gh.BaseRes
 	}
 	if d, ok := f.details[prID]; ok {
 		d.BaseRefName = base
-		// A retarget rewrites the comparison, and the fixture has to move with
-		// it or the refetch puts the old count back under the new name and the
-		// test cannot tell a correction from a stale frame.
 		d.BehindBy = 0
 		f.details[prID] = d
 	}
@@ -3853,12 +3366,6 @@ func (f *fakeSearcher) retargets() []string {
 	return slices.Clone(f.retargeted)
 }
 
-// Merge records what it was asked for and lands the staged pull request, for
-// the reason SetBase writes the branch back: the refetch the write fires would
-// otherwise report the state from before it, which reads on the rail as the
-// write undoing itself.
-//
-// It reuses postErr and postHold, the way the other writes do.
 func (f *fakeSearcher) Merge(_ context.Context, prID string, opts gh.MergeOptions) (gh.MergeResult, error) {
 	f.mu.Lock()
 	f.merged = append(f.merged, opts)
@@ -4090,8 +3597,6 @@ func TestAJobFetchFailureStaysInTheSelectedPane(t *testing.T) {
 	}
 }
 
-// Nothing failed: the pane has no room for two columns of source and the diff
-// is still readable unified. The count is the whole of what the toast is for.
 func TestSideBySideInAPaneTooNarrowSaysHowShortItIs(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -4105,15 +3610,11 @@ func TestSideBySideInAPaneTooNarrowSaysHowShortItIs(t *testing.T) {
 	}
 }
 
-// sgrParams is the parameter run lipgloss emits for a style, read back off a
-// rendered cell rather than rebuilt from the color. A slot goes over the wire as
-// its own SGR code and only a truecolor goes over as 38;2;r;g;b, so a helper
-// doing the arithmetic itself asserts against a sequence the app never writes.
+// Read off a rendered cell: a slot goes over the wire as its own SGR code, not 38;2;r;g;b.
 func sgrParams(s lipgloss.Style) string {
 	out := s.Render("x")
 	end := strings.Index(out, "m")
 	if end < 0 {
-		// NoColor is the terminal's own, and nothing is written for it.
 		return ""
 	}
 	return out[len("\x1b["):end]
@@ -4125,8 +3626,6 @@ func (f *fakeSearcher) askedRunReruns() []runRerun {
 	return slices.Clone(f.runReruns)
 }
 
-// bulkChecksClient is a pull request whose CI workflow ran two jobs and failed
-// one, which is the shape the workflow row's two keys differ over.
 func bulkChecksClient(t *testing.T, runErr error) *fakeSearcher {
 	t.Helper()
 
@@ -4143,8 +3642,6 @@ func bulkChecksClient(t *testing.T, runErr error) *fakeSearcher {
 	return client
 }
 
-// r on the workflow row sends the run to the failed-jobs endpoint, and the
-// column carries the write the way a one-job rerun does.
 func TestRerunningAWorkflowsFailedJobsGoesOutAndReportsItself(t *testing.T) {
 	client := bulkChecksClient(t, nil)
 
@@ -4159,8 +3656,6 @@ func TestRerunningAWorkflowsFailedJobsGoesOutAndReportsItself(t *testing.T) {
 	}
 }
 
-// R is the same row's other endpoint, and the toast has to tell the two apart:
-// they are one keystroke and one word from each other.
 func TestRerunningEveryJobInAWorkflowGoesOutAndReportsItself(t *testing.T) {
 	client := bulkChecksClient(t, nil)
 
@@ -4175,8 +3670,6 @@ func TestRerunningEveryJobInAWorkflowGoesOutAndReportsItself(t *testing.T) {
 	}
 }
 
-// A refused bulk write has to release every mark it made, or the column claims
-// jobs are rerunning that GitHub never accepted.
 func TestARefusedWorkflowRerunReleasesEveryMarkItMade(t *testing.T) {
 	client := bulkChecksClient(t, errors.New("actions write denied"))
 

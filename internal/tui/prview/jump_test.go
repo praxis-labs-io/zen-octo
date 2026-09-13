@@ -11,13 +11,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// jumpHeight is short enough that the fixture's diff does not fit in the pane.
-// A frame the whole diff fits inside cannot scroll at all, and every assertion
-// about where a jump landed passes on it by accident.
 const jumpHeight = 24
 
-// jumping is the conversation on the card v is pressed from, with a diff
-// already here.
 func jumping(t *testing.T, n int) prview.Model {
 	t.Helper()
 
@@ -26,22 +21,14 @@ func jumping(t *testing.T, n int) prview.Model {
 	return m
 }
 
-// onTab is whether the strip reads this tab as the current one.
 func onTab(t *testing.T, frame, name string) bool {
 	t.Helper()
 	return currentTab(t, frame) == name
 }
 
-// landed is what every jump has to produce: the code the thread was written
-// against on the screen with the card under it, and the file's own hunk heading
-// scrolled away, so the pane is not just showing the top of the file.
-//
-// The marker is the line above the anchor. They are next to each other in the
-// diff, so one on the screen puts the other there too.
 func landed(t *testing.T, frame string) {
 	t.Helper()
 
-	// Rows of the pane, not lines of the frame: the header is pinned above it.
 	top := paneTopAt(frame)
 	code := lineOf(t, frame, "min(delay*2, fetchTimeout)") - top
 	card := lineOf(t, frame, cardThread) - top
@@ -59,9 +46,6 @@ func landed(t *testing.T, frame string) {
 	}
 }
 
-// A card put on the top row takes the line it answers off the screen with it,
-// which leaves the reader looking at a comment about code they cannot see. The
-// reply box one tab over follows the same rule for the same reason.
 func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 
@@ -71,8 +55,6 @@ func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 	landed(t, m.View())
 }
 
-// The diff costs a request of its own, so the first v on a cold tab asks for it
-// and lands when it arrives.
 func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
@@ -92,10 +74,7 @@ func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 	landed(t, next.View())
 }
 
-// A file inside a collapsed directory is in no row and no span, so there is
-// nothing to point at and nothing to scroll to until every fold above it goes.
 func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
-	// Down the column to the directory the file sits in, and fold it.
 	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "space")
 	if strings.Contains(cursorFile(folded.View()), "client.go") {
 		t.Fatal("setup: the cursor is on the file rather than the directory above it")
@@ -107,7 +86,6 @@ func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 	landed(t, press(folded, "[", "[", "[", "v").View())
 }
 
-// The column and the pane beside it have to agree on which file is on screen.
 func TestVMovesTheTreeCursorToTheFile(t *testing.T) {
 	m := jumping(t, tabThread)
 	if got := cursorFile(m.View()); got == "client.go" {
@@ -119,8 +97,6 @@ func TestVMovesTheTreeCursorToTheFile(t *testing.T) {
 	}
 }
 
-// Switching to a tab that cannot show what was asked for, and saying so from
-// there, is two moves to deliver one piece of bad news.
 func TestVOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
 	next, cmd := key(jumping(t, tabLocked), "v")
 	if cmd == nil {
@@ -136,8 +112,6 @@ func TestVOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
 	}
 }
 
-// A thread GitHub gave no line is a comment on the file as a whole. It is drawn
-// nowhere in the diff, so there is nowhere to take the reader.
 func TestVOnAThreadWithNoLineDoesNothing(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[3].Line = 0
@@ -159,8 +133,6 @@ func TestVIsInertWithNothingFocused(t *testing.T) {
 	}
 }
 
-// The reader moved on while the diff was out. Hauling the page to where they no
-// longer are is the one thing every key on this screen refuses to do.
 func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
 	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
 	m = press(m, "[", "[", "[")
@@ -172,8 +144,6 @@ func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
 	}
 }
 
-// A diff that never arrived has nothing to land in, and the pane already says
-// why. The jump has to let go of it, or the next diff to arrive lands late.
 func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
 	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
 	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("network is down")})
@@ -186,8 +156,6 @@ func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
 	}
 }
 
-// The viewport clamps to its own content, so a thread in the last file cannot
-// reach the top row. It still has to be on the screen.
 func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[3].Path = "internal/tui/prview/files.go"
@@ -202,8 +170,6 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	}
 }
 
-// Folding a directory takes the file being read off the tree, and the pane has
-// to find another. The jump has to reach back into it, unfolding on the way.
 func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
 	m := press(jumping(t, tabThread), "v")
 	landed(t, m.View())
@@ -213,16 +179,12 @@ func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testin
 		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
-	// The ring is still on the thread, so the conversation needs no walking.
 	landed(t, press(folded, "[", "[", "[", "v").View())
 }
 
-// A diff that failed is asked for again rather than landed on. The pane carries
-// no retry of its own, and pressing v is the reader asking to see the code.
 func TestVAsksAgainForADiffThatFailed(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
-	// The tab has been opened once already and the fetch came back empty.
 	m = press(m, "]", "]", "]")
 	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("502 Bad Gateway")})
 	m = press(m, "[", "[", "[")
@@ -239,8 +201,6 @@ func TestVAsksAgainForADiffThatFailed(t *testing.T) {
 	landed(t, next.View())
 }
 
-// tallFiles is a diff whose tree does not fit the column, which is what makes
-// the cursor's own scroll position observable.
 func tallFiles() []gh.ChangedFile {
 	files := make([]gh.ChangedFile, 0, 31)
 	for i := range 30 {
@@ -257,14 +217,10 @@ func tallFiles() []gh.ChangedFile {
 	return append(files, sampleFiles()[0])
 }
 
-// The column can only be scrolled once it holds the rows. Scrolled against the
-// tree as it was folded, the offset clamps and the cursor lands off screen.
 func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 	m.SetFiles(loadedFiles(tallFiles(), 0))
 
-	// Up to the one directory and fold it, which takes every file out of the
-	// tree. The cursor opens on the first file, one row under it.
 	folded := press(m, "]", "]", "]", "1", "k", "space")
 	if got := selectedRow(folded.View()); !strings.Contains(got, "internal/gh/") {
 		t.Fatalf("setup: the fold landed on %q rather than the directory", strings.TrimSpace(got))
@@ -280,9 +236,6 @@ func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 	}
 }
 
-// railTo walks the rail's ring to the row naming want. The rail is a list of
-// controls and its cursor is what enter reads, so a test that means "the check
-// row" has to stand on it rather than assume its index.
 func railTo(t *testing.T, m prview.Model, want string) prview.Model {
 	t.Helper()
 
@@ -301,10 +254,6 @@ func railTo(t *testing.T, m prview.Model, want string) prview.Model {
 	return m
 }
 
-// A check is the one rail row with no write behind it, so enter takes the
-// reader to the tab that holds its log and its rerun keys. The rail row and the
-// tab's selection are keyed the same, so what lands under the cursor there is
-// the row that was pointed at here.
 func TestEnterOnARailCheckOpensItOnTheChecksTab(t *testing.T) {
 	d := sampleDetail()
 	d.Rollup = checkRollup()
@@ -321,9 +270,6 @@ func TestEnterOnARailCheckOpensItOnTheChecksTab(t *testing.T) {
 		t.Fatalf("enter on a rail check did not open the Checks tab:\n%s", out)
 	}
 
-	// The selection rather than the frame: r acts on the check under the
-	// cursor, so the job it names is what says the jump landed on the row the
-	// reader pointed at rather than on whichever check sorted first.
 	_, cmd := key(m, "r")
 	if cmd == nil {
 		t.Fatal("the jump landed somewhere with no failed job under the cursor")
@@ -337,13 +283,10 @@ func TestEnterOnARailCheckOpensItOnTheChecksTab(t *testing.T) {
 	}
 }
 
-// A folded workflow draws no row for its jobs, so a jump into one has to open
-// it. Landing on a row nothing renders reads as the key having done nothing.
 func TestAJumpIntoAFoldedWorkflowOpensIt(t *testing.T) {
 	d := sampleDetail()
 	d.Rollup = checkRollup()
 
-	// Fold Build on the tab, then leave and come back through the rail.
 	m := press(detailed(held(d), 160, 44), "]", "]", "j", "space")
 	if strings.Contains(stripANSI(m.View()), "  test") {
 		t.Fatal("setup: the workflow did not fold")
@@ -352,9 +295,6 @@ func TestAJumpIntoAFoldedWorkflowOpensIt(t *testing.T) {
 	m = railTo(t, press(m, "[", "[", "1"), "Build / test")
 	m = press(m, "enter")
 
-	// The indented row and the open marker, rather than the name: the rail lists
-	// "Build / test" too, so a bare substring passes whether or not the workflow
-	// opened.
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "▾ ✗ Build") {
 		t.Errorf("the workflow the jump landed in is still folded:\n%s", out)

@@ -17,8 +17,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// sampleCommits covers what the column has to tell apart: the three check
-// states, and an author GitHub has no account for.
 func sampleCommits() []gh.Commit {
 	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
 
@@ -35,23 +33,16 @@ func sampleCommits() []gh.Commit {
 	}
 }
 
-// onCommits is the screen with a detail loaded, sitting on the Commits tab.
 func onCommits(width, height int) prview.Model {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
 	return press(detailed(held(d), width, height), "]")
 }
 
-// settled stands in for a cursor that has stopped moving. It skips the wait
-// itself, which tea.Tick spends in a sleep; the tests that have to prove the
-// wait was armed at all use armed instead.
 func settled(m prview.Model, sha string) (prview.Model, tea.Cmd) {
 	return m.Update(prview.CommitSettleMsg{SHA: sha})
 }
 
-// armed runs the wait a key produced, the way the runtime would, and returns
-// what it carried. It blocks for commitSettleDelay, which is the price of
-// driving the arming gate through a key rather than stepping around it.
 func armed(t *testing.T, cmd tea.Cmd) tea.Msg {
 	t.Helper()
 	if cmd == nil {
@@ -60,12 +51,10 @@ func armed(t *testing.T, cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-// key drives one keypress and hands back whatever it armed.
 func key(m prview.Model, k string) (prview.Model, tea.Cmd) {
 	return m.Update(tea.KeyPressMsg{Code: rune(k[0]), Text: k})
 }
 
-// commitDiff is a commit's diff the way the store hands one over.
 func commitDiff(files []gh.ChangedFile) store.Files {
 	return store.Files{Files: files, Status: store.StatusReady, Loaded: true}
 }
@@ -86,15 +75,11 @@ func TestTheCommitColumnNamesEveryCommit(t *testing.T) {
 		}
 	}
 
-	// The count is on the strip now, which can say all four where a column can
-	// only ever say its own.
 	if !strings.Contains(out, "Commits") {
 		t.Error("the column is not titled")
 	}
 }
 
-// The headline gets the top line to itself. The sha reads as metadata, so it
-// sits with the author and the age on the line under it.
 func TestTheCommitHeadlineHasTheTopLineToItself(t *testing.T) {
 	column := columnLines(onCommits(160, 24).View())
 
@@ -128,8 +113,6 @@ func TestACommitWithNoAccountFallsBackToTheNameGitRecorded(t *testing.T) {
 	}
 }
 
-// The marker is the one cell the column spends on where a commit's checks got
-// to, so the color is the whole of the signal.
 func TestTheCheckMarkerTakesEachCommitsOwnState(t *testing.T) {
 	out := onCommits(160, 24).View()
 
@@ -148,9 +131,6 @@ func TestTheCheckMarkerTakesEachCommitsOwnState(t *testing.T) {
 	}
 }
 
-// marked reports whether a dot is painted in a foreground. The selected row
-// carries a background in the same sequence, so the color is not always the
-// last thing before the m.
 func marked(frame, fg string) bool {
 	return regexp.MustCompile(regexp.QuoteMeta(fg) + `(;[0-9;]+)?m●`).MatchString(frame)
 }
@@ -181,9 +161,6 @@ func TestSettlingOnTheCommitAlreadyShowingAsksAgainForNothing(t *testing.T) {
 	}
 }
 
-// The pane holds the commit it is showing until the store answers with the next
-// one. A cached diff answers inside a frame, and clearing the pane to meet it
-// puts a spinner on screen over a wait that never happened.
 func TestAskingForACommitLeavesTheOneOnScreenAlone(t *testing.T) {
 	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
@@ -199,9 +176,6 @@ func TestAskingForACommitLeavesTheOneOnScreenAlone(t *testing.T) {
 	}
 }
 
-// A commit that really is being fetched still spins. The store answers a request
-// that is out as well as one it holds, and the loading state it sends is what
-// the pane takes.
 func TestACommitBeingFetchedSpins(t *testing.T) {
 	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", store.Files{Status: store.StatusLoading})
@@ -211,9 +185,6 @@ func TestACommitBeingFetchedSpins(t *testing.T) {
 	}
 }
 
-// Every keypress arms a wait of its own, so walking three commits sets three of
-// them. Only the one still naming the commit under the cursor may fetch: the
-// rest are a branch the reader passed through on the way here.
 func TestOnlyTheCommitTheCursorStoppedOnIsAskedFor(t *testing.T) {
 	m := press(onCommits(160, 24), "1", "j", "j", "k")
 
@@ -228,9 +199,6 @@ func TestOnlyTheCommitTheCursorStoppedOnIsAskedFor(t *testing.T) {
 	}
 }
 
-// The cursor moving arms a wait naming the commit it landed on. Driven through
-// the key and its command rather than by handing the model the message, which
-// is the only way the arming gate is exercised at all.
 func TestMovingTheCursorArmsTheWaitForThatCommit(t *testing.T) {
 	m, cmd := key(press(onCommits(160, 24), "1"), "j")
 
@@ -246,9 +214,6 @@ func TestMovingTheCursorArmsTheWaitForThatCommit(t *testing.T) {
 	}
 }
 
-// A wait armed on the way through the Commits tab runs out wherever the reader
-// got to. Tabbing on within the settle window is one keypress at ordinary key
-// repeat, and fetching then spends the request the whole debounce exists to save.
 func TestAWaitThatRunsOutOnAnotherTabAsksForNothing(t *testing.T) {
 	m := press(onCommits(160, 24), "1", "j")
 	m = press(m, "]")
@@ -258,9 +223,6 @@ func TestAWaitThatRunsOutOnAnotherTabAsksForNothing(t *testing.T) {
 	}
 }
 
-// A failed diff has no key that selects it any more, so the wait has to arm on
-// the commit already showing. On a one-commit branch there is nowhere to walk
-// to and back, and without this the error stays until the screen is closed.
 func TestAFailedCommitArmsARetryWithNowhereToWalk(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()[:1]
@@ -279,8 +241,6 @@ func TestAFailedCommitArmsARetryWithNowhereToWalk(t *testing.T) {
 	}
 }
 
-// The tab can be opened before the detail query answers. The commits arrive
-// with nothing armed to fetch the first one, so the arriving detail arms it.
 func TestCommitsArrivingAfterTheTabArmTheirOwnFetch(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
@@ -294,8 +254,6 @@ func TestCommitsArrivingAfterTheTabArmTheirOwnFetch(t *testing.T) {
 	}
 }
 
-// Nothing painted yet is a wait, not an empty pane. A column full of commits
-// beside a blank pane reads as a rendering fault rather than as a diff coming.
 func TestThePaneSpinsThroughTheSettleWindow(t *testing.T) {
 	out := stripANSI(onCommits(160, 24).View())
 
@@ -304,9 +262,6 @@ func TestThePaneSpinsThroughTheSettleWindow(t *testing.T) {
 	}
 }
 
-// One viewport serves all four tabs. A commit answering after the reader has
-// tabbed on still takes the pane, but it must not scroll it: the offset it
-// would reset belongs to whatever they are reading now.
 func TestACommitLandingOffTabKeepsTheReadersPlace(t *testing.T) {
 	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
 	m = press(m, "[")
@@ -320,9 +275,6 @@ func TestACommitLandingOffTabKeepsTheReadersPlace(t *testing.T) {
 	}
 }
 
-// A retry asks for the commit already showing, so the answer never takes the
-// pane. Clearing pending only on a take would latch it there and swallow every
-// retry after the first.
 func TestASecondRetryOfAFailedCommitStillAsks(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()[:1]
@@ -344,19 +296,14 @@ func TestASecondRetryOfAFailedCommitStillAsks(t *testing.T) {
 	}
 }
 
-// A diff answering for a commit the reader has walked back off must not paint:
-// the card would name one commit while the column highlights another.
 func TestADiffThatLandsAfterTheCursorWalksBackIsDropped(t *testing.T) {
 	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
-	// Down to the second, ask for it, then back up before it answers.
 	m, _ = settled(press(m, "j"), "7b20ef4a11")
 	m = press(m, "k")
 	m.SetCommitFiles("7b20ef4a11", commitDiff(sampleFiles()))
 
-	// The full sha is the tell: the card spells it out, the column has room
-	// only for the short one.
 	out := stripANSI(m.View())
 	if strings.Contains(out, "7b20ef4a11") {
 		t.Error("the card names a commit the column is not pointing at")
@@ -379,8 +326,6 @@ func TestTheCommitDiffRendersThroughTheFilesViewer(t *testing.T) {
 	}
 }
 
-// A diff for a commit the cursor has moved on from must not land on the screen:
-// the reader asked for a different one and is waiting on it.
 func TestADiffForAnotherCommitIsDropped(t *testing.T) {
 	m, _ := settled(onCommits(160, 24), "a3f91c2d5e")
 	m.SetCommitFiles("7b20ef4a11", commitDiff(sampleFiles()))
@@ -414,8 +359,6 @@ func TestTheCommitDiffStatesReadAsThemselves(t *testing.T) {
 	}
 }
 
-// The tab opens on content the way Files does, so landing on it asks for the
-// commit the cursor is already pointing at.
 func TestTheCommitsTabAsksForItsFirstDiffOnTheWayIn(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
@@ -428,8 +371,6 @@ func TestTheCommitsTabAsksForItsFirstDiffOnTheWayIn(t *testing.T) {
 	}
 }
 
-// A pull request with no commits has nothing to point at. The column says so,
-// and the pane beside it stays empty rather than saying it twice.
 func TestAnEmptyCommitListLeavesThePaneEmpty(t *testing.T) {
 	m := press(detailed(held(sampleDetail()), 160, 24), "]")
 
@@ -442,9 +383,6 @@ func TestAnEmptyCommitListLeavesThePaneEmpty(t *testing.T) {
 	}
 }
 
-// Every styled run ends in a reset that clears the background with it, so a row
-// painted as one string would carry its selection only as far as the first
-// token. Both lines of the row have to hold it the whole way across.
 func TestTheSelectedCommitIsPaintedCellByCellAcrossBothLines(t *testing.T) {
 	m := onCommits(160, 24)
 	seq := bgSeq(testTheme.SelectedBackground)
@@ -466,15 +404,6 @@ func TestTheSelectedCommitIsPaintedCellByCellAcrossBothLines(t *testing.T) {
 	}
 }
 
-// The cursor walks rows, and a row is two lines. An offset that lands between
-// them opens the column on a row's second line with its sha cut off above.
-//
-// The odd height is the one that catches it: an even one lands on a boundary by
-// accident. The list runs past the window on both so the scroll is a real one
-// rather than a clamp to the end, which lands on a boundary by accident too.
-//
-// The heights are the frame's, and the header takes five rows off the top of
-// it, so these are the pane heights that were 6 and 7.
 func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
 	for _, height := range []int{11, 12} {
 		t.Run(strconv.Itoa(height), func(t *testing.T) {
@@ -487,7 +416,6 @@ func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
 				t.Fatalf("the column rendered %d lines, want two whole rows", len(column))
 			}
 
-			// The window opens on a row's first line, not the meta line under it.
 			if !strings.Contains(column[0], "Drop the count") {
 				t.Errorf("the column opens on %q, want the top of a row", column[0])
 			}
@@ -501,10 +429,6 @@ func TestTheCommitCursorScrollsAWholeRowAtATime(t *testing.T) {
 	}
 }
 
-// Review threads are written against the pull request's head. The same line
-// number in an older commit is different code, so a commit's diff hangs none of
-// them: a comment about the final diff under a line it was never about reads as
-// a comment about that line.
 func TestACommitDiffCarriesNoReviewThreads(t *testing.T) {
 	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
@@ -517,8 +441,6 @@ func TestACommitDiffCarriesNoReviewThreads(t *testing.T) {
 	}
 }
 
-// The column has room for a short sha and a headline. Everything else about the
-// commit goes above its diff, where there is width for it.
 func TestTheSelectedCommitIsNamedAboveItsDiff(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
@@ -546,8 +468,6 @@ func TestTheSelectedCommitIsNamedAboveItsDiff(t *testing.T) {
 	}
 }
 
-// A commit written with no body is its headline alone. The card still carries
-// the sha and the author, which is what the column could not fit.
 func TestTheCardHoldsUpWithNoMessageBody(t *testing.T) {
 	m, _ := settled(onCommits(160, 40), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
@@ -561,9 +481,6 @@ func TestTheCardHoldsUpWithNoMessageBody(t *testing.T) {
 	}
 }
 
-// The cursor walks rows and a row is two lines, so a page of the column is half
-// the lines the pane holds. Paged by the line count instead, every press clears
-// a screenful of commits the reader never sees.
 func TestPagingTheCommitColumnMovesByRows(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = manyCommits(40)
@@ -580,16 +497,12 @@ func TestPagingTheCommitColumnMovesByRows(t *testing.T) {
 		t.Fatal("page down did not move the column")
 	}
 
-	// A page moves the window by what it holds. Anything more and the commits
-	// in between never appear on screen at all.
 	if at := indexOf(before, after[0]); at < 0 {
 		t.Errorf("the window jumped from %q to %q, skipping every commit between",
 			before[len(before)-1], after[0])
 	}
 }
 
-// manyCommits is a branch long enough to scroll, each row telling itself apart
-// from the rest.
 func manyCommits(n int) []gh.Commit {
 	out := make([]gh.Commit, 0, n)
 	for i := range n {
@@ -604,7 +517,6 @@ func manyCommits(n int) []gh.Commit {
 	return out
 }
 
-// shownHeadlines is the commit headlines on screen, in order.
 func shownHeadlines(frame string) []string {
 	var out []string
 	for i, line := range columnLines(frame) {
@@ -624,9 +536,6 @@ func indexOf(lines []string, want string) int {
 	return -1
 }
 
-// One viewport serves the file column and the commit column, and their rows are
-// different heights. An offset the tree left behind opens the commit column on
-// a row's second line, with its headline cut off above the window.
 func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
 	for _, height := range []int{9, 10, 11, 12, 13} {
 		t.Run(strconv.Itoa(height), func(t *testing.T) {
@@ -636,8 +545,6 @@ func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
 			m := detailed(held(d), 160, height)
 			m.SetFiles(store.Files{Files: sampleFiles(), Status: store.StatusReady, Loaded: true})
 
-			// Into the file tree, down it far enough to scroll, then round to
-			// Commits.
 			m = press(m, "]", "]", "]", "1")
 			for range 9 {
 				m = press(m, "j")
@@ -655,14 +562,10 @@ func TestSwitchingTabsOpensTheCommitColumnOnARow(t *testing.T) {
 	}
 }
 
-// The column drives the diff beside it, so it takes focus on the way in rather
-// than making the reader ask for it first.
 func TestTheCommitsTabOpensWithTheColumnFocused(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
 
-	// j moves the cursor when the column has focus, and scrolls the pane beside
-	// it when it does not. Which commit settles is the tell.
 	_, cmd := settled(press(detailed(held(d), 160, 24), "]", "j"), d.Commits[1].SHA)
 	if cmd == nil {
 		t.Fatal("no diff was asked for, so j never reached the column")
@@ -681,8 +584,6 @@ func TestBraceWalksTheFilesInACommitDiff(t *testing.T) {
 	m, _ := settled(onCommits(160, 12), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
 
-	// The first } lands on the first file, since the pane opens on the blank
-	// line above it. The second is the one that moves a file.
 	first := stripANSI(press(m, "}").View())
 	second := stripANSI(press(m, "}", "}").View())
 	if first == second {
@@ -702,9 +603,6 @@ func TestTheRailIsOffOnTheCommitsTab(t *testing.T) {
 	}
 }
 
-// The column narrows before it goes, and goes at the width the pane beside it
-// stops fitting its own tab strip. Below that the two of them render wider than
-// the terminal they were handed.
 func TestTheCommitColumnHidesOnANarrowFrame(t *testing.T) {
 	for _, width := range []int{160, 100, 70} {
 		if !strings.Contains(stripANSI(onCommits(width, 24).View()), "a3f91c2") {
@@ -718,10 +616,6 @@ func TestTheCommitColumnHidesOnANarrowFrame(t *testing.T) {
 	}
 }
 
-// The column opens on a row rather than between two. A window that holds an odd
-// number of lines is the one that catches it: the offset the cursor asks for at
-// the end of the list is one the viewport clamps back off the boundary, and the
-// row on the top line loses its headline above the window.
 func TestTheCommitColumnOpensOnAWholeRow(t *testing.T) {
 	for _, height := range []int{10, 11, 12, 13} {
 		t.Run(strconv.Itoa(height), func(t *testing.T) {
@@ -734,8 +628,6 @@ func TestTheCommitColumnOpensOnAWholeRow(t *testing.T) {
 				t.Fatalf("the column rendered %d lines, want a row", len(lines))
 			}
 			for i, line := range lines {
-				// An odd window holds a whole number of rows and a spare line,
-				// which the pane pads out under them.
 				if strings.TrimSpace(line) == "" {
 					break
 				}
@@ -776,8 +668,6 @@ func TestTheFrameFillsItsSizeExactlyOnTheCommitsTab(t *testing.T) {
 	}
 }
 
-// A run of pushes is headed by its count and then spelled out, one commit to a
-// row. The header alone says a branch moved without saying what landed on it.
 func TestARunOfPushesNamesEveryCommitUnderIt(t *testing.T) {
 	run := sampleCommits()
 	run[1].Author = run[0].Author
@@ -803,7 +693,6 @@ func TestARunOfPushesNamesEveryCommitUnderIt(t *testing.T) {
 		}
 	}
 
-	// The run sits under its own header, not above it.
 	head := strings.Index(out, "pushed 2 commits")
 	first := strings.Index(out, "a3f91c2  Cap the backoff")
 	if head < 0 || first < 0 || head > first {
@@ -811,8 +700,6 @@ func TestARunOfPushesNamesEveryCommitUnderIt(t *testing.T) {
 	}
 }
 
-// A lone push already names its commit on the header line, so a row under it
-// would say the same thing twice.
 func TestALonePushHasNoRowUnderIt(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()[:1]
@@ -835,8 +722,6 @@ func TestALonePushNamesItsShaAndHeadline(t *testing.T) {
 	}
 }
 
-// Crediting one person for someone else's commits is worse than crediting
-// nobody, so a mixed run drops the name and keeps the count.
 func TestARunByMoreThanOnePersonNamesNobody(t *testing.T) {
 	d := sampleDetail()
 	d.Commits = sampleCommits()
@@ -860,8 +745,6 @@ func commitItem(c gh.Commit) gh.TimelineItem {
 	}
 }
 
-// columnLines is the left column's rows, with the borders and the pane beside
-// it cut away.
 func columnLines(frame string) []string {
 	var out []string
 	for _, line := range strings.Split(stripANSI(frame), "\n") {
@@ -869,8 +752,6 @@ func columnLines(frame string) []string {
 		if len(cells) < 2 || cells[0] != '│' {
 			continue
 		}
-		// Indexed by rune rather than by byte: the rows carry marks and dots
-		// that run to three bytes, and a byte offset lands past the border.
 		for i, r := range cells[1:] {
 			if r == '│' {
 				out = append(out, string(cells[1:1+i]))
@@ -881,8 +762,6 @@ func columnLines(frame string) []string {
 	return out
 }
 
-// The row cursor belongs to the Files tab. A commit's diff draws through the
-// same renderer, and a bar there would point at a row no key can act on.
 func TestTheCommitDiffTakesNoRowCursor(t *testing.T) {
 	m, _ := settled(onCommits(200, 24), "a3f91c2d5e")
 	m.SetCommitFiles("a3f91c2d5e", commitDiff(sampleFiles()))
@@ -896,9 +775,6 @@ func TestTheCommitDiffTakesNoRowCursor(t *testing.T) {
 	}
 }
 
-// The split is the body's mode and not the model's. The Commits tab draws every
-// file unified whatever the Files tab was left on, and a heading indented to a
-// half's source column sits three cells left of the code it introduces.
 func TestTheCommitsHeadingKeepsItsIndentWhileFilesIsSplit(t *testing.T) {
 	heading := func(split bool) string {
 		t.Helper()

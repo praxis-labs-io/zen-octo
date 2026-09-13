@@ -9,9 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// setters maps a config key to the field it writes. It is the whole of the
-// override vocabulary: a key that isn't here is refused by name rather than
-// ignored, because a silently dropped color reads as a theme that did not work.
+// A key missing here is refused by name rather than ignored: a dropped color reads as a broken theme.
 var setters = map[string]func(*Theme, color.Color){
 	"text":               func(t *Theme, c color.Color) { t.Text = c },
 	"accent":             func(t *Theme, c color.Color) { t.Accent = c },
@@ -30,17 +28,13 @@ var setters = map[string]func(*Theme, color.Color){
 	"borderMuted":        func(t *Theme, c color.Color) { t.BorderMuted = c },
 }
 
-// backgroundKey and foregroundKey are derivation inputs rather than tokens,
-// which is why they are known here and absent from setters. They say what the
-// terminal is, where it could not say so itself or said so wrongly, and the
-// shades, the surfaces and the syntax pairing are all built from them.
+// Derivation inputs rather than tokens, which is why they are absent from setters.
 const (
 	backgroundKey = "background"
 	foregroundKey = "foreground"
 )
 
-// Keys lists the override vocabulary in a stable order, for the message that
-// follows a key nobody recognised.
+// Keys lists every override key, sorted.
 func Keys() []string {
 	keys := make([]string, 0, len(setters)+2)
 	for k := range setters {
@@ -51,31 +45,19 @@ func Keys() []string {
 	return keys
 }
 
-// Overrides is a token name against a color, every one optional, layered over
-// the derived theme. Pinning one color and bringing a whole palette are then the
-// same feature.
-//
-// It takes plain strings rather than reading a file: what a config document
-// looks like belongs to the package that loads one, and a package that draws
-// colors has no business knowing. That is also what keeps this one a leaf.
+// Overrides is a set of optional per-token colors layered over the derived theme.
 type Overrides struct {
 	raw map[string]string
 
-	// Named is a theme name found where the colors were expected. There is one
-	// theme now and it has no name, but `theme: rose-pine-moon` is on disk for
-	// anyone running the last release, and refusing to start over a color
-	// scheme is the wrong trade.
+	// Named is a theme name found where colors were expected, tolerated from older configs.
 	Named string
 }
 
-// NewOverrides builds the set from whatever config read.
 func NewOverrides(colors map[string]string, named string) Overrides {
 	return Overrides{raw: colors, Named: named}
 }
 
-// Surface is what config says the terminal is, either field nil where it says
-// nothing. It outranks what the terminal reported: it is written down because
-// that answer was wrong, or because nothing answered at all.
+// Surface is the background and foreground config names, each nil where it names none.
 func (o Overrides) Surface() Surface {
 	var s Surface
 	if c, ok := parse(o.raw[backgroundKey]); ok {
@@ -87,11 +69,8 @@ func (o Overrides) Surface() Surface {
 	return s
 }
 
-// Resolve builds the theme. What config named outranks what was reported, field
-// by field, and the rest of the overrides land on what is derived from the pair
-// that won. The order is the whole of the point: a background written down after
-// derivation would correct one field, where the shades, the surfaces and the
-// syntax pairing all hang off it.
+// Resolve derives the theme from reported, with config's named surface
+// outranking it field by field, then applies the remaining overrides.
 func (o Overrides) Resolve(reported Surface, transparent bool) Theme {
 	named := o.Surface()
 	if named.Background != nil {
@@ -103,8 +82,8 @@ func (o Overrides) Resolve(reported Surface, transparent bool) Theme {
 	return o.Apply(Terminal(reported, transparent))
 }
 
-// Validate reports the first key or value it cannot use, naming it. Colors are
-// hex, or an ANSI index as a bare number the way lipgloss spells one.
+// Validate reports the first unknown key or unusable value, naming it. Colors
+// are hex, or an ANSI index from 0 to 255 as a bare number.
 func (o Overrides) Validate() error {
 	for _, key := range sorted(o.raw) {
 		if _, ok := setters[key]; !ok && key != backgroundKey && key != foregroundKey {
@@ -118,9 +97,7 @@ func (o Overrides) Validate() error {
 	return nil
 }
 
-// Apply layers the overrides onto a derived theme. Validate has already refused
-// anything unusable, so anything that does not parse here is skipped rather than
-// written as the absence of a color.
+// Apply layers the overrides onto t, skipping any value that does not parse.
 func (o Overrides) Apply(t Theme) Theme {
 	for _, key := range sorted(o.raw) {
 		set, ok := setters[key]
@@ -134,17 +111,7 @@ func (o Overrides) Apply(t Theme) Theme {
 	return t
 }
 
-// parse reads one config value: a hex, or an ANSI index as a bare number.
-//
-// The range check is the whole reason this is not lipgloss.Color alone. That
-// one reads any integer: past 255 it packs the value as RGB, so "256" is a
-// near-black #000100 rather than an error, and a negative is silently made
-// positive. Both are ordinary off-by-ones against the 0-255 this documents, and
-// the background is the field they land worst on, since it paints the whole app
-// and every shade is derived against it.
-//
-// lipgloss answers unparseable text with NoColor, which means "the terminal's
-// own" everywhere else here, so it is the failure rather than a value to offer.
+// Range-checked because lipgloss.Color packs an integer past 255 as RGB rather than failing.
 func parse(s string) (color.Color, bool) {
 	if n, err := strconv.Atoi(s); err == nil {
 		if n < 0 || n > 255 {

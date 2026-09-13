@@ -11,11 +11,8 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// tabResolved is where tab stops on the thread the fixture already carries as
-// settled, which is the one the key has to reopen.
 const tabResolved = 6
 
-// asked presses a key and reads what it sent the root, or nothing.
 func asked(t *testing.T, m prview.Model, k string) tea.Msg {
 	t.Helper()
 
@@ -26,7 +23,6 @@ func asked(t *testing.T, m prview.Model, k string) tea.Msg {
 	return cmd()
 }
 
-// resolveAsked is the same, insisting the key asked for a resolve.
 func resolveAsked(t *testing.T, m prview.Model, k string) prview.ResolveThreadMsg {
 	t.Helper()
 
@@ -47,8 +43,6 @@ func TestXAsksToResolveTheFocusedThread(t *testing.T) {
 	}
 }
 
-// A settled thread is collapsed, and closed is the state this key exists to
-// change. Reading the open threads alone would leave it with no way back.
 func TestXOnAResolvedThreadAsksToUnresolve(t *testing.T) {
 	m := onThread(t, tabResolved)
 	if got := focusedCard(t, m.View()); !strings.Contains(got, "resolved") {
@@ -62,8 +56,6 @@ func TestXOnAResolvedThreadAsksToUnresolve(t *testing.T) {
 	}
 }
 
-// The permissions are separate, and a key that opens a write GitHub rejects is
-// worse than one that does nothing.
 func TestXIsInertOnAThreadTheViewerMayNotResolve(t *testing.T) {
 	m := onThread(t, tabLocked)
 	if got := focusedCard(t, m.View()); !strings.HasPrefix(got, cardLocked) {
@@ -81,8 +73,6 @@ func TestXIsInertWithNothingFocused(t *testing.T) {
 	}
 }
 
-// The Files tab renders the same threads and has no ring to point at one, so
-// there is nothing there for the key to act on.
 func TestXIsInertOnTheFilesTab(t *testing.T) {
 	m := onThread(t, tabThread)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -92,7 +82,6 @@ func TestXIsInertOnTheFilesTab(t *testing.T) {
 	}
 }
 
-// The box takes every letter while it has the keyboard, x included.
 func TestXTypesAnXWhileABoxHasTheKeyboard(t *testing.T) {
 	m, cmd := key(replying(t, tabThread, "r"), "x")
 	if cmd != nil {
@@ -108,8 +97,6 @@ func TestXTypesAnXWhileABoxHasTheKeyboard(t *testing.T) {
 	}
 }
 
-// The card names the direction the reader can press, and nothing else. Both
-// permissions on one control means the wrong word is a key that fails.
 func TestTheThreadCardNamesTheResolveKeyItCanUse(t *testing.T) {
 	open := stripANSI(onThread(t, tabThread).View())
 	if !strings.Contains(open, "x resolve") {
@@ -130,9 +117,6 @@ func TestTheThreadCardNamesTheResolveKeyItCanUse(t *testing.T) {
 	}
 }
 
-// The write comes back through the store, and the card it lands on is the one
-// the reader is standing on. Focus keys by id, so it survives the card
-// collapsing under it.
 func TestAThreadPushedBackResolvedCollapsesAndKeepsFocus(t *testing.T) {
 	m := onThread(t, tabThread)
 
@@ -152,14 +136,7 @@ func TestAThreadPushedBackResolvedCollapsesAndKeepsFocus(t *testing.T) {
 	}
 }
 
-// Unresolving opens a collapsed thread into its card, its code and every reply
-// hanging off it, and that growth arrives through the store rather than under
-// the key. o re-shows the focus itself and x has no equivalent, so without this
-// the thread grows off the bottom of the window and sits there.
 func TestAThreadPushedBackOpenComesBackIntoView(t *testing.T) {
-	// A comment long enough that the opened card cannot grow in place, which is
-	// the case the scroll has to get right. Collapsed it is three lines and sits
-	// low in the window; opened it runs past the bottom of it.
 	long := strings.Repeat("A line of the nit.\n\n", 3) + "The last line of it."
 
 	d := sampleDetail()
@@ -181,9 +158,6 @@ func TestAThreadPushedBackOpenComesBackIntoView(t *testing.T) {
 	}
 }
 
-// One write per thread. Two out at once settle in the order the responses
-// arrive rather than the order they were pressed, and the card would then read
-// the opposite of the last press until a refetch.
 func TestXIsInertOnAThreadWithAWriteStillOut(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[0].Pending = true
@@ -199,13 +173,9 @@ func TestXIsInertOnAThreadWithAWriteStillOut(t *testing.T) {
 	}
 }
 
-// o on a resolved thread opens it, and that flag has to go when the thread
-// comes back open. Left behind, the next resolve collapses nothing and the
-// write loses its only acknowledgement.
 func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 	m := onThread(t, tabResolved)
 
-	// Open the settled thread, which is what leaves the flag behind.
 	m = press(m, "space")
 	if !strings.Contains(stripANSI(m.View()), "Typo.") {
 		t.Fatal("setup: o did not open the resolved thread")
@@ -223,9 +193,6 @@ func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 	}
 }
 
-// The pane clips a footer mid-word with nothing to say it did, so the line
-// gives up whole keys instead. The ones it gives up first are the ones written
-// last, which are the newest and the least known.
 func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 	whole := map[string]bool{
 		"r reply": true, "R quote": true, "x resolve": true, "v in diff": true,
@@ -256,8 +223,6 @@ func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 	}
 }
 
-// cardHints is the footer of the first card carrying one, split back into the
-// keys it names.
 func cardHints(t *testing.T, frame string) []string {
 	t.Helper()
 

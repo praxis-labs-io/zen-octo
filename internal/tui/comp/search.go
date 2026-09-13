@@ -9,9 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Search is a small in-content search state. It never hides rows: callers ask
-// it to highlight the text they already render and use Cursor to decide which
-// matching line to bring into view.
+// Search is an in-content search query and match cursor. It highlights matches and never hides rows.
 type Search struct {
 	query  string
 	cursor int
@@ -21,7 +19,7 @@ func (s Search) Query() string { return s.query }
 func (s Search) Empty() bool   { return s.query == "" }
 func (s Search) Cursor() int   { return s.cursor }
 
-// Insert folds printable text and the two editing keys into the query.
+// Insert applies a printable key, backspace, or ctrl+u to the query, reporting whether it took the key.
 func (s *Search) Insert(msg tea.KeyPressMsg) bool {
 	switch msg.String() {
 	case "backspace":
@@ -70,8 +68,7 @@ func foldPrefix(text, query string) bool {
 	return true
 }
 
-// Move advances through count matching lines and wraps at either end, the way
-// repeated n does in an editor.
+// Move steps the cursor by delta through count matching lines, wrapping at either end.
 func (s *Search) Move(delta, count int) bool {
 	if count <= 0 || s.query == "" {
 		return false
@@ -80,9 +77,7 @@ func (s *Search) Move(delta, count int) bool {
 	return true
 }
 
-// Highlight paints every case-insensitive occurrence without changing any
-// text around it. Matching and slicing both use rune indexes, so Unicode case
-// folding can never cut a UTF-8 sequence in half.
+// Highlight paints every case-insensitive occurrence of the query in text with mark.
 func (s Search) Highlight(text string, mark lipgloss.Style) string {
 	ranges := s.matchRanges(text)
 	if len(ranges) == 0 {

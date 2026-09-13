@@ -9,9 +9,6 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
-// These reach into the cache map, which has no interface of its own: the whole
-// point of a cache is that the caller cannot tell it is there.
-
 func TestTheSameBodyIsOnlyRenderedOnce(t *testing.T) {
 	m := NewMarkdown(testTheme)
 
@@ -29,9 +26,6 @@ func TestTheSameBodyIsOnlyRenderedOnce(t *testing.T) {
 	}
 }
 
-// Glamour wraps at a width, so an entry from another width is wrong rather than
-// stale. Dropping the map beats keeping one dead entry per column a drag-resize
-// passed through.
 func TestAWidthChangeDropsWhatWasCached(t *testing.T) {
 	m := NewMarkdown(testTheme)
 
@@ -59,18 +53,12 @@ func TestOutputWrapsAtTheWidthItWasGiven(t *testing.T) {
 	}
 }
 
-// Glamour ships its own palette. A heading in a color nobody configured is the
-// whole reason this file builds a style config rather than patching one.
 func TestHeadingsTakeTheThemeAndNotGlamoursOwn(t *testing.T) {
 	th := testTheme
 	m := NewMarkdown(th)
 
 	out := m.Render("# Heading\n\nA paragraph.", 60)
 
-	// Read off a rendered cell rather than rebuilt from the color: the accent is
-	// an ANSI slot, which goes over the wire as its own SGR code. Glamour takes
-	// the slot's index as a string, which is what keeps the palette reaching
-	// rendered markdown instead of being pinned to a canonical hex.
 	styled := lipgloss.NewStyle().Foreground(th.Accent).Render("x")
 	want := styled[:strings.Index(styled, "m")+1]
 	if !strings.Contains(out, strings.TrimSuffix(want, "m")) {
@@ -101,10 +89,6 @@ func TestNothingToRenderComesBackEmpty(t *testing.T) {
 	}
 }
 
-// A single newline is a line break, the way GitHub renders one in a comment.
-// CommonMark calls it a soft break and folds it into the paragraph, which put
-// two lines somebody typed onto one and made a comment read differently here
-// from the way it reads in the browser it was written for.
 func TestASingleNewlineIsALineBreak(t *testing.T) {
 	m := NewMarkdown(testTheme)
 
@@ -120,8 +104,6 @@ func TestASingleNewlineIsALineBreak(t *testing.T) {
 	}
 }
 
-// A blank line is still a paragraph break, so the two are told apart rather
-// than every newline becoming the same thing.
 func TestABlankLineStillSeparatesParagraphs(t *testing.T) {
 	m := NewMarkdown(testTheme)
 
@@ -130,8 +112,6 @@ func TestABlankLineStillSeparatesParagraphs(t *testing.T) {
 	}
 }
 
-// body is the rendered lines with the styling and the right-hand padding off.
-// Glamour pads every line out to the wrap width.
 func body(out string) []string {
 	var lines []string
 	for _, line := range strings.Split(out, "\n") {

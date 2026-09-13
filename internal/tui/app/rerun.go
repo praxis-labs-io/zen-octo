@@ -38,11 +38,6 @@ func (m Model) rerunCheck(msg prview.RerunCheckMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) checkRerunLanded(msg checkRerunMsg) (tea.Model, tea.Cmd) {
 	m.detail.RerunAccepted(msg.jobID, msg.acceptedAt)
-	// GitHub accepts the write before the replacement attempt reaches the check
-	// rollup. Keep the optimistic state through that gap: an immediate detail
-	// fetch can still report the failed attempt, or briefly fold an older passing
-	// one over it. The Checks poll clears it when the new job id or pending state
-	// arrives.
 	return m, m.toasts.Show(comp.ToastSuccess, "Rerunning "+msg.name)
 }
 
@@ -51,6 +46,7 @@ func (m Model) checkRerunFailed(msg checkRerunFailedMsg) (tea.Model, tea.Cmd) {
 	return m, m.toasts.Show(comp.ToastError, "Could not rerun "+msg.name+": "+msg.err.Error())
 }
 
+// acceptedAt is stamped locally: neither bulk rerun endpoint reports when GitHub accepted it.
 type runRerunMsg struct {
 	jobIDs     []int64
 	name       string
@@ -77,9 +73,6 @@ func (m Model) rerunRun(msg prview.RerunRunMsg) (tea.Model, tea.Cmd) {
 		if err := rerun(ctx, msg.Repo, msg.RunID); err != nil {
 			return runRerunFailedMsg{jobIDs: msg.JobIDs, name: msg.Name, err: err}
 		}
-		// Neither bulk call reports an instant, where the one-job endpoint
-		// answers with a Date header. Now is what the marks are stamped with,
-		// and it is only ever read as "this write has landed".
 		return runRerunMsg{jobIDs: msg.JobIDs, name: msg.Name, all: msg.All, acceptedAt: time.Now()}
 	}
 }

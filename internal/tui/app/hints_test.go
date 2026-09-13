@@ -15,15 +15,9 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// gapRun is the run of spaces the bar holds between the hints and whatever the
-// right side is saying. A hint never contains two spaces, so the first run of
-// them is where the line stops being hints.
+// A hint never contains two spaces, so the first run of them ends the hints.
 var gapRun = regexp.MustCompile(`\s{2,}`)
 
-// hintTokens is the hints the bar is carrying, one per entry. Reading them off
-// the rendered frame rather than off the keymap is what lets these tests hold
-// the shed to what a reader sees: a hint cut in half comes back as a token that
-// matches nothing, where a length check would call the line fine.
 func hintTokens(t *testing.T, m tea.Model) []string {
 	t.Helper()
 	bar := strings.TrimSpace(stripANSI(lastLine(render(t, m))))
@@ -33,14 +27,6 @@ func hintTokens(t *testing.T, m tea.Model) []string {
 	return strings.Split(gapRun.Split(bar, 2)[0], " • ")
 }
 
-// The bar clipped its hints with a hard cut and no mark, so at eighty columns
-// the line looked complete and was not. It sheds whole hints instead, from the
-// right, and help is the one it never lets go of: it is the way to every key
-// the room could not hold.
-//
-// The sweep runs in bands rather than across every width at once. The rail
-// comes up unasked at 120 and the file column has a floor of its own, and a
-// line that changes because the screen did is not the shed dropping anything.
 func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -58,9 +44,6 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 			client.serveDetail("PR_412", "Caps the backoff at 30s.")
 			m := press(loaded(t, client, tt.from, 40), tt.open...)
 
-			// The widest frame in the band is the reference: nothing is shed
-			// there, so what it names is the whole line in the order the shed
-			// will eat it.
 			full := hintTokens(t, m)
 			if len(full) < 3 {
 				t.Fatalf("the reference line is too short to shed: %v", full)
@@ -83,8 +66,6 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 					t.Fatalf("width %d: line = %v, want it to end in %q", width, got, help)
 				}
 
-				// A prefix and nothing else: every hint on the line is one the
-				// reference named, whole, and they are shed from the right.
 				kept := got[:len(got)-1]
 				if len(kept) > len(rest) {
 					t.Fatalf("width %d: line = %v, longer than the reference %v", width, got, full)
@@ -100,9 +81,6 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 				shed = len(kept)
 			}
 
-			// Only where the band reaches the floor. A band that stops at the
-			// rail's breakpoint is wide enough throughout to name everything,
-			// and that is the line doing its job rather than the shed idling.
 			if tt.to == app.MinWidth && shed == len(rest) {
 				t.Errorf("nothing was ever shed between %d columns and %d", tt.to, tt.from)
 			}
@@ -110,10 +88,6 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 	}
 }
 
-// A section that has never answered is drawing a spinner and one that failed is
-// drawing its error, and every key that acts on a row is refused over both.
-// That is the screen where the line is the only thing left explaining the
-// keyboard, and five of its nine hints were keys that did nothing.
 func TestTheListNamesOnlyWhatABlockedSectionCanDo(t *testing.T) {
 	client := &fakeSearcher{err: errors.New("502 Bad Gateway")}
 	bar := strings.Join(hintTokens(t, loaded(t, client, 160, 40)), " • ")
@@ -130,7 +104,6 @@ func TestTheListNamesOnlyWhatABlockedSectionCanDo(t *testing.T) {
 	}
 }
 
-// The rows come back and so do the keys that act on them.
 func TestTheListNamesTheRowKeysOnceTheRowsAreThere(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	bar := strings.Join(hintTokens(t, loaded(t, client, 160, 40)), " • ")
@@ -142,10 +115,6 @@ func TestTheListNamesTheRowKeysOnceTheRowsAreThere(t *testing.T) {
 	}
 }
 
-// The job log's search bar preempts every binding on the detail screen the way
-// a compose box does, but it was not named as capturing, so the root went on
-// eating q and ? out of a query the reader was typing them into. The bar named
-// the whole Checks line while none of it answered.
 func TestTheJobLogSearchTakesTheBarAndTheRootKeys(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "body")
@@ -167,8 +136,6 @@ func TestTheJobLogSearchTakesTheBarAndTheRootKeys(t *testing.T) {
 		t.Errorf("status bar = %q, want the search bar's own two keys", bar)
 	}
 
-	// q and ? are letters in a query. The root used to quit on one and drop the
-	// overlay over the screen on the other.
 	m = settle(press(m, "q", "?"), prview.SearchSettleMsg{Query: "q?"})
 	out := stripANSI(render(t, m))
 	if strings.Contains(out, "Keys") && strings.Contains(out, "next tab") {
@@ -179,8 +146,6 @@ func TestTheJobLogSearchTakesTheBarAndTheRootKeys(t *testing.T) {
 	}
 }
 
-// Esc clears a settled query before it will leave the screen, so a line saying
-// "back" was naming the second press rather than the one about to be made.
 func TestEscReadsAsClearingASettledJobLogSearch(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "body")
@@ -207,10 +172,6 @@ func TestEscReadsAsClearingASettledJobLogSearch(t *testing.T) {
 	}
 }
 
-// Walking the Checks column empties the selected job and refills it a debounce
-// and a round trip later. A line derived from that fetch dropped the log keys
-// on every step and put them back when the reader stopped, which on a held j is
-// the line gone for the length of the walk.
 func TestWalkingTheChecksColumnDoesNotBlinkTheLogKeys(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "body")
@@ -237,16 +198,11 @@ func TestWalkingTheChecksColumnDoesNotBlinkTheLogKeys(t *testing.T) {
 		}
 	}
 
-	// One step down the column, with the new job's fetch still out.
 	if moved := hintTokens(t, press(m, "j")); !slices.Equal(moved, landed) {
 		t.Errorf("the line changed while the next job was still on its way:\n before %v\n after  %v", landed, moved)
 	}
 }
 
-// A toast wins the line and the hints shed around it, where the readout loses
-// to them. The room the shed is given differs per path, and this is the one
-// where getting the arithmetic wrong still renders: the line would come back
-// too long and the bar would cut it the old way, through a word.
 func TestTheHintsShedAroundAToastRatherThanBeingCut(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	full := hintTokens(t, loaded(t, client, 300, 40))
@@ -277,10 +233,6 @@ func TestTheHintsShedAroundAToastRatherThanBeingCut(t *testing.T) {
 	}
 }
 
-// A picker, the merge form and a compose box each carry a hint line inside
-// their own frame, so the bar spends nothing on keys that stopped answering
-// when the modal opened. That decision moved into the screen, next to the
-// widgets drawing what replaces it, so all three have to be held.
 func TestTheBarGoesQuietForEveryBoxThatDrawsItsOwnHints(t *testing.T) {
 	tests := []struct {
 		name string

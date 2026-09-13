@@ -13,8 +13,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// typing is typed with the last command kept, for the keystroke that asks the
-// root for the people a mention offers.
 func typing(m prview.Model, text string) (prview.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, r := range text {
@@ -23,8 +21,6 @@ func typing(m prview.Model, text string) (prview.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// writing is the detail screen with the compose box open and the repository's
-// people already held, which is every test that is not about the fetch.
 func writing(t *testing.T) prview.Model {
 	t.Helper()
 
@@ -33,15 +29,10 @@ func writing(t *testing.T) prview.Model {
 	return m
 }
 
-// arrow is a key with a name rather than a character, which is what tells a
-// cursor move from a letter typed into the box.
 func arrow(m prview.Model, code rune) (prview.Model, tea.Cmd) {
 	return m.Update(tea.KeyPressMsg{Code: code})
 }
 
-// asking is the fetch a keystroke started, or nil. A key inside a box answers
-// the textarea as well as the screen, so what comes back is a batch and the
-// message this cares about is one of the two.
 func asking(cmd tea.Cmd) tea.Msg {
 	switch msg := runCmd(cmd).(type) {
 	case nil:
@@ -59,9 +50,7 @@ func asking(cmd tea.Cmd) tea.Msg {
 	return nil
 }
 
-// A handle on the rail is not the popup: the Reviewers section renders @nkr
-// whatever the box is doing. A real name appears nowhere else on the screen, so
-// it is what says the list is up.
+// Real names, because the rail renders the handles whatever the popup is doing.
 const (
 	onList  = "Nikita Rushmanov"
 	offList = "Sam Reed"
@@ -76,8 +65,6 @@ func TestTheFirstAtInABoxAsksForTheRepositorysPeople(t *testing.T) {
 	}
 }
 
-// Once per screen, not once per popup. Every keystroke inside an @word re-enters
-// the open path, and a request per character is what the latch is for.
 func TestASecondAtAsksForNothing(t *testing.T) {
 	m, _ := typing(composing(200, 60), "@")
 	if _, cmd := typing(m, "dru"); asking(cmd) != nil {
@@ -90,8 +77,6 @@ func TestASecondAtAsksForNothing(t *testing.T) {
 	}
 }
 
-// A picker opened earlier has already paid for the list. Asking again would be
-// a second request for something the root is holding.
 func TestAnAtAsksForNothingOnceThePickersHaveFetched(t *testing.T) {
 	m, cmd := typing(writing(t), "@")
 	if got := asking(cmd); got != nil {
@@ -102,9 +87,6 @@ func TestAnAtAsksForNothingOnceThePickersHaveFetched(t *testing.T) {
 	}
 }
 
-// The answer lands while the box has the keyboard, always: the box is what
-// asked. SetRepo refuses to open a picker in that state on purpose, and the
-// popup has to be handed the list ahead of that refusal.
 func TestTheMentionListLandsWhileTheBoxHasTheKeyboard(t *testing.T) {
 	m, _ := typing(composing(200, 60), "@")
 	if out := stripANSI(m.View()); strings.Contains(out, onList) {
@@ -118,13 +100,7 @@ func TestTheMentionListLandsWhileTheBoxHasTheKeyboard(t *testing.T) {
 	}
 }
 
-// The popup stands under the word it answers. Anchoring is the whole of what it
-// does that a list in a pane would not, and nothing else on the frame says where
-// the caret is, so a popup two panes away reads as a different control.
 func TestTheMentionListStandsUnderTheWordItAnswers(t *testing.T) {
-	// Both sides of the one branch that decides the anchor's column: a frame
-	// wide enough for the rail to take a column of its own, and one where it
-	// does not and the page is against the frame's own edge.
 	for _, width := range []int{200, 100} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
 			anchorsUnderTheWord(t, width)
@@ -151,8 +127,6 @@ func anchorsUnderTheWord(t *testing.T, width int) {
 		t.Fatalf("setup: nothing typed on the frame:\n%s", strings.Join(lines, "\n"))
 	}
 
-	// The popup's own top border, which is the first corner below the caret's
-	// row that is not one of the box's own.
 	top, left := -1, -1
 	for i := caretRow + 1; i < len(lines); i++ {
 		if c := strings.Index(lines[i], "╭"); c >= 0 {
@@ -172,8 +146,6 @@ func anchorsUnderTheWord(t *testing.T, width int) {
 	}
 }
 
-// The twin. Handing the popup its list must not weaken the guard that keeps a
-// late modal off a box somebody is typing in.
 func TestALatePickerStillDoesNotOpenOverTheBox(t *testing.T) {
 	m := onRailRow(t, detailed(held(sampleDetail()), 200, 60), "bug")
 	if _, cmd := key(m, "enter"); asking(cmd) == nil {
@@ -184,9 +156,6 @@ func TestALatePickerStillDoesNotOpenOverTheBox(t *testing.T) {
 	m = press(m, "1", "c")
 	m.SetRepo(loadedRepo())
 
-	// The picker's own hint line, which is the one thing on the frame only a
-	// modal puts there: the rail carries an "Add label" row whether or not one
-	// is up.
 	out := stripANSI(m.View())
 	if strings.Contains(out, "space toggle") {
 		t.Errorf("a picker opened over the box:\n%s", out)
@@ -210,8 +179,6 @@ func TestTheMentionListSaysItIsStillComing(t *testing.T) {
 	}
 }
 
-// A silent empty list looks like a broken key. The toast is over the pane and
-// gone in seconds; the popup is under the caret.
 func TestTheMentionListSaysWhenItWillNotCome(t *testing.T) {
 	m := composing(200, 60)
 	m.SetRepo(store.Repo{Status: store.StatusFailed, Err: errors.New("boom")})
@@ -234,8 +201,6 @@ func TestAFilterThatMatchesNobodySaysSo(t *testing.T) {
 	}
 }
 
-// The sync key drops the held choices. The popup goes back to saying the list
-// is coming, and the latch has to come off or nothing asks again.
 func TestClearingTheRepositoryPutsTheMentionListBackOnItsWay(t *testing.T) {
 	m, _ := typing(writing(t), "@")
 	cmd := m.SetRepo(store.Repo{})
@@ -269,8 +234,6 @@ func TestTheMentionRowsCarryTheRealName(t *testing.T) {
 	}
 }
 
-// An address is not a mention. The @ has to open a word, or every email in
-// every comment drops a list of logins over the line being written.
 func TestAnAtInsideAWordOpensNothing(t *testing.T) {
 	m, _ := typing(writing(t), "mail me at drew@example.com")
 
@@ -292,8 +255,6 @@ func TestEnterWritesTheHandleIntoTheBox(t *testing.T) {
 	}
 }
 
-// tab inserts too, which is what the box's own tab does one level out: it moves
-// to the thing that finishes what is being written.
 func TestTabWritesTheHandleRatherThanSteppingToTheButton(t *testing.T) {
 	m, _ := typing(writing(t), "thanks @nk")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -303,8 +264,6 @@ func TestTabWritesTheHandleRatherThanSteppingToTheButton(t *testing.T) {
 	}
 }
 
-// A handle run together with the next word is a mention GitHub does not
-// resolve, so the space is part of what the key writes.
 func TestTheHandleLandsWithASpaceAfterIt(t *testing.T) {
 	m, _ := typing(writing(t), "@nk")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -315,14 +274,10 @@ func TestTheHandleLandsWithASpaceAfterIt(t *testing.T) {
 	}
 }
 
-// The caret has to come back to where the handle ends. SetValue leaves it at the
-// end of whatever it inserted, and a buffer rebuilt front to back would put
-// every further keystroke at the end of the comment.
 func TestTheCaretStaysWhereTheHandleEnds(t *testing.T) {
 	m, _ := typing(writing(t), "@nk")
 	m, _ = typing(m, " and thanks")
 
-	// Back over " and thanks" so the caret sits mid-buffer, then complete.
 	m, _ = typing(m, " @dru")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = typing(m, "!")
@@ -342,8 +297,6 @@ func TestTheArrowsWalkTheListAndTheLettersDoNot(t *testing.T) {
 		t.Errorf("down did not move the cursor onto the second row:\n%s", out)
 	}
 
-	// j is a letter in a box. Pressed with the list up it types rather than
-	// walking, which is what leaves the token as @j.
 	n, _ := typing(writing(t), "@")
 	n, _ = typing(n, "j")
 	if out := stripANSI(n.View()); !strings.Contains(out, "@j") {
@@ -351,8 +304,6 @@ func TestTheArrowsWalkTheListAndTheLettersDoNot(t *testing.T) {
 	}
 }
 
-// esc closes the popup and nothing else. Leaked through it closes the box, and
-// on an edit it throws the draft away.
 func TestEscapeClosesTheListAndLeavesTheBoxOpen(t *testing.T) {
 	m, _ := typing(writing(t), "@nk")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -364,15 +315,12 @@ func TestEscapeClosesTheListAndLeavesTheBoxOpen(t *testing.T) {
 	if !strings.Contains(out, "@nk") {
 		t.Errorf("esc took the words with it:\n%s", out)
 	}
-	// And the next keystroke must not reopen it over the same token, or there is
-	// no way to finish a word that begins with an at sign.
 	m, _ = typing(m, "r")
 	if out := stripANSI(m.View()); strings.Contains(out, onList) {
 		t.Errorf("the next keystroke reopened a dismissed popup:\n%s", out)
 	}
 }
 
-// A space ends the word, so it ends the list. Nothing after it is a handle.
 func TestASpaceClosesTheList(t *testing.T) {
 	m, _ := typing(writing(t), "@nk ")
 
@@ -381,8 +329,6 @@ func TestASpaceClosesTheList(t *testing.T) {
 	}
 }
 
-// The popup is an overlay over a frame the pane already filled. It must not
-// grow it.
 func TestTheFrameStillFillsItsSizeWithTheListUp(t *testing.T) {
 	for _, size := range []struct{ w, h int }{{200, 60}, {120, 40}, {80, 24}} {
 		m := composing(size.w, size.h)
@@ -401,15 +347,10 @@ func TestTheFrameStillFillsItsSizeWithTheListUp(t *testing.T) {
 	}
 }
 
-// The list goes above the line being typed when there is no room under it. A
-// caret on the last row of a full box has the pane's foot directly beneath it,
-// and a list drawn there would be off the screen entirely.
 func TestTheListGoesAboveTheCaretWhenThereIsNoRoomBelow(t *testing.T) {
 	m := composing(120, 24)
 	m.SetRepo(loadedRepo())
 
-	// Enter is a newline while no list is up, which is how the caret reaches the
-	// foot of a box that has grown to fill the pane.
 	for range 12 {
 		m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	}
@@ -436,14 +377,7 @@ func TestTheListGoesAboveTheCaretWhenThereIsNoRoomBelow(t *testing.T) {
 	}
 }
 
-// shift+tab leaves the list for the button, so the list has to go with the
-// press. Held open over a blurred box, the enter that follows wrote a handle
-// instead of posting, and on a terminal that cannot send the chord that button
-// is the only way a comment is sent at all.
 func TestShiftTabLeavesTheListAndStepsToTheButton(t *testing.T) {
-	// The token has to match the row this asserts on. Written against a token
-	// that matched somebody else, the absence it checks for was never there to
-	// begin with and the test passed over a list that stayed open.
 	m, _ := typing(writing(t), "thanks @n")
 	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
 		t.Fatalf("setup: the list is not up:\n%s", out)
@@ -464,9 +398,6 @@ func TestShiftTabLeavesTheListAndStepsToTheButton(t *testing.T) {
 	}
 }
 
-// A caret put back inside a handle means the handle is being corrected, so the
-// whole word goes. Replacing only what is in front of the caret turned @nikita
-// into "@nkr kita".
 func TestCompletingInsideAHandleReplacesTheWholeWord(t *testing.T) {
 	m, _ := typing(writing(t), "hi @nikita")
 	for range 4 {
@@ -483,8 +414,6 @@ func TestCompletingInsideAHandleReplacesTheWholeWord(t *testing.T) {
 	}
 }
 
-// A popup with nothing to insert must not eat the key. It closes and the press
-// carries on, or the reader presses enter for a newline and gets neither.
 func TestEnterWithNothingToChooseStillReachesTheBox(t *testing.T) {
 	m, _ := typing(writing(t), "@zzz")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -493,15 +422,12 @@ func TestEnterWithNothingToChooseStillReachesTheBox(t *testing.T) {
 	if strings.Contains(out, "No match") {
 		t.Errorf("the popup outlived the key:\n%s", out)
 	}
-	// The newline landed, so the next words go on a line of their own.
 	m, _ = typing(m, "hello")
 	if out := stripANSI(m.View()); strings.Contains(out, "@zzzhello") {
 		t.Errorf("enter was swallowed rather than reaching the box:\n%s", out)
 	}
 }
 
-// The editor replaces the whole buffer, so a list still open over it holds an
-// offset into text that is gone.
 func TestHandingOffToTheEditorClosesTheList(t *testing.T) {
 	m, _ := typing(writing(t), "@nk")
 	if out := stripANSI(m.View()); !strings.Contains(out, onList) {
@@ -514,14 +440,9 @@ func TestHandingOffToTheEditorClosesTheList(t *testing.T) {
 	}
 }
 
-// blink stands in for the messages that are not keys: a cursor blink, a paste,
-// a clipboard read. They reach the box through Update's default branch, which
-// re-reads the token, and that is a path no keystroke test walks.
+// Stands in for non-key messages, which reach the box through Update's default branch.
 type blink struct{}
 
-// Stepping to the button took the list down and the very next blink put it back
-// up, because the token was still sitting under the caret. Every test here drove
-// keys alone and none of them saw it.
 func TestTheListStaysDownOnceTheButtonHasFocus(t *testing.T) {
 	m, _ := typing(writing(t), "thanks @n")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
@@ -537,8 +458,6 @@ func TestTheListStaysDownOnceTheButtonHasFocus(t *testing.T) {
 	}
 }
 
-// Stepping back into the text is the reader returning to the word, so the list
-// returns with them.
 func TestTheListComesBackWhenTheTextTakesFocusAgain(t *testing.T) {
 	m, _ := typing(writing(t), "thanks @n")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
@@ -550,8 +469,6 @@ func TestTheListComesBackWhenTheTextTakesFocusAgain(t *testing.T) {
 	}
 }
 
-// A list escaped away must not return by stepping to the button and back. The
-// dismissal outlives the focus change.
 func TestAnEscapedListDoesNotComeBackWithTheFocus(t *testing.T) {
 	m, _ := typing(writing(t), "thanks @n")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})

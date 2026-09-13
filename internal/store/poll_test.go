@@ -9,8 +9,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// settled is a pull request with its checks in, which is what a second recheck
-// answering the same thing looks like.
 func settled(at time.Time) gh.Pulse {
 	return gh.Pulse{
 		State: gh.PRStateOpen, Merge: gh.MergeClean, UpdatedAt: at,
@@ -22,7 +20,6 @@ func settled(at time.Time) gh.Pulse {
 	}
 }
 
-// applyPulse begins one and lands it, returning whether the store saw a change.
 func applyPulse(t *testing.T, s *store.Store, p gh.Pulse) bool {
 	t.Helper()
 
@@ -32,8 +29,6 @@ func applyPulse(t *testing.T, s *store.Store, p gh.Pulse) bool {
 	return s.PulseApplied("pr1", pulsed(p))
 }
 
-// heldAt is the page under it, fetched as of an instant. The bare fixture
-// carries none, which reads as every first recheck owing a page.
 func heldAt(t *testing.T, at time.Time) store.Store {
 	t.Helper()
 
@@ -46,8 +41,6 @@ func heldAt(t *testing.T, at time.Time) store.Store {
 	return s
 }
 
-// The whole reason the answer is worth reporting: SetDetail relayouts the page,
-// and on a timer an unconditional push is a hitch a beat for a page sitting still.
 func TestARecheckThatChangesNothingSaysSo(t *testing.T) {
 	s := held(t)
 	at := time.Now()
@@ -60,7 +53,6 @@ func TestARecheckThatChangesNothingSaysSo(t *testing.T) {
 	}
 }
 
-// One check turning green is the change the reader is sitting there waiting for.
 func TestACheckTurningGreenIsAChange(t *testing.T) {
 	s := held(t)
 	at := time.Now()
@@ -78,7 +70,6 @@ func TestACheckTurningGreenIsAChange(t *testing.T) {
 	}
 }
 
-// A rollup can gain a job without the summary moving: five pending become six.
 func TestAnAddedCheckIsAChangeWhileTheSummaryHoldsStill(t *testing.T) {
 	s := held(t)
 	at := time.Now()
@@ -97,13 +88,10 @@ func TestAnAddedCheckIsAChangeWhileTheSummaryHoldsStill(t *testing.T) {
 	}
 }
 
-// GitHub's instant is the only thing on this wire that reports a comment, a
-// review or a label, none of which the pulse itself can carry.
 func TestAMovedInstantOwesTheWholePage(t *testing.T) {
 	at := time.Now()
 	s := heldAt(t, at)
 
-	// The same instant the page was fetched at: nothing has happened since.
 	applyPulse(t, &s, settled(at))
 	if s.StaleTimeline("pr1") {
 		t.Fatal("a recheck answering the fetched instant owes a page anyway")
@@ -115,7 +103,6 @@ func TestAMovedInstantOwesTheWholePage(t *testing.T) {
 	}
 }
 
-// The debt is what a full fetch is for, so landing one pays it.
 func TestTheFetchThatArrivesPaysTheDebt(t *testing.T) {
 	s := held(t)
 	at := time.Now()
@@ -132,16 +119,12 @@ func TestTheFetchThatArrivesPaysTheDebt(t *testing.T) {
 	}
 }
 
-// A response the store threw away wrote nothing, so nothing moved. Reporting a
-// change would relayout the page for an answer that was never taken.
 func TestADroppedRecheckReportsNoChange(t *testing.T) {
 	s := held(t)
 
 	if !s.BeginPulse("pr1") {
 		t.Fatal("setup: the store refused a pulse on a loaded detail")
 	}
-	// A write settling underneath it is what marks the answer overtaken: it
-	// carries the state from before the write and would put it back undone.
 	key := s.PendingState("pr1", gh.TransitionClose)
 	s.StateApplied("pr1", key, gh.PRStateResult{State: gh.PRStateClosed})
 
@@ -153,8 +136,6 @@ func TestADroppedRecheckReportsNoChange(t *testing.T) {
 	}
 }
 
-// The map has to be the one New built. Built on first write instead, it is built
-// on whichever copy wrote first and every read after that sees a nil one.
 func TestTheDebtSurvivesTheCopyItIsMarkedOn(t *testing.T) {
 	s := held(t)
 	at := time.Now()
@@ -167,13 +148,11 @@ func TestTheDebtSurvivesTheCopyItIsMarkedOn(t *testing.T) {
 	}
 }
 
-// markOnCopy takes the Store by value, the way the app's own value receivers do.
 func markOnCopy(s store.Store, p gh.Pulse) {
 	s.BeginPulse("pr1")
 	s.PulseApplied("pr1", pulsed(p))
 }
 
-// loadedSection is one section with rows in it, which is the only kind polled.
 func loadedSection(t *testing.T) store.Store {
 	t.Helper()
 
@@ -185,8 +164,6 @@ func loadedSection(t *testing.T) store.Store {
 	return s
 }
 
-// The list renders the error state instead of the rows, so a failed poll nobody
-// asked for would empty a tab the reader is reading fine.
 func TestAFailedPollKeepsTheRows(t *testing.T) {
 	s := loadedSection(t)
 
@@ -207,7 +184,6 @@ func TestAFailedPollKeepsTheRows(t *testing.T) {
 	}
 }
 
-// The contrast that makes the point: the key the reader pressed does report it.
 func TestAFailedSyncStillSaysSo(t *testing.T) {
 	s := loadedSection(t)
 
@@ -219,15 +195,12 @@ func TestAFailedSyncStillSaysSo(t *testing.T) {
 	}
 }
 
-// The reader pressed s, was told it failed, and is looking at that. A beat
-// failing behind it must not clear the report and put stale rows back.
 func TestAFailedPollLeavesAReportedFailureStanding(t *testing.T) {
 	s := loadedSection(t)
 
 	s.Begin(0)
 	s.Failed(0, errors.New("502 Bad Gateway"))
 
-	// Thirty seconds later the beat tries the same section and fails too.
 	if !s.Begin(0) {
 		t.Fatal("setup: the store refused the poll")
 	}
@@ -238,8 +211,6 @@ func TestAFailedPollLeavesAReportedFailureStanding(t *testing.T) {
 	}
 }
 
-// Ending the flight is the other half of its job: leaving the section loading
-// would have store.Begin refuse every poll after it for the rest of the session.
 func TestAFailedPollLetsTheNextOneStart(t *testing.T) {
 	s := loadedSection(t)
 

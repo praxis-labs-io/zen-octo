@@ -6,20 +6,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
-// ReactionWrite is one reaction toggled here and not yet answered for.
-//
-// A fourth kind of write beside Pending, Edit and CommentWrite, because it does
-// a fourth thing. It is not a CommentWrite carrying a reaction: that type's
-// delete branch takes a thread away with its last comment and its edit branch
-// marks the comment Editing, and neither is anything a reaction does.
-//
-// Held beside the fetched detail for the reason Pending is: a refetch replaces
-// a timeline wholesale, and one fetched before the mutation answered is not
-// evidence the mutation failed.
-//
-// CommentID empty is the description, which is a field of the pull request and
-// has no comment to name. ThreadID is the review thread a comment sits in,
-// empty on a top-level comment or a review's own body.
+// ReactionWrite is a reaction toggled here and not yet answered for. An empty CommentID is the description.
 type ReactionWrite struct {
 	Key       string
 	CommentID string
@@ -27,14 +14,10 @@ type ReactionWrite struct {
 
 	Content gh.ReactionContent
 
-	// On is the direction the key asked for, not the state it lands on. Two out
-	// on one reaction then compose in the order they were pressed.
+	// On is the direction pressed rather than the resulting state, so two writes compose in press order.
 	On bool
 }
 
-// PendingReaction holds a reaction toggled here and returns the key the
-// response reconciles against. The pill moves from now on, which is the
-// acknowledgement.
 func (s *Store) PendingReaction(id, commentID, threadID string,
 	content gh.ReactionContent, on bool,
 ) string {
@@ -52,17 +35,7 @@ func (s *Store) PendingReaction(id, commentID, threadID string,
 	return w.Key
 }
 
-// putReaction writes one group over a subject's set and rebuilds it in GitHub's
-// own order.
-//
-// The order rather than an append, so a reaction given here lands where the
-// answer is going to put it: appending would move the pill sideways the moment
-// the mutation settled.
-//
-// A group at zero comes off, unless it is still being written. That one is the
-// only thing a second press has to read, and the key goes inert on a marked
-// one: two toggles on one reaction settle in the order the responses arrive,
-// which is not the order they were pressed.
+// putReaction rebuilds in GitHub's order so a pill does not move when the answer lands.
 func putReaction(held []gh.Reaction, r gh.Reaction) []gh.Reaction {
 	by := make(map[gh.ReactionContent]gh.Reaction, len(held)+1)
 	for _, h := range held {
@@ -79,8 +52,6 @@ func putReaction(held []gh.Reaction, r gh.Reaction) []gh.Reaction {
 	return out
 }
 
-// reactionIn is a subject's group for one content, or a zero one where nobody
-// has given it.
 func reactionIn(held []gh.Reaction, content gh.ReactionContent) gh.Reaction {
 	for _, r := range held {
 		if r.Content == content {
@@ -90,7 +61,6 @@ func reactionIn(held []gh.Reaction, content gh.ReactionContent) gh.Reaction {
 	return gh.Reaction{Content: content}
 }
 
-// applyReaction is one toggle over a subject's reactions.
 func applyReaction(held []gh.Reaction, content gh.ReactionContent, on bool) []gh.Reaction {
 	r := reactionIn(held, content)
 	switch {
@@ -105,15 +75,6 @@ func applyReaction(held []gh.Reaction, content gh.ReactionContent, on bool) []gh
 	return putReaction(held, r)
 }
 
-// foldReactions applies every reaction in flight over a fetched description,
-// timeline and threads, and reports which of the two slices it cloned.
-//
-// Cloning is lazy and shared with the folds around it, for the reason foldWrites
-// gives. The description needs no flag: applyReaction returns a fresh slice
-// every time, so there is nothing held for it to write into.
-//
-// A comment the fold cannot find is skipped. A refetch that landed while the
-// write was out may no longer carry it, and there is nothing honest to invent.
 func foldReactions(writes []ReactionWrite, body []gh.Reaction,
 	timeline []gh.TimelineItem, threads []gh.ReviewThread,
 	freshTimeline, freshThreads bool,
@@ -135,9 +96,6 @@ func foldReactions(writes []ReactionWrite, body []gh.Reaction,
 				timeline, freshTimeline = slices.Clone(timeline), true
 			}
 
-			// The item holds a pointer to the comment, and the comment is the
-			// held one until this copies it. Writing through the pointer would
-			// move a pill inside a detail this call was supposed to leave alone.
 			said := *timeline[at].Comment
 			said.Reactions = applyReaction(said.Reactions, w.Content, w.On)
 			timeline[at].Comment = &said
@@ -146,8 +104,6 @@ func foldReactions(writes []ReactionWrite, body []gh.Reaction,
 	return body, timeline, threads, freshTimeline, freshThreads
 }
 
-// reactInThread is the fold above, one level down. Nothing here can take a
-// thread away, so it is shorter than the delete's equivalent.
 func reactInThread(w ReactionWrite, threads []gh.ReviewThread, fresh bool) ([]gh.ReviewThread, bool) {
 	at := threadAt(threads, w.ThreadID)
 	if at < 0 {
@@ -163,33 +119,19 @@ func reactInThread(w ReactionWrite, threads []gh.ReviewThread, fresh bool) ([]gh
 		threads, fresh = slices.Clone(threads), true
 	}
 
-	// The outer clone is not enough: a thread's comments are their own slice,
-	// still the held one, and writing into it reaches the detail this call was
-	// supposed to leave alone.
 	comments := slices.Clone(threads[at].Comments)
 	comments[in].Reactions = applyReaction(comments[in].Reactions, w.Content, w.On)
 	threads[at].Comments = comments
 	return threads, fresh
 }
 
-// ReactionApplied writes GitHub's answer into the held detail and drops the
-// write it settles.
-//
-// The one group the write moved, never the whole set the payload carries. Two
-// toggles on one subject answer in whatever order the network gives them, and
-// each response is a snapshot of the subject as it stood when GitHub handled
-// that call: taking either one whole lets the older snapshot land last and
-// delete a reaction the other one added. Writing the group this write is
-// answering for is order-independent, because no two writes on a subject share
-// a content while the first is still out.
+// ReactionApplied settles only the group the write moved: answers to two toggles on one subject arrive in either order.
 func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 	w, held, ok := s.settleReaction(id, key)
 	if !ok {
 		return
 	}
 
-	// The answer's own group, or a zero one where the removal took the last of
-	// them: putReaction drops a group at zero that nothing is still writing.
 	settled := reactionIn(res.Reactions, w.Content)
 	settled.Pending = false
 
@@ -230,12 +172,8 @@ func (s *Store) ReactionApplied(id, key string, res gh.ReactionResult) {
 	s.markStale(id)
 }
 
-// ReactionReverted puts the pill back the way it was fetched. The caller owns
-// saying why: the store cannot tell a rejected write from a lost one.
 func (s *Store) ReactionReverted(id, key string) { s.dropReaction(id, key) }
 
-// settleReaction drops the write a response answers for and hands it back with
-// the held detail, or false when there is nothing to write into.
 func (s *Store) settleReaction(id, key string) (ReactionWrite, Detail, bool) {
 	w, ok := s.dropReaction(id, key)
 	if !ok {
@@ -249,8 +187,6 @@ func (s *Store) settleReaction(id, key string) (ReactionWrite, Detail, bool) {
 	return w, held, true
 }
 
-// dropReaction removes one write and gives it back, with whether it was there.
-// A response for a key already gone is one that already settled.
 func (s *Store) dropReaction(id, key string) (ReactionWrite, bool) {
 	held := s.reacting[id]
 	at := slices.IndexFunc(held, func(w ReactionWrite) bool { return w.Key == key })

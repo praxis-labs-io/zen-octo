@@ -12,9 +12,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
-// filteringPicker opens a label picker long enough to earn a filter row. The
-// shared fixture carries two labels, and a picker shorter than pickerFilterFrom
-// takes no text at all, so there would be nothing to put a cursor in.
 func filteringPicker(t *testing.T, client *fakeSearcher) tea.Model {
 	t.Helper()
 
@@ -34,8 +31,6 @@ func filteringPicker(t *testing.T, client *fakeSearcher) tea.Model {
 	return m
 }
 
-// noticing is the app with the config notice up, which is the one thing that
-// puts a row above the screen. A leftover theme name is what raises it.
 func noticing(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	t.Helper()
 
@@ -48,19 +43,11 @@ func noticing(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	return m
 }
 
-// cursorOf is the terminal cursor the root asks for. Nothing else in this suite
-// reads a tea.View field other than Content, so this is the whole of the access.
 func cursorOf(t *testing.T, m tea.Model) *tea.Cursor {
 	t.Helper()
 	return m.View().Cursor
 }
 
-// afterOnScreen is where a run of text ends in the rendered frame: the row it is
-// drawn on and the column of the cell just past it.
-//
-// The cursor is asserted against the frame rather than against a number written
-// down here. A layout that moves takes the expectation with it, where a literal
-// would go on passing while pointing at the wrong cell.
 func afterOnScreen(t *testing.T, frame, want string) (x, y int) {
 	t.Helper()
 
@@ -75,9 +62,6 @@ func afterOnScreen(t *testing.T, frame, want string) (x, y int) {
 	return 0, 0
 }
 
-// wantCursorAfter holds the one property every input on this screen shares: the
-// terminal's cursor sits in the cell after what has been typed, on the row that
-// shows it.
 func wantCursorAfter(t *testing.T, m tea.Model, typed string) {
 	t.Helper()
 
@@ -103,17 +87,11 @@ func TestTheCursorSitsAfterWhatHasBeenTypedInEveryBox(t *testing.T) {
 		wantCursorAfter(t, composed(t, &fakeSearcher{prs: samplePRs()}, "looks good"), "looks good")
 	})
 
-	// zq rather than a word: the query has to be a run that appears nowhere
-	// else on the frame, or the row it is found on is not the one it was typed
-	// into.
 	t.Run("picker filter", func(t *testing.T) {
 		wantCursorAfter(t, write(filteringPicker(t, &fakeSearcher{prs: samplePRs()}), "zq"), "zq")
 	})
 
 	t.Run("merge headline", func(t *testing.T) {
-		// The form opens on the method chooser, which takes no text. One tab
-		// hands the keyboard to the headline, whose caret opens at the start of
-		// the message GitHub prefilled.
 		m := write(press(openMergeForm(t, &fakeSearcher{prs: samplePRs()}), "tab"), "zq")
 		wantCursorAfter(t, m, "zq")
 	})
@@ -124,8 +102,6 @@ func TestTheCursorSitsAfterWhatHasBeenTypedInEveryBox(t *testing.T) {
 	})
 }
 
-// A box that is not taking text has no cursor to place. A drawn caret could be
-// left behind; the terminal's cannot, because there is only the one.
 func TestNothingTakingTextMeansNoCursor(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -160,9 +136,6 @@ func TestNothingTakingTextMeansNoCursor(t *testing.T) {
 	}
 }
 
-// The notice is a row above the screen, and a screen reports against its own
-// frame. Nothing else separates the two, which is why this is the one thing the
-// local-to-absolute step can get wrong, and why it is invisible without one up.
 func TestANoticeMovesTheCursorDownExactlyOneRow(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
@@ -184,9 +157,6 @@ func TestANoticeMovesTheCursorDownExactlyOneRow(t *testing.T) {
 	}
 }
 
-// It is muted rather than accent, and it blinks. The blink is the terminal's,
-// so it costs no message and no repaint; a drawn caret could only blink by
-// re-rendering the frame it sits in.
 func TestTheCursorIsMutedAndBlinks(t *testing.T) {
 	m := write(press(loaded(t, &fakeSearcher{prs: samplePRs()}, 120, 40), "/"), "auth")
 
@@ -202,12 +172,6 @@ func TestTheCursorIsMutedAndBlinks(t *testing.T) {
 	}
 }
 
-// A headline longer than its box is the ordinary case: a squash subject is the
-// pull request's title with "(#N)" after it. The box wraps rather than
-// scrolling sideways, because a text input reports its caret as an index into
-// the value rather than into the window it scrolls through, and with the
-// widget's own caret off nothing else draws the true one. Pinned, the cursor
-// sat at the box's right edge while the caret walked away from it.
 func TestTheHeadlineCursorFollowsACaretPastTheEdge(t *testing.T) {
 	m := write(press(openMergeForm(t, &fakeSearcher{prs: samplePRs()}), "tab"), strings.Repeat("x", 90))
 
@@ -230,7 +194,6 @@ func TestTheHeadlineCursorFollowsACaretPastTheEdge(t *testing.T) {
 		t.Errorf("the cursor stayed at (%d,%d) through twenty lefts", x0, y0)
 	}
 
-	// And it is somewhere the box actually draws, rather than off the end of it.
 	frame := strings.Split(stripANSI(render(t, m)), "\n")
 	if y1 < 0 || y1 >= len(frame) {
 		t.Fatalf("cursor row %d is outside a %d-row frame", y1, len(frame))

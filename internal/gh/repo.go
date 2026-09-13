@@ -7,25 +7,7 @@ import (
 	"time"
 )
 
-// repoMetaQuery is what the detail rail's controls draw their choices from:
-// labels, the people who can be assigned, the people who can be named in a
-// comment, and what a merge here may be made of.
-//
-// The two lists of people are two connections because they are two sets.
-// assignableUsers is who has enough access to be given the pull request;
-// mentionableUsers is the wider one, everybody who has taken part, which is who
-// an answer is likely to be addressed to. A mention needs no node id: it is
-// inserted as text and nothing writes it back.
-//
-// Branches are not here and belong nowhere near it. They are a search keyed by
-// what somebody typed rather than a set fetched once, which is Branches in
-// branch.go.
-//
-// The first hundred of each list, which is GitHub's own page cap. The detail
-// asks for the same number, so the two sides of a picker are truncated at the
-// same point and a pull request's own labels are all present to be checked. Past
-// that the union in the screen is the backstop: a choice the picker cannot list
-// is one it must not delete.
+// Pages of 100 to match the detail query, so a pull request's own labels are all present to check.
 const repoMetaQuery = `
 query RepoMeta($owner: String!, $name: String!) {
   rateLimit { limit cost remaining resetAt }
@@ -66,12 +48,7 @@ type repoMetaResponse struct {
 	}
 }
 
-// RepoMeta fetches the choices every picker on the detail rail draws from.
-// repo is "owner/name", which is what PullRequest.Repository carries.
-//
-// A repository the token cannot see comes back as a null node rather than an
-// error, so an empty name is a failure here and not an empty picker: a picker
-// offering nothing reads as a repository with no labels.
+// RepoMeta fetches the picker choices for repo, "owner/name".
 func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, error) {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" {
@@ -108,8 +85,6 @@ func (c *Client) RepoMeta(ctx context.Context, repo string) (RepoMetaResult, err
 		meta.Users = append(meta.Users, Actor{ID: n.ID, Login: n.Login})
 	}
 
-	// A missing name stays missing. Substituting the login would make an account
-	// that has set no name read exactly like one whose name is their handle.
 	for _, n := range mentions {
 		meta.Mentions = append(meta.Mentions, Mention{Login: n.Login, Name: n.Name})
 	}

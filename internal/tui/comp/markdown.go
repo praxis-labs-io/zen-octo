@@ -16,29 +16,20 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/theme"
 )
 
-// Markdown renders GitHub markdown in the active theme. Rendering a long
-// comment thread costs real time, so output is kept.
-//
-// Render mutates the cache, which means it belongs on an Update path.
-// syncContent is where the screens call it; View never does.
 type Markdown struct {
 	style ansi.StyleConfig
 
-	// cache is keyed by body alone and dropped when the width changes. Glamour
-	// wraps at a width, so an entry from another width is wrong rather than
-	// stale, and a drag-resize would otherwise leave one dead entry per column
-	// it passed through.
+	// Dropped whenever the width changes: glamour output belongs to the width it was rendered at.
 	cache map[uint64]string
 	width int
 }
 
-// NewMarkdown builds a renderer over one theme.
 func NewMarkdown(th theme.Theme) Markdown {
 	return Markdown{style: markdownStyle(th), cache: make(map[uint64]string)}
 }
 
-// Render returns body wrapped to width, in theme colors. A body that fails to
-// parse comes back as itself: unstyled text beats an empty pane.
+// Render returns body wrapped to width in theme colors, caching it, so it belongs on an Update path.
+// A body glamour cannot render comes back unchanged.
 func (m *Markdown) Render(body string, width int) string {
 	if width <= 0 || strings.TrimSpace(body) == "" {
 		return ""
@@ -60,10 +51,7 @@ func (m *Markdown) Render(body string, width int) string {
 	return out
 }
 
-// trimBlank drops leading and trailing lines with nothing visible on them.
-// Glamour pads every line out to the wrap width, so a block that renders to
-// nothing still arrives as a row of spaces and still costs a line. A body
-// opening with an HTML comment, which bots write, is the common case.
+// Glamour pads blank lines to the wrap width, so a block rendering to nothing still costs rows.
 func trimBlank(s string) string {
 	lines := strings.Split(s, "\n")
 	blank := func(line string) bool { return strings.TrimSpace(xansi.Strip(line)) == "" }
@@ -77,19 +65,13 @@ func trimBlank(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// render wraps to exactly width. Glamour pads every line out to that width, so
-// the caller has to hand it the viewport's own width: one column narrower and
-// soft wrap puts every line onto two.
+// Glamour pads every line to width, so width must be the viewport's own or soft wrap doubles each line.
 func render(style ansi.StyleConfig, body string, width int) string {
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(style),
 		glamour.WithWordWrap(width),
 		glamour.WithEmoji(),
 
-		// GitHub renders a single newline in a comment as a line break. CommonMark
-		// calls it a soft break and folds it into the paragraph, which puts two
-		// lines somebody typed onto one and makes a comment read differently here
-		// from the way it reads in the browser it was written in.
 		glamour.WithPreservedNewLines(),
 	)
 	if err != nil {
@@ -102,18 +84,10 @@ func render(style ansi.StyleConfig, body string, width int) string {
 	return out
 }
 
-// markdownStyle dresses glamour in the theme. It builds on the ASCII config
-// rather than the dark one because that is the only stock config carrying no
-// colors of its own: patching the dark style leaves every element we did not
-// think of rendering in a palette nobody chose.
-//
-// Code blocks get no Chroma. A syntax theme is a second palette that is not the
-// theme, and the diff viewer needs a colorizer of its own anyway.
+// Built on the ASCII config, the only stock glamour style carrying no colors of its own.
 func markdownStyle(th theme.Theme) ansi.StyleConfig {
 	s := styles.ASCIIStyleConfig
 
-	// The pane already indents and the viewport already wraps to its width. A
-	// margin here spends columns twice and pushes the wrap point off.
 	s.Document.Margin = uintPtr(0)
 	s.Document.BlockPrefix = ""
 	s.Document.BlockSuffix = ""
@@ -132,8 +106,6 @@ func markdownStyle(th theme.Theme) ansi.StyleConfig {
 		h.BackgroundColor = nil
 	}
 
-	// The ASCII config brackets emphasis in the markers themselves, for
-	// terminals that cannot show weight. Ours can, so they are just noise.
 	s.Strong.BlockPrefix, s.Strong.BlockSuffix = "", ""
 	s.Emph.BlockPrefix, s.Emph.BlockSuffix = "", ""
 
@@ -169,15 +141,7 @@ func markdownStyle(th theme.Theme) ansi.StyleConfig {
 	return s
 }
 
-// hex renders a theme color the way glamour wants it. Its style config is JSON
-// shaped, so colors arrive as strings rather than as color.Color.
-//
-// A slot goes over as its index rather than as a hex. Glamour feeds the string
-// straight to lipgloss.Color, which reads a bare number back into the same slot,
-// where a hex would pin it to the canonical value and stop the palette reaching
-// rendered markdown. NoColor is the terminal's own foreground and has no
-// spelling here at all: its RGBA is black, so writing it out would render every
-// paragraph in the app black.
+// A slot goes as its bare index so lipgloss.Color keeps it a slot; NoColor has no spelling, as its RGBA is black.
 func hex(c color.Color) *string {
 	switch c := c.(type) {
 	case nil:

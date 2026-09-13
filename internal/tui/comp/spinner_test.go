@@ -23,8 +23,6 @@ func tick(t *testing.T, cmd tea.Cmd) spinner.TickMsg {
 	return msg
 }
 
-// The chain has to end itself. Nothing else stops it, and a spinner turning
-// over a screen that already has its answer is a lie about what is happening.
 func TestTheChainRunsWhileLoadingAndStopsWhenItIsNot(t *testing.T) {
 	s := comp.NewSpinner(testTheme)
 
@@ -42,9 +40,6 @@ func TestTheChainRunsWhileLoadingAndStopsWhenItIsNot(t *testing.T) {
 	}
 }
 
-// Two screens can be waiting at once, and the root hands every tick to both.
-// Without the tag check each would advance the other and the pair would run at
-// double speed.
 func TestASpinnerIgnoresAnotherSpinnersTick(t *testing.T) {
 	mine := comp.NewSpinner(testTheme)
 	theirs := comp.NewSpinner(testTheme)
@@ -72,9 +67,6 @@ func TestALabelSitsBesideTheGlyph(t *testing.T) {
 	}
 }
 
-// The status bar's spinner sits beside the key hints, and a label in the grey
-// those are rendered in reads as one more hint rather than as something
-// happening.
 func TestTheAccentLabelIsNotTheMutedOne(t *testing.T) {
 	s := comp.NewSpinner(testTheme)
 

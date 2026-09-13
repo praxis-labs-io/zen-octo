@@ -7,9 +7,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// reactedDetail is a timeline comment, a thread comment and a description, each
-// carrying reactions somebody else gave. Three subjects because a reaction
-// reaches three different places and the fold takes a different route to each.
 func reactedDetail() gh.DetailResult {
 	c := gh.Comment{
 		Kind: gh.CommentIssue, ID: "IC_1", Body: "first",
@@ -26,8 +23,6 @@ func reactedDetail() gh.DetailResult {
 	}}
 }
 
-// reactionOn is the counts a subject carries, keyed by content, as the store
-// currently folds them.
 func reactionOn(rs []gh.Reaction, c gh.ReactionContent) (gh.Reaction, bool) {
 	for _, r := range rs {
 		if r.Content == c {
@@ -37,8 +32,6 @@ func reactionOn(rs []gh.Reaction, c gh.ReactionContent) (gh.Reaction, bool) {
 	return gh.Reaction{}, false
 }
 
-// The pill moves before GitHub has seen it. That is the whole of what
-// optimistic means here.
 func TestAReactionRendersBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -54,8 +47,6 @@ func TestAReactionRendersBeforeItLands(t *testing.T) {
 	}
 }
 
-// The three subjects are three routes through the fold. A reaction on the
-// description never reaches a comment at all: it is a field of the pull request.
 func TestAReactionReachesEverySubject(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
@@ -95,9 +86,6 @@ func TestAReactionReachesEverySubject(t *testing.T) {
 	}
 }
 
-// A reaction given and then taken back leaves a group at zero, and it stays on
-// the list while the write is out. It is the only thing a second press can
-// read, and the key is what goes inert on it.
 func TestAReactionTakenBackStaysWhileTheWriteIsOut(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -113,13 +101,10 @@ func TestAReactionTakenBackStaysWhileTheWriteIsOut(t *testing.T) {
 	}
 }
 
-// A reaction nobody has given yet lands in GitHub's own order, not on the end.
-// Appending would move the pill sideways the moment the answer arrived.
 func TestANewReactionLandsInGitHubsOrder(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
 
-	// THUMBS_UP is already there and LAUGH sorts between it and nothing else.
 	s.PendingReaction("PR_1", "IC_1", "", gh.ReactionLaugh, true)
 
 	got := s.Detail("PR_1").Detail.Timeline[0].Said().Reactions
@@ -128,8 +113,6 @@ func TestANewReactionLandsInGitHubsOrder(t *testing.T) {
 	}
 }
 
-// The reason a reaction is held beside the detail rather than written into it.
-// A refetch that answers before the mutation does must not undo the pill.
 func TestARefetchDoesNotUndoAReactionStillOut(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -143,13 +126,6 @@ func TestARefetchDoesNotUndoAReactionStillOut(t *testing.T) {
 	}
 }
 
-// The fold hands out a detail. A timeline item holds a pointer to its comment,
-// so writing through it moves the pill inside the held one and the revert then
-// has nothing to put back.
-//
-// The read before the revert is what makes this a test. Reading twice proves
-// nothing: the toggle is idempotent, so a second fold over an already-flipped
-// comment leaves it exactly where the first one did.
 func TestFoldingAReactionLeavesTheHeldDetailAlone(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -164,8 +140,6 @@ func TestFoldingAReactionLeavesTheHeldDetailAlone(t *testing.T) {
 	}
 }
 
-// Same question one level down, where the clone has to reach the thread's own
-// comment slice as well as the slice of threads.
 func TestFoldingAThreadReactionLeavesTheHeldDetailAlone(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -180,8 +154,6 @@ func TestFoldingAThreadReactionLeavesTheHeldDetailAlone(t *testing.T) {
 	}
 }
 
-// A settle takes the count GitHub reported for the reaction the write moved,
-// and leaves every other group where it was.
 func TestASettledReactionTakesGitHubsCount(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -200,10 +172,6 @@ func TestASettledReactionTakesGitHubsCount(t *testing.T) {
 	}
 }
 
-// Two toggles on one subject answer in whatever order the network gives them,
-// and each response is a snapshot of the subject as GitHub had it at the time.
-// Taking either one whole lets the older snapshot land last and delete a
-// reaction the other one added.
 func TestTwoReactionsSettlingOutOfOrderKeepBoth(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -211,8 +179,6 @@ func TestTwoReactionsSettlingOutOfOrderKeepBoth(t *testing.T) {
 	up := s.PendingReaction("PR_1", "IC_1", "", gh.ReactionThumbsUp, true)
 	rocket := s.PendingReaction("PR_1", "IC_1", "", gh.ReactionRocket, true)
 
-	// The rocket answers first, from a subject GitHub had already given the
-	// thumbs up. The thumbs up answers second, from before the rocket existed.
 	s.ReactionApplied("PR_1", rocket, gh.ReactionResult{Reactions: []gh.Reaction{
 		{Content: gh.ReactionThumbsUp, Count: 3, Viewer: true},
 		{Content: gh.ReactionRocket, Count: 1, Viewer: true},
@@ -230,8 +196,6 @@ func TestTwoReactionsSettlingOutOfOrderKeepBoth(t *testing.T) {
 	}
 }
 
-// Taking the last reaction off leaves a subject with none, and GitHub answers
-// with nothing for it. That is the write having worked.
 func TestSettlingTheLastReactionTakesThePillOff(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -246,7 +210,6 @@ func TestSettlingTheLastReactionTakesThePillOff(t *testing.T) {
 		t.Errorf("reaction = %+v, want the two GitHub kept, without the viewer", got)
 	}
 
-	// And the same again where the viewer was the only one in it.
 	s.DetailApplied("PR_2", reactedDetail())
 	last := s.PendingReaction("PR_2", "RC_1", "RT_1", gh.ReactionEyes, false)
 	s.ReactionApplied("PR_2", last, gh.ReactionResult{})
@@ -256,8 +219,6 @@ func TestSettlingTheLastReactionTakesThePillOff(t *testing.T) {
 	}
 }
 
-// The revert branch. Nothing was typed and no words are at stake, so the pill
-// going back is the whole of it.
 func TestARefusedReactionGoesBack(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -271,8 +232,6 @@ func TestARefusedReactionGoesBack(t *testing.T) {
 	}
 }
 
-// A refetch landing while the write is out may no longer carry the comment.
-// There is nothing honest to invent, so the write waits out of sight.
 func TestAReactionOnAVanishedCommentIsSkipped(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())
@@ -284,8 +243,6 @@ func TestAReactionOnAVanishedCommentIsSkipped(t *testing.T) {
 	}
 }
 
-// A fetch asked for before the write settled was answered from the reactions
-// before it, so taking it would put the pill back where it was.
 func TestASettledReactionMarksAFetchInFlightStale(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", reactedDetail())

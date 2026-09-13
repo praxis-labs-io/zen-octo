@@ -30,8 +30,6 @@ func TestToastShowsThenExpires(t *testing.T) {
 	}
 }
 
-// Two toasts in quick succession leave the first one's timer still in flight.
-// Without the sequence number it lands and clears the second.
 func TestAStaleTimerDoesNotClearANewerToast(t *testing.T) {
 	var toasts comp.Toasts
 
@@ -55,9 +53,6 @@ func TestToastKindPicksTheColor(t *testing.T) {
 		kind comp.ToastKind
 		want string
 	}{
-		// Info is Text, which is the terminal's own foreground and writes no
-		// sequence at all. What the test can hold is that the other two do not
-		// borrow it.
 		{name: "success", kind: comp.ToastSuccess, want: fgSeq(testTheme.Success)},
 		{name: "error", kind: comp.ToastError, want: fgSeq(testTheme.Error)},
 	}

@@ -1,19 +1,13 @@
-// Package keys declares every binding once, with its help text attached, so the
-// help view renders from the same declaration Update matches on. A rebind moves
-// both or neither.
+// Package keys declares every key binding once, with the help text the status bar and overlay render from.
 package keys
 
 import "charm.land/bubbles/v2/key"
 
-// GlobalMap answers whatever has focus. The root model handles these before it
-// delegates to a screen.
-//
-// Quit and ForceQuit are separate because the compose pane takes plain letters
-// as text. While it is open the root stands aside and q types a q; ctrl+c still
-// quits, because one way out has to work from everywhere.
+// GlobalMap is handled by the root model before any screen sees the key.
 type GlobalMap struct {
-	Help      key.Binding
-	Quit      key.Binding
+	Help key.Binding
+	Quit key.Binding
+	// ForceQuit is separate from Quit because a compose box takes q as text.
 	ForceQuit key.Binding
 }
 
@@ -32,22 +26,15 @@ type ListMap struct {
 	Open         key.Binding
 	Sync         key.Binding
 
-	// CopyLink and Browse take the pull request under the cursor out of the
-	// terminal. Both mean the pull request itself, on either screen.
 	CopyLink key.Binding
 	Browse   key.Binding
 
-	// Search narrows the section on screen against what is already fetched. It
-	// is the detail screen's key meaning the same thing: what a search is over
-	// belongs to the screen. ClearSearch answers from both sides of it, the bar
-	// open and the bar closed over a filter still standing, because dropping a
-	// filter and dismissing the thing that took it are one intention.
-	Search      key.Binding
+	Search key.Binding
+	// ClearSearch drops a standing filter whether or not the search bar is open.
 	ClearSearch key.Binding
 }
 
-// DetailMap is live on the pull request detail screen. The same movement keys
-// serve every pane; focus decides what they move.
+// DetailMap is live on the pull request detail screen; focus decides what the movement keys move.
 type DetailMap struct {
 	Up           key.Binding
 	Down         key.Binding
@@ -60,31 +47,20 @@ type DetailMap struct {
 	NextTab      key.Binding
 	PrevTab      key.Binding
 
-	// NextInColumn and PrevInColumn step the column that drives the pane, on the
-	// three tabs that have one: the file, the commit, the check. It is the
-	// coarser move, made without leaving the pane the result lands in.
-	//
-	// The conversation has no such column. Its rail is a menu whose cursor does
-	// nothing until the rail has the keys, so the binding is dead there and the
-	// bar does not name it. The strip keeps ] and [ on both screens.
+	// NextInColumn and PrevInColumn step the file, commit, or check column driving the pane.
 	NextInColumn key.Binding
 	PrevInColumn key.Binding
 	ToggleViewed key.Binding
 
-	// The braces are paragraph motion in vim and mean the same here: go to the
-	// next block. What a block is belongs to the tab.
 	NextBlock key.Binding
 	PrevBlock key.Binding
 
 	PaneLeft  key.Binding
 	PaneRight key.Binding
 
-	// SplitView is a rendering choice and nothing the store holds, so it answers
-	// from either pane and never waits on a fetch.
 	SplitView key.Binding
 
-	// FocusPane is one binding over the digits rather than one per pane: the
-	// Files tab puts a third on screen, and they are numbered by where they sit.
+	// FocusPane covers every digit, numbering panes by where they sit.
 	FocusPane key.Binding
 
 	ToggleRail key.Binding
@@ -92,75 +68,43 @@ type DetailMap struct {
 	Sync       key.Binding
 	Back       key.Binding
 
-	// The compose pane's own. Comment opens it; Post and Editor are live only
-	// while it is open. Closing it is Back, and the button is reached with
-	// Form.Next rather than anything here.
-	//
-	// Post is a chord only a terminal speaking the Kitty keyboard protocol can
-	// send. Every terminal reaches the button instead, which is why there is
-	// one, and the pane names whichever of the two the reader can actually use.
-	Comment  key.Binding
+	Comment key.Binding
+	// Post is a Kitty keyboard protocol chord; other terminals reach the compose button instead.
 	Post     key.Binding
 	Activate key.Binding
 	Editor   key.Binding
 
-	// Reply and QuoteReply answer a review thread, from the comment the ring is
-	// on. They take r and R, which is why syncing moved to s: replying is the
-	// key this screen exists for, and it was behind the one that refetches. On
-	// Checks, where there is no comment to answer, r reruns the failed job.
 	Reply      key.Binding
 	QuoteReply key.Binding
 
-	// React opens the list of GitHub's eight over the block the ring is on and
-	// toggles the one chosen. It takes + because that is the button GitHub puts
-	// on every comment, and because it is the one thing a reader does to
-	// somebody else's writing without writing anything back.
+	// React toggles one of GitHub's eight reactions on the block the ring is on.
 	React key.Binding
 
-	// Edit opens the box over the block the ring is on, with its words in it.
-	// Delete takes one off, behind a confirm. It is shifted because deleting is
-	// not something to do by leaning on a key, and the confirm is there because
-	// shift guards against the wrong key rather than against the wrong card.
 	Edit   key.Binding
 	Delete key.Binding
 
-	// Resolve settles a review thread and opens a settled one. One key for both,
-	// because GitHub treats it as one control with two permissions and the card
-	// names whichever of the two the reader has.
-	//
-	// Jump takes the thread to its place in the diff, which is the one question
-	// a comment on a line raises that the conversation cannot answer.
+	// Resolve both resolves and unresolves a review thread.
 	Resolve key.Binding
 	Jump    key.Binding
 
-	// Search stays inside a job log. NextMatch and PrevMatch repeat it, and
-	// FirstFailure lands on the first failed step without changing its folds.
+	// Search, NextMatch, and PrevMatch search within a job log.
 	Search       key.Binding
 	NextMatch    key.Binding
 	PrevMatch    key.Binding
 	FirstFailure key.Binding
 
-	// CopyLink and Browse mean the pull request on all four tabs and never the
-	// block the ring is on: nothing but the pull request carries a URL.
 	CopyLink key.Binding
 	Browse   key.Binding
 }
 
-// FormMap is live while a compose box, the merge form or a picker holds the
-// keyboard, which is never while the keys behind it mean anything else.
+// FormMap is live while a compose box, the merge form, or a picker holds the keyboard.
 type FormMap struct {
-	// tab is the only key that can move a caret out of a textarea: the braces
-	// the screen walks blocks with are text once a box is open.
 	Next key.Binding
 	Prev key.Binding
 
-	// Toggle checks and unchecks the row the cursor is on, in a picker that
-	// takes a set and on the merge form's delete row. Both are that one control.
 	Toggle key.Binding
 }
 
-// Global, List, and Detail are the declarations. Config-driven rebinding lands
-// later; until then these are the only place a key is named.
 var (
 	Global = GlobalMap{
 		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
@@ -238,44 +182,20 @@ var (
 	}
 )
 
-// hint restates a binding for the status bar, where a pair of opposed keys
-// shares one verb: the bar has room for "j/k move" and not for a line naming
-// up and down separately. It keeps the real key list, so the help stays
-// answerable to the declarations.
-//
-// The overlay is the other way round. It has a row per binding and no reader
-// looking for the one word that gets them moving, so "up" and "down" belong
-// there and a shared verb would leave two rows reading the same.
 func hint(b key.Binding, keys, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(b.Keys()...), key.WithHelp(keys, desc))
 }
 
-// ListContext is what the list screen can do where the reader is standing. The
-// section under the strip is not always showing its rows: one that has never
-// answered is drawing a spinner and one that failed is drawing its error, and
-// every key that acts on a row is refused over both.
-//
-// That is the screen where a wrong line costs most. The rows are gone, so the
-// hints are the only thing left explaining what the keyboard still does, and
-// five of the nine used to be keys that did nothing.
+// ListContext says what the list screen can act on, so its hints name only keys that answer.
 type ListContext struct {
-	// Rows is whether the section's rows are on the screen rather than a block
-	// standing in for them, which is what the keys that act on one are gated on.
+	// Rows is whether the section's rows are drawn rather than a spinner or error standing in.
 	Rows bool
 
-	// Search is whether a query stands, so esc has a filter to let go of.
+	// Search is whether a filter is standing.
 	Search bool
 }
 
-// ShortHelp is the one line the status bar carries.
-//
-// Quit is not on it. It is the most guessable key in a terminal program, it is
-// on the overlay and in the keymap, and the nine cells it took were spent
-// telling the reader something they already knew.
-//
-// Help is last, and the bar never sheds it. It is the way to every key the line
-// has no room for, so a line cut short with it still on the end says there is
-// more, where the same line without it says there is nothing.
+// ShortHelp is the status bar line for c. It omits Quit and ends in Help, which the bar never sheds.
 func (k ListMap) ShortHelp(c ListContext) []key.Binding {
 	out := make([]key.Binding, 0, 9)
 	if c.Rows {
@@ -294,9 +214,7 @@ func (k ListMap) ShortHelp(c ListContext) []key.Binding {
 	return append(out, k.Sync, Global.Help)
 }
 
-// SearchHelp is the line the list's search bar carries while it has the
-// keyboard. Every other key on that screen is a character in the query, so
-// naming one would be naming a key that does not answer.
+// SearchHelp is the status bar line while the search bar has the keyboard.
 func (k ListMap) SearchHelp() []key.Binding {
 	return []key.Binding{
 		hint(k.Open, "⏎", "apply"),
@@ -304,8 +222,6 @@ func (k ListMap) SearchHelp() []key.Binding {
 	}
 }
 
-// FullHelp is the overlay. Every binding in the map appears here; a test holds
-// that, so adding a binding without a home in the help fails the build.
 func (k ListMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
@@ -317,48 +233,29 @@ func (k ListMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// DetailContext is what the detail screen can do where the reader is standing.
-// The bar is one line on four tabs that hold different things, and a hint for a
-// key that is inert on the tab under it is worse than no hint at all: the
-// reader presses it, nothing happens, and the whole line stops being worth
-// reading.
+// DetailContext says what the detail screen can act on, so its hints name only keys that answer.
 type DetailContext struct {
-	// Blocks is whether the braces have anything to walk: cards on the
-	// conversation, files in a diff, or steps in a job log.
+	// Blocks is whether the braces have anything to walk.
 	Blocks bool
 
-	// Expand is whether there is something to open. The conversation has folds
-	// and the Files tab has directories; the other two have neither.
 	Expand bool
 
-	// Rail is whether there is a rail to toggle, which the tabs with a column
-	// have no room for.
+	// Rail is whether the tab has room for a rail to toggle.
 	Rail bool
 
-	// Activate is whether enter opens what the focused row holds, which is the
-	// rail's own answer. It is read off the focus rather than off the row under
-	// the cursor: a rail row stating a fact refuses the key, but a hint coming
-	// and going as the cursor walks past those rows would flicker for a refusal
-	// that costs the reader nothing.
+	// Activate is whether the focused pane opens rows on enter, whatever row is under the cursor.
 	Activate bool
 
-	// Panes is whether to name the step between panes. It is live wherever there
-	// are two, and named only on the rail, which is the one pane where every key
-	// that acts on the page is dead: the line would otherwise put the reader on
-	// a list of controls with no way to the words beside it.
+	// Panes is whether to name the step between panes, which only the rail wants.
 	Panes bool
 
-	// Column names what the driving column holds, and is empty where the tab has
-	// none. It is the noun rather than a flag because the bar says "tab file" on
-	// one tab and "tab commit" on the next, off one declaration.
+	// Column names what the driving column holds, or is empty where the tab has none.
 	Column string
 
-	// Split is whether the pane draws a diff two columns can be asked of, which
-	// is the same tab. A hint for a key that is inert is worse than no hint.
+	// Split is whether the pane draws a diff that can be split into two columns.
 	Split bool
 
-	// FileView is whether the current row or pane names a file. FileViewed
-	// chooses the action named beside it.
+	// FileView is whether a file is under the cursor; FileViewed picks which action is named.
 	FileView   bool
 	FileViewed bool
 
@@ -367,20 +264,15 @@ type DetailContext struct {
 	JobMatches bool
 	JobRerun   bool
 
-	// RunRerun and RunRerunAll are the workflow row's two, which the job row
-	// never carries: a run is what the bulk calls take, and a parent row is the
-	// only place one is under the cursor.
+	// RunRerun and RunRerunAll are set only on a workflow row.
 	RunRerun    bool
 	RunRerunAll bool
 
-	// SearchStanding is whether a settled query is still filtering the job log.
-	// Esc clears that before it will leave the screen, so the line saying "back"
-	// names the second press rather than the one the reader is about to make.
+	// SearchStanding is whether a settled query still filters the job log.
 	SearchStanding bool
 }
 
-// ShortHelp is the one line the status bar carries. Sync is in the overlay
-// only, to keep the line inside a hundred columns.
+// ShortHelp is the status bar line for c. Sync is left to the overlay.
 func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	out := []key.Binding{hint(k.Down, "j/k", "move")}
 	if c.Activate {
@@ -390,11 +282,6 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 		out = append(out, hint(k.PaneRight, "h/l", "panes"))
 	}
 
-	// The keys that move around the screen come before the keys that act on
-	// what is in it, because the bar sheds from the right and this is the order
-	// that survives being cut. A reader who cannot see how to leave, change tab
-	// or reach the rail is stuck; one who cannot see the brace has lost a way of
-	// walking a page j and k already walk.
 	back := k.Back
 	if c.SearchStanding {
 		back = hint(k.Back, "esc", "clear search")
@@ -444,10 +331,7 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	return append(out, Global.Help)
 }
 
-// SearchHelp is the line the job log's search bar carries while it has the
-// keyboard, the same answer the list's bar gets one screen over. Every other
-// key on this screen is a character in the query, so naming one would be naming
-// a key that does not answer.
+// SearchHelp is the status bar line while the job log's search bar has the keyboard.
 func (k DetailMap) SearchHelp() []key.Binding {
 	return []key.Binding{
 		hint(k.Activate, "⏎", "apply"),
@@ -455,9 +339,7 @@ func (k DetailMap) SearchHelp() []key.Binding {
 	}
 }
 
-// FullHelp is the overlay. The form keys are on it as well: they are live only
-// while a box has the keyboard, but the reader asking what tab does is owed
-// both answers.
+// FullHelp is the help overlay, form keys included.
 func (k DetailMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},

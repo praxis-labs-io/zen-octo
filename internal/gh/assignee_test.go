@@ -36,8 +36,6 @@ func TestSetAssigneesSendsIDsAndReturnsTheSet(t *testing.T) {
 	if !strings.Contains(f.gotQuery, "updatePullRequest") {
 		t.Error("query does not use updatePullRequest")
 	}
-	// rateLimit is a field on Query alone; a mutation naming it is rejected
-	// whole, so the document must not carry it.
 	if strings.Contains(f.gotQuery, "rateLimit") {
 		t.Error("mutation selects rateLimit, which GitHub rejects")
 	}
@@ -45,15 +43,11 @@ func TestSetAssigneesSendsIDsAndReturnsTheSet(t *testing.T) {
 	if got, want := len(res.Assignees), 1; got != want {
 		t.Fatalf("assignees = %d, want %d", got, want)
 	}
-	// The id as well as the login. The picker checks by id, so an answer
-	// carrying only logins would reopen with nobody selected.
 	if got, want := res.Assignees[0], (Actor{ID: "U_1", Login: "drucial"}); got != want {
 		t.Errorf("assignees[0] = %+v, want %+v", got, want)
 	}
 }
 
-// Clearing every assignee is a real write, not a call to skip. A nil slice
-// would marshal to null and the non-null [ID!]! type rejects it.
 func TestSetAssigneesSendsEmptyArrayNotNull(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": {"id": "PR_1", "assignees": {"nodes": []}}}}`}
 
@@ -106,9 +100,6 @@ func TestSetAssigneesWrapsTransportError(t *testing.T) {
 	}
 }
 
-// The picker checks by node id, so every document that feeds or answers it has
-// to carry one. A login without its id reopens the picker with nobody selected,
-// and applying it then clears the assignees it was showing.
 func TestEveryAssigneeDocumentAsksForTheID(t *testing.T) {
 	for _, doc := range []struct{ name, query, want string }{
 		{"SetAssignees", setAssigneesMutation, "assignees(first: 100) { nodes { id login } }"},

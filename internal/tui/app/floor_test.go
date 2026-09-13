@@ -13,8 +13,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/app"
 )
 
-// Below the floor a control goes missing with nothing said. The frame says the
-// size instead, in both directions so a floor written as > fails here.
 func TestTheFrameSaysWhenTheTerminalIsTooSmall(t *testing.T) {
 	tests := []struct {
 		width, height int
@@ -39,8 +37,6 @@ func TestTheFrameSaysWhenTheTerminalIsTooSmall(t *testing.T) {
 				return
 			}
 
-			// Named in full wherever there is room. A frame narrower than the
-			// sentence keeps the size it needs and drops the size it is.
 			want := fmt.Sprintf("the terminal is %dx%d, and this %s", tt.width, tt.height, need)
 			if lipgloss.Width(want) <= tt.width && !strings.Contains(out, want) {
 				t.Errorf("the message does not name both sizes:\n%s", out)
@@ -49,8 +45,6 @@ func TestTheFrameSaysWhenTheTerminalIsTooSmall(t *testing.T) {
 	}
 }
 
-// The message is the whole frame, so it fills it: a short one leaves the last
-// frame's rows on the alt screen under it.
 func TestTheSizeMessageFillsTheFrame(t *testing.T) {
 	const width, height = 40, 10
 
@@ -65,12 +59,6 @@ func TestTheSizeMessageFillsTheFrame(t *testing.T) {
 	}
 }
 
-// Nothing is thrown away under the message. A terminal dragged small and back
-// is the terminal it was, with whatever was open still open.
-// The list's search box is drawn into the pane rather than over it, so a drag
-// below the floor and back has to give it back with its query intact. esc is
-// one of the keys the floor leaves standing, and it has to reach the box under
-// the message rather than the screen behind it.
 func TestTheListSearchBoxSurvivesADragBelowTheFloor(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := loaded(t, client, app.MinWidth, app.MinHeight)
@@ -110,8 +98,6 @@ func TestAPickerSurvivesADragBelowTheFloor(t *testing.T) {
 	}
 }
 
-// serveBypassMerge stages the tallest merge form there is: blocked by a rule
-// the viewer may override, with a head branch to delete and every method.
 func (f *fakeSearcher) serveBypassMerge(id string) {
 	f.serveMergeable(id)
 
@@ -123,8 +109,6 @@ func (f *fakeSearcher) serveBypassMerge(id string) {
 	f.details[id] = held
 }
 
-// Both floor numbers are this form's, so the worst one it draws has to fit at
-// them. An overlay is clipped rather than scrolled, and the button goes last.
 func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -133,8 +117,6 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 		Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
 	})
 
-	// Under a config notice, which is the row the floor's spare one is for.
-	// Without it the form fits a shorter frame and 23 is a row too generous.
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 	sized := drive(t, app.New(cfg, client, testSurface), tea.WindowSizeMsg{Width: app.MinWidth, Height: app.MinHeight})
@@ -148,8 +130,6 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	}
 
 	out := stripANSI(render(t, press(m, "enter")))
-	// "esc cancel" with them: a modal holding the keyboard and naming none of
-	// its keys is the failure this whole floor is about, one control over.
 	for _, want := range []string{"Rebase and merge", "Delete fix-auth after merging",
 		"Bypasses branch protection", "esc cancel", "Merge"} {
 		if !strings.Contains(out, want) {
@@ -157,8 +137,6 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 		}
 	}
 
-	// Closed at the foot. One row short takes the border and not the button, so
-	// a check that reads the rows alone passes over a form hanging open.
 	lines := strings.Split(out, "\n")
 	foot := strings.Join(lines[min(len(lines), footerRow(t, lines)+1):], "\n")
 	if !strings.Contains(foot, "╯") {
@@ -166,8 +144,6 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	}
 }
 
-// footerRow is the line the form's hints and its button share, which is the
-// last thing it draws above its own border.
 func footerRow(t *testing.T, lines []string) int {
 	t.Helper()
 
@@ -180,27 +156,21 @@ func footerRow(t *testing.T, lines []string) int {
 	return 0
 }
 
-// A key under the message acts on a layout nobody can see, and one of them
-// merges. Only the way out of what is open answers.
 func TestKeysUnderTheMessageDoNotReachTheScreen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	m := settle(openLabelPicker(t, client), tea.WindowSizeMsg{Width: 30, Height: 8})
 
-	// space toggles a label and enter writes the set. Neither may land here.
 	m = press(m, " ", "enter")
 	if got := client.labelWrites(); len(got) != 0 {
 		t.Errorf("a label set was written from under the message: %v", got)
 	}
 
-	// esc is the exception, or a picker opened before the drag has no way out.
 	m = settle(press(m, "esc"), tea.WindowSizeMsg{Width: 160, Height: 40})
 	if out := stripANSI(render(t, m)); strings.Contains(out, "space toggle") {
 		t.Errorf("esc under the message did not close the picker:\n%s", out)
 	}
 }
 
-// The narrowest frame this client draws still reaches the rail, which is the
-// only route to state, labels, reviewers, assignees and the base branch.
 func TestTheRailReachesTheNarrowestFrame(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
@@ -209,8 +179,6 @@ func TestTheRailReachesTheNarrowestFrame(t *testing.T) {
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "d details") {
 		t.Fatalf("the bar does not name the key that opens the rail:\n%s", out)
 	}
-	// Whole, not a clipped one: the add row is the far end of the rail's width,
-	// and a rail cut short of it is a control the reader cannot read.
 	out := stripANSI(render(t, press(m, "d")))
 	for _, want := range []string{"Reviewers", "+ Add reviewer"} {
 		if !strings.Contains(out, want) {

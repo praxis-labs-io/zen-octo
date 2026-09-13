@@ -98,8 +98,6 @@ func TestUpdateSendsTheIdAndBodyAndMapsTheAnswerBack(t *testing.T) {
 	}
 }
 
-// The three inputs disagree on what the id is called. Sending the right
-// document with the wrong spelling is a 422 about an unknown field.
 func TestEachUpdateNamesTheIdItsOwnInputTakes(t *testing.T) {
 	for _, tt := range []struct {
 		doc   string
@@ -115,8 +113,6 @@ func TestEachUpdateNamesTheIdItsOwnInputTakes(t *testing.T) {
 	}
 }
 
-// A field missing from a mutation decodes to a zero value from canned JSON, so
-// the mapping test above passes while the field is dead.
 func TestEveryUpdateAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	for _, doc := range []string{
 		updateIssueCommentMutation, updateReviewCommentMutation, updateReviewMutation,
@@ -132,8 +128,6 @@ func TestEveryUpdateAsksForWhatTheViewerMayDoNext(t *testing.T) {
 	}
 }
 
-// An answer landing in another payload's field is a failure, never a comment.
-// This is what a response read by whichever half came back filled would miss.
 func TestAnUpdateReadsTheHalfItsOwnDocumentProduced(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequestReview": {"pullRequestReview":
 	  {"id": "PRR_1", "body": "fixed"}}}`}
@@ -200,10 +194,6 @@ func TestDeleteSendsTheIdThroughTheMutationForItsKind(t *testing.T) {
 	}
 }
 
-// viewerCanDelete is true on a submitted review and there is no call that
-// deletes one. Nothing above offers the key, and this is the backstop: a
-// request sent here would come back refused in GitHub's words about a call this
-// side chose.
 func TestAReviewBodyCannotBeDeleted(t *testing.T) {
 	f := &fakeDoer{body: `{}`}
 

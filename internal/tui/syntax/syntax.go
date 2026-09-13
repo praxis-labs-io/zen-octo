@@ -11,41 +11,29 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 )
 
-// Token is one run of code sharing a color. Color is nil where the style has
-// nothing to say, which is most of the punctuation and whitespace in a file.
+// Token is one run of code sharing a color. Color is nil where the style sets none.
 type Token struct {
 	Text  string
 	Color color.Color
 }
 
-// Syntax colors source code. It returns tokens rather than rendered text
-// because the caller owns the rest of the line's style: a diff paints a
-// background per cell, and a token that rendered itself would end in a reset
-// and tear a hole in it.
-//
-// Chroma's own terminal formatter is unusable here for that reason.
-//
-// Lines mutates the cache, so it belongs on an Update path.
+// Syntax colors source code as tokens. Lines mutates its cache, so call it from Update, never View.
 type Syntax struct {
 	style *chroma.Style
 	cache map[uint64][][]Token
 }
 
-// New builds a colorizer over a Chroma style, reporting whether the name
-// was one Chroma knows. An unknown name still yields a working colorizer, so a
-// typo in config degrades to different colors rather than no diff.
+// New builds a colorizer over a Chroma style and reports whether Chroma knows the name; empty counts as known.
+// An unknown name still yields a working colorizer with Chroma's fallback style.
 func New(name string) (Syntax, bool) {
 	_, ok := styles.Registry[name]
 	return Syntax{style: styles.Get(name), cache: make(map[uint64][][]Token)}, ok || name == ""
 }
 
-// Names lists the styles Chroma ships, for the message that follows a
-// name it did not recognise.
 func Names() []string { return styles.Names() }
 
-// Lines splits code into lines of colored tokens. The lexer is chosen from the
-// path, and the whole body is tokenised at once: a lexer carries state across
-// lines, so a multi-line string highlighted line by line comes apart.
+// Lines splits code into lines of colored tokens, choosing the lexer from path.
+// Pass a whole file: lexers carry state across lines.
 func (s *Syntax) Lines(path, code string) [][]Token {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(path))
@@ -77,9 +65,6 @@ func (s *Syntax) tokenise(path, code string) [][]Token {
 	for _, line := range chroma.SplitTokensIntoLines(iter.Tokens()) {
 		row := make([]Token, 0, len(line))
 		for _, t := range line {
-			// Only the foreground is read. A Chroma style carries a background
-			// of its own, and taking it would paint over the terminal's, which
-			// is what keeps a transparent one transparent.
 			text := strings.TrimSuffix(t.Value, "\n")
 			if text == "" {
 				continue
@@ -91,8 +76,6 @@ func (s *Syntax) tokenise(path, code string) [][]Token {
 	return out
 }
 
-// plain is the fallback when a lexer fails outright: uncolored code beats no
-// code.
 func plain(code string) [][]Token {
 	lines := strings.Split(code, "\n")
 	out := make([][]Token, len(lines))
@@ -102,6 +85,7 @@ func plain(code string) [][]Token {
 	return out
 }
 
+// Foreground only: a style's own background would paint over the terminal's.
 func colorOf(c chroma.Colour) color.Color {
 	if !c.IsSet() {
 		return nil

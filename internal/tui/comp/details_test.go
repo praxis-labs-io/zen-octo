@@ -54,7 +54,6 @@ func TestSplitDetailsHandlesTheAwkwardShapes(t *testing.T) {
 			want: 1, summary: "Details",
 		},
 		{
-			// GitHub writes <DETAILS> on occasion and the tag is not the point.
 			name: "case does not matter",
 			body: "<DETAILS><SUMMARY>Overview</SUMMARY>\nx\n</DETAILS>",
 			want: 1, summary: "Overview",
@@ -78,7 +77,6 @@ func TestSplitDetailsHandlesTheAwkwardShapes(t *testing.T) {
 	}
 }
 
-// Folded is what tells a screen whether the expand key has anything to do.
 func TestFoldedReportsWhetherThereIsAnythingToOpen(t *testing.T) {
 	if comp.Folded(comp.SplitDetails("Just prose.")) {
 		t.Error("prose alone reads as having a fold in it")

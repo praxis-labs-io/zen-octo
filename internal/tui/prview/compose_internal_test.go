@@ -1,11 +1,5 @@
 package prview
 
-// The tests in this package rather than beside it, because neither reaches a
-// frame. editorCommand reads the environment and returns a command line, and
-// wrappedRows is arithmetic over a width the page never states. Exporting
-// either so a black-box test could call it would be widening the package for
-// the test's convenience.
-
 import (
 	"os"
 	"regexp"
@@ -21,7 +15,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/syntax"
 )
 
-// editorFixture is a detail screen with one answerable thread on it.
 func editorFixture(t *testing.T) Model {
 	t.Helper()
 
@@ -45,7 +38,6 @@ func editorFixture(t *testing.T) Model {
 	m := New(testTheme, d.PullRequest, RailPreference{}, syn)
 	m.SetDetail(store.Detail{Detail: d, Status: store.StatusReady, Loaded: true})
 	m.SetSize(200, 60)
-	// The rail leads on arrival; these tests are about the page beside it.
 	m = pressKeys(m, "2")
 	return m
 }
@@ -61,8 +53,6 @@ var seqs = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripSeqs(s string) string { return seqs.ReplaceAllString(s, "") }
 
-// The editor is the reader's, in the order every other terminal program reads
-// them, and vi when they have named none.
 func TestTheEditorIsTheOneTheReaderNamed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -94,8 +84,6 @@ func TestTheEditorIsTheOneTheReaderNamed(t *testing.T) {
 	}
 }
 
-// The editor's text goes to the box that opened it. editorDoneMsg is unexported,
-// so a black-box test cannot deliver one; the assertion is still on the frame.
 func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -131,8 +119,6 @@ func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
 				t.Fatalf("the editor's text is nowhere on the page:\n%s", frame)
 			}
 
-			// The text has to be under the box that opened the editor, which is
-			// the one whose heading comes last before it.
 			at := strings.Index(frame, "written elsewhere")
 			mine := strings.LastIndex(frame[:at], tt.want)
 			theirs := strings.LastIndex(frame[:at], tt.other)
@@ -143,8 +129,6 @@ func TestTheEditorWritesBackToTheBoxThatOpenedIt(t *testing.T) {
 	}
 }
 
-// The editor opens on whatever the box already holds, so a draft survives the
-// round trip instead of being replaced by what comes back.
 func TestTheEditorOpensOnTheBoxsOwnWords(t *testing.T) {
 	path, err := draftFile("half an answer")
 	if err != nil {
@@ -161,9 +145,6 @@ func TestTheEditorOpensOnTheBoxsOwnWords(t *testing.T) {
 	}
 }
 
-// The box is sized by this, so a count that folds anywhere the textarea does
-// not leaves it a row short of its own writing and scrolling where it was
-// supposed to grow.
 func TestWrappedRowsFoldsWhereTheTextareaFolds(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -171,15 +152,11 @@ func TestWrappedRowsFoldsWhereTheTextareaFolds(t *testing.T) {
 		width int
 		want  int
 	}{
-		// A character count fits these in two rows. No two of them share one:
-		// each is more than half the width, and a word is not cut in half to
-		// fill a line.
 		{"words too long to pair", "aaaaaa bbbbbb cccccc", 10, 3},
 		{"a word longer than the width", "aaaaaaaaaaaaaaa", 10, 2},
 		{"a line that fills the width", "aaaaaaaaaa", 10, 1},
 		{"nothing", "", 10, 1},
 		{"a blank line is still a row", "one\n\ntwo", 10, 3},
-		// No width to fold at yet, which is every call before the first render.
 		{"no width", "one\ntwo", 0, 2},
 	}
 

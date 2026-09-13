@@ -14,67 +14,32 @@ import (
 )
 
 const (
-	// pickerRows is how many choices show at once. Ten is a screenful to scan
-	// without the modal growing tall enough to cover what it was opened from.
 	pickerRows = 10
 
-	// pickerFilterFrom is the shortest list that earns a filter row. Below it
-	// every choice is already on screen and a text field is one more thing to
-	// read before pressing a key that was always going to be j.
+	// Below this every choice is already on screen, so a filter row is only one more thing to read.
 	pickerFilterFrom = 8
 
-	// pickerMinWidth clears the longest hint any picker draws, so single and
-	// multi select open at the same width over short content rather than at the
-	// two their own hints would give them. It sits well above that floor: a
-	// dialog the width of its own hint line reads as cramped whatever it holds.
-	//
-	// pickerMaxWidth is what a branch name or a check name gets before it is cut,
-	// and those are the two that run long. Both stay under three quarters of a
-	// hundred-column frame, so the modal still reads as something over the page
-	// rather than as a pane that replaced it.
+	// Clears the longest hint any picker draws, so single and multi select open at one width.
 	pickerMinWidth = 52
 	pickerMaxWidth = 72
 
-	// pickerMark is the two cells in front of every choice. Checked or not, the
-	// name starts in the same column: a list whose rows begin at two different
-	// offsets reads as two lists.
 	pickerMark = "✓ "
 	pickerGap  = "  "
 )
 
-// PickerItem is one choice.
-//
-// Color is what the name renders in, and it comes from the caller's theme so
-// each kind of choice reads the way it does on the rail it was opened from.
-// Nil takes the theme's Text. It is never a color GitHub supplied: a hex
-// chosen against a white browser page vanishes on a dark terminal, and a
-// terminal speaking only ANSI cannot show it at all.
+// PickerItem is one choice. A nil Color renders the name in the theme's Text.
 type PickerItem struct {
 	ID    string
 	Name  string
 	Color color.Color
 }
 
-// Picker is a modal list of choices, single or multi select, over a filter.
-//
-// It holds no keymap. Bindings live in internal/tui/keys and a widget package
-// cannot reach sideways for them, so this exposes verbs and the screen decides
-// which key means which. Filter typing is the one exception, and Insert takes
-// the keypress because a rune is not a verb.
-//
-// The filter is a plain string rather than a text input. Nobody edits the
-// middle of a picker filter: they type, they backspace, they clear. A textinput
-// would buy a blinking caret and cost a cursor-blink command to plumb through
-// two packages.
+// Picker is a modal list of choices, single or multi select, over a filter. It holds no keymap;
+// the screen maps keys onto its methods.
 type Picker struct {
 	title string
 	multi bool
 
-	// note is what the title says about the list as a whole, and it is where a
-	// picker whose choices come from a search reports what the search did not
-	// return. The hint line under the list is already spoken for by how much of
-	// the list sits below the window, and "20 more" and "36 more matches" are
-	// different numbers that must not share a line.
 	note string
 
 	items   []PickerItem
@@ -83,18 +48,13 @@ type Picker struct {
 	filter    string
 	filtering bool
 
-	// cursor and top index the filtered list, not items. Filtering rewrites
-	// what is on screen, and an index into the whole set would point at a row
-	// the reader cannot see.
+	// Index the filtered list, not items.
 	cursor int
 	top    int
 }
 
-// NewPicker builds a picker over items, with checked pre-selected by ID.
-//
-// multi decides both the keys the caller should offer and what applying means:
-// a multi picker applies the whole set it is showing, a single one applies the
-// row the cursor is on.
+// NewPicker builds a picker over items with checked pre-selected by ID. A single-select picker
+// opens with its cursor on the checked row.
 func NewPicker(title string, items []PickerItem, checked []string, multi bool) Picker {
 	on := make(map[string]bool, len(checked))
 	for _, id := range checked {
@@ -109,8 +69,6 @@ func NewPicker(title string, items []PickerItem, checked []string, multi bool) P
 		filtering: len(items) >= pickerFilterFrom,
 	}
 
-	// A single-select picker opens on what is already chosen, so enter with no
-	// movement is a no-op rather than a change to whatever sorted first.
 	if !multi {
 		for i, it := range items {
 			if on[it.ID] {
@@ -123,29 +81,10 @@ func NewPicker(title string, items []PickerItem, checked []string, multi bool) P
 	return p
 }
 
-// Multi reports whether this picker toggles a set or picks one row. The screen
-// reads it to know whether the toggle key means anything here.
 func (p Picker) Multi() bool { return p.multi }
 
-// Replace swaps the choices under the filter, keeping what has been typed and
-// keeping the cursor on the row it was on when that row survives.
-//
-// A picker whose list comes from the server needs this. The filter is the
-// search, so every keystroke brings a different set back, and rebuilding
-// through NewPicker would clear the field that caused the fetch.
-//
-// The cursor is held by id rather than reanchored, which is the opposite of
-// what a filter keystroke does and for the opposite reason. Typing is the
-// reader narrowing a list and looking at what is left; a response landing is
-// not something they did. Moving onto a row while the request is still out and
-// having it answer under them would send the write to whichever branch the new
-// list sorted first. Only a row the answer no longer carries goes to the top.
-//
-// The filter row stays whether or not the new list is short enough to have
-// earned one: a search that narrows the choices to two must not take away the
-// field the reader is typing in. What is checked stays too, since the write
-// behind the picker has not changed, and an id the new list does not carry
-// simply matches nothing.
+// Replace swaps the choices for items and sets note, keeping the filter, the filter row, what is
+// checked, and the cursor on the same ID where the new list still has it.
 func (p *Picker) Replace(items []PickerItem, note string) {
 	var on string
 	if it, ok := p.at(); ok {
@@ -167,18 +106,10 @@ func (p *Picker) Replace(items []PickerItem, note string) {
 	}
 }
 
-// SetNote says what the title should say about the list as a whole, leaving the
-// list and the cursor where they are.
-//
-// Replace carries one too and cannot stand in for this. A picker opening over a
-// search already answered has something to report before anybody has typed, and
-// replacing the list to say it would move the cursor off the row the picker
-// deliberately opened on.
+// SetNote sets what the title says about the list as a whole.
 func (p *Picker) SetNote(note string) { p.note = note }
 
-// Move walks the cursor. It stops at the ends rather than wrapping: a list
-// behind a filter has no fixed length, and a wrap from an empty result set has
-// nowhere to land.
+// Move walks the cursor by delta, stopping at either end.
 func (p *Picker) Move(delta int) {
 	shown := p.shown()
 	if len(shown) == 0 {
@@ -189,8 +120,7 @@ func (p *Picker) Move(delta int) {
 	p.scroll()
 }
 
-// Toggle checks or unchecks the row the cursor is on. It does nothing on a
-// single-select picker, where applying is what chooses.
+// Toggle checks or unchecks the row under the cursor. It does nothing on a single-select picker.
 func (p *Picker) Toggle() {
 	if !p.multi {
 		return
@@ -206,14 +136,8 @@ func (p *Picker) Toggle() {
 	p.checked[it.ID] = true
 }
 
-// Insert folds a keypress into the filter and reports whether it was one. A
-// picker with no filter row takes nothing, so a stray letter falls through to
-// the caller rather than filtering a list nobody can see being filtered.
-//
-// Space never types on a multi-select picker: it is the toggle key there, and a
-// filter that swallowed it would leave the reader unable to check anything.
-// Substring matching costs them little, since "good" already finds
-// "good first issue".
+// Insert folds a keypress into the filter and reports whether it took it. Without a filter row it
+// takes nothing, and on a multi-select picker space is left to Toggle.
 func (p *Picker) Insert(msg tea.KeyPressMsg) bool {
 	if !p.filtering {
 		return false
@@ -235,13 +159,6 @@ func (p *Picker) Insert(msg tea.KeyPressMsg) bool {
 		return true
 	}
 
-	// Text is non-empty only for a keypress that stands for printable
-	// characters, and one keypress into a filter is one character: anything
-	// longer is a key name that arrived in the wrong field, and typing it would
-	// put "down" into the filter when the reader pressed an arrow.
-	//
-	// The modifier guard is for terminals that report text anyway: ctrl+d is a
-	// binding on this screen, not a d.
 	if utf8.RuneCountInString(msg.Text) != 1 || msg.Mod&(tea.ModCtrl|tea.ModAlt|tea.ModSuper) != 0 {
 		return false
 	}
@@ -254,34 +171,19 @@ func (p *Picker) Insert(msg tea.KeyPressMsg) bool {
 	return true
 }
 
-// Filtering reports whether this picker shows a filter row, which is what tells
-// the screen whether a bare letter is text or a binding.
+// Filtering reports whether the picker shows a filter row, so a bare letter is text rather than a binding.
 func (p Picker) Filtering() bool { return p.filtering }
 
-// NoFilter takes the filter row off a list whose length earned it and whose
-// content does not want it.
-//
-// The threshold counts rows, and pickerFilterFrom's own reason is that below it
-// every choice is already on screen. A fixed list of eight sits in the gap
-// between that number and pickerRows: it earns a filter it has no use for, and
-// the filter then claims every printable key ahead of movement, so j and k stop
-// walking the list and start narrowing it to nothing.
+// NoFilter removes the filter row, so printable keys reach movement bindings.
 func (p *Picker) NoFilter() {
 	p.filtering = false
 	p.filter = ""
 }
 
-// Filter is what has been typed. A picker whose choices come from the server
-// reads it to know what to ask for: there the filter is the search.
 func (p Picker) Filter() string { return p.filter }
 
-// Chosen is what applying selects, by ID. A multi picker gives the whole
-// checked set; a single one gives the row under the cursor, or nothing when the
-// filter matched nothing.
-//
-// The set comes back in the order the items were handed over, never the order
-// they were checked in. A caller comparing it against what it already holds
-// would otherwise see a change every time the reader worked bottom-up.
+// Chosen is what applying selects, by ID, in item order: a multi picker's checked set, or the row
+// under a single picker's cursor, empty when the filter matched nothing.
 func (p Picker) Chosen() []string {
 	if !p.multi {
 		if it, ok := p.at(); ok {
@@ -299,10 +201,6 @@ func (p Picker) Chosen() []string {
 	return out
 }
 
-// shown is the items the filter leaves, in the order they were given. The match
-// is a case-insensitive substring: a picker filter is for narrowing a list
-// already on screen, and fuzzy matching in thirty columns puts rows in an order
-// the reader cannot predict.
 func (p Picker) shown() []PickerItem {
 	if p.filter == "" {
 		return p.items
@@ -317,7 +215,6 @@ func (p Picker) shown() []PickerItem {
 	return out
 }
 
-// at is the item under the cursor, or false when the filter matched nothing.
 func (p Picker) at() (PickerItem, bool) {
 	shown := p.shown()
 	if p.cursor < 0 || p.cursor >= len(shown) {
@@ -326,18 +223,11 @@ func (p Picker) at() (PickerItem, bool) {
 	return shown[p.cursor], true
 }
 
-// reanchor puts the cursor back in range after the filter changed what is on
-// screen. It goes to the top: the reader typed to narrow the list, and the row
-// they want is the one they are now looking at rather than wherever the old
-// cursor happens to land.
 func (p *Picker) reanchor() {
 	p.cursor, p.top = 0, 0
 }
 
-// scroll moves the window the least distance that brings the cursor onto it.
-// The shortest distance is right here for the reason the compose box gives: a
-// cursor moving a row at a time is not being taken anywhere, and hauling the
-// list to put it on the top row loses the reader their place.
+// Shortest distance, not top row: a cursor stepping a row at a time is not being taken anywhere.
 func (p *Picker) scroll() {
 	if p.cursor < p.top {
 		p.top = p.cursor
@@ -348,13 +238,6 @@ func (p *Picker) scroll() {
 	}
 }
 
-// Render draws the picker as a modal, sized to fit inside a frame of the given
-// width. The caller composites it with Over.
-//
-// The choices sit between two blank rows, and the top one is there whether or
-// not a filter row is above it. Every picker then opens with its first choice
-// on the same line, and the title in the border does not read as the first
-// thing in the list.
 func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	inner := p.width(frameWidth)
 	shown := p.shown()
@@ -362,8 +245,6 @@ func (p Picker) Render(th theme.Theme, frameWidth int) string {
 	return Modal(th, p.heading(), strings.Join(p.rows(th, inner, shown), "\n"))
 }
 
-// rows is the modal's content, filter row included. Render draws it and Cursor
-// measures it, so a row added here moves both rather than one of them.
 func (p Picker) rows(th theme.Theme, inner int, shown []PickerItem) []string {
 	var rows []string
 	if p.filtering {
@@ -374,13 +255,7 @@ func (p Picker) rows(th theme.Theme, inner int, shown []PickerItem) []string {
 	return append(rows, "", p.hint(th, shown, inner))
 }
 
-// Cursor is where the terminal draws its cursor while this picker is filtering,
-// relative to the frame the picker is composited into. A picker with no filter
-// row takes no text, so there is nothing to point at.
-//
-// The modal has to be built to be measured: Over centres on the rendered size,
-// and the width is a function of the longest row. It is a dozen short strings,
-// which is nothing beside the page it is drawn over.
+// Cursor is the terminal cursor at the filter row, relative to a frame of the given size, or nil without a filter row.
 func (p Picker) Cursor(th theme.Theme, frameWidth, frameHeight int) *tea.Cursor {
 	if !p.filtering {
 		return nil
@@ -390,14 +265,10 @@ func (p Picker) Cursor(th theme.Theme, frameWidth, frameHeight int) *tea.Cursor 
 	over := Modal(th, p.heading(), strings.Join(p.rows(th, inner, p.shown()), "\n"))
 	x, y := OverOrigin(over, frameWidth, frameHeight)
 
-	// The modal's border and its padding, then the filter row is the first
-	// thing in it. Held inside the row: paint.Clip cuts a long filter, and a
-	// cursor past the last cell points outside the box it belongs to.
 	col := min(lipgloss.Width(p.filter), max(0, inner-1))
 	return Cursor(th, x+ModalLead+col, y+1)
 }
 
-// heading is the title with whatever the list has to say about itself.
 func (p Picker) heading() string {
 	if p.note == "" {
 		return p.title
@@ -405,13 +276,7 @@ func (p Picker) heading() string {
 	return p.title + " · " + p.note
 }
 
-// width is what the modal gets inside its border: the widest thing it has to
-// show, held between a floor and a ceiling and never wider than the frame.
-//
-// The hint counts, at the longest it can render rather than the shortest. It
-// grows a counter once the list outruns the window, and measuring it without
-// one clips "esc cancel" off exactly the long lists where the hint is worth
-// having.
+// Measures the hint at its longest, counter included, or long lists clip it.
 func (p Picker) width(frameWidth int) int {
 	longest := max(lipgloss.Width(p.heading()), lipgloss.Width(p.hintText(len(p.items))))
 	for _, it := range p.items {
@@ -420,17 +285,12 @@ func (p Picker) width(frameWidth int) int {
 
 	want := min(max(longest, pickerMinWidth), pickerMaxWidth)
 
-	// The modal spends four columns on its border and padding. Below the floor
-	// there is nothing worth drawing, and the compositor clips what will not
-	// fit rather than growing the frame.
 	if room := frameWidth - 4; room > 0 {
 		want = min(want, room)
 	}
 	return max(want, 1)
 }
 
-// filterRow is what has been typed. It draws no caret: the terminal's own
-// cursor is put here by Cursor, which is the one cursor this app has.
 func (p Picker) filterRow(th theme.Theme, width int) string {
 	plain := lipgloss.NewStyle()
 	if p.filter == "" {
@@ -440,9 +300,6 @@ func (p Picker) filterRow(th theme.Theme, width int) string {
 	return pad(paint.Clip(text, width, plain.Foreground(th.Subtle)), width, plain)
 }
 
-// list is the visible window of choices. Every cell in the cursor row sets the
-// background itself: a styled run ends in a reset that clears it, so painting
-// the joined row afterwards would color the first cell and nothing else.
 func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 	plain := lipgloss.NewStyle()
 	if len(shown) == 0 {
@@ -479,8 +336,6 @@ func (p Picker) list(th theme.Theme, shown []PickerItem, width int) []string {
 	return out
 }
 
-// hint names the keys that work from here, and how much of the list is out of
-// sight. Both belong on one line: a modal this size cannot spend two.
 func (p Picker) hint(th theme.Theme, shown []PickerItem, width int) string {
 	plain := lipgloss.NewStyle()
 	faint := plain.Foreground(th.Subtle)
@@ -492,8 +347,6 @@ func (p Picker) hint(th theme.Theme, shown []PickerItem, width int) string {
 	return pad(text, width, plain)
 }
 
-// hintText is the hint as plain characters, which is what the width has to be
-// measured against before anything is styled.
 func (p Picker) hintText(shown int) string {
 	text := "⏎ pick · esc cancel"
 	if p.multi {
@@ -505,8 +358,6 @@ func (p Picker) hintText(shown int) string {
 	return text
 }
 
-// pad runs a row out to the full width in its own style, so a cursor row's
-// background reaches the border instead of stopping at the last word.
 func pad(content string, width int, style lipgloss.Style) string {
 	if gap := width - lipgloss.Width(content); gap > 0 {
 		return content + style.Render(strings.Repeat(" ", gap))

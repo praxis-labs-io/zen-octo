@@ -9,13 +9,11 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/store"
 )
 
-// open is one pull request read: fetched, then answered.
 func open(s *store.Store, id string) {
 	s.BeginDetail(id)
 	s.DetailApplied(id, detailResult(id, 4800))
 }
 
-// openMany reads n of them in order, PR_0 first, and answers with the ids.
 func openMany(s *store.Store, n int) []string {
 	ids := make([]string, n)
 	for i := range n {
@@ -25,8 +23,6 @@ func openMany(s *store.Store, n int) []string {
 	return ids
 }
 
-// A terminal client left open all day reads tens of pull requests, and a detail
-// on a heavily reviewed one is megabytes. Nothing used to free any of it.
 func TestADetailPastTheCapIsDropped(t *testing.T) {
 	s := store.New(configured())
 	ids := openMany(&s, store.DetailCap+1)
@@ -42,8 +38,6 @@ func TestADetailPastTheCapIsDropped(t *testing.T) {
 	}
 }
 
-// Reading one again is reading it, so it goes to the back of the queue rather
-// than staying where it first landed.
 func TestReadingADetailAgainKeepsIt(t *testing.T) {
 	s := store.New(configured())
 	ids := openMany(&s, store.DetailCap)
@@ -59,8 +53,6 @@ func TestReadingADetailAgainKeepsIt(t *testing.T) {
 	}
 }
 
-// Detail folds a write in flight over the held detail at read time. Over an
-// evicted one it folds over nothing, and an optimistic comment loses its page.
 func TestADetailWithAWriteInFlightIsNotDropped(t *testing.T) {
 	s := store.New(configured())
 	open(&s, "PR_writing")
@@ -77,8 +69,6 @@ func TestADetailWithAWriteInFlightIsNotDropped(t *testing.T) {
 	}
 }
 
-// Its response is still coming, and would land on a slot the cache no longer
-// carries any bookkeeping for.
 func TestADetailBeingFetchedIsNotDropped(t *testing.T) {
 	s := store.New(configured())
 	s.BeginDetail("PR_fetching")
@@ -90,8 +80,6 @@ func TestADetailBeingFetchedIsNotDropped(t *testing.T) {
 	}
 }
 
-// A debt is owed about a pull request. Dropped with it, or the mark outlives
-// what it was about and the next open answers a question nobody asked.
 func TestAnEvictedDetailTakesItsDebtsWithIt(t *testing.T) {
 	s := store.New(configured())
 	open(&s, "PR_owing")
@@ -108,8 +96,6 @@ func TestAnEvictedDetailTakesItsDebtsWithIt(t *testing.T) {
 	}
 }
 
-// staleFiles is keyed by pull request and belongs to the diff cache, so it grows
-// for the session unless eviction takes it: the leak this bound exists to stop.
 func TestAnEvictedDiffTakesItsDebtWithIt(t *testing.T) {
 	s := store.New(configured())
 	open(&s, "PR_owing")
@@ -133,8 +119,6 @@ func TestAnEvictedDiffTakesItsDebtWithIt(t *testing.T) {
 	}
 }
 
-// syncRow stamps every detail that lands, and the map used to keep every stamp
-// for the session: the same growth one map over, past the cap on the details.
 func TestTheRowStampsAreBoundedWithTheDetails(t *testing.T) {
 	s := store.New(configured())
 	openMany(&s, store.DetailCap*2)
@@ -144,8 +128,6 @@ func TestTheRowStampsAreBoundedWithTheDetails(t *testing.T) {
 	}
 }
 
-// A commit read again is a commit in use. Ordered by fetch alone, the two a
-// reader keeps returning to on a long branch are the first two dropped.
 func TestADiffReadAgainIsNotTheFirstDropped(t *testing.T) {
 	s := store.New(configured())
 
@@ -172,13 +154,9 @@ func oneFile() gh.FilesResult {
 	return gh.FilesResult{Files: []gh.ChangedFile{{Path: "main.go"}}}
 }
 
-// A pin outranks a cap: the alternative is dropping what a write is about to
-// land on, and a write cannot be told to wait.
 func TestACacheOfNothingButPinnedGoesOverItsCap(t *testing.T) {
 	s := store.New(configured())
 
-	// Pinned as each is read, or the cache has already dropped the early ones by
-	// the time the last is pinned.
 	ids := make([]string, store.DetailCap+5)
 	for i := range ids {
 		ids[i] = "PR_" + strconv.Itoa(i)
@@ -194,8 +172,6 @@ func TestACacheOfNothingButPinnedGoesOverItsCap(t *testing.T) {
 	}
 }
 
-// Every diff opened used to be held for the session, and a branch walked in the
-// Commits tab fetches one per commit the cursor rests on.
 func TestADiffPastItsCapIsDropped(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -241,7 +217,6 @@ func TestADiffPastItsCapIsDropped(t *testing.T) {
 	}
 }
 
-// The fetch in flight is the diff's only pin, and its answer needs the slot.
 func TestADiffBeingFetchedIsNotDropped(t *testing.T) {
 	s := store.New(configured())
 	s.BeginFiles("PR_fetching")
@@ -257,12 +232,8 @@ func TestADiffBeingFetchedIsNotDropped(t *testing.T) {
 	}
 }
 
-// openOnCopy is how half this package's writers reach it: a value receiver on
-// the model, so the Store they write is a copy that is thrown away.
 func openOnCopy(s store.Store) { open(&s, "PR_onacopy") }
 
-// The maps a cache is made of are built by New rather than by whichever write
-// went first. Built on a copy, the first detail of a session goes with it.
 func TestTheCacheSurvivesTheCopyItIsFirstWrittenOn(t *testing.T) {
 	s := store.New(configured())
 

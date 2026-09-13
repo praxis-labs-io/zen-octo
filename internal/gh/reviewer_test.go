@@ -12,9 +12,6 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// waitingOn is a reviewRequests answer naming these logins. It is the
-// confirmation a request gets: the REST response omits a bot whether or not the
-// write landed, so GraphQL is the only place the proof lives.
 func waitingOn(logins ...string) string {
 	nodes := make([]string, 0, len(logins))
 	for _, l := range logins {
@@ -24,8 +21,6 @@ func waitingOn(logins ...string) string {
 		strings.Join(nodes, ",") + `]}}}}`
 }
 
-// requesting is a client whose POST succeeds and whose confirmation reports
-// these logins as being waited on.
 func requesting(logins ...string) (*Client, *fakeDoer, *fakeREST) {
 	gql, rest := &fakeDoer{body: waitingOn(logins...)}, &fakeREST{}
 	return newWithDoer(gql, rest), gql, rest
@@ -65,17 +60,11 @@ func TestRemoveReviewRequestsDeletesTheLogins(t *testing.T) {
 	if want := `{"reviewers":["nkr"]}`; rest.gotBody != want {
 		t.Errorf("body = %q, want %q", rest.gotBody, want)
 	}
-	// Cancelling confirms nothing, unlike requesting. It is idempotent, so a
-	// login already gone reads the same as one this call removed, and a read
-	// after it could only report the state the caller asked for.
 	if gql.gotQuery != "" {
 		t.Error("a cancellation went looking for a confirmation it cannot use")
 	}
 }
 
-// The two verbs take different spellings of the same bot, which is the trap
-// that cost a working write. POST resolves the [bot] form; DELETE resolves it
-// to a Bot node and then rejects it for not being a User.
 func TestTheTwoReviewerVerbsSpellCopilotDifferently(t *testing.T) {
 	client, _, rest := requesting(CopilotLogin)
 
@@ -95,12 +84,8 @@ func TestTheTwoReviewerVerbsSpellCopilotDifferently(t *testing.T) {
 	}
 }
 
-// The regression that shipped. GitHub's POST response never lists the bot,
-// whether or not the request landed, so reading requested_reviewers rejects
-// every Copilot request there is. The confirmation has to be the GraphQL read.
 func TestAnEmptyRESTResponseIsNotAFailedCopilotRequest(t *testing.T) {
 	gql := &fakeDoer{body: waitingOn(CopilotLogin)}
-	// What GitHub actually answers a successful Copilot request with.
 	rest := &fakeREST{body: `{"requested_reviewers": [], "requested_teams": []}`}
 
 	err := newWithDoer(gql, rest).RequestReviews(context.Background(), "acme/rocket", 17, []string{CopilotLogin})
@@ -115,9 +100,6 @@ func TestAnEmptyRESTResponseIsNotAFailedCopilotRequest(t *testing.T) {
 	}
 }
 
-// The failure the confirmation exists for. Asking under a name GitHub does not
-// recognise answers 200 and writes nothing, and the pull request is waiting on
-// nobody afterwards.
 func TestRequestReviewsRejectsASilentNoOp(t *testing.T) {
 	client, _, _ := requesting()
 
@@ -130,8 +112,6 @@ func TestRequestReviewsRejectsASilentNoOp(t *testing.T) {
 	}
 }
 
-// Two asked for and one recorded is the same failure. The whole ask has to
-// land, not merely something.
 func TestRequestReviewsRejectsAPartialAnswer(t *testing.T) {
 	client, _, _ := requesting("nkr")
 
@@ -144,8 +124,6 @@ func TestRequestReviewsRejectsAPartialAnswer(t *testing.T) {
 	}
 }
 
-// GitHub reports a login in whatever case the account holds rather than the
-// case it was asked in, and that is not a write that failed.
 func TestRequestReviewsAcceptsTheAnswerInAnotherCase(t *testing.T) {
 	client, _, _ := requesting("NKR")
 
@@ -154,9 +132,6 @@ func TestRequestReviewsAcceptsTheAnswerInAnotherCase(t *testing.T) {
 	}
 }
 
-// A confirmation that cannot be read fails the write, though the request may
-// well have landed. That is the safe way round: the caller reverts and its
-// refetch puts back whatever GitHub actually holds.
 func TestAConfirmationThatFailsFailsTheWrite(t *testing.T) {
 	boom := errors.New("boom")
 	client := newWithDoer(&fakeDoer{err: boom}, &fakeREST{})
@@ -182,9 +157,6 @@ func TestAConfirmationWithNoPullRequestIsAnError(t *testing.T) {
 	}
 }
 
-// Applying a picker that changed nothing reaches here with an empty side. The
-// endpoint answers 422 to one, so it is not a call to make, and there is
-// nothing to confirm either.
 func TestNeitherReviewerCallSendsAnEmptySet(t *testing.T) {
 	gql, rest := &fakeDoer{}, &fakeREST{}
 	client := newWithDoer(gql, rest)
@@ -264,9 +236,6 @@ func TestTheReviewerCallsWrapTransportErrors(t *testing.T) {
 	}
 }
 
-// Teams are requested through a separate array, and this client never fills it.
-// The picker offers users alone, so a team it cannot offer is one it must not
-// cancel either.
 func TestTheReviewerBodyCarriesNoTeams(t *testing.T) {
 	client, _, rest := requesting("nkr")
 
@@ -278,8 +247,6 @@ func TestTheReviewerBodyCarriesNoTeams(t *testing.T) {
 	}
 }
 
-// A team being waited on has no login, and nothing here asks about one. It must
-// not decode as an empty-login entry that a caller could match against.
 func TestTheConfirmationIgnoresTeams(t *testing.T) {
 	gql := &fakeDoer{body: `{"repository": {"pullRequest": {"reviewRequests": {"nodes": [
 	  {"requestedReviewer": {}},
@@ -293,19 +260,6 @@ func TestTheConfirmationIgnoresTeams(t *testing.T) {
 	}
 }
 
-// TestLiveTheReviewRequestsQueryMatchesTheSchema reads rather than writes, so
-// it runs against a real pull request and proves every field resolves.
-//
-// It earns a live test where the two REST calls cannot get one. This query is
-// the whole confirmation a review request receives: the REST response omits a
-// bot request whether or not it landed, so a typo here fails every request with
-// "confirming the request" and the write that actually worked reads as broken.
-// That is exactly the shape of the bug this replaced.
-//
-// It lives in the internal test package because awaitingReview is unexported,
-// and there is no exported way to reach it that does not write.
-//
-//	ZEN_OCTO_LIVE=1 go test ./internal/gh/ -run TestLive -v
 func TestLiveTheReviewRequestsQueryMatchesTheSchema(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
@@ -319,16 +273,11 @@ func TestLiveTheReviewRequestsQueryMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Pull request 1, which is merged and will not move again. Who it was
-	// waiting on is not asserted; that it resolves at all is the point.
 	if _, err := client.awaitingReview(ctx, "acme", "rocket", 1); err != nil {
 		t.Fatalf("awaitingReview: %v", err)
 	}
 }
 
-// A repository the token cannot see comes back as a null node rather than an
-// error, and reading that as "waiting on nobody" would fail every request made
-// against it with a message blaming the reviewer.
 func TestLiveAMissingPullRequestIsAnError(t *testing.T) {
 	if os.Getenv("ZEN_OCTO_LIVE") == "" {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")

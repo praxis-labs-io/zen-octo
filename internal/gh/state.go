@@ -5,21 +5,6 @@ import (
 	"fmt"
 )
 
-// The four documents behind PRTransition. GitHub gives each move its own
-// mutation rather than a field to set, so there is no one document with the
-// destination as a variable.
-//
-// Each aliases its payload to `result`. The four payload types differ only in
-// name and carry the same pullRequest, so the alias is what lets one response
-// struct decode all four instead of four structs told apart by a switch.
-//
-// They ask the state back for the same reason addComment asks for the comment:
-// the caller is holding an optimistic row and GitHub is the only authority on
-// where the pull request actually now sits. Both fields, because closing a
-// draft leaves it a draft.
-//
-// None of them asks for rateLimit. That field is on Query and nowhere else, and
-// a mutation selecting it is rejected whole.
 const (
 	markReadyMutation = `
 mutation MarkReady($pullRequestId: ID!) {
@@ -60,9 +45,6 @@ type prStateResponse struct {
 	}
 }
 
-// stateMutation is the document for a transition, and false for a transition
-// this package does not know. Kept apart from SetState so the refusal happens
-// before anything reaches the network.
 func stateMutation(to PRTransition) (string, bool) {
 	switch to {
 	case TransitionReady:
@@ -77,16 +59,7 @@ func stateMutation(to PRTransition) (string, bool) {
 	return "", false
 }
 
-// SetState moves a pull request through its lifecycle and returns where it
-// landed. prID is the pull request's node id.
-//
-// It refuses a transition it has no document for without calling GitHub, the
-// way RepoMeta refuses a malformed repository name: a request that could only
-// come back rejected is not worth a round trip.
-//
-// It does not check that the answer is the state that was asked for. GitHub is
-// the authority on where the pull request sits, and a caller folding what it is
-// handed is right even when that is not what it wanted.
+// SetState applies a lifecycle transition. The state GitHub returns may not be the one asked for.
 func (c *Client) SetState(ctx context.Context, prID string, to PRTransition) (PRStateResult, error) {
 	doc, ok := stateMutation(to)
 	if !ok {

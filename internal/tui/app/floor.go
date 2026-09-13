@@ -10,24 +10,18 @@ import (
 )
 
 const (
-	// minWidth clears the rail's column whole and the merge form's own key
-	// hints. A judgment: nothing fails at a width here, it degrades.
+	// Clears the rail's column and the merge form's key hints. A judgment: nothing breaks narrower, it degrades.
 	minWidth = 56
 
-	// minHeight is the merge form's, which is what an overlay clipped rather
-	// than scrolled costs: its worst 21 rows, the status bar, and the notice.
+	// The merge form's tallest 21 rows, which an overlay clips rather than scrolls, plus the status bar and notice.
 	minHeight = 23
 )
 
-// tooSmall is the whole frame below the floor. It names the size the terminal
-// is and the size it needs, and says nothing else there is room to say.
 func (m Model) tooSmall() string {
 	style := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 	text := fmt.Sprintf("the terminal is %dx%d, and this needs %dx%d",
 		m.width, m.height, minWidth, minHeight)
 
-	// The size it needs is the half worth keeping. Clipping the sentence would
-	// cut that off and leave the reader the size they can already see.
 	if lipgloss.Width(text) > m.width {
 		text = fmt.Sprintf("needs %dx%d", minWidth, minHeight)
 	}
@@ -40,8 +34,6 @@ func (m Model) tooSmall() string {
 	return strings.Join(lines[:m.height], "\n")
 }
 
-// fit pads text out to width, clipping what will not fit. The message is the
-// frame rather than something drawn in one, so it is exactly as wide as one.
 func fit(text string, width int, mark lipgloss.Style) string {
 	if w := lipgloss.Width(text); w <= width {
 		return text + strings.Repeat(" ", width-w)

@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// Every payload is aliased to `result`, so one body serves all four documents.
 func stateBody(state string, draft bool) string {
 	d := "false"
 	if draft {
@@ -45,8 +44,6 @@ func TestSetStateSendsTheMutationForEachTransition(t *testing.T) {
 			if got, want := f.gotVars["pullRequestId"], "PR_1"; got != want {
 				t.Errorf("pullRequestId = %v, want %v", got, want)
 			}
-			// rateLimit is a field on Query alone; a mutation naming it is
-			// rejected whole, so no document here may carry it.
 			if strings.Contains(f.gotQuery, "rateLimit") {
 				t.Error("mutation selects rateLimit, which GitHub rejects")
 			}
@@ -61,8 +58,6 @@ func TestSetStateSendsTheMutationForEachTransition(t *testing.T) {
 	}
 }
 
-// Closing a draft leaves it a draft, which is why the result carries both
-// fields rather than the one the transition names.
 func TestSetStateReturnsBothFields(t *testing.T) {
 	f := &fakeDoer{body: stateBody("CLOSED", true)}
 
@@ -79,8 +74,6 @@ func TestSetStateReturnsBothFields(t *testing.T) {
 	}
 }
 
-// A transition with no document behind it is refused here rather than sent, so
-// a request that could only come back rejected costs no round trip.
 func TestSetStateRefusesAnUnknownTransitionWithoutCalling(t *testing.T) {
 	f := &fakeDoer{body: stateBody("OPEN", false)}
 
@@ -121,9 +114,6 @@ func TestSetStateWrapsTransportError(t *testing.T) {
 	}
 }
 
-// The alias is what lets one response struct decode four payloads. Without it
-// each document answers under its own mutation name and three of the four
-// decode into nothing, which reads as GitHub returning no pull request.
 func TestEveryStateMutationAliasesItsPayload(t *testing.T) {
 	for _, to := range []PRTransition{TransitionReady, TransitionDraft, TransitionClose, TransitionReopen} {
 		doc, ok := stateMutation(to)

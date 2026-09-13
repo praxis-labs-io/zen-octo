@@ -52,8 +52,6 @@ func TestCodeIsSplitIntoLinesOfColoredTokens(t *testing.T) {
 	}
 }
 
-// A keyword and a number are different colors in every style worth using. If
-// the tokens come back all one color the lexer never ran.
 func TestTokensCarryDifferentColorsWithinALine(t *testing.T) {
 	s := colorizer(t)
 	seen := make(map[string]bool)
@@ -67,8 +65,6 @@ func TestTokensCarryDifferentColorsWithinALine(t *testing.T) {
 	}
 }
 
-// The lexer is chosen from the path, so the same text has to come back
-// differently coloured under a different extension.
 func TestTheLexerFollowsTheFileName(t *testing.T) {
 	s := colorizer(t)
 	goLine := colors(s.Lines("a.go", "package main")[0])
@@ -79,9 +75,6 @@ func TestTheLexerFollowsTheFileName(t *testing.T) {
 	}
 }
 
-// Chroma's terminal formatter writes its own SGR, resets included, and a reset
-// mid-line clears whatever background the caller put behind the row. Tokens are
-// returned raw so the caller keeps that control.
 func TestTokensCarryNoEscapeSequencesOfTheirOwn(t *testing.T) {
 	s := colorizer(t)
 	for _, tok := range s.Lines("a.go", "const n = 4")[0] {
@@ -91,8 +84,6 @@ func TestTokensCarryNoEscapeSequencesOfTheirOwn(t *testing.T) {
 	}
 }
 
-// A style's own background would paint over the terminal's, which is what
-// keeps a transparent one transparent.
 func TestABackgroundStaysWithTheCaller(t *testing.T) {
 	base := lipgloss.NewStyle().Background(testTheme.SelectedBackground)
 
@@ -113,8 +104,6 @@ func TestABackgroundStaysWithTheCaller(t *testing.T) {
 	}
 }
 
-// Highlighting is done on an Update path and a diff is re-rendered on every
-// resize and every scroll.
 func TestTheSameFileIsOnlyTokenisedOnce(t *testing.T) {
 	s := colorizer(t)
 	first := s.Lines("a.go", "const n = 4")

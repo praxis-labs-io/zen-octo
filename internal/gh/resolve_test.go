@@ -29,9 +29,6 @@ const unresolvedBody = `{
   }
 }`
 
-// The permissions come back flipped, and that is the point of asking for them.
-// A viewer who has just resolved a thread cannot resolve it again, and the key
-// on the card has to say so.
 func TestAResolvedThreadComesBackWithItsPermissionsFlipped(t *testing.T) {
 	doer := &fakeDoer{body: resolvedBody}
 
@@ -60,9 +57,6 @@ func TestAnUnresolvedThreadComesBackOpen(t *testing.T) {
 	}
 }
 
-// The operation name is what the assertion anchors on. resolveReviewThread is a
-// substring of unresolveReviewThread, so a test looking for the field name
-// passes on both documents and says nothing.
 func TestTheDirectionPicksTheMutation(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -89,9 +83,6 @@ func TestTheDirectionPicksTheMutation(t *testing.T) {
 	}
 }
 
-// One response struct decodes both payloads, so a method reading whichever
-// field came back filled would answer with the wrong half the first time
-// GitHub sent both.
 func TestAnUnresolveDoesNotReadTheResolvePayload(t *testing.T) {
 	both := `{
 	  "resolveReviewThread": {"thread": {"id": "PRRT_1", "isResolved": true}},
@@ -124,9 +115,6 @@ func TestTheThreadSendsAsAVariable(t *testing.T) {
 	}
 }
 
-// The same trap the reply mutation has: a field the document never asks for
-// decodes to a zero value from canned JSON, so every other test here stays
-// green while the field is dead.
 func TestTheThreadMutationsAskForWhatTheViewerMayDoNext(t *testing.T) {
 	tests := []struct {
 		name string

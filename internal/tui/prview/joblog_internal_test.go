@@ -79,8 +79,6 @@ func TestLogLinesSkipAStatusOnlyStepAndReachTheOneAfterIt(t *testing.T) {
 	}
 }
 
-// Where the terminal answered nothing the fill is nil, and RGBA() on one panics:
-// opening a job log took the client down.
 func TestASelectedJobLogLineSurvivesAThemeWithNoSurface(t *testing.T) {
 	for _, tc := range []struct {
 		name string

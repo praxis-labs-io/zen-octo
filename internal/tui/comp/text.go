@@ -8,8 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// RelativeTime renders a compact age: 34m, 5h, 12d, 3y. Anything in the future
-// reads as "now" rather than a negative number.
+// RelativeTime renders a compact age such as 34m, 5h, 12d, or 3y. A future time reads "now".
 func RelativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -30,7 +29,6 @@ func RelativeTime(t time.Time) string {
 	}
 }
 
-// Plural is a count and its noun, with the s only when it is earned.
 func Plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
@@ -38,8 +36,7 @@ func Plural(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-// LongAgo renders an age in words, for a sentence. RelativeTime is the compact
-// one, for a column that has a handful of cells to say it in.
+// LongAgo renders an age in words, for a sentence.
 func LongAgo(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -60,8 +57,7 @@ func LongAgo(t time.Time) string {
 	}
 }
 
-// Handle is how a login is written wherever it names a person as a value: on
-// the rail, and in the header's opened-by clause. GitHub's own case is kept.
+// Handle is login prefixed with @, keeping GitHub's case, or empty for an empty login.
 func Handle(login string) string {
 	if login == "" {
 		return ""
@@ -69,13 +65,7 @@ func Handle(login string) string {
 	return "@" + login
 }
 
-// Centered puts a block in the middle of a region. It moves the block as a
-// unit rather than centring line by line, so a second line stays under the
-// words it belongs to instead of floating to its own column.
-//
-// It pads above and never below, because every caller draws into something
-// that pads its own content out to the rows it has, and trailing blanks here
-// would be counted twice.
+// Centered pads block to the middle of a width by height region as one unit, padding above but never below.
 func Centered(block string, width, height int) string {
 	lines := strings.Split(block, "\n")
 

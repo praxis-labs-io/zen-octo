@@ -38,8 +38,6 @@ query SearchPullRequests($q: String!, $limit: Int!) {
   }
 }`
 
-// searchPullRequestsResponse mirrors the query above. It stays unexported:
-// callers get []PullRequest.
 type searchPullRequestsResponse struct {
 	RateLimit struct {
 		Limit     int
@@ -81,9 +79,6 @@ type searchPullRequestsResponse struct {
 	}
 }
 
-// SearchPullRequests runs a raw GitHub search query and returns the pull
-// requests it matched along with what the call cost. The query is whatever the
-// user put in their config; this package does not interpret it.
 func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (SearchResult, error) {
 	var resp searchPullRequestsResponse
 	vars := map[string]any{"q": query, "limit": limit}
@@ -94,8 +89,6 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 
 	prs := make([]PullRequest, 0, len(resp.Search.Nodes))
 	for _, n := range resp.Search.Nodes {
-		// Search returns issues and pull requests in one connection. Anything
-		// that isn't a PR comes back as an empty node from the inline fragment.
 		if n.ID == "" {
 			continue
 		}

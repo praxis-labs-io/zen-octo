@@ -7,7 +7,6 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/prview"
 )
 
-// linked presses one of the two keys and reads back the URL it named.
 func linked(t *testing.T, m prview.Model, k string) string {
 	t.Helper()
 
@@ -22,7 +21,6 @@ func linked(t *testing.T, m prview.Model, k string) string {
 	}
 }
 
-// The keymap is the same on all four tabs, and so is what the two keys mean.
 func TestCopyAndBrowseNameThePullRequestOnEveryTab(t *testing.T) {
 	for _, k := range []string{"y", "O"} {
 		t.Run(k, func(t *testing.T) {
@@ -38,8 +36,6 @@ func TestCopyAndBrowseNameThePullRequestOnEveryTab(t *testing.T) {
 	}
 }
 
-// Nothing under the pull request carries a URL, so a lit card must not change
-// what either key copies or opens.
 func TestCopyAndBrowseIgnoreTheRing(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, 60), 2)
 
@@ -50,8 +46,6 @@ func TestCopyAndBrowseIgnoreTheRing(t *testing.T) {
 	}
 }
 
-// Both keys are letters. A leaked y writes nothing into the comment and a
-// leaked O opens a browser over it, so a box has to take them as text.
 func TestABoxTakesCopyAndBrowseAsText(t *testing.T) {
 	boxes := map[string]prview.Model{
 		"compose": composing(200, 60),
@@ -67,8 +61,6 @@ func TestABoxTakesCopyAndBrowseAsText(t *testing.T) {
 	}
 }
 
-// A picker and the merge form own the keyboard the same way, and the page
-// behind them must not act on a key that was meant for the modal.
 func TestAModalSwallowsCopyAndBrowse(t *testing.T) {
 	modals := map[string]prview.Model{
 		"picker": openPicker(t, "bug"),

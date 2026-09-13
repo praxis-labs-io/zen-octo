@@ -19,9 +19,6 @@ func TestSetBaseSendsTheBranchNameAndReturnsIt(t *testing.T) {
 	if got, want := f.gotVars["pullRequestId"], "PR_1"; got != want {
 		t.Errorf("pullRequestId = %v, want %v", got, want)
 	}
-	// A name, not a node id. This is the one field on updatePullRequest that
-	// takes one, and sending an id here is a 422 that reads like a permission
-	// failure.
 	if got, want := f.gotVars["baseRefName"], "develop"; got != want {
 		t.Errorf("baseRefName = %v, want %v", got, want)
 	}
@@ -37,8 +34,6 @@ func TestSetBaseSendsTheBranchNameAndReturnsIt(t *testing.T) {
 	}
 }
 
-// GitHub's answer rather than the ask. They part company when somebody
-// retargets in the browser first, and the toast names what came back.
 func TestSetBaseReturnsWhatGitHubRecordedNotWhatWasAsked(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest":
 	  {"id": "PR_1", "baseRefName": "release/2.0"}}}`}
@@ -64,8 +59,6 @@ func TestSetBodySendsTheTextAndReturnsWhatGitHubRecorded(t *testing.T) {
 	if got, want := f.gotVars["pullRequestId"], "PR_1"; got != want {
 		t.Errorf("pullRequestId = %v, want %v", got, want)
 	}
-	// A variable rather than text in the document, which would break on the
-	// first backtick a description carries.
 	if got, want := f.gotVars["body"], "Rewritten."; got != want {
 		t.Errorf("body = %v, want it passed through untouched", got)
 	}
@@ -78,9 +71,6 @@ func TestSetBodySendsTheTextAndReturnsWhatGitHubRecorded(t *testing.T) {
 	}
 }
 
-// Clearing a description is a write like any other, and the pull request coming
-// back is what says it landed. Reading the empty text as nothing would revert a
-// write GitHub took.
 func TestSetBodyTakesAnEmptyDescription(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": {"id": "PR_1", "body": ""}}}`}
 
@@ -117,8 +107,6 @@ func TestSetBaseWrapsAFailure(t *testing.T) {
 	}
 }
 
-// A refusal can come back as a 200 with a null pull request. Reading that as a
-// success would settle the optimistic row onto an empty branch name.
 func TestSetBaseRefusesANullPullRequest(t *testing.T) {
 	f := &fakeDoer{body: `{"updatePullRequest": {"pullRequest": null}}`}
 
