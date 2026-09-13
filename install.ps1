@@ -38,8 +38,10 @@ function Install-ZenOcto {
     $goInstall"
 	}
 
-	# Windows PowerShell 5.1 doesn't allow TLS 1.2 by default, and GitHub refuses anything older.
-	[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+	$protocols = [Net.ServicePointManager]::SecurityProtocol
+	if ([int]$protocols -ne 0 -and -not ($protocols -band [Net.SecurityProtocolType]::Tls12)) {
+		[Net.ServicePointManager]::SecurityProtocol = $protocols -bor [Net.SecurityProtocolType]::Tls12
+	}
 
 	if ($env:VERSION) {
 		$tag = $env:VERSION
@@ -105,7 +107,6 @@ function Install-ZenOcto {
 		New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 		$target = Join-Path $installDir $binary
 
-		# Windows won't overwrite a running executable, which is what an upgrade is, so the old one moves aside.
 		$retired = "$target.old"
 		if (Test-Path $retired) {
 			Remove-Item $retired -Force -ErrorAction SilentlyContinue
@@ -140,14 +141,4 @@ function Install-ZenOcto {
 	}
 }
 
-# Exit only when run as a file: under `irm | iex` an exit closes the user's terminal, so the error is left to surface instead.
-if ($PSCommandPath) {
-	try {
-		Install-ZenOcto
-	} catch {
-		[Console]::Error.WriteLine($_.Exception.Message)
-		exit 1
-	}
-} else {
-	Install-ZenOcto
-}
+Install-ZenOcto
