@@ -191,10 +191,11 @@ const (
 )
 
 type Model struct {
-	client GitHub
-	theme  theme.Theme
-	syntax syntax.Syntax
-	limit  int
+	client       GitHub
+	releaseCheck ReleaseCheck
+	theme        theme.Theme
+	syntax       syntax.Syntax
+	limit        int
 
 	store store.Store
 
@@ -205,8 +206,9 @@ type Model struct {
 	toasts comp.Toasts
 	help   help.Model
 
-	notice   string
-	showHelp bool
+	notice       string
+	newerRelease string
+	showHelp     bool
 
 	// Held here because the screen is rebuilt on every open and the terminal answers once.
 	chords bool
@@ -258,7 +260,7 @@ const (
 	legCommit
 )
 
-func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
+func New(cfg *config.Config, client GitHub, surface theme.Surface, check ReleaseCheck) Model {
 	colors := theme.NewOverrides(cfg.Theme.Colors, cfg.Theme.Named)
 	colorErr := colors.Validate()
 	if colorErr != nil {
@@ -285,6 +287,9 @@ func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
 
 		refreshSpin: comp.NewSpinner(th),
 	}
+	if cfg.ChecksForUpdates() {
+		m.releaseCheck = check
+	}
 	m.store.BeginAll()
 	m.list.SetSections(m.store.Sections())
 
@@ -302,9 +307,9 @@ func New(cfg *config.Config, client GitHub, surface theme.Surface) Model {
 	return m
 }
 
-// Init starts the list and the background poll, and fetches the viewer and every section.
+// Init starts the list and the background poll, fetches the viewer and every section, and asks for a newer release.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll()}
+	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll(), checkRelease(m.releaseCheck)}
 	for i, section := range m.store.Sections() {
 		cmds = append(cmds, m.fetchSection(i, section.Filters))
 	}
@@ -880,6 +885,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewerFailedMsg:
 		return m, nil
 
+	case newerReleaseMsg:
+		m.newerRelease = msg.tag
+		return m, nil
+
 	case sectionFetchedMsg:
 		m.store.Applied(msg.index, msg.res)
 		m.poller.stampSection(msg.index, len(m.store.Sections()), time.Now())
@@ -1417,10 +1426,11 @@ func (m Model) statusReadout() string {
 		}
 	}
 	if m.screen == screenDetail {
-		return lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).
-			Render(m.detail.Readout())
+		if readout := m.detail.Readout(); readout != "" {
+			return lipgloss.NewStyle().Foreground(m.theme.MutedOrSubtle()).Render(readout)
+		}
 	}
-	return ""
+	return m.releaseNotice()
 }
 
 func (m Model) helpBody() string {

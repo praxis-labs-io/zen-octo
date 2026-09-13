@@ -275,3 +275,30 @@ func TestPathSitsInsideDir(t *testing.T) {
 		t.Errorf("Path() = %q, want %q", got, want)
 	}
 }
+
+func TestUpdateCheckIsOnUnlessTurnedOff(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "no file", body: "", want: true},
+		{name: "a file without the key", body: "transparent: true\n", want: true},
+		{name: "turned on", body: "updateCheck: true\n", want: true},
+		{name: "turned off", body: "updateCheck: false\n", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeConfig(t, tt.body)
+
+			got, err := config.Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+			if got.ChecksForUpdates() != tt.want {
+				t.Errorf("ChecksForUpdates() = %v, want %v", got.ChecksForUpdates(), tt.want)
+			}
+		})
+	}
+}

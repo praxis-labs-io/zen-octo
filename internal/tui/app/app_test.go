@@ -992,7 +992,7 @@ func drive(t *testing.T, m tea.Model, msgs ...tea.Msg) tea.Model {
 
 func loaded(t *testing.T, client *fakeSearcher, width, height int) tea.Model {
 	t.Helper()
-	return drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: width, Height: height})
+	return drive(t, app.New(testConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: width, Height: height})
 }
 
 func settle(m tea.Model, msgs ...tea.Msg) tea.Model {
@@ -1137,7 +1137,7 @@ func TestRendersFetchedPullRequests(t *testing.T) {
 
 func TestEverySectionFetchesOnceWithItsOwnFilters(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	drive(t, app.New(testConfig(), client, testSurface))
+	drive(t, app.New(testConfig(), client, testSurface, nil))
 
 	want := []string{"is:open is:pr author:@me", "is:open is:pr review-requested:@me"}
 	got := client.asked()
@@ -1158,7 +1158,7 @@ func TestEveryTabCarriesItsOwnCount(t *testing.T) {
 		"is:open is:pr review-requested:@me": {PullRequests: manyPRs(2)},
 	}}
 
-	top := strings.Split(stripANSI(render(t, drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40}))), "\n")[0]
+	top := strings.Split(stripANSI(render(t, drive(t, app.New(testConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40}))), "\n")[0]
 
 	for _, want := range []string{"My PRs (5)", "Needs My Review (2)"} {
 		if !strings.Contains(top, want) {
@@ -1229,7 +1229,7 @@ func TestQuitKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface))
+			m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface, nil))
 
 			_, cmd := m.Update(tt.key)
 			if cmd == nil {
@@ -1655,7 +1655,7 @@ func TestTheRefreshToastWaitsForTheLastSection(t *testing.T) {
 
 func TestTheRefreshWaitsOnASectionAlreadyInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	var m tea.Model = app.New(testConfig(), client, testSurface)
+	var m tea.Model = app.New(testConfig(), client, testSurface, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	initial := responses(m.Init())
@@ -1691,7 +1691,7 @@ func TestARefreshThatFailsSaysSo(t *testing.T) {
 
 func TestFetchCarriesADeadline(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
-	drive(t, app.New(testConfig(), client, testSurface))
+	drive(t, app.New(testConfig(), client, testSurface, nil))
 
 	if !client.hadDeadline {
 		t.Fatal("the fetch context has no deadline, so a hung request spins forever")
@@ -1705,7 +1705,7 @@ func TestALeftoverThemeNameSaysSoRatherThanBeingDropped(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	out := render(t, m)
 	if !strings.Contains(out, "rose-pine-moon") {
@@ -1720,7 +1720,7 @@ func TestOverridesShowNoNotice(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Colors: map[string]string{"accent": "#ff0000"}}
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 	if strings.Contains(render(t, m), "Theme names are gone") {
 		t.Error("a config carrying color overrides produced a notice")
 	}
@@ -1730,7 +1730,7 @@ func TestAnOverrideReachesTheScreen(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Colors: map[string]string{"accent": "#ff0000"}}
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	want := fgSeq(lipgloss.Color("#ff0000"))
 	if !strings.Contains(render(t, m), want) {
@@ -1739,7 +1739,7 @@ func TestAnOverrideReachesTheScreen(t *testing.T) {
 }
 
 func TestTheRootPaintsTheThemesBackground(t *testing.T) {
-	m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(testConfig(), &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	got := m.View().BackgroundColor
 	if got == nil {
@@ -1754,7 +1754,7 @@ func TestTransparentPaintsNoBackground(t *testing.T) {
 	cfg := testConfig()
 	cfg.Transparent = true
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	if got := m.View().BackgroundColor; got != nil {
 		t.Errorf("View().BackgroundColor = %v, want nil under transparent", got)
@@ -1765,7 +1765,7 @@ func TestANamedBackgroundReachesThePaint(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Colors: map[string]string{"background": "#faf4ed"}}
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	got := m.View().BackgroundColor
 	if got == nil {
@@ -1858,7 +1858,7 @@ func TestAFailedSectionIsTheOnlyOneShowingAnError(t *testing.T) {
 		results: map[string]gh.SearchResult{"is:open is:pr review-requested:@me": {PullRequests: samplePRs()}},
 	}
 
-	m := drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: 120, Height: 40})
+	m := drive(t, app.New(testConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	first := render(t, m)
 	if !strings.Contains(first, "context deadline exceeded") {
@@ -1886,7 +1886,7 @@ func TestTheStatusBarCarriesTheLowestBudgetSeen(t *testing.T) {
 		},
 	}}
 
-	out := render(t, drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: 120, Height: 40}))
+	out := render(t, drive(t, app.New(testConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 120, Height: 40}))
 	if !strings.Contains(out, "419") {
 		t.Errorf("view = %q, want the lowest remaining across the responses", out)
 	}
@@ -1915,7 +1915,7 @@ func TestALowBudgetOutranksTheReadout(t *testing.T) {
 		},
 	}}
 
-	m := press(drive(t, app.New(testConfig(), client, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40}), "enter")
+	m := press(drive(t, app.New(testConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40}), "enter")
 
 	got := lastLine(render(t, m))
 	if !strings.Contains(got, "419") {
@@ -1957,7 +1957,7 @@ func TestTheConfigNoticeReadsAsAWarning(t *testing.T) {
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 160, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	for _, line := range strings.Split(render(t, m), "\n") {
 		if !strings.Contains(line, "Theme names are gone") {
@@ -1975,7 +1975,7 @@ func TestAnUnknownSyntaxThemeIsReported(t *testing.T) {
 	cfg := testConfig()
 	cfg.SyntaxTheme = "not-a-chroma-style"
 
-	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface), tea.WindowSizeMsg{Width: 200, Height: 40})
+	m := drive(t, app.New(cfg, &fakeSearcher{prs: samplePRs()}, testSurface, nil), tea.WindowSizeMsg{Width: 200, Height: 40})
 
 	if !strings.Contains(stripANSI(render(t, m)), `Unknown syntax theme "not-a-chroma-style"`) {
 		t.Error("an unknown syntax theme falls back with nothing said")
@@ -2617,7 +2617,7 @@ func TestASyncOnTheListSpinsInTheStatusBar(t *testing.T) {
 func TestAFirstLoadDoesNotSpinInTheStatusBar(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m, _ := app.New(testConfig(), client, testSurface).Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	m, _ := app.New(testConfig(), client, testSurface, nil).Update(tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "Loading pull requests") {
@@ -3030,7 +3030,7 @@ func TestTheViewerReachesAScreenAlreadyOpen(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), viewer: gh.ViewerResult{Viewer: gh.Actor{Login: "drucial"}}}
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 
-	m := app.New(testConfig(), client, testSurface)
+	m := app.New(testConfig(), client, testSurface, nil)
 	var viewer, rest []tea.Msg
 	for _, msg := range immediate(m.Init()) {
 		if fmt.Sprintf("%T", msg) == "app.viewerFetchedMsg" {

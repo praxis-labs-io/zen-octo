@@ -40,7 +40,7 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	before := time.Now().UTC()
 
-	drive(t, app.New(recentConfig(), client, testSurface), tea.WindowSizeMsg{Width: 120, Height: 40})
+	drive(t, app.New(recentConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	asked := client.asked()
 	if len(asked) == 0 {
@@ -60,7 +60,7 @@ func TestASectionsWindowReachesTheClientAsATimestamp(t *testing.T) {
 func TestEveryFetchRendersItsOwnWindow(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m := drive(t, app.New(recentConfig(), client, testSurface), tea.WindowSizeMsg{Width: 120, Height: 40})
+	m := drive(t, app.New(recentConfig(), client, testSurface, nil), tea.WindowSizeMsg{Width: 120, Height: 40})
 	settle(m, list.RefreshMsg{})
 
 	asked := client.asked()

@@ -59,6 +59,13 @@ type Config struct {
 	Transparent bool `yaml:"transparent"`
 	// SyntaxTheme names the Chroma style for code. Empty pairs one against the background.
 	SyntaxTheme string `yaml:"syntaxTheme"`
+	// UpdateCheck nil means the key is absent, which reads as on.
+	UpdateCheck *bool `yaml:"updateCheck"`
+}
+
+// ChecksForUpdates reports whether a launch asks for a newer release.
+func (c *Config) ChecksForUpdates() bool {
+	return c.UpdateCheck == nil || *c.UpdateCheck
 }
 
 // Default is the config used when no file exists.
