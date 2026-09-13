@@ -39,7 +39,7 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: false,
 	}
 	cmd.Flags().Bool("mockup", false, "Render the UI over fixture data, with no network and no account")
-	cmd.AddCommand(newConfigPathCmd())
+	cmd.AddCommand(newConfigPathCmd(), newUpdateCmd())
 	return cmd
 }
 
