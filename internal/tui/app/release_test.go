@@ -40,6 +40,14 @@ func TestANewerReleaseIsNamedOnTheListBar(t *testing.T) {
 	}
 }
 
+func TestAFailedCacheWriteStillNamesTheRelease(t *testing.T) {
+	check := releaseAnswering(update.Result{Latest: "v9.9.9", Available: true}, errors.New("writing the update cache: read-only file system"))
+
+	if bar := lastLine(render(t, launched(t, testConfig(), &fakeSearcher{prs: samplePRs()}, check))); !strings.Contains(bar, releaseNotice) {
+		t.Errorf("status bar = %q, want the release a check found even though it could not cache it", strings.TrimSpace(bar))
+	}
+}
+
 func TestTheBarSaysNothingWithoutANewerRelease(t *testing.T) {
 	off := false
 	quiet := testConfig()

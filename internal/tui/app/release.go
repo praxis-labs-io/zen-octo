@@ -22,8 +22,8 @@ func checkRelease(check ReleaseCheck) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		result, err := check(context.Background())
-		if err != nil || !result.Available {
+		result, _ := check(context.Background())
+		if !result.Available {
 			return nil
 		}
 		return newerReleaseMsg{tag: result.Latest}
