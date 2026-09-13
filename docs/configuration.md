@@ -150,6 +150,17 @@ the one thing that cannot follow your palette. Left empty it pairs against your
 background, `github-dark` on a dark terminal and `github` on a light one. Set it
 to any Chroma style name to override that.
 
+## Updates
+
+```yaml
+updateCheck: true
+```
+
+On by default. At launch zen-octo asks GitHub whether a newer release is out,
+at most once a day, and names it in the status bar when it is. `false` stops
+the request entirely. `zen-octo update` checks regardless, since running it is
+the ask. [Upgrading](install.md#upgrading) covers both.
+
 ## A bad config
 
 A section that fails to validate is reported with its section named. The app

@@ -29,7 +29,7 @@ Don't restate the global rules here.
 
 These boundaries are the architecture. Breaking one is a review-stopper, not a nit.
 
-- **`internal/gh` is the only package that touches the network.** It returns domain types, never raw GraphQL structs, so everything above it tests against a fake.
+- **`internal/gh` is the only package that talks to GitHub as the user.** It returns domain types, never raw GraphQL structs, so everything above it tests against a fake. `internal/update` is the one other package on the network, for the anonymous release lookup and the installer download.
 - **`internal/store` owns fetched state and refresh timing.** Views read from it, they never fetch.
 - **`internal/tui/*` packages never import each other sideways.** Shared widgets live in `internal/tui/comp`.
 
