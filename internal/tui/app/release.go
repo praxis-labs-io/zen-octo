@@ -10,7 +10,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/update"
 )
 
-// ReleaseCheck reports whether a newer release is published. A failure shows nothing.
+// A nil ReleaseCheck turns the launch check off.
 type ReleaseCheck func(ctx context.Context) (update.Result, error)
 
 type newerReleaseMsg struct {

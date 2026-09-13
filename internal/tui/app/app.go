@@ -307,7 +307,6 @@ func New(cfg *config.Config, client GitHub, surface theme.Surface, check Release
 	return m
 }
 
-// Init starts the list and the background poll, fetches the viewer and every section, and asks for a newer release.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll(), checkRelease(m.releaseCheck)}
 	for i, section := range m.store.Sections() {

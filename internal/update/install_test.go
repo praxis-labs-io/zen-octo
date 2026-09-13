@@ -53,10 +53,10 @@ func TestInstallerArgsPerPlatform(t *testing.T) {
 }
 
 func TestInstallScriptURLPerPlatform(t *testing.T) {
-	if got := installScriptURL("windows"); got != InstallScriptWindowsURL {
+	if got := scriptURLFor("windows"); got != installScriptWindowsURL {
 		t.Fatalf("windows url = %q", got)
 	}
-	if got := installScriptURL("darwin"); got != InstallScriptURL {
+	if got := scriptURLFor("darwin"); got != installScriptURL {
 		t.Fatalf("darwin url = %q", got)
 	}
 }
@@ -103,8 +103,8 @@ func TestInstallHandsTheRunnerTheStagedScriptAndDirectory(t *testing.T) {
 	var gotScript, gotDir string
 	err := Install(context.Background(), InstallOptions{
 		Dir:       "/opt/bin",
-		ScriptURL: server.URL,
-		Runner: func(_ context.Context, script, dir string, _ io.Writer) error {
+		scriptURL: server.URL,
+		runner: func(_ context.Context, script, dir string, _ io.Writer) error {
 			gotScript, gotDir = script, dir
 			body, readErr := os.ReadFile(script)
 			if readErr != nil {
@@ -157,8 +157,8 @@ func TestInstallRefusesWhatItCouldNotDownload(t *testing.T) {
 			ran := false
 			err := Install(context.Background(), InstallOptions{
 				Dir:       "/opt/bin",
-				ScriptURL: server.URL,
-				Runner: func(context.Context, string, string, io.Writer) error {
+				scriptURL: server.URL,
+				runner: func(context.Context, string, string, io.Writer) error {
 					ran = true
 					return nil
 				},
@@ -224,7 +224,7 @@ func TestTheInstallerSeesTheDirectoryAndNoPinnedVersion(t *testing.T) {
 
 	if err := Install(context.Background(), InstallOptions{
 		Dir:       "/opt/bin",
-		ScriptURL: server.URL,
+		scriptURL: server.URL,
 	}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestAFailedInstallerIsReported(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := Install(context.Background(), InstallOptions{Dir: "/opt/bin", ScriptURL: server.URL})
+	err := Install(context.Background(), InstallOptions{Dir: "/opt/bin", scriptURL: server.URL})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -266,8 +266,8 @@ func TestInstallRefusesAnOversizedScript(t *testing.T) {
 	ran := false
 	err := Install(context.Background(), InstallOptions{
 		Dir:       "/opt/bin",
-		ScriptURL: server.URL,
-		Runner: func(context.Context, string, string, io.Writer) error {
+		scriptURL: server.URL,
+		runner: func(context.Context, string, string, io.Writer) error {
 			ran = true
 			return nil
 		},

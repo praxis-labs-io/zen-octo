@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	InstallScriptURL = "https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.sh"
+	installScriptURL = "https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.sh"
 
-	InstallScriptWindowsURL = "https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1"
+	installScriptWindowsURL = "https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1"
 
 	DevVersion = devVersion
 
@@ -25,21 +25,18 @@ const (
 	scriptTimeout = 30 * time.Second
 )
 
-type InstallRunner func(ctx context.Context, script, dir string, out io.Writer) error
+type installRunner func(ctx context.Context, script, dir string, out io.Writer) error
 
-// InstallOptions is what an install needs. Only Dir is required.
+// InstallOptions requires only Dir.
 type InstallOptions struct {
 	Dir string
-	// Out nil discards the installer's output.
 	Out io.Writer
-	// ScriptURL empty means this platform's installer.
-	ScriptURL string
-	Client    *http.Client
-	Runner    InstallRunner
+
+	scriptURL string
+	runner    installRunner
 }
 
-// Install fetches the platform's published installer and runs it with
-// INSTALL_DIR set to Dir.
+// Install runs the platform's published installer with INSTALL_DIR set to opts.Dir.
 func Install(ctx context.Context, opts InstallOptions) error {
 	if opts.Dir == "" {
 		return errors.New("install directory is empty")
@@ -56,7 +53,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	}
 	defer cleanup()
 
-	run := opts.Runner
+	run := opts.runner
 	if run == nil {
 		run = runInstallScript
 	}
@@ -64,22 +61,19 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	return run(ctx, path, opts.Dir, opts.Out)
 }
 
-func installScriptURL(goos string) string {
+func scriptURLFor(goos string) string {
 	if goos == "windows" {
-		return InstallScriptWindowsURL
+		return installScriptWindowsURL
 	}
-	return InstallScriptURL
+	return installScriptURL
 }
 
 func fetchInstallScript(ctx context.Context, opts InstallOptions) ([]byte, error) {
-	endpoint := opts.ScriptURL
+	endpoint := opts.scriptURL
 	if endpoint == "" {
-		endpoint = installScriptURL(runtime.GOOS)
+		endpoint = scriptURLFor(runtime.GOOS)
 	}
-	client := opts.Client
-	if client == nil {
-		client = &http.Client{Timeout: scriptTimeout}
-	}
+	client := &http.Client{Timeout: scriptTimeout}
 
 	ctx, cancel := context.WithTimeout(ctx, scriptTimeout)
 	defer cancel()

@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	LatestReleaseURL = "https://api.github.com/repos/praxis-labs-io/zen-octo/releases/latest"
+	latestReleaseURL = "https://api.github.com/repos/praxis-labs-io/zen-octo/releases/latest"
 
-	DefaultTTL = 24 * time.Hour
+	cacheTTL = 24 * time.Hour
 
 	requestTimeout = 5 * time.Second
 
@@ -22,7 +22,7 @@ const (
 	maxBodyBytes = 1 << 20
 )
 
-// Result is what a check found. Latest is empty when there was no answer.
+// Result's Latest is empty when the check had no answer.
 type Result struct {
 	Latest    string
 	Available bool
@@ -32,33 +32,24 @@ type Options struct {
 	Current string
 	// CachePath empty skips the cache in both directions.
 	CachePath string
-	// TTL zero means DefaultTTL.
-	TTL time.Duration
-	// Endpoint empty means LatestReleaseURL.
-	Endpoint string
-	// Client nil means one bounded by requestTimeout.
-	Client *http.Client
-	Now    func() time.Time
+
+	endpoint string
+	now      func() time.Time
 }
 
-// Check reports whether a release newer than Current is published, answering
-// from the cache while it is fresh. An empty or dev Current is never checked. A
-// failed cache write returns the good result alongside its error.
+// Check reports whether a release newer than Current is published, answering from a fresh cache.
+// A dev Current is never checked, and a failed cache write returns the result with its error.
 func Check(ctx context.Context, opts Options) (Result, error) {
 	if opts.Current == "" || opts.Current == devVersion {
 		return Result{}, nil
 	}
 
 	now := time.Now
-	if opts.Now != nil {
-		now = opts.Now
-	}
-	ttl := opts.TTL
-	if ttl <= 0 {
-		ttl = DefaultTTL
+	if opts.now != nil {
+		now = opts.now
 	}
 
-	if cached := loadCache(opts.CachePath); cached.fresh(now(), ttl) {
+	if cached := loadCache(opts.CachePath); cached.fresh(now(), cacheTTL) {
 		return resultFor(opts.Current, cached.LatestTag), nil
 	}
 
@@ -85,14 +76,11 @@ func resultFor(current, tag string) Result {
 }
 
 func fetchLatestTag(ctx context.Context, opts Options) (string, error) {
-	endpoint := opts.Endpoint
+	endpoint := opts.endpoint
 	if endpoint == "" {
-		endpoint = LatestReleaseURL
+		endpoint = latestReleaseURL
 	}
-	client := opts.Client
-	if client == nil {
-		client = &http.Client{Timeout: requestTimeout}
-	}
+	client := &http.Client{Timeout: requestTimeout}
 
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()

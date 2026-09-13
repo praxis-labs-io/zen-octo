@@ -44,7 +44,7 @@ func TestCheckReportsANewerRelease(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: filepath.Join(t.TempDir(), cacheFileName),
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -66,7 +66,7 @@ func TestCheckSaysNothingWhenCurrent(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: filepath.Join(t.TempDir(), cacheFileName),
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -84,7 +84,7 @@ func TestCheckNeverAsksForAnUnstampedBuild(t *testing.T) {
 			got, err := Check(context.Background(), Options{
 				Current:   current,
 				CachePath: filepath.Join(t.TempDir(), cacheFileName),
-				Endpoint:  server.URL,
+				endpoint:  server.URL,
 			})
 			if err != nil {
 				t.Fatalf("Check() error: %v", err)
@@ -121,7 +121,7 @@ func TestCheckReportsNothingToShowOnAFailure(t *testing.T) {
 			got, err := Check(context.Background(), Options{
 				Current:   "0.3.0",
 				CachePath: cachePath,
-				Endpoint:  server.URL,
+				endpoint:  server.URL,
 			})
 			if err == nil {
 				t.Fatal("a failed lookup returned no error")
@@ -148,8 +148,8 @@ func TestCheckAnswersFromAFreshCache(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: cachePath,
-		Endpoint:  server.URL,
-		Now:       func() time.Time { return now },
+		endpoint:  server.URL,
+		now:       func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -174,8 +174,8 @@ func TestCheckAsksAgainOnceTheCacheIsStale(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: cachePath,
-		Endpoint:  server.URL,
-		Now:       func() time.Time { return now },
+		endpoint:  server.URL,
+		now:       func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -202,7 +202,7 @@ func TestAnUpgradeSilencesAStillFreshCache(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.4.0",
 		CachePath: cachePath,
-		Now:       func() time.Time { return now },
+		now:       func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -218,7 +218,7 @@ func TestCheckWithNoCachePathAsksEveryTime(t *testing.T) {
 	for i := range 2 {
 		if _, err := Check(context.Background(), Options{
 			Current:  "0.3.0",
-			Endpoint: server.URL,
+			endpoint: server.URL,
 		}); err != nil {
 			t.Fatalf("Check() %d error: %v", i, err)
 		}
@@ -247,7 +247,7 @@ func TestAStaleSchemaIsIgnored(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: cachePath,
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -267,7 +267,7 @@ func TestAnUnreadableCacheIsIgnored(t *testing.T) {
 	got, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: cachePath,
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
@@ -280,17 +280,17 @@ func TestAnUnreadableCacheIsIgnored(t *testing.T) {
 func TestACacheStampedInTheFutureIsNotFresh(t *testing.T) {
 	now := time.Now()
 	file := cacheFile{Version: cacheVersion, CheckedAt: now.Add(time.Hour), LatestTag: "v0.4.0"}
-	if file.fresh(now, DefaultTTL) {
+	if file.fresh(now, cacheTTL) {
 		t.Error("a record stamped in the future reported fresh")
 	}
 }
 
 func TestAnEmptyRecordIsNotFresh(t *testing.T) {
 	now := time.Now()
-	if (cacheFile{Version: cacheVersion, CheckedAt: now}).fresh(now, DefaultTTL) {
+	if (cacheFile{Version: cacheVersion, CheckedAt: now}).fresh(now, cacheTTL) {
 		t.Error("a record naming no tag reported fresh")
 	}
-	if (cacheFile{Version: cacheVersion, LatestTag: "v0.4.0"}).fresh(now, DefaultTTL) {
+	if (cacheFile{Version: cacheVersion, LatestTag: "v0.4.0"}).fresh(now, cacheTTL) {
 		t.Error("a record with no timestamp reported fresh")
 	}
 }
@@ -303,7 +303,7 @@ func TestCheckHonorsACancelledContext(t *testing.T) {
 	got, err := Check(ctx, Options{
 		Current:   "0.3.0",
 		CachePath: filepath.Join(t.TempDir(), cacheFileName),
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	})
 	if err == nil {
 		t.Fatal("a canceled context returned no error")
@@ -320,7 +320,7 @@ func TestCheckCreatesTheConfigDirectoryItCaches(t *testing.T) {
 	if _, err := Check(context.Background(), Options{
 		Current:   "0.3.0",
 		CachePath: cachePath,
-		Endpoint:  server.URL,
+		endpoint:  server.URL,
 	}); err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
