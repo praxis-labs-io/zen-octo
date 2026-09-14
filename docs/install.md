@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/instal
 ```
 
 ```powershell
-$env:VERSION = 'v0.2.0'; irm https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1 | iex
+$env:VERSION = 'v0.2.0'; irm https://raw.githubusercontent.com/praxis-labs-io/zen-octo/main/install.ps1 | iex; Remove-Item Env:VERSION
 ```
 
 ### From a clone
@@ -65,7 +65,7 @@ export PATH="$HOME/.local/bin:$PATH"
 On Windows:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('Path', "$env:PATH;$env:LOCALAPPDATA\Programs\zen-octo", 'User')
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\zen-octo", 'User')
 ```
 
 Then open a new terminal. Neither installer edits `PATH` for you.
