@@ -509,3 +509,91 @@ func TestLiveTheMergeDocumentsMatchTheSchema(t *testing.T) {
 		}
 	})
 }
+
+func TestLiveTheReviewDocumentsMatchTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	calls := []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"start", func(ctx context.Context) error {
+			_, err := client.StartReview(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+			return err
+		}},
+		{"submit", func(ctx context.Context) error {
+			_, err := client.SubmitReview(ctx, "NOT_A_NODE", gh.ReviewEventComment, "zen-octo schema check, never posted")
+			return err
+		}},
+		{"discard", func(ctx context.Context) error {
+			return client.DiscardReview(ctx, "NOT_A_NODE")
+		}},
+	}
+
+	for _, tt := range calls {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := tt.call(ctx); err == nil {
+				t.Fatal("a review on a node that does not exist came back as a success")
+			} else {
+				assertValidated(t, err)
+			}
+		})
+	}
+}
+
+func TestLiveTheAddReviewThreadDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := gh.New()
+	if err != nil {
+		t.Fatalf("gh.New() error = %v", err)
+	}
+
+	anchors := []struct {
+		name string
+		in   gh.ReviewThreadInput
+	}{
+		{"one line", gh.ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: gh.SubjectLine,
+			Line: 3, Side: gh.SideRight,
+		}},
+		{"a range", gh.ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: gh.SubjectLine,
+			Line: 9, Side: gh.SideRight, StartLine: 3, StartSide: gh.SideRight,
+		}},
+		{"a whole file", gh.ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: gh.SubjectFile,
+		}},
+		{"no review of its own", gh.ReviewThreadInput{
+			PullRequestID: "NOT_A_NODE", Path: "README.md", Line: 3, Side: gh.SideRight,
+		}},
+	}
+
+	for _, tt := range anchors {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			in := tt.in
+			in.Body = "zen-octo schema check, never posted"
+
+			if _, err := client.AddReviewThread(ctx, in); err == nil {
+				t.Fatal("a thread on a node that does not exist came back as a success")
+			} else {
+				assertValidated(t, err)
+			}
+		})
+	}
+}
