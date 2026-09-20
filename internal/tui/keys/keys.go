@@ -70,7 +70,9 @@ type DetailMap struct {
 
 	Comment key.Binding
 	// Post is a Kitty keyboard protocol chord; other terminals reach the compose button instead.
-	Post     key.Binding
+	Post key.Binding
+
+	// Activate opens whatever is under the cursor, which on a review thread is the code it answers.
 	Activate key.Binding
 	Editor   key.Binding
 
@@ -85,7 +87,9 @@ type DetailMap struct {
 
 	// Resolve both resolves and unresolves a review thread.
 	Resolve key.Binding
-	Jump    key.Binding
+
+	// Select starts a range in the diff at the cursor, which moving the cursor then extends.
+	Select key.Binding
 
 	// Search, NextMatch, and PrevMatch search within a job log.
 	Search       key.Binding
@@ -158,7 +162,7 @@ var (
 
 		Comment:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
 		Post:         key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
-		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open or press")),
+		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open, press, or show in the diff")),
 		Editor:       key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply or rerun")),
 		QuoteReply:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "quote reply or rerun all")),
@@ -166,7 +170,7 @@ var (
 		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Delete:       key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
-		Jump:         key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "show in the diff")),
+		Select:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select lines")),
 		Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search log")),
 		NextMatch:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
 		PrevMatch:    key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "previous match")),
@@ -255,6 +259,10 @@ type DetailContext struct {
 	// Split is whether the pane draws a diff that can be split into two columns.
 	Split bool
 
+	// Select is whether a row of code is under the cursor; Selecting is whether a range runs from one.
+	Select    bool
+	Selecting bool
+
 	// FileView is whether a file is under the cursor; FileViewed picks which action is named.
 	FileView   bool
 	FileViewed bool
@@ -283,8 +291,11 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	}
 
 	back := k.Back
-	if c.SearchStanding {
+	switch {
+	case c.SearchStanding:
 		back = hint(k.Back, "esc", "clear search")
+	case c.Selecting:
+		back = hint(k.Back, "esc", "clear selection")
 	}
 	out = append(out, back, hint(k.NextTab, "[/]", "tab"))
 	if c.Rail {
@@ -299,6 +310,9 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	}
 	if c.Expand {
 		out = append(out, k.Expand)
+	}
+	if c.Select {
+		out = append(out, k.Select)
 	}
 	if c.FileView {
 		action := "mark viewed"
@@ -345,11 +359,11 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.PageUp, k.PageDown, k.HalfPageUp, k.HalfPageDown},
 		{k.NextTab, k.PrevTab, k.NextBlock, k.PrevBlock},
-		{k.NextInColumn, k.PrevInColumn, k.ToggleViewed},
+		{k.NextInColumn, k.PrevInColumn, k.ToggleViewed, k.Select},
 		{k.PaneLeft, k.PaneRight, k.FocusPane, k.SplitView},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
-		{k.Edit, k.Delete, k.Resolve, k.Jump},
+		{k.Edit, k.Delete, k.Resolve},
 		{k.Search, k.NextMatch, k.PrevMatch, k.FirstFailure},
 		{k.CopyLink, k.Browse},
 		{k.Comment, k.Post, k.Activate, k.Editor},

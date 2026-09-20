@@ -167,6 +167,8 @@ type Model struct {
 	diffCursor int
 	diffOn     focusKey
 
+	selection span
+
 	// What the reader asked for; splitting() is what a narrow pane actually draws.
 	split  bool
 	column gh.DiffSide
@@ -452,6 +454,10 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.clearCheckSearch()
 			return m, nil
 		}
+		if m.selecting() {
+			m.clearSelection()
+			return m, nil
+		}
 		return m, func() tea.Msg { return BackMsg{} }
 
 	case key.Matches(keyMsg, k.Sync):
@@ -511,7 +517,9 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Resolve):
 		return m.toggleResolved()
-	case key.Matches(keyMsg, k.Jump):
+	case key.Matches(keyMsg, k.Select):
+		return m.toggleSelection()
+	case key.Matches(keyMsg, k.Activate):
 		return m.showInDiff()
 
 	case key.Matches(keyMsg, k.NextTab):
@@ -939,8 +947,10 @@ func (m Model) Rail() RailPreference {
 }
 
 func (m *Model) SetSize(width, height int) {
+	split := m.splitting()
 	m.width, m.height = width, height
 	m.layout()
+	m.dropSelectionAcrossSplit(split)
 
 	m.merging.resize(width, height)
 }
@@ -1068,6 +1078,8 @@ func (m Model) ShortHelp() []key.Binding {
 		Rail:        m.railTab(),
 		Column:      m.columnNoun(),
 		Split:       m.tab == tabFiles && m.files.Loaded,
+		Select:      m.diffDriving() && m.walkedInto(m.pageRing.on),
+		Selecting:   m.selecting(),
 		FileView:    file != nil && !file.Viewing,
 		FileViewed:  file != nil && file.Viewed == gh.FileViewed,
 		JobLog:      m.tab == tabChecks && job,

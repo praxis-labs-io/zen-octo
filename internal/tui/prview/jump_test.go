@@ -46,8 +46,8 @@ func landed(t *testing.T, frame string) {
 	}
 }
 
-func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
-	m := press(jumping(t, tabThread), "v")
+func TestEnterOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
+	m := press(jumping(t, tabThread), "enter")
 
 	if !onTab(t, m.View(), "Files") {
 		t.Fatalf("v did not reach the Files tab:\n%s", stripANSI(m.View()))
@@ -55,10 +55,10 @@ func TestVOpensOnTheCodeTheThreadWasWrittenAgainst(t *testing.T) {
 	landed(t, m.View())
 }
 
-func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
+func TestEnterFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
-	next, cmd := key(m, "v")
+	next, cmd := key(m, "enter")
 	if cmd == nil {
 		t.Fatal("v asked for nothing with no diff on the screen")
 	}
@@ -74,7 +74,7 @@ func TestVFetchesTheDiffAndJumpsWhenItLands(t *testing.T) {
 	landed(t, next.View())
 }
 
-func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
+func TestEnterUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 	folded := press(jumping(t, tabThread), "]", "]", "]", "1", "j", "j", "space")
 	if strings.Contains(cursorFile(folded.View()), "client.go") {
 		t.Fatal("setup: the cursor is on the file rather than the directory above it")
@@ -83,22 +83,22 @@ func TestVUnfoldsTheDirectoryAboveTheFile(t *testing.T) {
 		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
-	landed(t, press(folded, "[", "[", "[", "v").View())
+	landed(t, press(folded, "[", "[", "[", "enter").View())
 }
 
-func TestVMovesTheTreeCursorToTheFile(t *testing.T) {
+func TestEnterMovesTheTreeCursorToTheFile(t *testing.T) {
 	m := jumping(t, tabThread)
 	if got := cursorFile(m.View()); got == "client.go" {
 		t.Fatal("setup: the cursor is already on the file the thread is in")
 	}
 
-	if got := cursorFile(press(m, "v").View()); got != "client.go" {
+	if got := cursorFile(press(m, "enter").View()); got != "client.go" {
 		t.Errorf("the tree cursor is on %q, want the file the thread is in", got)
 	}
 }
 
-func TestVOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
-	next, cmd := key(jumping(t, tabLocked), "v")
+func TestEnterOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
+	next, cmd := key(jumping(t, tabLocked), "enter")
 	if cmd == nil {
 		t.Fatal("v said nothing about a file that is not in the diff")
 	}
@@ -112,29 +112,29 @@ func TestVOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
 	}
 }
 
-func TestVOnAThreadWithNoLineDoesNothing(t *testing.T) {
+func TestEnterOnAThreadWithNoLineDoesNothing(t *testing.T) {
 	d := sampleDetail()
 	d.Threads[3].Line = 0
 
 	m := walked(detailed(held(d), 200, jumpHeight), tabOther)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	if got := asked(t, m, "v"); got != nil {
+	if got := asked(t, m, "enter"); got != nil {
 		t.Errorf("v asked for %+v on a thread with no line", got)
 	}
 }
 
-func TestVIsInertWithNothingFocused(t *testing.T) {
+func TestEnterIsInertWithNothingFocused(t *testing.T) {
 	m := detailed(held(sampleDetail()), 200, jumpHeight)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	if got := asked(t, m, "v"); got != nil {
+	if got := asked(t, m, "enter"); got != nil {
 		t.Errorf("v asked for %+v with no card focused", got)
 	}
 }
 
 func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
-	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
+	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "enter")
 	m = press(m, "[", "[", "[")
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -145,7 +145,7 @@ func TestAJumpTheReaderTabbedAwayFromIsDropped(t *testing.T) {
 }
 
 func TestAJumpWaitingOnADiffThatFailedIsDropped(t *testing.T) {
-	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "v")
+	m := press(walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread), "enter")
 	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("network is down")})
 
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
@@ -164,14 +164,14 @@ func TestAJumpIntoTheLastFileLandsWithTheThreadOnScreen(t *testing.T) {
 	m := walked(detailed(held(d), 200, jumpHeight), tabOther)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
 
-	out := stripANSI(press(m, "v").View())
+	out := stripANSI(press(m, "enter").View())
 	if !strings.Contains(out, "Is r free after the move?") {
 		t.Errorf("the thread in the last file is nowhere on the frame:\n%s", out)
 	}
 }
 
 func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testing.T) {
-	m := press(jumping(t, tabThread), "v")
+	m := press(jumping(t, tabThread), "enter")
 	landed(t, m.View())
 
 	folded := press(m, "1", "k", "space")
@@ -179,17 +179,17 @@ func TestFoldingADirectoryTakesItsThreadOffTheDiffAndTheJumpPutsItBack(t *testin
 		t.Fatal("setup: the folded directory is still showing the thread")
 	}
 
-	landed(t, press(folded, "[", "[", "[", "v").View())
+	landed(t, press(folded, "[", "[", "[", "enter").View())
 }
 
-func TestVAsksAgainForADiffThatFailed(t *testing.T) {
+func TestEnterAsksAgainForADiffThatFailed(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 
 	m = press(m, "]", "]", "]")
 	m.SetFiles(store.Files{Status: store.StatusFailed, Err: errors.New("502 Bad Gateway")})
 	m = press(m, "[", "[", "[")
 
-	next, cmd := key(m, "v")
+	next, cmd := key(m, "enter")
 	if cmd == nil {
 		t.Fatal("v asked for nothing against a diff that failed")
 	}
@@ -217,7 +217,7 @@ func tallFiles() []gh.ChangedFile {
 	return append(files, sampleFiles()[0])
 }
 
-func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
+func TestEnterLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 	m := walked(detailed(held(sampleDetail()), 200, jumpHeight), tabThread)
 	m.SetFiles(loadedFiles(tallFiles(), 0))
 
@@ -229,7 +229,7 @@ func TestVLeavesTheTreeCursorOnScreenAfterUnfolding(t *testing.T) {
 		t.Fatal("setup: the directory did not fold")
 	}
 
-	back := press(folded, "[", "[", "[", "v")
+	back := press(folded, "[", "[", "[", "enter")
 	if got := cursorFile(back.View()); got != "client.go" {
 		t.Errorf("the tree cursor reads %q, want it on the file and on the screen:\n%s",
 			got, stripANSI(back.View()))
