@@ -1,6 +1,7 @@
 package prview
 
 import (
+	"image/color"
 	"strconv"
 	"strings"
 
@@ -328,20 +329,36 @@ func (m Model) fileChurn(f gh.ChangedFile) string {
 
 func (m Model) cursorOn(key focusKey) bool { return m.lit(key) && !m.walkedInto(key) }
 
-func (m Model) litRun(r run, at, gutter, width int, column gh.DiffSide) run {
+func (m Model) litRun(r run, at, from, to, gutter, width int, column gh.DiffSide) run {
 	rows := make([]diffRow, len(r.rows))
 	copy(rows, r.rows)
 
-	fill, bar := m.theme.SelectedBackground, m.theme.Accent
-	if column != "" {
-		rows[at].text = m.halves(rows[at], column, gutter, width, fill, bar)
-		return newRun(rows)
+	for i := range rows {
+		if i != at && (i < from || i > to) {
+			continue
+		}
+		rows[i].text = m.litRow(rows[i], i == at, gutter, width, column)
+	}
+	return newRun(rows)
+}
+
+// The fill runs the whole selection and the bar marks the cursor alone, so it stays clear where the
+// next key acts from inside one.
+func (m Model) litRow(r diffRow, cursor bool, gutter, width int, column gh.DiffSide) string {
+	fill := m.theme.SelectedBackground
+
+	var bar color.Color
+	if cursor {
+		bar = m.theme.Accent
 	}
 
-	l := rows[at].line
+	if column != "" {
+		return m.halves(r, column, gutter, width, fill, bar)
+	}
+
+	l := r.line
 	l.Fill, l.Bar = fill, bar
-	rows[at].text = m.painter.Line(l, gutter, width)
-	return newRun(rows)
+	return m.painter.Line(l, gutter, width)
 }
 
 func (m Model) hunkHead(h gh.Hunk, gutter, width int, key focusKey, open, split bool) string {
@@ -490,7 +507,8 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 			if m.lit(owner) && m.walkedInto(owner) {
 				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
-					r = m.litRun(r, lit, gutter, width, column)
+					from, to := m.litSpan(r, owner, rows, column)
+					r = m.litRun(r, lit, from, to, gutter, width, column)
 				}
 			}
 		}

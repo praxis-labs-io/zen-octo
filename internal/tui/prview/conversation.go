@@ -468,7 +468,7 @@ func (m Model) threadActs(t gh.ReviewThread) []string {
 		parts = append(parts, k.Resolve.Help().Key+word)
 	}
 	if m.jumpable(t) {
-		parts = append(parts, k.Jump.Help().Key+" in diff")
+		parts = append(parts, k.Activate.Help().Key+" in diff")
 	}
 	return parts
 }

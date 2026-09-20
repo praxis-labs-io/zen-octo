@@ -316,7 +316,7 @@ func TestTheCardHoldingTheBoxIsLit(t *testing.T) {
 func TestTheThreadKeysAreInertOnAReply(t *testing.T) {
 	m := onThread(t, tabReply)
 
-	for _, key := range []string{"x", "v"} {
+	for _, key := range []string{"x", "enter"} {
 		if after := press(m, key).View(); after != m.View() {
 			t.Errorf("%s did something from a reply:\n%s", key, stripANSI(after))
 		}

@@ -30,10 +30,13 @@ func (m Model) walkedInto(key focusKey) bool {
 }
 
 func (m *Model) point(rows int) {
+	if m.pageRing.on != m.selection.on {
+		m.selection = span{}
+	}
 	m.diffCursor, m.diffOn = rows, m.pageRing.on
 }
 
-func (m *Model) unpoint() { m.diffOn = focusKey{} }
+func (m *Model) unpoint() { m.diffOn, m.selection = focusKey{}, span{} }
 
 func (m *Model) moveDiffCursor(delta int) bool {
 	if !m.diffDriving() {

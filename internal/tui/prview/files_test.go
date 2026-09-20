@@ -593,18 +593,20 @@ func TestACardInTheDiffNamesItsKeysAndNotTheJump(t *testing.T) {
 	}
 }
 
-func TestVDoesNothingOnTheFilesTab(t *testing.T) {
+func TestNeitherSelectNorTheJumpActsOnTheFileColumn(t *testing.T) {
 	m := press(onFiles(200, 50), "1", "k", "}", "}")
 	if got := cursorFile(m.View()); !strings.Contains(got, "gh/") {
 		t.Fatalf("setup: the cursor is on %q, want the directory row", got)
 	}
 
-	after, cmd := key(m, "v")
-	if cmd != nil {
-		t.Errorf("v produced %T on the tab it takes a thread to", cmd())
-	}
-	if got := cursorFile(after.View()); !strings.Contains(got, "gh/") {
-		t.Errorf("v moved the cursor to %q on the tab it is named nowhere on", got)
+	for _, k := range []string{"v", "enter"} {
+		after, cmd := key(m, k)
+		if cmd != nil {
+			t.Errorf("%s produced %T from the file column", k, cmd())
+		}
+		if got := cursorFile(after.View()); !strings.Contains(got, "gh/") {
+			t.Errorf("%s moved the cursor to %q, which names no row of code", k, got)
+		}
 	}
 }
 

@@ -159,12 +159,12 @@ func (m *Model) stepColumn(to gh.DiffSide) bool {
 		return false
 	}
 
-	from, was := m.column, m.walkedColumn()
-	m.column = to
+	from, was, held := m.column, m.walkedColumn(), m.selection
+	m.column, m.selection = to, span{}
 	m.syncContent()
 
 	if m.walkedColumn() == was {
-		m.column = from
+		m.column, m.selection = from, held
 		m.syncContent()
 		return false
 	}

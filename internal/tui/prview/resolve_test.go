@@ -195,14 +195,14 @@ func TestAThreadReopenedAndResolvedAgainCollapses(t *testing.T) {
 
 func TestAThreadCardGivesUpWholeHintsRatherThanClippingOne(t *testing.T) {
 	whole := map[string]bool{
-		"r reply": true, "R quote": true, "x resolve": true, "v in diff": true,
+		"r reply": true, "R quote": true, "x resolve": true, "⏎ in diff": true,
 	}
 
 	tests := []struct {
 		width int
 		want  []string
 	}{
-		{200, []string{"r reply", "R quote", "x resolve", "v in diff"}},
+		{200, []string{"r reply", "R quote", "x resolve", "⏎ in diff"}},
 		{44, []string{"r reply", "R quote", "x resolve"}},
 		{34, []string{"r reply", "R quote"}},
 	}

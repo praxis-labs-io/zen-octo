@@ -71,7 +71,7 @@ The same movement keys serve every pane. Focus decides what they move.
 | --- | --- |
 | `m` | mark viewed |
 | `\|` | side by side |
-| `v` | show in the diff |
+| `v` | select lines |
 
 ### Talking
 
@@ -83,6 +83,7 @@ The same movement keys serve every pane. Focus decides what they move.
 | `e` | edit |
 | `D` | delete |
 | `x` | resolve or unresolve |
+| `⏎` | on a thread, show it in the diff |
 | `+` | react |
 | `ctrl+⏎` | post |
 | `ctrl+e` | open `$EDITOR` |

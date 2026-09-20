@@ -3237,7 +3237,7 @@ func TestASyncDoesNotUndoAResolveStillInFlight(t *testing.T) {
 	}
 }
 
-func TestVFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
+func TestEnterFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.serveFiles(412, []gh.ChangedFile{{
 		Path: "internal/gh/client.go", Status: gh.FileModified, Additions: 1,
@@ -3250,7 +3250,7 @@ func TestVFetchesTheDiffAndLandsOnTheThread(t *testing.T) {
 		}},
 	}})
 
-	m := press(settling(t, client), "v")
+	m := press(settling(t, client), "enter")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "internal/gh/client.go:42") {
@@ -3271,7 +3271,7 @@ func TestAThreadWhoseFileIsNotInTheDiffSaysSo(t *testing.T) {
 		}},
 	}})
 
-	m := press(settling(t, client), "v")
+	m := press(settling(t, client), "enter")
 
 	if got := lastLine(render(t, m)); !strings.Contains(got, "internal/gh/client.go is not in the diff") {
 		t.Errorf("status bar = %q, want it to say the file is not in the diff", strings.TrimSpace(got))
