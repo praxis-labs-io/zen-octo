@@ -1065,3 +1065,163 @@ func TestAReviewersThreadsAreCountedResolvedOrNot(t *testing.T) {
 		t.Errorf("Unresolved = %d, want the open one alone", nkr.Unresolved)
 	}
 }
+
+func TestThePendingReviewIsTheViewersDraft(t *testing.T) {
+	d := fetchDetail(t)
+
+	want := Review{ID: "REV_3", State: ReviewStatePending, Body: "not sent yet"}
+	if d.DraftReview != want {
+		t.Errorf("DraftReview = %+v, want %+v", d.DraftReview, want)
+	}
+}
+
+func TestADraftIsOnlyTheViewersOwnUnsubmittedReview(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "somebody else's",
+			body: `{"node": {"id": "PR_1", "reviews": {"totalCount": 1, "nodes": [
+			  {"id": "REV_9", "state": "PENDING", "body": "theirs", "viewerDidAuthor": false}
+			]}}}`,
+		},
+		{
+			name: "the viewer's, already submitted",
+			body: `{"node": {"id": "PR_1", "reviews": {"totalCount": 1, "nodes": [
+			  {"id": "REV_9", "state": "APPROVED", "body": "mine", "viewerDidAuthor": true}
+			]}}}`,
+		},
+		{
+			name: "none at all",
+			body: `{"node": {"id": "PR_1", "reviews": {"totalCount": 0, "nodes": []}}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := newWithDoer(&fakeDoer{body: tt.body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+			if err != nil {
+				t.Fatalf("PullRequest: %v", err)
+			}
+			if got := res.Detail.DraftReview; got != (Review{}) {
+				t.Errorf("DraftReview = %+v, want none", got)
+			}
+		})
+	}
+}
+
+func TestADraftReviewIsKeptOutOfTheReviewersPanel(t *testing.T) {
+	d := fetchDetail(t)
+
+	for _, r := range d.Reviewers {
+		if r.State == ReviewStatePending {
+			t.Errorf("%s is in the panel with an unsubmitted review", r.Actor.Login)
+		}
+	}
+}
+
+func TestAnUnsentThreadAndItsCommentsAreMarkedDraft(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 1, "nodes": [
+	  {"id": "RT_9", "path": "a.go", "line": 3, "diffSide": "RIGHT", "subjectType": "LINE",
+	   "comments": {"totalCount": 1, "nodes": [
+	     {"id": "RC_9", "state": "PENDING", "body": "unsent", "pullRequestReview": {"id": "REV_9"}}
+	   ]}}
+	]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	thread := res.Detail.Threads[0]
+	if !thread.Draft {
+		t.Error("a thread held in an unsubmitted review did not come back as a draft")
+	}
+	if !thread.Comments[0].Draft {
+		t.Error("an unsent comment did not come back as a draft")
+	}
+}
+
+func TestASubmittedThreadIsNoDraft(t *testing.T) {
+	d := fetchDetail(t)
+
+	for _, thread := range d.Threads {
+		if thread.Draft {
+			t.Errorf("thread %s came back as a draft", thread.ID)
+		}
+		for _, c := range thread.Comments {
+			if c.Draft {
+				t.Errorf("comment %s came back as a draft", c.ID)
+			}
+		}
+	}
+}
+
+func TestAnUnsentReplyDoesNotMakeItsThreadADraft(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 1, "nodes": [
+	  {"id": "RT_9", "path": "a.go", "line": 3,
+	   "comments": {"totalCount": 2, "nodes": [
+	     {"id": "RC_9", "state": "SUBMITTED", "body": "sent"},
+	     {"id": "RC_10", "state": "PENDING", "body": "unsent"}
+	   ]}}
+	]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	thread := res.Detail.Threads[0]
+	if thread.Draft {
+		t.Error("a published thread came back as a draft because a reply to it is unsent")
+	}
+	if thread.Comments[0].Draft {
+		t.Error("a published comment came back as a draft")
+	}
+	if !thread.Comments[1].Draft {
+		t.Error("the unsent reply did not come back as a draft")
+	}
+}
+
+func TestAFileThreadIsNotAThreadOnLineOne(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviewThreads": {"totalCount": 2, "nodes": [
+	  {"id": "RT_F", "path": "a.go", "line": 1, "subjectType": "FILE",
+	   "comments": {"totalCount": 0, "nodes": []}},
+	  {"id": "RT_L", "path": "a.go", "line": 1,
+	   "comments": {"totalCount": 0, "nodes": []}}
+	]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	if got := res.Detail.Threads[0].Subject; got != SubjectFile {
+		t.Errorf("Subject = %q, want FILE", got)
+	}
+	if got := res.Detail.Threads[1].Subject; got != SubjectLine {
+		t.Errorf("Subject = %q, want a thread with no subjectType read as LINE", got)
+	}
+}
+
+func TestTheDetailAsksForWhatMarksAThreadUnsent(t *testing.T) {
+	doer := &fakeDoer{body: detailBody}
+	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	threads := doer.gotQuery
+	if at := strings.Index(threads, "reviewThreads("); at >= 0 {
+		threads = threads[at:]
+	}
+	if at := strings.Index(threads, "commits("); at >= 0 {
+		threads = threads[:at]
+	}
+
+	for _, want := range []string{"subjectType", "state"} {
+		if !strings.Contains(threads, want) {
+			t.Errorf("the review thread selection does not ask for %q", want)
+		}
+	}
+}

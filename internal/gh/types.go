@@ -59,6 +59,16 @@ const (
 	ReviewStatePending          ReviewState = "PENDING"
 )
 
+// ReviewEvent is how a pending review is submitted. GitHub's enum also holds DISMISS, which is a
+// different mutation's verb and no submission.
+type ReviewEvent string
+
+const (
+	ReviewEventComment        ReviewEvent = "COMMENT"
+	ReviewEventApprove        ReviewEvent = "APPROVE"
+	ReviewEventRequestChanges ReviewEvent = "REQUEST_CHANGES"
+)
+
 type TimelineKind string
 
 const (
@@ -163,7 +173,19 @@ type Comment struct {
 
 	// Editing is a rewrite GitHub has not confirmed. Set by the store, never by this package.
 	Editing bool
+
+	// Draft is a comment held in an unsubmitted review, which only its author can see.
+	Draft bool
 }
+
+// ThreadSubject is what a review thread hangs off. A file thread reports line 1, so this is the only
+// field telling the two apart.
+type ThreadSubject string
+
+const (
+	SubjectLine ThreadSubject = "LINE"
+	SubjectFile ThreadSubject = "FILE"
+)
 
 // DiffSide tells apart a deleted and an added line carrying the same number.
 type DiffSide string
@@ -174,7 +196,7 @@ const (
 )
 
 // ReviewThread is a line-anchored discussion. ReviewID is the review its first comment was submitted with.
-// StartLine is zero on a single-line thread, and Hunk is nil when GitHub returned none.
+// StartLine equals Line on a single-line thread, and Hunk is nil when GitHub returned none.
 // CanResolve and CanUnresolve are separate: a viewer may close a thread and not reopen it.
 type ReviewThread struct {
 	ID         string
@@ -183,6 +205,7 @@ type ReviewThread struct {
 	Line       int
 	StartLine  int
 	Side       DiffSide
+	Subject    ThreadSubject
 	IsResolved bool
 	IsOutdated bool
 
@@ -192,6 +215,9 @@ type ReviewThread struct {
 
 	// Pending is set by the store while a resolve is out, never by this package.
 	Pending bool
+
+	// Draft is a thread held in an unsubmitted review, which only its author can see.
+	Draft bool
 
 	Hunk     *Hunk
 	Comments []Comment
@@ -362,8 +388,12 @@ type PullRequestDetail struct {
 
 	Timeline []TimelineItem
 	Threads  []ReviewThread
-	Commits  []Commit
-	Rollup   CheckRollup
+
+	// DraftReview is the viewer's unsubmitted review, zero when they have none. It is kept out of
+	// Timeline and Reviewers: it has no submittedAt to sort by and is not a review anyone else can see.
+	DraftReview Review
+	Commits     []Commit
+	Rollup      CheckRollup
 
 	Merge MergeState
 
@@ -509,6 +539,38 @@ type ViewerResult struct {
 // CommentResult carries no RateLimit: rateLimit is a Query field a mutation cannot select.
 type CommentResult struct {
 	Comment Comment
+}
+
+// Review is one review of a pull request. State is ReviewStatePending until it is submitted, and a
+// pending review is visible to nobody but its author.
+type Review struct {
+	ID    string
+	State ReviewState
+	Body  string
+}
+
+type ReviewResult struct {
+	Review Review
+}
+
+// ReviewThreadInput opens one thread. ReviewID puts it in a pending review; without one GitHub opens a
+// pending review to hold it, since it publishes no thread on its own. StartLine and StartSide are set
+// only on a range, and Line and Side are ignored when Subject is SubjectFile.
+type ReviewThreadInput struct {
+	PullRequestID string
+	ReviewID      string
+	Path          string
+	Body          string
+	Subject       ThreadSubject
+	Line          int
+	Side          DiffSide
+	StartLine     int
+	StartSide     DiffSide
+}
+
+// ReviewThreadResult is the thread a write opened, holding the comment that opened it.
+type ReviewThreadResult struct {
+	Thread ReviewThread
 }
 
 // ThreadResult carries the permissions back because resolving flips them.

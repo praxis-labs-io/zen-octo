@@ -112,6 +112,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
           originalLine
           originalStartLine
           diffSide
+          subjectType
           comments(first: 50) {
             totalCount
             nodes {
@@ -119,6 +120,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
               author { login }
               createdAt
               body
+              state
               diffHunk
               viewerDidAuthor
               viewerCanUpdate
@@ -241,6 +243,67 @@ func (n commentNode) comment(kind CommentKind, at time.Time) Comment {
 	}
 }
 
+type reviewThreadNode struct {
+	ID                 string
+	IsResolved         bool
+	IsOutdated         bool
+	ViewerCanReply     bool
+	ViewerCanResolve   bool
+	ViewerCanUnresolve bool
+	Path               string
+	Line               int
+	StartLine          int
+	OriginalLine       int
+	OriginalStartLine  int
+	DiffSide           string
+	SubjectType        string
+	Comments           struct {
+		TotalCount int
+		Nodes      []struct {
+			commentNode
+			CreatedAt         time.Time
+			State             string
+			DiffHunk          string
+			PullRequestReview *struct{ ID string }
+		}
+	}
+}
+
+// An outdated thread has no line of its own, so it falls back to the one it was written against.
+func (n reviewThreadNode) reviewThread() ReviewThread {
+	thread := ReviewThread{
+		ID:           n.ID,
+		Path:         n.Path,
+		Line:         cmp.Or(n.Line, n.OriginalLine),
+		StartLine:    cmp.Or(n.StartLine, n.OriginalStartLine),
+		Side:         DiffSide(cmp.Or(n.DiffSide, string(SideRight))),
+		Subject:      ThreadSubject(cmp.Or(n.SubjectType, string(SubjectLine))),
+		IsResolved:   n.IsResolved,
+		IsOutdated:   n.IsOutdated,
+		CanReply:     n.ViewerCanReply,
+		CanResolve:   n.ViewerCanResolve,
+		CanUnresolve: n.ViewerCanUnresolve,
+	}
+
+	for _, c := range n.Comments.Nodes {
+		if thread.ReviewID == "" && c.PullRequestReview != nil {
+			thread.ReviewID = c.PullRequestReview.ID
+		}
+		if thread.Hunk == nil && c.DiffHunk != "" {
+			if parsed := hunks(c.DiffHunk); len(parsed) > 0 {
+				thread.Hunk = &parsed[0]
+			}
+		}
+
+		comment := c.comment(CommentThread, c.CreatedAt)
+		comment.Draft = ReviewState(c.State) == ReviewStatePending
+		thread.Comments = append(thread.Comments, comment)
+	}
+
+	thread.Draft = len(thread.Comments) > 0 && thread.Comments[0].Draft
+	return thread
+}
+
 type pullRequestResponse struct {
 	RateLimit struct {
 		Limit     int
@@ -324,29 +387,7 @@ type pullRequestResponse struct {
 
 		ReviewThreads struct {
 			TotalCount int
-			Nodes      []struct {
-				ID                 string
-				IsResolved         bool
-				IsOutdated         bool
-				ViewerCanReply     bool
-				ViewerCanResolve   bool
-				ViewerCanUnresolve bool
-				Path               string
-				Line               int
-				StartLine          int
-				OriginalLine       int
-				OriginalStartLine  int
-				DiffSide           string
-				Comments           struct {
-					TotalCount int
-					Nodes      []struct {
-						commentNode
-						CreatedAt         time.Time
-						DiffHunk          string
-						PullRequestReview *struct{ ID string }
-					}
-				}
-			}
+			Nodes      []reviewThreadNode
 		}
 
 		Commits struct {
@@ -462,31 +503,9 @@ func (c *Client) PullRequest(ctx context.Context, id, headRef string) (DetailRes
 	detail.Reviewers = reviewers(resp)
 
 	for _, t := range n.ReviewThreads.Nodes {
-		thread := ReviewThread{
-			ID:           t.ID,
-			Path:         t.Path,
-			Line:         cmp.Or(t.Line, t.OriginalLine),
-			StartLine:    cmp.Or(t.StartLine, t.OriginalStartLine),
-			Side:         DiffSide(cmp.Or(t.DiffSide, string(SideRight))),
-			IsResolved:   t.IsResolved,
-			IsOutdated:   t.IsOutdated,
-			CanReply:     t.ViewerCanReply,
-			CanResolve:   t.ViewerCanResolve,
-			CanUnresolve: t.ViewerCanUnresolve,
-		}
-		for _, c := range t.Comments.Nodes {
-			if thread.ReviewID == "" && c.PullRequestReview != nil {
-				thread.ReviewID = c.PullRequestReview.ID
-			}
-			if thread.Hunk == nil && c.DiffHunk != "" {
-				if parsed := hunks(c.DiffHunk); len(parsed) > 0 {
-					thread.Hunk = &parsed[0]
-				}
-			}
-			thread.Comments = append(thread.Comments, c.comment(CommentThread, c.CreatedAt))
-		}
-		detail.Threads = append(detail.Threads, thread)
+		detail.Threads = append(detail.Threads, t.reviewThread())
 	}
+	detail.DraftReview = draftReview(resp)
 
 	switch ref := n.BaseRef; {
 	case headless, ref == nil, ref.Compare == nil:
@@ -540,6 +559,17 @@ func RecountThreads(d *PullRequestDetail) {
 			d.Reviewers[i].Unresolved++
 		}
 	}
+}
+
+// GitHub returns nobody else's pending review, and at most one of the viewer's own.
+func draftReview(n pullRequestResponse) Review {
+	for _, r := range n.Node.Reviews.Nodes {
+		if ReviewState(r.State) != ReviewStatePending || !r.ViewerDidAuthor {
+			continue
+		}
+		return Review{ID: r.ID, State: ReviewStatePending, Body: r.Body}
+	}
+	return Review{}
 }
 
 // A submitted review drops its author from reviewRequests, so the panel needs reviews as well.

@@ -1,4 +1,4 @@
-package gh_test
+package gh
 
 import (
 	"context"
@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/praxis-labs-io/zen-octo/internal/gh"
 )
 
 func TestLiveSearchPullRequests(t *testing.T) {
@@ -16,9 +14,9 @@ func TestLiveSearchPullRequests(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -64,9 +62,9 @@ func TestLiveDetailAndFiles(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -146,9 +144,9 @@ func TestLiveThePulseDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -187,9 +185,9 @@ func TestLiveViewer(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -213,9 +211,9 @@ func TestLiveTheAddCommentDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -253,9 +251,9 @@ func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -274,9 +272,9 @@ func TestLiveTheThreadResolveDocumentsMatchTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	for _, resolved := range []bool{true, false} {
@@ -299,9 +297,9 @@ func TestLiveTheSetLabelsDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -320,9 +318,9 @@ func TestLiveTheSetAssigneesDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -341,9 +339,9 @@ func TestLiveTheRepoMetaQueryMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -378,13 +376,13 @@ func TestLiveTheStateDocumentsMatchTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
-	for _, to := range []gh.PRTransition{
-		gh.TransitionReady, gh.TransitionDraft, gh.TransitionClose, gh.TransitionReopen,
+	for _, to := range []PRTransition{
+		TransitionReady, TransitionDraft, TransitionClose, TransitionReopen,
 	} {
 		t.Run(string(to), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -405,9 +403,9 @@ func TestLiveTheSetBaseDocumentMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -426,9 +424,9 @@ func TestLiveTheBranchSearchMatchesTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -472,19 +470,19 @@ func TestLiveTheMergeDocumentsMatchTheSchema(t *testing.T) {
 		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
 	}
 
-	client, err := gh.New()
+	client, err := New()
 	if err != nil {
-		t.Fatalf("gh.New() error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
 
-	for _, method := range []gh.MergeMethod{
-		gh.MergeMethodMerge, gh.MergeMethodSquash, gh.MergeMethodRebase,
+	for _, method := range []MergeMethod{
+		MergeMethodMerge, MergeMethodSquash, MergeMethodRebase,
 	} {
 		t.Run(string(method), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			_, err := client.Merge(ctx, "NOT_A_NODE", gh.MergeOptions{
+			_, err := client.Merge(ctx, "NOT_A_NODE", MergeOptions{
 				Method:          method,
 				Headline:        "headline",
 				Body:            "body",
@@ -508,4 +506,92 @@ func TestLiveTheMergeDocumentsMatchTheSchema(t *testing.T) {
 			assertValidated(t, err)
 		}
 	})
+}
+
+func TestLiveTheReviewDocumentsMatchTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	calls := []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"start", func(ctx context.Context) error {
+			_, err := client.StartReview(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+			return err
+		}},
+		{"submit", func(ctx context.Context) error {
+			_, err := client.SubmitReview(ctx, "NOT_A_NODE", ReviewEventComment, "zen-octo schema check, never posted")
+			return err
+		}},
+		{"discard", func(ctx context.Context) error {
+			return client.DiscardReview(ctx, "NOT_A_NODE")
+		}},
+	}
+
+	for _, tt := range calls {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := tt.call(ctx); err == nil {
+				t.Fatal("a review on a node that does not exist came back as a success")
+			} else {
+				assertValidated(t, err)
+			}
+		})
+	}
+}
+
+func TestLiveTheAddReviewThreadDocumentMatchesTheSchema(t *testing.T) {
+	if os.Getenv("ZEN_OCTO_LIVE") == "" {
+		t.Skip("set ZEN_OCTO_LIVE=1 to run against the real GitHub API")
+	}
+
+	client, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	anchors := []struct {
+		name string
+		in   ReviewThreadInput
+	}{
+		{"one line", ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: SubjectLine,
+			Line: 3, Side: SideRight,
+		}},
+		{"a range", ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: SubjectLine,
+			Line: 9, Side: SideRight, StartLine: 3, StartSide: SideRight,
+		}},
+		{"a whole file", ReviewThreadInput{
+			ReviewID: "NOT_A_NODE", Path: "README.md", Subject: SubjectFile,
+		}},
+		{"no review of its own", ReviewThreadInput{
+			PullRequestID: "NOT_A_NODE", Path: "README.md", Line: 3, Side: SideRight,
+		}},
+	}
+
+	for _, tt := range anchors {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			in := tt.in
+			in.Body = "zen-octo schema check, never posted"
+
+			if _, err := client.AddReviewThread(ctx, in); err == nil {
+				t.Fatal("a thread on a node that does not exist came back as a success")
+			} else {
+				assertValidated(t, err)
+			}
+		})
+	}
 }

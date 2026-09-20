@@ -114,6 +114,12 @@ Scratch, never committed. `docs/` describes only what is true today. Durable con
 
 Things GitHub does that the code depends on and cannot show.
 
+- **A pending review is the viewer's own and nobody else's, and it has no `submittedAt`.** Sorting it into the timeline by that field puts it above everything, so it is carried on its own rather than folded in with the submitted ones.
+- **A pending review's threads come back in `reviewThreads` like any other.** Nothing on the thread says so; the `state` on its comments is the only mark, and a reply written into a pending review sits in a published thread the same way.
+- **A file-level thread reports `line: 1`.** `subjectType` is the only field telling it from a thread written against the first line.
+- **`addPullRequestReviewThread` with no review opens one.** GitHub publishes no line comment standing alone, so a single comment is a pending review that still has to be submitted.
+- **`deletePullRequestReview` takes its threads with it**, and `reviewThreads.totalCount` lags `nodes` for a moment after.
+- **`startLine` equals `line` on a single-line thread.** GitHub nulls it only when the thread is outdated, so it never marks a range on its own.
 - **An outdated review thread has no `line` or `startLine`.** GitHub nulls both once the code under it moves, so the thread is anchored by `originalLine` and `originalStartLine` instead.
 - **A nil slice goes over the wire as `null`, and `[ID!]!` rejects it.** An empty label or assignee set has to be sent as `[]`.
 - **A null merge headline or body puts GitHub's default text back.** Only a rebase sends null, since it writes no commit of its own. Every other method sends what the form holds, an empty body included.
