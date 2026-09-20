@@ -273,9 +273,12 @@ func TestLiveTheReviewRequestsQueryMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := client.awaitingReview(ctx, "acme", "rocket", 1); err != nil {
-		t.Fatalf("awaitingReview: %v", err)
+	_, err = client.awaitingReview(ctx, "acme", "rocket", 1)
+	if err == nil {
+		t.Fatal("reading a repository that does not exist came back as a success")
 	}
+
+	assertValidated(t, err)
 }
 
 func TestLiveAMissingPullRequestIsAnError(t *testing.T) {
