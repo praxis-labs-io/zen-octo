@@ -31,17 +31,23 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 	tests := []struct {
 		name     string
 		open     []string
+		carries  string
 		from, to int
 	}{
 		{name: "list", from: 200, to: app.MinWidth},
 		{name: "detail, rail up", open: []string{"enter"}, from: 200, to: 120},
 		{name: "detail, no rail", open: []string{"enter"}, from: 119, to: app.MinWidth},
+		{
+			name: "a row of code", open: []string{"enter", "]", "]", "]", "}", "j"},
+			carries: "v select lines", from: 200, to: app.MinWidth,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &fakeSearcher{prs: samplePRs()}
 			client.serveDetail("PR_412", "Caps the backoff at 30s.")
+			client.serveFiles(412, sampleFiles())
 			m := press(loaded(t, client, tt.from, 40), tt.open...)
 
 			full := hintTokens(t, m)
@@ -51,6 +57,9 @@ func TestTheHintLineShedsWholeHintsAndKeepsHelp(t *testing.T) {
 			help := full[len(full)-1]
 			if help != "? help" {
 				t.Fatalf("the line ends in %q, want the help hint last so the shed can pin it", help)
+			}
+			if tt.carries != "" && !slices.Contains(full, tt.carries) {
+				t.Fatalf("the reference line is %v, want %q on it: the case sheds nothing it was written for", full, tt.carries)
 			}
 			rest := full[:len(full)-1]
 
