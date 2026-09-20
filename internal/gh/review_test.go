@@ -213,7 +213,7 @@ func TestASubmittedReviewComesBackInItsNewState(t *testing.T) {
 	}
 }
 
-func TestTheSubmitSendsTheEventAndLeavesAnEmptyBodyOut(t *testing.T) {
+func TestTheSubmitSendsTheEventAndWhateverTheFormHolds(t *testing.T) {
 	tests := []struct {
 		name  string
 		event ReviewEvent
@@ -221,7 +221,7 @@ func TestTheSubmitSendsTheEventAndLeavesAnEmptyBodyOut(t *testing.T) {
 		want  any
 	}{
 		{"a comment", ReviewEventComment, "Looks fine.", "Looks fine."},
-		{"an approval with nothing to add", ReviewEventApprove, "", nil},
+		{"a summary cleared before submitting", ReviewEventApprove, "", ""},
 	}
 
 	for _, tt := range tests {

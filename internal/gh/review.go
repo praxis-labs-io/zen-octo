@@ -188,10 +188,10 @@ func (in ReviewThreadInput) vars() map[string]any {
 	return vars
 }
 
-// SubmitReview publishes a pending review and every thread held in it.
+// SubmitReview publishes a pending review and every thread held in it, replacing its summary with body.
 func (c *Client) SubmitReview(ctx context.Context, reviewID string, event ReviewEvent, body string) (ReviewResult, error) {
 	var resp submitReviewResponse
-	vars := map[string]any{"reviewId": reviewID, "event": string(event), "body": nullable(body)}
+	vars := map[string]any{"reviewId": reviewID, "event": string(event), "body": body}
 
 	if err := c.gql.DoWithContext(ctx, submitReviewMutation, vars, &resp); err != nil {
 		return ReviewResult{}, fmt.Errorf("submitting a review: %w", classify(err))
