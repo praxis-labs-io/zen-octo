@@ -12,9 +12,10 @@ type span struct {
 	anchor int
 }
 
+// Asks what the render asks, so esc never clears a selection the reader cannot see.
 func (m Model) selecting() bool {
 	return m.selection.on.kind == focusHunk &&
-		m.pageRing.on == m.selection.on &&
+		m.lit(m.selection.on) &&
 		m.walkedInto(m.selection.on)
 }
 

@@ -284,6 +284,29 @@ func TestASelectionFillsOneColumnOfASplitDiff(t *testing.T) {
 	}
 }
 
+func TestALeftPaneTakesTheSelectionWithTheDiffOffTheKeyboard(t *testing.T) {
+	m := press(onCode(), "v", "j")
+	if rows := filledRows(m.View()); len(rows) != 2 {
+		t.Fatalf("setup: %d rows are filled, want 2", len(rows))
+	}
+
+	away := press(m, "h")
+	if rows := filledRows(away.View()); len(rows) != 0 {
+		t.Fatalf("setup: the file column still draws %q", rows)
+	}
+	if offers(away, "clear selection") {
+		t.Error("the status bar offers a way out of a selection that is not on the frame")
+	}
+
+	_, cmd := key(away, "esc")
+	if cmd == nil {
+		t.Fatal("esc was taken by a selection nobody can see")
+	}
+	if _, ok := cmd().(prview.BackMsg); !ok {
+		t.Errorf("esc sent %T, want a BackMsg", cmd())
+	}
+}
+
 func TestTheStatusBarOffersTheSelectionAndThenTheWayOut(t *testing.T) {
 	m := onCode()
 	if !offers(m, "select lines") {
