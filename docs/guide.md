@@ -45,7 +45,11 @@ cards. `}` and `{` walk them.
 
 **Files** is the diff. `}` and `{` walk the
 hunks and the comments written against them, and `m` marks a file viewed. `|`
-puts the two sides in two columns, where `h` and `l` step between them.
+puts the two sides in two columns, where `h` and `l` step between them. `v` on a
+row of code drops an anchor there, and moving the cursor runs a range from it, so
+the span you are reading about is marked while you read it. `v` again drops it,
+and so does `esc`, leaving the hunk, or changing the column. A comment is still
+scoped to the cursor's own line.
 
 **Commits** lists them, walked whole rather than by hunk.
 
@@ -69,7 +73,7 @@ GitHub's eight reactions over the block and toggles the one you pick.
 `ctrl+⏎` posts. `ctrl+e` opens `$EDITOR` for anything longer than a line, and
 what you write there comes back into the box.
 
-`v` on a review comment shows it in the diff, which is the jump from the
+`⏎` on a review comment shows it in the diff, which is the jump from the
 conversation to the code it was written against.
 
 Writes are optimistic. What you did appears immediately, and if the API refuses

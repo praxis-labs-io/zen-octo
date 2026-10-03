@@ -11,7 +11,7 @@ thread. Comment on the line the cursor is on. Search a job's log and jump to its
 first failure. Set the state, labels, reviewers, assignees and base branch from a
 rail beside it, then merge with the commit message GitHub itself would write.
 
-This is v0.2.0, an early release ahead of a launch. It does not submit a review,
+This is v0.3.0, an early release ahead of a launch. It does not submit a review,
 check a branch out, or list issues. Those still go through `gh` or the browser.
 
 The keymap, the install path and the docs are shared with the other zen tools,
