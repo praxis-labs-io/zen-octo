@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/fang"
@@ -26,16 +27,19 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "zen-octo",
-		Short:        "A terminal client for GitHub pull requests and issues",
+		Use:   "zen-octo [owner/repo#123 | pull request URL]",
+		Short: "A terminal client for GitHub pull requests and issues",
+		Long: "A terminal client for GitHub pull requests and issues.\n\n" +
+			"With no argument it opens on the list. Name a pull request to open straight onto it.",
 		Version:      version.Version,
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:         cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			mockup, err := cmd.Flags().GetBool("mockup")
 			if err != nil {
 				return err
 			}
-			return run(mockup)
+			return run(cmd.Context(), mockup, args)
 		},
 		SilenceErrors: false,
 	}
@@ -44,7 +48,25 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-func run(mockup bool) error {
+// client is what the UI calls, plus the lookup that resolves a pull request named on the command line.
+type client interface {
+	app.GitHub
+	FindPullRequest(ctx context.Context, ref gh.PRRef) (gh.PullRequest, error)
+}
+
+// Bounds the lookup the same as a request from inside the UI.
+const lookupTimeout = 30 * time.Second
+
+func run(ctx context.Context, mockup bool, args []string) error {
+	var ref *gh.PRRef
+	if len(args) == 1 {
+		parsed, err := gh.ParsePRRef(args[0])
+		if err != nil {
+			return err
+		}
+		ref = &parsed
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -55,10 +77,29 @@ func run(mockup bool) error {
 		return err
 	}
 
+	var start *gh.PullRequest
+	if ref != nil {
+		pr, err := findPullRequest(ctx, client, *ref)
+		if err != nil {
+			return err
+		}
+		start = &pr
+	}
+
 	surface := theme.Query(os.Stdin, os.Stdout)
 
-	_, err = tea.NewProgram(app.New(cfg, client, surface, releaseCheck(mockup))).Run()
+	m := app.New(cfg, client, surface, releaseCheck(mockup))
+	if start != nil {
+		m = m.StartOn(*start)
+	}
+	_, err = tea.NewProgram(m).Run()
 	return err
+}
+
+func findPullRequest(ctx context.Context, c client, ref gh.PRRef) (gh.PullRequest, error) {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	return c.FindPullRequest(ctx, ref)
 }
 
 func releaseCheck(mockup bool) app.ReleaseCheck {
@@ -74,7 +115,7 @@ func releaseCheck(mockup bool) app.ReleaseCheck {
 	}
 }
 
-func newClient(mockup bool) (app.GitHub, error) {
+func newClient(mockup bool) (client, error) {
 	if mockup {
 		return app.Mock{}, nil
 	}

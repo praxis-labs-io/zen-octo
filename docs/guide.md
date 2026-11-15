@@ -13,6 +13,9 @@ GitHub search query you wrote, so what is on screen is whatever you told it to
 watch: yours, the ones wanting your review, the ones you are involved in.
 `]` and `[` walk the sections, `⏎` opens a row, `s` refetches.
 
+Starting it as `zen-octo owner/repo#123`, or with a pull request's URL, skips
+the list and opens that pull request. `esc` still comes back to the list.
+
 A section that has never answered shows a block rather than rows, and a failed
 one shows its error. A reload keeps its rows: the spinner moves to the status
 bar and the keys keep working on what is already there.
