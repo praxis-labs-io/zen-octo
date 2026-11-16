@@ -1378,8 +1378,13 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 func TestStartOnOpensThePullRequestAndEscapeFindsTheList(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	start := app.New(testConfig(), client, testSurface, nil).StartOn(samplePRs()[1])
-	m := drive(t, start, tea.WindowSizeMsg{Width: 160, Height: 40})
 
+	first := stripANSI(render(t, settle(start, tea.WindowSizeMsg{Width: 160, Height: 40})))
+	if !strings.Contains(first, "#408 Bump deps") {
+		t.Errorf("frame before Init's commands land = %q, want #408's view rather than the list", first)
+	}
+
+	m := drive(t, start, tea.WindowSizeMsg{Width: 160, Height: 40})
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "Conversation") || !strings.Contains(out, "#408 Bump deps") {
 		t.Errorf("first frame = %q, want #408's view", out)
