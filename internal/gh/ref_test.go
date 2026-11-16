@@ -14,14 +14,15 @@ func TestParsePRRef(t *testing.T) {
 		in   string
 		want PRRef
 	}{
-		{in: "acme/rocket#412", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "my-org/my.repo_2#1", want: PRRef{Repo: "my-org/my.repo_2", Number: 1}},
-		{in: "https://github.com/acme/rocket/pull/412", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "https://github.com/acme/rocket/pull/412/", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "https://github.com/acme/rocket/pull/412/files", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "https://github.com/acme/rocket/pull/412#issuecomment-9", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "https://github.com/acme/rocket/pull/412?w=1", want: PRRef{Repo: "acme/rocket", Number: 412}},
-		{in: "http://www.github.com/acme/rocket/pull/412", want: PRRef{Repo: "acme/rocket", Number: 412}},
+		{in: "acme/rocket#412", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "my-org/my.repo_2#1", want: PRRef{Owner: "my-org", Name: "my.repo_2", Number: 1}},
+		{in: "acme/rocket#2147483647", want: PRRef{Owner: "acme", Name: "rocket", Number: 2147483647}},
+		{in: "https://github.com/acme/rocket/pull/412", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "https://github.com/acme/rocket/pull/412/", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "https://github.com/acme/rocket/pull/412/files", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "https://github.com/acme/rocket/pull/412#issuecomment-9", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "https://github.com/acme/rocket/pull/412?w=1", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
+		{in: "http://www.github.com/acme/rocket/pull/412", want: PRRef{Owner: "acme", Name: "rocket", Number: 412}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -45,6 +46,10 @@ func TestParsePRRefRefuses(t *testing.T) {
 		"acme/rocket#0",
 		"acme/rocket#-3",
 		"acme/rocket#12a",
+		"acme/rocket#+5",
+		"acme/rocket# 5",
+		"acme/rocket#2147483648",
+		"acme/rocket#99999999999999999999",
 		"acme#412",
 		"acme/rocket/x#412",
 		"/rocket#412",
@@ -86,7 +91,7 @@ const foundPRBody = `{
 func TestFindPullRequestMapsTheRow(t *testing.T) {
 	doer := &fakeDoer{body: foundPRBody}
 
-	got, err := newWithDoer(doer, nil).FindPullRequest(context.Background(), PRRef{Repo: "acme/rocket", Number: 412})
+	got, err := newWithDoer(doer, nil).FindPullRequest(context.Background(), PRRef{Owner: "acme", Name: "rocket", Number: 412})
 	if err != nil {
 		t.Fatalf("FindPullRequest() error = %v, want nil", err)
 	}
@@ -123,7 +128,7 @@ func TestFindPullRequestReportsAMissingOne(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newWithDoer(tt.doer, nil).FindPullRequest(context.Background(), PRRef{Repo: "acme/rocket", Number: 9})
+			_, err := newWithDoer(tt.doer, nil).FindPullRequest(context.Background(), PRRef{Owner: "acme", Name: "rocket", Number: 9})
 			if err == nil || err.Error() != "no pull request at acme/rocket#9, or no access to it" {
 				t.Errorf("error = %v, want the not-found message", err)
 			}
@@ -135,7 +140,7 @@ func TestFindPullRequestWrapsOtherFailures(t *testing.T) {
 	cause := errors.New("connection reset")
 	doer := &fakeDoer{err: cause}
 
-	_, err := newWithDoer(doer, nil).FindPullRequest(context.Background(), PRRef{Repo: "acme/rocket", Number: 9})
+	_, err := newWithDoer(doer, nil).FindPullRequest(context.Background(), PRRef{Owner: "acme", Name: "rocket", Number: 9})
 	if !errors.Is(err, cause) {
 		t.Fatalf("error = %v, want it to wrap the cause", err)
 	}

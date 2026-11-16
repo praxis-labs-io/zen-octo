@@ -27,7 +27,7 @@ func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
 
 func (Mock) FindPullRequest(_ context.Context, ref gh.PRRef) (gh.PullRequest, error) {
 	for _, pr := range mockPullRequests() {
-		if pr.Repository == ref.Repo && pr.Number == ref.Number {
+		if pr.Repository == ref.Repo() && pr.Number == ref.Number {
 			return pr, nil
 		}
 	}

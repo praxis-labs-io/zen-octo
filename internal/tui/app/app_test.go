@@ -1395,11 +1395,11 @@ func TestStartOnOpensThePullRequestAndEscapeFindsTheList(t *testing.T) {
 }
 
 func TestMockFindsAFixturePullRequest(t *testing.T) {
-	pr, err := app.Mock{}.FindPullRequest(context.Background(), gh.PRRef{Repo: "praxis-labs/zen-octo", Number: 412})
+	pr, err := app.Mock{}.FindPullRequest(context.Background(), gh.PRRef{Owner: "praxis-labs", Name: "zen-octo", Number: 412})
 	if err != nil || pr.Title != "Fix the auth retry backoff loop" {
 		t.Errorf("FindPullRequest = %q, %v, want the first fixture", pr.Title, err)
 	}
-	if _, err := (app.Mock{}).FindPullRequest(context.Background(), gh.PRRef{Repo: "acme/rocket", Number: 1}); err == nil {
+	if _, err := (app.Mock{}).FindPullRequest(context.Background(), gh.PRRef{Owner: "acme", Name: "rocket", Number: 1}); err == nil {
 		t.Error("FindPullRequest error = nil for a pull request the mockup lacks, want one")
 	}
 }

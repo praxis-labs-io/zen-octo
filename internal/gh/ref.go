@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,12 +14,15 @@ import (
 
 // PRRef names a pull request by its repository and number.
 type PRRef struct {
-	// Repo is "owner/name".
-	Repo   string
+	Owner  string
+	Name   string
 	Number int
 }
 
-func (r PRRef) String() string { return r.Repo + "#" + strconv.Itoa(r.Number) }
+// Repo is "owner/name", the form PullRequest.Repository carries.
+func (r PRRef) Repo() string { return r.Owner + "/" + r.Name }
+
+func (r PRRef) String() string { return r.Repo() + "#" + strconv.Itoa(r.Number) }
 
 // ParsePRRef reads owner/repo#123 or a github.com pull request URL, trailing tab or fragment included.
 func ParsePRRef(s string) (PRRef, error) {
@@ -63,11 +67,11 @@ func newRef(owner, name, num string) (PRRef, bool) {
 	if !validRepoPart(owner) || !validRepoPart(name) {
 		return PRRef{}, false
 	}
-	n, err := strconv.Atoi(num)
-	if err != nil || n <= 0 {
+	n, err := strconv.ParseUint(num, 10, 32)
+	if err != nil || n == 0 || n > math.MaxInt32 {
 		return PRRef{}, false
 	}
-	return PRRef{Repo: owner + "/" + name, Number: n}, true
+	return PRRef{Owner: owner, Name: name, Number: int(n)}, true
 }
 
 func validRepoPart(s string) bool {
@@ -99,8 +103,7 @@ type findPullRequestResponse struct {
 
 // FindPullRequest looks a pull request up by repository and number, the shape a list row carries.
 func (c *Client) FindPullRequest(ctx context.Context, ref PRRef) (PullRequest, error) {
-	owner, name, _ := strings.Cut(ref.Repo, "/")
-	vars := map[string]any{"owner": owner, "name": name, "number": ref.Number}
+	vars := map[string]any{"owner": ref.Owner, "name": ref.Name, "number": ref.Number}
 
 	var resp findPullRequestResponse
 	err := c.gql.DoWithContext(ctx, findPullRequestQuery, vars, &resp)
