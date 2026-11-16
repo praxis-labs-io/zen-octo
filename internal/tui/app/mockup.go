@@ -25,6 +25,15 @@ func (Mock) Viewer(context.Context) (gh.ViewerResult, error) {
 	}, nil
 }
 
+func (Mock) FindPullRequest(_ context.Context, ref gh.PRRef) (gh.PullRequest, error) {
+	for _, pr := range mockPullRequests() {
+		if pr.Repository == ref.Repo() && pr.Number == ref.Number {
+			return pr, nil
+		}
+	}
+	return gh.PullRequest{}, fmt.Errorf("no pull request at %s in the mockup", ref)
+}
+
 func (Mock) AddComment(_ context.Context, _, body string) (gh.CommentResult, error) {
 	return gh.CommentResult{
 		Comment: gh.Comment{

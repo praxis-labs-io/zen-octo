@@ -1375,6 +1375,40 @@ func TestEnterOpensTheDetailAndEscapeComesBack(t *testing.T) {
 	}
 }
 
+func TestStartOnOpensThePullRequestAndEscapeFindsTheList(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	start := app.New(testConfig(), client, testSurface, nil).StartOn(samplePRs()[1])
+
+	first := stripANSI(render(t, settle(start, tea.WindowSizeMsg{Width: 160, Height: 40})))
+	if !strings.Contains(first, "#408 Bump deps") {
+		t.Errorf("frame before Init's commands land = %q, want #408's view rather than the list", first)
+	}
+
+	m := drive(t, start, tea.WindowSizeMsg{Width: 160, Height: 40})
+	out := stripANSI(render(t, m))
+	if !strings.Contains(out, "Conversation") || !strings.Contains(out, "#408 Bump deps") {
+		t.Errorf("first frame = %q, want #408's view", out)
+	}
+	if got := client.opened(); !slices.Equal(got, []string{"PR_408"}) {
+		t.Errorf("detail fetches = %v, want [PR_408]", got)
+	}
+
+	back := press(m, "esc")
+	if !strings.Contains(render(t, back), "Fix auth retry") {
+		t.Error("escape did not reach the list loaded behind the pull request")
+	}
+}
+
+func TestMockFindsAFixturePullRequest(t *testing.T) {
+	pr, err := app.Mock{}.FindPullRequest(context.Background(), gh.PRRef{Owner: "praxis-labs", Name: "zen-octo", Number: 412})
+	if err != nil || pr.Title != "Fix the auth retry backoff loop" {
+		t.Errorf("FindPullRequest = %q, %v, want the first fixture", pr.Title, err)
+	}
+	if _, err := (app.Mock{}).FindPullRequest(context.Background(), gh.PRRef{Owner: "acme", Name: "rocket", Number: 1}); err == nil {
+		t.Error("FindPullRequest error = nil for a pull request the mockup lacks, want one")
+	}
+}
+
 func TestTheHintLinePairsOpposedKeysUnderOneVerb(t *testing.T) {
 	tests := []struct {
 		name  string

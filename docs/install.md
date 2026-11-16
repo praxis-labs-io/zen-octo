@@ -78,6 +78,17 @@ zen-octo
 
 You land on the pull request list, in the first section your config declares.
 
+Name a pull request to open straight onto it instead:
+
+```sh
+zen-octo praxis-labs-io/zen-octo#77
+zen-octo https://github.com/praxis-labs-io/zen-octo/pull/77
+```
+
+The list loads behind it, and `esc` goes back to it. An argument that names no
+pull request, or one GitHub can't find, stops before the screen opens and says
+why.
+
 `zen-octo config-path` prints where config is read from, which is
 `~/.zen-octo/config.yml` unless `ZEN_OCTO_CONFIG_DIR` says otherwise.
 [Configuration](configuration.md) covers what goes in it.

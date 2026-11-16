@@ -220,6 +220,8 @@ type Model struct {
 
 	poller poller
 
+	opening tea.Cmd
+
 	width  int
 	height int
 }
@@ -307,8 +309,16 @@ func New(cfg *config.Config, client GitHub, surface theme.Surface, check Release
 	return m
 }
 
+// StartOn opens pr's view from the first frame, with the list loading behind it.
+func (m Model) StartOn(pr gh.PullRequest) Model {
+	opened, cmd := m.open(pr)
+	m = opened.(Model)
+	m.opening = cmd
+	return m
+}
+
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll(), checkRelease(m.releaseCheck)}
+	cmds := []tea.Cmd{m.list.Init(), m.fetchViewer(), armPoll(), checkRelease(m.releaseCheck), m.opening}
 	for i, section := range m.store.Sections() {
 		cmds = append(cmds, m.fetchSection(i, section.Filters))
 	}
