@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,7 +34,9 @@ func newRootCmd() *cobra.Command {
 			"With no argument it opens on the list. Name a pull request to open straight onto it.",
 		Version:      version.Version,
 		SilenceUsage: true,
-		Args:         cobra.MaximumNArgs(1),
+		Args:         pullRequestArg,
+		// Cobra fills in this default only inside its own lookup, which a positional argument bypasses.
+		SuggestionsMinimumDistance: 2,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mockup, err := cmd.Flags().GetBool("mockup")
 			if err != nil {
@@ -54,8 +57,23 @@ type client interface {
 	FindPullRequest(ctx context.Context, ref gh.PRRef) (gh.PullRequest, error)
 }
 
-// Bounds the lookup the same as a request from inside the UI.
 const lookupTimeout = 30 * time.Second
+
+// A positional argument switches off cobra's unknown-command check, so a mistyped subcommand is caught here.
+func pullRequestArg(cmd *cobra.Command, args []string) error {
+	if err := cobra.MaximumNArgs(1)(cmd, args); err != nil || len(args) == 0 {
+		return err
+	}
+	_, err := gh.ParsePRRef(args[0])
+	if err == nil {
+		return nil
+	}
+	if suggestions := cmd.SuggestionsFor(args[0]); len(suggestions) > 0 {
+		return fmt.Errorf("unknown command %q for %q\n\nDid you mean this?\n\t%s",
+			args[0], cmd.CommandPath(), strings.Join(suggestions, "\n\t"))
+	}
+	return err
+}
 
 func run(ctx context.Context, mockup bool, args []string) error {
 	var ref *gh.PRRef
