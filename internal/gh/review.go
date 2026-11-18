@@ -6,9 +6,10 @@ import (
 	"fmt"
 )
 
+// No event leaves the review pending; one submits it in the same call, so a refusal leaves nothing behind.
 const startReviewMutation = `
-mutation StartReview($prId: ID!, $body: String!) {
-  addPullRequestReview(input: {pullRequestId: $prId, body: $body}) {
+mutation StartReview($prId: ID!, $event: PullRequestReviewEvent, $body: String) {
+  addPullRequestReview(input: {pullRequestId: $prId, event: $event, body: $body}) {
     pullRequestReview {
       id
       state
@@ -123,11 +124,11 @@ type discardReviewResponse struct {
 	DeletePullRequestReview struct{ PullRequestReview reviewNode }
 }
 
-// StartReview opens a pending review holding body as its summary. Nobody but the viewer can see it
-// until it is submitted, and GitHub allows only one open at a time per pull request.
-func (c *Client) StartReview(ctx context.Context, prID, body string) (ReviewResult, error) {
+// StartReview opens a review holding body as its summary. With no event it stays pending, seen by
+// nobody but the viewer and one at a time per pull request; with one it is submitted in the same call.
+func (c *Client) StartReview(ctx context.Context, prID string, event ReviewEvent, body string) (ReviewResult, error) {
 	var resp startReviewResponse
-	vars := map[string]any{"prId": prID, "body": body}
+	vars := map[string]any{"prId": prID, "event": nullable(string(event)), "body": nullable(body)}
 
 	if err := c.gql.DoWithContext(ctx, startReviewMutation, vars, &resp); err != nil {
 		return ReviewResult{}, fmt.Errorf("starting a review: %w", classify(err))

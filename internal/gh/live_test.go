@@ -523,7 +523,7 @@ func TestLiveTheReviewDocumentsMatchTheSchema(t *testing.T) {
 		call func(context.Context) error
 	}{
 		{"start", func(ctx context.Context) error {
-			_, err := client.StartReview(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+			_, err := client.StartReview(ctx, "NOT_A_NODE", ReviewEventComment, "zen-octo schema check, never posted")
 			return err
 		}},
 		{"submit", func(ctx context.Context) error {

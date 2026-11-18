@@ -89,6 +89,10 @@ const detailBody = `{
       ]
     },
 
+    "pendingReview": {
+      "nodes": [{"id": "REV_3", "body": "not sent yet", "viewerDidAuthor": true}]
+    },
+
     "reviewThreads": {
       "totalCount": 5,
       "nodes": [
@@ -867,8 +871,8 @@ func TestTheQueryAsksWhatTheViewerMayDo(t *testing.T) {
 		}
 	}
 
-	if got := strings.Count(pullRequestQuery, "viewerDidAuthor"); got != 3 {
-		t.Errorf("viewerDidAuthor appears %d times, want 3: issue comments, reviews and thread comments", got)
+	if got := strings.Count(pullRequestQuery, "viewerDidAuthor"); got != 4 {
+		t.Errorf("viewerDidAuthor appears %d times, want 4: issue comments, reviews, the pending review and thread comments", got)
 	}
 }
 
@@ -1082,15 +1086,15 @@ func TestADraftIsOnlyTheViewersOwnUnsubmittedReview(t *testing.T) {
 	}{
 		{
 			name: "somebody else's",
-			body: `{"node": {"id": "PR_1", "reviews": {"totalCount": 1, "nodes": [
-			  {"id": "REV_9", "state": "PENDING", "body": "theirs", "viewerDidAuthor": false}
+			body: `{"node": {"id": "PR_1", "pendingReview": {"nodes": [
+			  {"id": "REV_9", "body": "theirs", "viewerDidAuthor": false}
 			]}}}`,
 		},
 		{
 			name: "the viewer's, already submitted",
 			body: `{"node": {"id": "PR_1", "reviews": {"totalCount": 1, "nodes": [
 			  {"id": "REV_9", "state": "APPROVED", "body": "mine", "viewerDidAuthor": true}
-			]}}}`,
+			]}, "pendingReview": {"nodes": []}}}`,
 		},
 		{
 			name: "none at all",
@@ -1108,6 +1112,32 @@ func TestADraftIsOnlyTheViewersOwnUnsubmittedReview(t *testing.T) {
 				t.Errorf("DraftReview = %+v, want none", got)
 			}
 		})
+	}
+}
+
+func TestAPendingReviewPastTheFirstHundredIsStillFound(t *testing.T) {
+	const body = `{"node": {"id": "PR_1", "reviews": {"totalCount": 140, "nodes": []},
+	  "pendingReview": {"nodes": [{"id": "REV_141", "body": "late", "viewerDidAuthor": true}]}}}`
+
+	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	want := Review{ID: "REV_141", State: ReviewStatePending, Body: "late"}
+	if got := res.Detail.DraftReview; got != want {
+		t.Errorf("DraftReview = %+v, want %+v", got, want)
+	}
+}
+
+func TestTheDetailAsksForThePendingReviewByItsState(t *testing.T) {
+	doer := &fakeDoer{body: detailBody}
+	if _, err := newWithDoer(doer, nil).PullRequest(context.Background(), "PR_412", "fix-auth"); err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+
+	if !strings.Contains(doer.gotQuery, "pendingReview: reviews(first: 1, states: [PENDING])") {
+		t.Error("the query does not ask for the pending review on its own")
 	}
 }
 
