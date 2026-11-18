@@ -66,8 +66,8 @@ block is belongs to the tab.
 
 ## Talking
 
-`c` writes a comment. On Files it is scoped to what the cursor is on, so a
-comment lands on the line you are reading rather than the file as a whole.
+`c` writes a comment on the conversation. A comment on a line of the diff still
+goes through the browser.
 
 `r` replies to the focused card, `R` quotes it first. `e` edits your own, `D`
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens
