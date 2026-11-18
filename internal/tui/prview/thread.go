@@ -17,7 +17,13 @@ type PostThreadMsg struct {
 	Thread gh.ReviewThreadInput
 }
 
-var threadWords = words{placeholder: "Leave a comment", button: "Add", send: "add to review", back: "done"}
+// Named for what posting does: open the viewer's pending review, or add to the one held.
+func (m Model) threadWords() words {
+	if m.detail.Detail.DraftReview.ID != "" {
+		return words{placeholder: "Leave a comment", button: "Add to review", send: "add to review", back: "done"}
+	}
+	return words{placeholder: "Leave a comment", button: "Start a review", send: "start a review", back: "done"}
+}
 
 // spot is where a new thread hangs: a whole file, or a line or a run of them ending at to.
 type spot struct {
@@ -123,7 +129,7 @@ func (m Model) openThread() (Model, tea.Cmd) {
 	m.clearMention()
 
 	m.opening = at
-	cmd := m.inline.open(at.key(), m.pageRing.on, "", threadWords)
+	cmd := m.inline.open(at.key(), m.pageRing.on, "", m.threadWords())
 	m.pageRing.on = at.key()
 	m.focus = paneMain
 	m.page.ok = false
@@ -221,7 +227,7 @@ func (m *Model) RestoreThread(in gh.ReviewThreadInput, body string) tea.Cmd {
 	if m.writing() == nil {
 		m.opening = at
 	}
-	return m.restore(at.key(), body, threadWords,
+	return m.restore(at.key(), body, m.threadWords(),
 		func() bool { return m.canOpenThread() && m.shownPath == at.path },
 		func() focusKey { return m.pageRing.on })
 }

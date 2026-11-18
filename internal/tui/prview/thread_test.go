@@ -1,6 +1,8 @@
 package prview_test
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -231,7 +233,7 @@ func TestTheDiffBoxFitsTheFloor(t *testing.T) {
 			}
 
 			out := stripANSI(frame)
-			if !strings.Contains(out, "Add") {
+			if !strings.Contains(out, "Start a review") {
 				t.Errorf("the box's button is off the screen:\n%s", out)
 			}
 			if !strings.Contains(out, tt.last) {
@@ -254,7 +256,7 @@ func TestOpeningTheBoxKeepsTheLineItAnswersOnScreen(t *testing.T) {
 	if !strings.Contains(out, "case 39:") {
 		t.Errorf("the line the box answers left the screen:\n%s", out)
 	}
-	if !strings.Contains(out, "Add") {
+	if !strings.Contains(out, "Start a review") {
 		t.Errorf("the box's button is off the screen:\n%s", out)
 	}
 }
@@ -284,5 +286,63 @@ func TestADraftCommentReadsPending(t *testing.T) {
 				t.Errorf("a published reply reads pending:\n%s", out)
 			}
 		})
+	}
+}
+
+func TestTheButtonSaysWhatPostingDoes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		review string
+		button string
+		hint   string
+	}{
+		{"with no pending review", "", "Start a review", "start a review"},
+		{"with one held", "PRR_9", "Add to review", "add to review"},
+	} {
+		for _, width := range []int{200, 56} {
+			t.Run(tt.name+" at "+strconv.Itoa(width), func(t *testing.T) {
+				d := sampleDetail()
+				if tt.review != "" {
+					d.DraftReview = gh.Review{ID: tt.review, State: gh.ReviewStatePending}
+				}
+				m := detailed(held(d), width, 30)
+				m.SetFiles(loadedFiles(sampleFiles(), 0))
+				m = press(m, "]", "]", "]", "}", "j", "c")
+
+				lines := strings.Split(stripANSI(m.View()), "\n")
+				row := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, tt.button) })
+				if row < 0 {
+					t.Fatalf("no row carries %q:\n%s", tt.button, strings.Join(lines, "\n"))
+				}
+				if width == 200 && !strings.Contains(lines[row], tt.hint+" ·") {
+					t.Errorf("the hint beside the button does not say %q: %q", tt.hint, lines[row])
+				}
+				if width == 56 && strings.Contains(lines[row], "editor") {
+					t.Errorf("the hint held its place over the button at the floor: %q", lines[row])
+				}
+			})
+		}
+	}
+}
+
+// A thread carries no start side, so this holds for a range across both sides as much as one on one side.
+func TestARangeThreadIsHeadedByItsLastLine(t *testing.T) {
+	d := sampleDetail()
+	d.Threads = append(d.Threads, gh.ReviewThread{
+		ID: "RT_9", Path: "internal/gh/client.go", Subject: gh.SubjectLine,
+		StartLine: 41, Line: 42, Side: gh.SideRight,
+		Comments: []gh.Comment{{ID: "RC_9", Author: gh.Actor{Login: "nkr"}, Body: "Both of these."}},
+	})
+	m := detailed(held(d), 200, 80)
+	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	out := stripANSI(press(m, "]", "]", "]").View())
+
+	said := strings.Index(out, "Both of these.")
+	if said < 0 {
+		t.Fatalf("the range thread is missing:\n%s", out)
+	}
+	head := strings.LastIndex(out[:said], "internal/gh/client.go:")
+	if head < 0 || !strings.HasPrefix(out[head:], "internal/gh/client.go:42 ") {
+		t.Errorf("the range thread is not headed by its last line alone:\n%s", out)
 	}
 }
