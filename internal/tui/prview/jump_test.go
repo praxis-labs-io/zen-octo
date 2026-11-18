@@ -112,15 +112,19 @@ func TestEnterOnAFileTheDiffDoesNotCarrySaysSoAndStaysPut(t *testing.T) {
 	}
 }
 
-func TestEnterOnAThreadWithNoLineDoesNothing(t *testing.T) {
+func TestEnterOnAFileThreadOpensOnItsFile(t *testing.T) {
 	d := sampleDetail()
-	d.Threads[3].Line = 0
+	d.Threads[0].Subject, d.Threads[0].Hunk = gh.SubjectFile, nil
 
-	m := walked(detailed(held(d), 200, jumpHeight), tabOther)
+	m := walked(detailed(held(d), 200, jumpHeight), tabThread)
 	m.SetFiles(loadedFiles(sampleFiles(), 0))
+	m = press(m, "enter")
 
-	if got := asked(t, m, "enter"); got != nil {
-		t.Errorf("v asked for %+v on a thread with no line", got)
+	if !onTab(t, m.View(), "Files") {
+		t.Fatalf("v did not reach the Files tab:\n%s", stripANSI(m.View()))
+	}
+	if out := stripANSI(m.View()); !strings.Contains(out, "This backs off forever.") {
+		t.Errorf("the file thread is not on the screen the jump landed on:\n%s", out)
 	}
 }
 

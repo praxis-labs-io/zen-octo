@@ -40,7 +40,7 @@ func (m Model) showCheckFromRail() (Model, tea.Cmd) {
 
 func (m Model) showInDiff() (Model, tea.Cmd) {
 	t, ok := m.threadOnRing()
-	if !ok || t.Line == 0 || m.tab == tabFiles {
+	if !ok || m.tab == tabFiles {
 		return m, nil
 	}
 
@@ -63,7 +63,7 @@ func (m Model) showInDiff() (Model, tea.Cmd) {
 
 // A diff still in flight counts, or the key hides until the tab has been opened once.
 func (m Model) jumpable(t gh.ReviewThread) bool {
-	if t.Line == 0 || m.tab == tabFiles {
+	if m.tab == tabFiles {
 		return false
 	}
 	return !m.files.Loaded || m.hasPath(t.Path)

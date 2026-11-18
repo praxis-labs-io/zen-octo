@@ -627,7 +627,7 @@ func (m *Model) pushedRow(c gh.Commit) string {
 
 func (m *Model) thread(t gh.ReviewThread, width int, hunk bool) rendered {
 	anchor := t.Path
-	if t.Line > 0 {
+	if !onFile(t) {
 		anchor += ":" + strconv.Itoa(t.Line)
 	}
 

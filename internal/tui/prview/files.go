@@ -269,6 +269,12 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block
 		b.stops = append(b.stops, s)
 	}
 
+	if threads {
+		for _, at := range m.fileThreads(f.Path) {
+			stop(blockStop{hunk: stopNone, thread: at})
+		}
+	}
+
 	seen := 0
 	for i, h := range f.Hunks {
 		hunkOpen := m.hunkOpen(hunkKey(f.Path, h))
@@ -446,7 +452,7 @@ func (m *Model) lineTokens(f gh.ChangedFile) [][]syntax.Token {
 func (m Model) threadsIn(path string) map[anchor][]int {
 	out := make(map[anchor][]int)
 	for i, t := range m.detail.Detail.Threads {
-		if t.Path != path || t.Line == 0 {
+		if t.Path != path || onFile(t) {
 			continue
 		}
 		key := anchor{side: t.Side, line: t.Line}
@@ -581,13 +587,26 @@ func anchorsOf(l gh.DiffLine) []anchor {
 func (m Model) strayThreads(path string, placed map[int]bool) []int {
 	var out []int
 	for i, t := range m.detail.Detail.Threads {
-		if t.Path != path || t.Line == 0 || placed[i] {
+		if t.Path != path || onFile(t) || placed[i] {
 			continue
 		}
 		out = append(out, i)
 	}
 	return out
 }
+
+func (m Model) fileThreads(path string) []int {
+	var out []int
+	for i, t := range m.detail.Detail.Threads {
+		if t.Path == path && onFile(t) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// A file thread reports line 1, so the subject is what tells it from one on the first line.
+func onFile(t gh.ReviewThread) bool { return t.Subject == gh.SubjectFile || t.Line == 0 }
 
 func widest(f gh.ChangedFile) int {
 	n := 0
