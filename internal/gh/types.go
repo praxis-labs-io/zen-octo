@@ -69,6 +69,17 @@ const (
 	ReviewEventRequestChanges ReviewEvent = "REQUEST_CHANGES"
 )
 
+// Submitted is the state a review takes once submitted with e.
+func (e ReviewEvent) Submitted() ReviewState {
+	switch e {
+	case ReviewEventApprove:
+		return ReviewStateApproved
+	case ReviewEventRequestChanges:
+		return ReviewStateChangesRequested
+	}
+	return ReviewStateCommented
+}
+
 type TimelineKind string
 
 const (
