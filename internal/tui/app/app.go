@@ -69,6 +69,11 @@ type GitHub interface {
 
 	RequestReviews(ctx context.Context, repo string, number int, logins []string) error
 	RemoveReviewRequests(ctx context.Context, repo string, number int, logins []string) error
+
+	// StartReview with an event opens a review and submits it in the same call.
+	StartReview(ctx context.Context, prID string, event gh.ReviewEvent, body string) (gh.ReviewResult, error)
+	SubmitReview(ctx context.Context, reviewID string, event gh.ReviewEvent, body string) (gh.ReviewResult, error)
+	DiscardReview(ctx context.Context, reviewID string) error
 }
 
 type viewerFetchedMsg struct {
@@ -1227,6 +1232,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case baseFailedMsg:
 		return m.baseFailed(msg)
+
+	case prview.SubmitReviewMsg:
+		return m.submitReview(msg)
+	case reviewSubmittedMsg:
+		return m.reviewLanded(msg)
+	case reviewFailedMsg:
+		return m.reviewFailed(msg)
+	case prview.DiscardReviewMsg:
+		return m.discardReview(msg)
+	case reviewDiscardedMsg:
+		return m.discardLanded(msg)
+	case discardFailedMsg:
+		return m.discardFailed(msg)
 
 	case prview.MergeMsg:
 		return m.merge(msg)

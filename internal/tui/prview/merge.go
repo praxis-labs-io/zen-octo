@@ -24,10 +24,6 @@ type MergeMsg struct {
 }
 
 const (
-	mergeMinWidth = 52
-	// Matches the picker's, so the two modals open at the same width.
-	mergeMaxWidth = 72
-
 	mergeBodyRows = 6
 
 	// Two, because a squash headline is the title with "(#N)" appended.
@@ -35,10 +31,7 @@ const (
 
 	mergeBodyFloor = 1
 
-	mergeButton    = "Merge"
-	mergeButtonPad = 2
-	mergeMark      = "✓ "
-	mergeGap       = "  "
+	mergeButton = "Merge"
 )
 
 const (
@@ -86,6 +79,9 @@ type merging struct {
 	branch string
 
 	bypass bool
+
+	drafting bool
+	drafts   int
 
 	id, oid, refID, base string
 	number               int
@@ -178,6 +174,8 @@ func (m *Model) startMerge() tea.Cmd {
 		squashText: d.MergeMessage(gh.MergeMethodSquash),
 		branch:     mergeBranch(d, m.repo.Meta.Methods),
 		bypass:     mergeBypass(d),
+		drafting:   d.DraftReview.ID != "",
+		drafts:     draftComments(d),
 		id:         m.pr.ID,
 		oid:        d.HeadRefOid,
 		refID:      d.HeadRefID,
@@ -385,15 +383,13 @@ func (f *merging) resize(frameWidth, frameHeight int) {
 }
 
 func (f merging) render(th theme.Theme, frameWidth, frameHeight int) string {
-	rows, _ := f.formRows(th, f.width(frameWidth))
+	rows, _ := f.formRows(th, f.width(frameWidth), frameHeight)
 	return comp.Modal(th, f.title(), strings.Join(rows, "\n"))
 }
 
 func (f merging) title() string { return "Merge #" + strconv.Itoa(f.number) }
 
-const mergeFieldLead = 2
-
-func (f merging) formRows(th theme.Theme, width int) (rows []string, fieldTop int) {
+func (f merging) formRows(th theme.Theme, width, frameHeight int) (rows []string, fieldTop int) {
 	fieldTop = -1
 	rows = append([]string{""}, f.methodRows(th, width)...)
 
@@ -413,13 +409,16 @@ func (f merging) formRows(th theme.Theme, width int) (rows []string, fieldTop in
 	if f.branch != "" {
 		rows = append(rows, "", f.deleteRow(th, width))
 	}
-	if f.bypass {
-		plain := lipgloss.NewStyle()
-		warning := plain.Foreground(th.Warning).Render("Bypasses branch protection on " + f.base)
-		rows = append(rows, "", mergePad(clipTo(warning, width, plain.Foreground(th.Subtle)), width, plain))
+	if warnings := f.warnings(); len(warnings) > 0 {
+		if f.warningGap(frameHeight) {
+			rows = append(rows, "")
+		}
+		for _, w := range warnings {
+			rows = append(rows, formWarning(th, w, width))
+		}
 	}
 
-	rows = append(rows, "", f.footer(th, width))
+	rows = append(rows, "", formFooter(th, mergeButton, f.footerText(), width, f.ready(), f.on() == mergeButtonRow))
 	return rows, fieldTop
 }
 
@@ -439,29 +438,23 @@ func (f merging) cursor(th theme.Theme, frameWidth, frameHeight int) *tea.Cursor
 		return nil
 	}
 
-	rows, fieldTop := f.formRows(th, f.width(frameWidth))
+	rows, fieldTop := f.formRows(th, f.width(frameWidth), frameHeight)
 	if fieldTop < 0 {
 		return nil
 	}
 	x, y := comp.OverOrigin(comp.Modal(th, f.title(), strings.Join(rows, "\n")), frameWidth, frameHeight)
 
 	return comp.Cursor(th,
-		x+comp.ModalLead+mergeFieldLead+local.X,
+		x+comp.ModalLead+formFieldLead+local.X,
 		y+1+fieldTop+1+local.Y)
 }
 
 func (f merging) width(frameWidth int) int {
-	longest := mergeHintWidth + lipgloss.Width(mergeButton) + 2*mergeButtonPad
+	longest := mergeHintWidth + lipgloss.Width(mergeButton) + 2*formButtonPad
 	for _, method := range f.methods {
-		longest = max(longest, lipgloss.Width(mergeMark+mergeName(method)))
+		longest = max(longest, lipgloss.Width(formMark+mergeName(method)))
 	}
-
-	want := min(max(longest, mergeMinWidth), mergeMaxWidth)
-
-	if room := frameWidth - 4; room > 0 {
-		want = min(want, room)
-	}
-	return max(want, 1)
+	return formWidth(longest, frameWidth)
 }
 
 func (f merging) bodyHeight(frameHeight int) int {
@@ -470,64 +463,68 @@ func (f merging) bodyHeight(frameHeight int) int {
 	}
 
 	return min(mergeBodyRows, max(mergeBodyFloor,
-		frameHeight-f.chromeRows(f.headlineHeight(frameHeight))))
+		frameHeight-f.chromeRows(f.headlineHeight(frameHeight), f.warningGap(frameHeight))))
 }
 
 // Counted rather than measured: the height is decided before the box it sizes is rendered.
-func (f merging) chromeRows(headlineRows int) int {
+func (f merging) chromeRows(headlineRows int, gap bool) int {
 	chrome := 2 + 1 + 1 + len(f.methods) + 1 + (headlineRows + 2) + 1 + 2 + 2
 	if f.branch != "" {
 		chrome += 2
 	}
-	if f.bypass {
-		chrome += 2
+	if n := len(f.warnings()); n > 0 {
+		chrome += n
+		if gap {
+			chrome++
+		}
 	}
 	return chrome
+}
+
+func (f merging) warnings() []string {
+	var out []string
+	if f.bypass {
+		out = append(out, "Bypasses branch protection on "+f.base)
+	}
+	if f.drafting {
+		out = append(out, unpublishedWarning(f.drafts))
+	}
+	return out
+}
+
+// Two warnings at the floor leave no room for the blank line above them, which goes before anything is clipped.
+func (f merging) warningGap(frameHeight int) bool {
+	return frameHeight <= 0 || frameHeight-f.chromeRows(1, true) >= mergeBodyFloor
+}
+
+func unpublishedWarning(drafts int) string {
+	if drafts == 0 {
+		return "Your pending review won't be published"
+	}
+	return "Your " + comp.Plural(drafts, "pending comment") + " won't be published"
 }
 
 func (f merging) headlineHeight(frameHeight int) int {
 	if frameHeight <= 0 {
 		return mergeHeadlineRows
 	}
-	if frameHeight-f.chromeRows(1)-mergeBodyFloor >= 1 {
+	if frameHeight-f.chromeRows(1, f.warningGap(frameHeight))-mergeBodyFloor >= 1 {
 		return mergeHeadlineRows
 	}
 	return 1
 }
 
 func (f merging) methodRows(th theme.Theme, width int) []string {
-	plain := lipgloss.NewStyle()
-
-	heading := plain.Foreground(th.Text).Bold(true).Render("Method")
-
-	out := make([]string, 0, len(f.methods)+1)
-	out = append(out, mergePad(heading, width, plain))
-
+	names := make([]string, len(f.methods))
 	for i, method := range f.methods {
-		chosen := i == f.at
-
-		base := plain
-		if chosen && f.on() == mergeMethodRow {
-			base = base.Background(th.SelectedBackground)
-		}
-
-		mark, c := base.Foreground(th.Subtle).Render(mergeGap), th.Subtle
-		if chosen {
-			mark, c = base.Foreground(th.Success).Render(mergeMark), th.Text
-		}
-
-		out = append(out, mergePad(mark+base.Foreground(c).Render(mergeName(method)), width, base))
+		names[i] = mergeName(method)
 	}
-	return out
+	return choiceRows(th, "Method", names, f.at, f.on() == mergeMethodRow, width)
 }
 
 func (f merging) field(th theme.Theme, title, content string, lines, width int, row mergeRowKind) []string {
-	pane := comp.NewPane(th).Title(title).Focus(f.on() == row).Size(width, lines+2)
-	padded := lipgloss.NewStyle().Padding(0, 1).Render(content)
-	return strings.Split(pane.Render(padded), "\n")
+	return formField(th, title, content, lines, width, f.on() == row)
 }
-
-func fieldText(width int) int { return max(1, width-4) }
 
 func (f merging) deleteText(room int) string {
 	text := "Delete " + f.branch + " after merging"
@@ -546,36 +543,13 @@ func (f merging) deleteRow(th theme.Theme, width int) string {
 		base = base.Background(th.SelectedBackground)
 	}
 
-	mark := base.Foreground(th.Subtle).Render(mergeGap)
+	mark := base.Foreground(th.Subtle).Render(formGap)
 	if f.del {
-		mark = base.Foreground(th.Success).Render(mergeMark)
+		mark = base.Foreground(th.Success).Render(formMark)
 	}
 
-	text := f.deleteText(width - lipgloss.Width(mergeMark))
-	return mergePad(mark+base.Foreground(th.Text).Render(text), width, base)
-}
-
-func (f merging) footer(th theme.Theme, width int) string {
-	style := lipgloss.NewStyle().
-		Padding(0, mergeButtonPad).
-		Foreground(th.Text).
-		Background(th.SelectedBackground)
-
-	switch {
-	case !f.ready():
-		style = style.Foreground(th.Subtle)
-	case f.on() == mergeButtonRow:
-		style = style.Foreground(th.Inverted).Background(th.Accent)
-	}
-	button := style.Render(mergeButton)
-
-	text := f.footerText()
-	hint := lipgloss.NewStyle().Foreground(th.Subtle).Render(text)
-	gap := width - lipgloss.Width(text) - lipgloss.Width(button)
-	if gap < 1 {
-		hint, gap = "", max(0, width-lipgloss.Width(button))
-	}
-	return hint + strings.Repeat(" ", gap) + button
+	text := f.deleteText(width - lipgloss.Width(formMark))
+	return formPad(mark+base.Foreground(th.Text).Render(text), width, base)
 }
 
 func (f merging) footerText() string {
@@ -590,11 +564,4 @@ func (f merging) footerText() string {
 		return mergeHintDelete
 	}
 	return mergeHintButton
-}
-
-func mergePad(content string, width int, style lipgloss.Style) string {
-	if gap := width - lipgloss.Width(content); gap > 0 {
-		return content + style.Render(strings.Repeat(" ", gap))
-	}
-	return content
 }

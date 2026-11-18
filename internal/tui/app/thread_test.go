@@ -11,7 +11,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
 )
 
-func (f *fakeSearcher) servePendingReview(id, reviewID string) {
+func (f *fakeSearcher) serveEmptyReview(id, reviewID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	held := f.details[id]
@@ -68,7 +68,7 @@ func TestAThreadThatLandsReadsPendingAndSaysWhere(t *testing.T) {
 			client := &fakeSearcher{prs: samplePRs()}
 			client.serveDetail("PR_412", "Caps the backoff at 30s.")
 			if tt.review != "" {
-				client.servePendingReview("PR_412", tt.review)
+				client.serveEmptyReview("PR_412", tt.review)
 			}
 
 			m := press(drafting(t, client, "name this"), keys.Detail.Post.Keys()[0])

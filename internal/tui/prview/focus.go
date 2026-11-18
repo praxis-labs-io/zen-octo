@@ -32,6 +32,7 @@ const (
 	focusReply
 
 	focusNewThread
+	focusPendingReview
 )
 
 func (k focusKind) prose() bool {

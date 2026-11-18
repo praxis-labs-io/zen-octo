@@ -26,6 +26,7 @@ const (
 	pickMerge
 	pickDelete
 	pickReact
+	pickDiscard
 )
 
 // pickBase is absent: its choices are a search, and SetBranches resumes it.
@@ -57,10 +58,10 @@ type SetLabelsMsg struct {
 	Labels []gh.Label
 }
 
-// Capturing reports whether a box, picker, merge form or job log search owns
+// Capturing reports whether a box, picker, merge or review form or job log search owns
 // the keyboard, in which case the root must pass every key through.
 func (m Model) Capturing() bool {
-	return m.Composing() || m.picking.open() || m.merging.open || m.check.searching
+	return m.Composing() || m.picking.open() || m.merging.open || m.reviewing.open || m.check.searching
 }
 
 // SetRepo holds the repository's metadata, refills an open mention list, and
@@ -279,6 +280,8 @@ func (m Model) applyPicker() (Model, tea.Cmd) {
 		return m.applyDelete(p)
 	case pickReact:
 		return m.applyReact(p)
+	case pickDiscard:
+		return m.applyDiscard(p)
 	}
 	return m, nil
 }

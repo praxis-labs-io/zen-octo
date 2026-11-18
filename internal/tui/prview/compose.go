@@ -317,6 +317,11 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return EditorFailedMsg{Err: err} }
 	}
 
+	if m.reviewing.open {
+		m.reviewing.summary.SetValue(strings.TrimRight(msg.body, "\n"))
+		return m, nil
+	}
+
 	box := m.writing()
 	if box == nil {
 		return m, nil
@@ -328,8 +333,10 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (c composer) editorCmd() tea.Cmd {
-	path, err := draftFile(c.area.Value())
+func (c composer) editorCmd() tea.Cmd { return editorCmd(c.area.Value()) }
+
+func editorCmd(body string) tea.Cmd {
+	path, err := draftFile(body)
 	if err != nil {
 		return func() tea.Msg { return editorDoneMsg{err: err} }
 	}

@@ -63,6 +63,8 @@ type fakeSearcher struct {
 	merged          []gh.MergeOptions
 	mergeState      gh.PRState
 	deletedRefs     []string
+	reviewCalls     []reviewCall
+	discards        []string
 	states          map[string]*gh.PRStateResult
 	metaAsked       []string
 	repoMetas       map[string]gh.RepoMeta
@@ -988,6 +990,16 @@ func (f *querySearcher) RequestReviews(_ context.Context, _ string, _ int, _ []s
 func (f *querySearcher) RemoveReviewRequests(_ context.Context, _ string, _ int, _ []string) error {
 	return nil
 }
+
+func (f *querySearcher) StartReview(context.Context, string, gh.ReviewEvent, string) (gh.ReviewResult, error) {
+	return gh.ReviewResult{}, nil
+}
+
+func (f *querySearcher) SubmitReview(context.Context, string, gh.ReviewEvent, string) (gh.ReviewResult, error) {
+	return gh.ReviewResult{}, nil
+}
+
+func (f *querySearcher) DiscardReview(context.Context, string) error { return nil }
 
 func testConfig() *config.Config {
 	return &config.Config{
