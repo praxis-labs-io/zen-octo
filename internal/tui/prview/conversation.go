@@ -28,7 +28,7 @@ func (m *Model) conversationBody() string {
 		return note
 	}
 
-	if m.conv.ok && m.writing() != nil && m.conv.box == m.inline.at {
+	if m.page.ok && m.writing() != nil && m.page.box == m.inline.at {
 		return m.withBox(m.bodyWidth())
 	}
 	return m.entries()
@@ -137,12 +137,13 @@ func (m *Model) entries() string {
 	}
 	pushStops(m.composeCard(width))
 
-	m.conv = convCache{
+	m.page = pageCache{
 		head:      strings.Join(blocks[:split], "\n\n"),
 		tail:      strings.Join(blocks[split+1:], "\n\n"),
 		items:     slices.Clone(m.pageRing.items[:headItems]),
 		tailItems: shifted(m.pageRing.items[tailFrom:], splitAt+strings.Count(blocks[split], "\n")+2),
 		at:        splitAt,
+		gap:       "\n\n",
 		box:       m.inline.at,
 		ok:        true,
 	}
@@ -150,13 +151,16 @@ func (m *Model) entries() string {
 }
 
 // Built once per open box, so a keystroke re-renders one block: 7ms rather than 27ms on a long thread.
-type convCache struct {
+type pageCache struct {
 	head      string
 	tail      string
 	items     []focusItem
 	tailItems []focusItem
 
 	at int
+
+	// What stands between two blocks: a blank line between cards, none between rows of a diff.
+	gap string
 
 	box focusKey
 
@@ -172,29 +176,32 @@ func shifted(items []focusItem, by int) []focusItem {
 }
 
 func (m *Model) withBox(width int) string {
-	m.pageRing.items = slices.Clone(m.conv.items)
+	m.pageRing.items = slices.Clone(m.page.items)
 
 	middle := m.boxBlock(width)
 	if middle.boxAt > 0 {
-		m.boxLine, m.boxCol = m.conv.at+middle.boxAt, middle.boxCol
+		m.boxLine, m.boxCol = m.page.at+middle.boxAt, middle.boxCol
 	}
 	for _, s := range middle.stops {
-		m.pageRing.add(s.focusKey, m.conv.at+s.start, s.lines)
+		m.pageRing.add(s.focusKey, m.page.at+s.start, s.lines)
 	}
 
-	base := m.conv.at + strings.Count(middle.block, "\n") + 2
-	for _, it := range m.conv.tailItems {
+	base := m.page.at + strings.Count(middle.block, "\n") + strings.Count(m.page.gap, "\n")
+	for _, it := range m.page.tailItems {
 		m.pageRing.add(it.focusKey, base+it.start, it.lines)
 	}
 
-	return joinBlocks(m.conv.head, middle.block, m.conv.tail)
+	return joinBlocks(m.page.gap, m.page.head, middle.block, m.page.tail)
 }
 
 // Reviews are matched before threads, because a review draws the threads it opened inside its own block.
 func (m *Model) boxBlock(width int) rendered {
+	if m.tab == tabFiles {
+		return m.diffBoxBlock(width)
+	}
 	d := m.detail.Detail
 
-	switch on := m.conv.box; on.kind {
+	switch on := m.page.box; on.kind {
 	case focusNone:
 		return m.composeCard(width)
 
@@ -240,14 +247,14 @@ func (m Model) boxUnder(threads []gh.ReviewThread, reviewID string) bool {
 	})
 }
 
-func joinBlocks(parts ...string) string {
+func joinBlocks(gap string, parts ...string) string {
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p != "" {
 			out = append(out, p)
 		}
 	}
-	return strings.Join(out, "\n\n")
+	return strings.Join(out, gap)
 }
 
 func (m *Model) commentCard(item gh.TimelineItem, width int) rendered {
@@ -780,6 +787,8 @@ func (m *Model) byline(c gh.Comment) string {
 		return m.pendingHead(c.Author, "said", "posting")
 	case c.Editing:
 		return m.pendingHead(c.Author, "said", "saving")
+	case c.Draft:
+		return m.pendingHead(c.Author, "said", "pending")
 	}
 	return m.said(c.Author, "said", m.theme.Subtle, gh.TimelineItem{CreatedAt: c.CreatedAt})
 }

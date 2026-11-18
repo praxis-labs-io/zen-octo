@@ -209,7 +209,7 @@ func (m Model) Composing() bool { return m.compose.typing || m.inline.typing }
 // SetViewer names who comments are from and rebuilds the page.
 func (m *Model) SetViewer(a gh.Actor) {
 	m.who = a
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 }
 
@@ -219,7 +219,7 @@ func (m Model) canAct() bool { return m.ringTab() && m.detail.Loaded }
 
 // RestoreDraft puts a failed comment back in the compose box, taking the keyboard only if the box is on screen.
 func (m *Model) RestoreDraft(body string) tea.Cmd {
-	m.conv.ok = false
+	m.page.ok = false
 	m.compose.restore(body)
 
 	if !m.canCompose() {
@@ -242,7 +242,7 @@ func (m Model) openCompose(quote string) (Model, tea.Cmd) {
 		m.compose.quote(quote)
 	}
 
-	m.conv.ok = false
+	m.page.ok = false
 	m.pageRing.on = focusKey{kind: focusCompose}
 
 	m.focus = paneMain
@@ -262,7 +262,7 @@ func (m Model) composeKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, k.Back):
 		m.compose.stop()
 		m.clearMention()
-		m.conv.ok = false
+		m.page.ok = false
 		m.syncContent()
 		return m, nil
 
@@ -306,7 +306,7 @@ func (m Model) post() (Model, tea.Cmd) {
 	m.clearMention()
 
 	m.pageRing.clear()
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostCommentMsg{ID: id, Body: body} }
 }

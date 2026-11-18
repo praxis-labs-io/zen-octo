@@ -138,7 +138,7 @@ func (m Model) startEdit() (Model, tea.Cmd) {
 
 	cmd := m.inline.open(w.at, m.pageRing.on, w.body, updateWords)
 	m.pageRing.on = w.at
-	m.conv.ok = false
+	m.page.ok = false
 	m.focus = paneMain
 
 	m.showOpenedBox()
@@ -161,7 +161,7 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 	m.inline.close()
 
 	m.pageRing.on = from
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 
 	if w.kind == "" {
@@ -242,7 +242,7 @@ func (m Model) applyDelete(p picking) (Model, tea.Cmd) {
 	}
 
 	m.pageRing.clear()
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return msg }
 }

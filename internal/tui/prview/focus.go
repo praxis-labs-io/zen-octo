@@ -30,6 +30,8 @@ const (
 	focusCompose
 
 	focusReply
+
+	focusNewThread
 )
 
 func (k focusKind) prose() bool {

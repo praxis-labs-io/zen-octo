@@ -179,11 +179,13 @@ func (in ReviewThreadInput) vars() map[string]any {
 		return vars
 	}
 
+	side := cmp.Or(in.Side, SideRight)
+	start := cmp.Or(in.StartSide, side)
 	vars["line"] = in.Line
-	vars["side"] = string(cmp.Or(in.Side, SideRight))
-	if in.StartLine != 0 && in.StartLine != in.Line {
+	vars["side"] = string(side)
+	if in.StartLine != 0 && (in.StartLine != in.Line || start != side) {
 		vars["startLine"] = in.StartLine
-		vars["startSide"] = string(cmp.Or(in.StartSide, in.Side, SideRight))
+		vars["startSide"] = string(start)
 	}
 	return vars
 }

@@ -84,7 +84,13 @@ func joinDraft(first, second string) string {
 	return first + "\n\n" + second
 }
 
-func (r inline) editing() bool { return r.at.kind != focusNone && r.at.kind != focusReply }
+func (r inline) editing() bool {
+	switch r.at.kind {
+	case focusNone, focusReply, focusNewThread:
+		return false
+	}
+	return true
+}
 
 func (m Model) boxOn(key focusKey) bool {
 	return m.inline.typing && m.inline.at == key
@@ -142,8 +148,11 @@ func (m Model) inlineKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 func (m Model) sendInline() (Model, tea.Cmd) {
 	m.clearMention()
-	if m.inline.editing() {
+	switch {
+	case m.inline.editing():
 		return m.saveEdit()
+	case m.inline.at.kind == focusNewThread:
+		return m.postThread()
 	}
 	return m.postReply()
 }
@@ -154,7 +163,7 @@ func (m Model) closeInline() (Model, tea.Cmd) {
 	m.clearMention()
 
 	m.pageRing.on = from
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 	return m, nil
 }

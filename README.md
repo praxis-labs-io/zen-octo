@@ -7,7 +7,7 @@ people's branches.
 
 A pull request opens as four tabs: the conversation as threaded cards, the diff,
 the commits, and the CI logs. Reply, quote, edit, react and resolve on any
-thread. Search a job's log and jump to its
+thread. Comment on the lines the cursor is on. Search a job's log and jump to its
 first failure. Set the state, labels, reviewers, assignees and base branch from a
 rail beside it, then merge with the commit message GitHub itself would write.
 
@@ -34,8 +34,8 @@ will draw, so the writes hold in a drawer beside an editor.
 ![The diff, with a review comment against the line it was written on](docs/images/review-comments.png)
 
 `]` and `[` walk the four tabs. On Files the tree is beside the diff, review
-comments sit against the lines they were written on, and `c` adds one scoped to
-the line under the cursor. `\|` splits the diff into two columns, and `?` lists
+comments sit against the lines they were written on, and `c` adds one to your
+pending review, on the selection, the line, the hunk or the file. `\|` splits the diff into two columns, and `?` lists
 the keys.
 
 ## Install

@@ -51,8 +51,8 @@ hunks and the comments written against them, and `m` marks a file viewed. `|`
 puts the two sides in two columns, where `h` and `l` step between them. `v` on a
 row of code drops an anchor there, and moving the cursor runs a range from it, so
 the span you are reading about is marked while you read it. `v` again drops it,
-and so does `esc`, leaving the hunk, or changing the column. A comment is still
-scoped to the cursor's own line.
+and so does `esc`, leaving the hunk, or changing the column. A thread written
+from a selection covers the whole span.
 
 **Commits** lists them, walked whole rather than by hunk.
 
@@ -66,8 +66,14 @@ block is belongs to the tab.
 
 ## Talking
 
-`c` writes a comment on the conversation. A comment on a line of the diff still
-goes through the browser.
+`c` writes a comment. On the conversation it goes at the foot of the page. On
+Files it opens a thread on what the cursor names: the selection if there is one,
+else the row, else the hunk, else the whole file. The box opens under the code it
+answers.
+
+A thread written on Files joins your pending review, or starts one when you have
+none, and reads `pending` until the review is submitted. Nobody else sees it
+until then. Submitting still goes through the browser.
 
 `r` replies to the focused card, `R` quotes it first. `e` edits your own, `D`
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens

@@ -25,6 +25,7 @@ const (
 	fieldReviewers
 	fieldBase
 	fieldBody
+	fieldThreads
 )
 
 type LabelEdit struct {

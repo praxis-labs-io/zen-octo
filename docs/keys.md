@@ -77,7 +77,7 @@ The same movement keys serve every pane. Focus decides what they move.
 
 | Key | Does |
 | --- | --- |
-| `c` | comment |
+| `c` | comment; on Files, a thread on the cursor |
 | `r` | reply, or rerun a job |
 | `R` | quote reply, or rerun every job in a workflow |
 | `e` | edit |
