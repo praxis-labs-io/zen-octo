@@ -219,16 +219,8 @@ func (Mock) SearchPullRequests(_ context.Context, query string, _ int) (gh.Searc
 }
 
 func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error) {
-	var row gh.PullRequest
-	for _, pr := range mockPullRequests() {
-		if pr.ID == id {
-			row = pr
-			break
-		}
-	}
-
 	detail := mockDetail()
-	detail.PullRequest = row
+	detail.PullRequest = mockRow(id)
 	detail.Checks = detail.Rollup.State
 
 	return gh.DetailResult{
@@ -237,16 +229,17 @@ func (Mock) PullRequest(_ context.Context, id, _ string) (gh.DetailResult, error
 	}, nil
 }
 
-func (Mock) Pulse(_ context.Context, _ string) (gh.PulseResult, error) {
+func (Mock) Pulse(_ context.Context, id string) (gh.PulseResult, error) {
 	d := mockDetail()
+	row := mockRow(id)
 	return gh.PulseResult{
 		Pulse: gh.Pulse{
-			State:          d.State,
-			IsDraft:        d.IsDraft,
-			ReviewDecision: d.ReviewDecision,
+			State:          row.State,
+			IsDraft:        row.IsDraft,
+			ReviewDecision: row.ReviewDecision,
 			Merge:          d.Merge,
 			Rollup:         d.Rollup,
-			UpdatedAt:      d.UpdatedAt,
+			UpdatedAt:      row.UpdatedAt,
 			HeadRefOid:     d.HeadRefOid,
 		},
 		RateLimit: gh.RateLimit{Limit: 5000, Cost: 1, Remaining: 4818},
@@ -605,8 +598,20 @@ func closedRows(rows []gh.PullRequest) []gh.PullRequest {
 	return out
 }
 
+func mockRow(id string) gh.PullRequest {
+	for _, pr := range mockPullRequests() {
+		if pr.ID == id {
+			return pr
+		}
+	}
+	return gh.PullRequest{}
+}
+
+// Anchored once so a pulse reports the same updatedAt the full fetch did, or every pulse reads as a new event.
+var mockEpoch = time.Now()
+
 func mockPullRequests() []gh.PullRequest {
-	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+	ago := func(d time.Duration) time.Time { return mockEpoch.Add(-d) }
 
 	const (
 		octo   = "praxis-labs/zen-octo"
