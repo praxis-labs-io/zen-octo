@@ -1108,8 +1108,8 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "space":
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
-	case "ctrl+enter":
-		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}
+	case "ctrl+s":
+		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 	case "ctrl+c":
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	default:
@@ -2899,7 +2899,7 @@ func TestAPostedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	m := press(composed(t, client, "ship it"), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "ship it") {
@@ -2916,7 +2916,7 @@ func TestAPostedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 func TestACommentThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	m := press(composed(t, client, "ship it"), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "ship it") {
@@ -2933,7 +2933,7 @@ func TestACommentThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 func TestAFailedPostTakesTheCardBackAndKeepsTheWords(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
-	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	m := press(composed(t, client, "ship it"), "ctrl+s")
 	out := stripANSI(render(t, m))
 
 	if n := strings.Count(out, "ship it"); n != 1 {
@@ -2951,7 +2951,7 @@ func TestARefreshDoesNotTakeAwayACommentStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(composed(t, client, "ship it"), "ctrl+enter")
+	m := press(composed(t, client, "ship it"), "ctrl+s")
 	m = press(m, "s")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "ship it") {
@@ -3140,7 +3140,7 @@ func TestAPostedReplyIsInItsThreadBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	m := press(answering(t, client, "capped it"), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "capped it") {
@@ -3160,7 +3160,7 @@ func TestAPostedReplyIsInItsThreadBeforeItLands(t *testing.T) {
 func TestAReplyThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	m := press(answering(t, client, "capped it"), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "capped it") {
@@ -3177,7 +3177,7 @@ func TestAReplyThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 func TestAFailedReplyGoesBackToItsThread(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
-	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	m := press(answering(t, client, "capped it"), "ctrl+s")
 	out := stripANSI(render(t, m))
 
 	if strings.Count(out, "capped it") != 1 {
@@ -3198,7 +3198,7 @@ func TestASyncDoesNotTakeAwayAReplyStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(answering(t, client, "capped it"), "ctrl+enter")
+	m := press(answering(t, client, "capped it"), "ctrl+s")
 	m = press(m, "s")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "capped it") {

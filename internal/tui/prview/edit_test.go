@@ -176,7 +176,7 @@ func TestTheEditKeySendsTheNewWordsForTheFocusedComment(t *testing.T) {
 	_, cmd := chord(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
-		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
 	}
 
 	if msg.CommentID != "IC_octobot" {
@@ -199,7 +199,7 @@ func TestEditingAReviewSendsTheReviewKind(t *testing.T) {
 	_, cmd := chord(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
-		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
 	}
 	if msg.Kind != gh.CommentReview {
 		t.Errorf("Kind = %q, want a review", msg.Kind)
@@ -215,7 +215,7 @@ func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 	_, cmd := chord(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
-		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
 	}
 
 	if msg.CommentID != "RC_1" {
@@ -240,7 +240,7 @@ func TestEditingTheDescriptionSendsAPullRequestWrite(t *testing.T) {
 	_, cmd := chord(m)
 	msg, ok := runCmd(cmd).(prview.SetBodyMsg)
 	if !ok {
-		t.Fatalf("the chord asked for %T, want a SetBodyMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s asked for %T, want a SetBodyMsg", runCmd(cmd))
 	}
 	if !strings.HasSuffix(msg.Body, "Rewritten.") {
 		t.Errorf("Body = %q, want what the box was left holding", msg.Body)
@@ -407,7 +407,7 @@ func TestTheCardsHintsGiveWayToTheBoxs(t *testing.T) {
 	if !strings.Contains(out, "esc discard") {
 		t.Errorf("the box does not name the key that closes it:\n%s", out)
 	}
-	if !strings.Contains(out, "⏎ save") {
+	if !strings.Contains(out, "ctrl+s save") {
 		t.Errorf("the box does not name the key that saves it:\n%s", out)
 	}
 }
@@ -515,7 +515,7 @@ func TestAnEditKeepsTheWhitespaceAroundTheWordsItSends(t *testing.T) {
 
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
-		t.Fatalf("the chord asked for %T, want an EditCommentMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
 	}
 	if msg.Body != "    indented := true // and stays" {
 		t.Errorf("Body = %q, want the leading indent kept", msg.Body)

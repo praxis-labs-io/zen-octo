@@ -387,13 +387,13 @@ func TestTheFormKeepsItsButtonOnAShortTerminal(t *testing.T) {
 	}
 }
 
-func TestTheChordMergesFromTheCommitMessage(t *testing.T) {
+func TestCtrlSMergesFromTheCommitMessage(t *testing.T) {
 	m := press(openMerge(t), "tab", "tab")
 
 	_, cmd := chord(m)
 	got, ok := runCmd(cmd).(prview.MergeMsg)
 	if !ok {
-		t.Fatalf("the chord sent %T, want a MergeMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s sent %T, want a MergeMsg", runCmd(cmd))
 	}
 	if got.Options.Method != gh.MergeMethodSquash {
 		t.Errorf("method = %q, want the one the form was left on", got.Options.Method)
@@ -624,8 +624,8 @@ func TestTheHintNamesAKeyThatWorksFromTheRowItIsOn(t *testing.T) {
 		want string
 	}{
 		{row: "the method", want: "j/k method"},
-		{row: "the headline", want: "tab to the button to merge"},
-		{row: "the message", want: "tab to the button to merge"},
+		{row: "the headline", want: "ctrl+s merge"},
+		{row: "the message", want: "ctrl+s merge"},
 		{row: "delete the branch", want: "space toggle"},
 		{row: "the button", want: "⏎ merge"},
 	}

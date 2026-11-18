@@ -69,7 +69,7 @@ type DetailMap struct {
 	Back       key.Binding
 
 	Comment key.Binding
-	// Post is a Kitty keyboard protocol chord; other terminals reach the compose button instead.
+	// Post shares zen-review's save binding.
 	Post key.Binding
 
 	// Activate opens whatever is under the cursor, which on a review thread is the code it answers.
@@ -161,7 +161,7 @@ var (
 		Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
 		Comment:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment")),
-		Post:         key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+⏎", "post")),
+		Post:         key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "post")),
 		Activate:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open, press, or show in the diff")),
 		Editor:       key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "$EDITOR")),
 		Reply:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply or rerun")),

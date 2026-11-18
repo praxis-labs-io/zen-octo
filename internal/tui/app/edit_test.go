@@ -51,7 +51,7 @@ func TestAnEditedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+enter")
+	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "Fixed.") {
@@ -73,7 +73,7 @@ func TestAnEditedCommentIsOnTheScreenBeforeItLands(t *testing.T) {
 func TestAnEditThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 
-	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+enter")
+	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "Fixed.") {
@@ -90,7 +90,7 @@ func TestAnEditThatLandsLosesItsMarkerAndSaysSo(t *testing.T) {
 func TestAFailedEditPutsTheCommentBackAndKeepsTheWords(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs(), postErr: errors.New("502 Bad Gateway")}
 
-	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+enter")
+	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+s")
 	out := stripANSI(render(t, m))
 
 	if !strings.Contains(out, "Fixed.") {
@@ -166,7 +166,7 @@ func TestEditingTheDescriptionWritesThePullRequest(t *testing.T) {
 	client.serveOwnDescription("PR_412", "drucial")
 
 	m := press(loaded(t, client, 160, 40), "enter", "2")
-	m = press(write(press(m, "e"), " And the retry count."), "ctrl+enter")
+	m = press(write(press(m, "e"), " And the retry count."), "ctrl+s")
 
 	if got := client.describes(); len(got) != 1 ||
 		!strings.HasSuffix(got[0], "Caps the backoff at 30s. And the retry count.") {
@@ -192,7 +192,7 @@ func TestAFailedDescriptionEditKeepsTheWords(t *testing.T) {
 	client.serveOwnDescription("PR_412", "drucial")
 
 	m := press(loaded(t, client, 160, 40), "enter", "2")
-	m = press(write(press(m, "e"), " And the retry count."), "ctrl+enter")
+	m = press(write(press(m, "e"), " And the retry count."), "ctrl+s")
 
 	out := stripANSI(render(t, m))
 	if !strings.Contains(out, "And the retry count.") {
@@ -207,7 +207,7 @@ func TestARefreshDoesNotUndoAnEditStillInFlight(t *testing.T) {
 	client := &fakeSearcher{prs: samplePRs()}
 	client.holdPosts()
 
-	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+enter")
+	m := press(write(press(onComment(t, client), "e"), " Fixed."), "ctrl+s")
 	m = press(m, "s")
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Fixed.") {

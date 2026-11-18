@@ -43,8 +43,6 @@ type composer struct {
 	words words
 
 	onPost bool
-
-	chords bool
 }
 
 func newComposer(th theme.Theme) composer {
@@ -198,12 +196,8 @@ func (c composer) hint(focused bool) string {
 		return keys.Detail.Comment.Help().Key + " to write"
 	}
 
-	send := "tab · ⏎ " + c.words.send
-	if c.chords {
-		send = keys.Detail.Post.Help().Key + " " + c.words.send
-	}
 	return strings.Join([]string{
-		send,
+		keys.Detail.Post.Help().Key + " " + c.words.send,
 		keys.Detail.Editor.Help().Key + " editor",
 		keys.Detail.Back.Help().Key + " " + c.words.back,
 	}, " · ")
@@ -211,9 +205,6 @@ func (c composer) hint(focused bool) string {
 
 // Composing reports whether a text box has the keyboard; while it does, every key belongs to the screen.
 func (m Model) Composing() bool { return m.compose.typing || m.inline.typing }
-
-// SetChords says whether the terminal can send ctrl+enter. It changes only the hints.
-func (m *Model) SetChords(v bool) { m.compose.chords, m.inline.chords = v, v }
 
 // SetViewer names who comments are from and rebuilds the page.
 func (m *Model) SetViewer(a gh.Actor) {
