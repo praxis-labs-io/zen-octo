@@ -173,7 +173,7 @@ func TestTheEditKeySendsTheNewWordsForTheFocusedComment(t *testing.T) {
 	m := editing(tabComment)
 	m = typed(m, " Updated.")
 
-	_, cmd := chord(m)
+	_, cmd := post(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
 		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
@@ -196,7 +196,7 @@ func TestTheEditKeySendsTheNewWordsForTheFocusedComment(t *testing.T) {
 func TestEditingAReviewSendsTheReviewKind(t *testing.T) {
 	m := typed(editing(tabReview), "!")
 
-	_, cmd := chord(m)
+	_, cmd := post(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
 		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
@@ -212,7 +212,7 @@ func TestEditingAReviewSendsTheReviewKind(t *testing.T) {
 func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 	m := typed(editing(tabThread), "!")
 
-	_, cmd := chord(m)
+	_, cmd := post(m)
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {
 		t.Fatalf("ctrl+s asked for %T, want an EditCommentMsg", runCmd(cmd))
@@ -228,7 +228,7 @@ func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 		t.Errorf("Kind = %q, want a review comment", msg.Kind)
 	}
 
-	_, cmd = chord(typed(press(onWritable(tabThread), "}", "e"), "!"))
+	_, cmd = post(typed(press(onWritable(tabThread), "}", "e"), "!"))
 	if msg, _ := runCmd(cmd).(prview.EditCommentMsg); msg.CommentID != "RC_4" {
 		t.Errorf("CommentID = %q on the reply, want the reply itself", msg.CommentID)
 	}
@@ -237,7 +237,7 @@ func TestEditingAThreadTakesTheCommentTheSubCursorIsOn(t *testing.T) {
 func TestEditingTheDescriptionSendsAPullRequestWrite(t *testing.T) {
 	m := typed(editing(tabDescription), " Rewritten.")
 
-	_, cmd := chord(m)
+	_, cmd := post(m)
 	msg, ok := runCmd(cmd).(prview.SetBodyMsg)
 	if !ok {
 		t.Fatalf("ctrl+s asked for %T, want a SetBodyMsg", runCmd(cmd))
@@ -447,7 +447,7 @@ func TestTheEditBoxTakesEveryOtherKeyAsText(t *testing.T) {
 func TestAFailedEditPutsTheWordsBackInTheBox(t *testing.T) {
 	m := editing(tabComment)
 	m = typed(m, " Updated.")
-	m, _ = chord(m)
+	m, _ = post(m)
 
 	m.RestoreEdit("IC_octobot", "Coverage held at 84.2%. Updated.")
 
@@ -511,7 +511,7 @@ func TestAnEditKeepsTheWhitespaceAroundTheWordsItSends(t *testing.T) {
 	}
 
 	m := typed(press(walked(viewing(d, 200, 60), tabComment), "e"), " // and stays")
-	_, cmd := chord(m)
+	_, cmd := post(m)
 
 	msg, ok := runCmd(cmd).(prview.EditCommentMsg)
 	if !ok {

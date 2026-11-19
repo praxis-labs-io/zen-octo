@@ -37,7 +37,7 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-func chord(m prview.Model) (prview.Model, tea.Cmd) {
+func post(m prview.Model) (prview.Model, tea.Cmd) {
 	return m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 }
 
@@ -177,7 +177,7 @@ func TestTabReachesThePostButtonAndEnterSendsIt(t *testing.T) {
 }
 
 func TestCtrlSPostsFromTheText(t *testing.T) {
-	_, cmd := chord(typed(composing(200, 40), "ship it"))
+	_, cmd := post(typed(composing(200, 40), "ship it"))
 
 	msg, ok := runCmd(cmd).(prview.PostCommentMsg)
 	if !ok {
@@ -395,7 +395,7 @@ func TestPostingLetsGoOfTheBox(t *testing.T) {
 		t.Fatalf("the box is not focused before posting, it is %q", got)
 	}
 
-	m, _ = chord(m)
+	m, _ = post(m)
 
 	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("posting left %q focused, want nothing", got)

@@ -749,7 +749,7 @@ func TestTypingInTheCommentBoxRendersWhatARebuildWould(t *testing.T) {
 }
 
 func TestPostingAReplyAsksTheRootForTheThread(t *testing.T) {
-	m, cmd := chord(typed(replying(t, tabThread, "r"), "capped it"))
+	m, cmd := post(typed(replying(t, tabThread, "r"), "capped it"))
 
 	msg, ok := runCmd(cmd).(prview.PostReplyMsg)
 	if !ok {
@@ -771,13 +771,13 @@ func TestPostingAReplyAsksTheRootForTheThread(t *testing.T) {
 }
 
 func TestAnEmptyReplyPostsNothing(t *testing.T) {
-	if _, cmd := chord(replying(t, tabThread, "r")); cmd != nil {
+	if _, cmd := post(replying(t, tabThread, "r")); cmd != nil {
 		t.Error("an empty box asked the root to post")
 	}
 }
 
 func TestPostingClearsTheDraft(t *testing.T) {
-	m, _ := chord(typed(replying(t, tabThread, "r"), "capped it"))
+	m, _ := post(typed(replying(t, tabThread, "r"), "capped it"))
 
 	if out := stripANSI(press(m, "r").View()); strings.Contains(out, "capped it") {
 		t.Errorf("the posted words came back as a draft:\n%s", out)

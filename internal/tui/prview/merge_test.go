@@ -390,7 +390,7 @@ func TestTheFormKeepsItsButtonOnAShortTerminal(t *testing.T) {
 func TestCtrlSMergesFromTheCommitMessage(t *testing.T) {
 	m := press(openMerge(t), "tab", "tab")
 
-	_, cmd := chord(m)
+	_, cmd := post(m)
 	got, ok := runCmd(cmd).(prview.MergeMsg)
 	if !ok {
 		t.Fatalf("ctrl+s sent %T, want a MergeMsg", runCmd(cmd))
