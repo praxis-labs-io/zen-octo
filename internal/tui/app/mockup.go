@@ -361,7 +361,7 @@ func mockFiles() []gh.ChangedFile {
 }
 
 func mockCommits() []gh.Commit {
-	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+	ago := func(d time.Duration) time.Time { return mockEpoch.Add(-d) }
 
 	return []gh.Commit{
 		{SHA: "a3f91c2d5e8b4770c1e2f6a9d3045bb812e7c440", Short: "a3f91c2",
@@ -390,7 +390,7 @@ func commitItem(c gh.Commit) gh.TimelineItem {
 func ptr[T any](v T) *T { return &v }
 
 func mockDetail() gh.PullRequestDetail {
-	ago := func(d time.Duration) time.Time { return time.Now().Add(-d) }
+	ago := func(d time.Duration) time.Time { return mockEpoch.Add(-d) }
 
 	perms := func(kind gh.CommentKind, id, who string, at time.Time, body string) gh.Comment {
 		return gh.Comment{
