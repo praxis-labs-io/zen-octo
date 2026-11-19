@@ -529,3 +529,22 @@ func TestADiscardTakesTheHeldSummaryWithIt(t *testing.T) {
 		t.Errorf("the form reopened on a discarded review's summary:\n%s", out)
 	}
 }
+
+func TestCommentsPastTheLoadedThreadsStillCountTowardTheReview(t *testing.T) {
+	client := reviewer()
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveEmptyReview("PR_412", "PRR_9")
+	client.mu.Lock()
+	held := client.details["PR_412"]
+	held.DraftReview.Comments = 2
+	client.details["PR_412"] = held
+	client.mu.Unlock()
+
+	out := stripANSI(render(t, press(loaded(t, client, 160, 60), "enter", "S")))
+	if !strings.Contains(out, "Publishes 2 pending comments") {
+		t.Errorf("the form does not count comments outside the loaded threads:\n%s", out)
+	}
+	if strings.Contains(out, "a comment needs a summary") {
+		t.Errorf("the form asks for a summary a review with comments does not need:\n%s", out)
+	}
+}

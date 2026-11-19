@@ -98,7 +98,7 @@ query PullRequestDetail($id: ID!, $head: String!) {
       }
 
       pendingReview: reviews(first: 1, states: [PENDING]) {
-        nodes { id body viewerDidAuthor }
+        nodes { id body viewerDidAuthor comments { totalCount } }
       }
 
       reviewThreads(first: 100) {
@@ -394,6 +394,7 @@ type pullRequestResponse struct {
 				ID              string
 				Body            string
 				ViewerDidAuthor bool
+				Comments        struct{ TotalCount int }
 			}
 		}
 
@@ -578,7 +579,7 @@ func RecountThreads(d *PullRequestDetail) {
 func draftReview(n pullRequestResponse) Review {
 	for _, r := range n.Node.PendingReview.Nodes {
 		if r.ViewerDidAuthor {
-			return Review{ID: r.ID, State: ReviewStatePending, Body: r.Body}
+			return Review{ID: r.ID, State: ReviewStatePending, Body: r.Body, Comments: r.Comments.TotalCount}
 		}
 	}
 	return Review{}

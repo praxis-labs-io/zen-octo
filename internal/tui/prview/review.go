@@ -384,6 +384,7 @@ func (f reviewing) chromeRows() int {
 	return chrome
 }
 
+// Threads stop at a page, and the review's own count lags a comment still landing, so the larger is right.
 func draftComments(d gh.PullRequestDetail) int {
 	n := 0
 	for _, t := range d.Threads {
@@ -393,7 +394,7 @@ func draftComments(d gh.PullRequestDetail) int {
 			}
 		}
 	}
-	return n
+	return max(n, d.DraftReview.Comments)
 }
 
 // Sent ahead of a comment bound for it, a review would publish without the comment or open a second one.

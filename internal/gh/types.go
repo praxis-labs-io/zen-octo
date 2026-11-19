@@ -558,6 +558,8 @@ type Review struct {
 	ID    string
 	State ReviewState
 	Body  string
+	// Comments counts a pending review's comments, those in threads past the loaded page included.
+	Comments int
 }
 
 type ReviewResult struct {

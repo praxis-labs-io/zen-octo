@@ -1117,14 +1117,15 @@ func TestADraftIsOnlyTheViewersOwnUnsubmittedReview(t *testing.T) {
 
 func TestAPendingReviewPastTheFirstHundredIsStillFound(t *testing.T) {
 	const body = `{"node": {"id": "PR_1", "reviews": {"totalCount": 140, "nodes": []},
-	  "pendingReview": {"nodes": [{"id": "REV_141", "body": "late", "viewerDidAuthor": true}]}}}`
+	  "pendingReview": {"nodes": [{"id": "REV_141", "body": "late", "viewerDidAuthor": true,
+	    "comments": {"totalCount": 3}}]}}}`
 
 	res, err := newWithDoer(&fakeDoer{body: body}, nil).PullRequest(context.Background(), "PR_1", "topic")
 	if err != nil {
 		t.Fatalf("PullRequest: %v", err)
 	}
 
-	want := Review{ID: "REV_141", State: ReviewStatePending, Body: "late"}
+	want := Review{ID: "REV_141", State: ReviewStatePending, Body: "late", Comments: 3}
 	if got := res.Detail.DraftReview; got != want {
 		t.Errorf("DraftReview = %+v, want %+v", got, want)
 	}
@@ -1138,6 +1139,9 @@ func TestTheDetailAsksForThePendingReviewByItsState(t *testing.T) {
 
 	if !strings.Contains(doer.gotQuery, "pendingReview: reviews(first: 1, states: [PENDING])") {
 		t.Error("the query does not ask for the pending review on its own")
+	}
+	if !strings.Contains(doer.gotQuery, "nodes { id body viewerDidAuthor comments { totalCount } }") {
+		t.Error("the query does not count the pending review's comments")
 	}
 }
 
