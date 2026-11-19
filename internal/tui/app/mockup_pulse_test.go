@@ -24,6 +24,7 @@ func TestTheMockupPulseKeepsTheStateTheFetchShowed(t *testing.T) {
 	}
 }
 
+// Read from the client rather than a frame: mismatched times only cost a refetch, which nothing on screen shows.
 func TestTheMockupPulseAgreesWithTheFetch(t *testing.T) {
 	const id = "PR_webhook-replay"
 	fetched, err := app.Mock{}.PullRequest(context.Background(), id, "")
