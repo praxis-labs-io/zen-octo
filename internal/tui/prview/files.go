@@ -2,6 +2,7 @@ package prview
 
 import (
 	"image/color"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -32,10 +33,11 @@ type blockKey struct {
 	heading bool
 }
 
-// Exactly one index is set; the other is stopNone.
+// At most one index is set, the other being stopNone, and neither is on the stop holding a new thread's box.
 type blockStop struct {
 	hunk   int
 	thread int
+	box    bool
 }
 
 const stopNone = -1
@@ -51,6 +53,18 @@ func (r diffRow) code(column gh.DiffSide) bool {
 		return r.right.Old != 0 || r.right.New != 0
 	}
 	return r.line.Old != 0 || r.line.New != 0
+}
+
+func (r diffRow) at(column gh.DiffSide) anchor {
+	switch {
+	case column == gh.SideRight:
+		return anchor{side: gh.SideRight, line: r.right.New}
+	case column == gh.SideLeft:
+		return anchor{side: gh.SideLeft, line: r.line.Old}
+	case r.line.Kind == paint.Removed:
+		return anchor{side: gh.SideLeft, line: r.line.Old}
+	}
+	return anchor{side: gh.SideRight, line: r.line.New}
 }
 
 // Kept as rows so one can be repainted lit without re-tokenising the file.
@@ -77,6 +91,16 @@ func (r run) codeRows(column gh.DiffSide) int {
 	return n
 }
 
+func (r run) anchors(column gh.DiffSide) []anchor {
+	var out []anchor
+	for _, row := range r.rows {
+		if row.code(column) {
+			out = append(out, row.at(column))
+		}
+	}
+	return out
+}
+
 func (r run) rowAt(n int, column gh.DiffSide) int {
 	if n <= 0 {
 		return -1
@@ -98,6 +122,10 @@ type drawnFile struct {
 	boxAt  int
 	boxCol int
 
+	// The lines of the block holding the box, so a keystroke redraws that block alone.
+	boxFrom  int
+	boxLines int
+
 	cursorAt int
 
 	// Read by the next key, not derived again: only the render knows which card code hangs under.
@@ -105,6 +133,8 @@ type drawnFile struct {
 
 	// Not always the column asked for: a block empty in the focused column is walked in the other.
 	columns map[focusKey]gh.DiffSide
+
+	anchors map[focusKey][]anchor
 }
 
 type block struct {
@@ -121,6 +151,8 @@ type blockState struct {
 
 	// A mode rather than an identity, so it retires the block instead of keeping one painted per mode.
 	split bool
+
+	box focusKey
 }
 
 // Blocks are cached because rendering one tokenises the whole file, and a cursor step repaints the diff.
@@ -145,16 +177,25 @@ type diffBody struct {
 	rows map[focusKey]int
 
 	columns map[focusKey]gh.DiffSide
+
+	anchors map[focusKey][]anchor
+
+	boxFrom  int
+	boxLines int
 }
 
 func (m *Model) filesBody() string {
 	switch {
 	case m.files.Loaded:
 		m.diff.split = m.splitting()
+		if m.page.ok && m.writing() != nil && m.page.box == m.inline.at {
+			return m.withBox(m.bodyWidth())
+		}
 		body := m.renderDiff(m.shownRows(), m.files, &m.diff)
 		for _, s := range m.diff.stops {
 			m.pageRing.add(s.focusKey, s.start, s.lines)
 		}
+		m.holdDiffPage(body)
 		return body
 	case m.files.Status == store.StatusFailed:
 		return m.faint().Render("Could not load the diff: " + m.files.Err.Error())
@@ -167,6 +208,8 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 	d.spans, d.stops = d.spans[:0], d.stops[:0]
 	d.cursorLine, d.rows = -1, make(map[focusKey]int)
 	d.columns = make(map[focusKey]gh.DiffSide)
+	d.anchors = make(map[focusKey][]anchor)
+	d.boxFrom, d.boxLines = 0, 0
 
 	if len(res.Files) == 0 {
 		return m.faint().Render("No files changed.")
@@ -185,6 +228,9 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 
 		bk := blockKey{key: r.key, heading: d.headings}
 		state := blockState{width: width, folds: m.hunkFoldState(*r.file), split: d.split}
+		if _, ok := m.openingIn(r.file.Path); ok && d.threads {
+			state.box = m.inline.at
+		}
 		b, ok := d.blocks[bk]
 		if !ok || b.at != state {
 			b = m.fileBlock(*r.file, width, d.threads, d.headings, d.split)
@@ -202,11 +248,14 @@ func (m *Model) renderDiff(rows []row, res store.Files, d *diffBody) string {
 		if drawn.boxAt > 0 {
 			m.boxLine, m.boxCol = at+drawn.boxAt, drawn.boxCol
 		}
+		if drawn.boxLines > 0 {
+			d.boxFrom, d.boxLines = at+drawn.boxFrom, drawn.boxLines
+		}
 		if drawn.cursorAt >= 0 {
 			d.cursorLine = at + drawn.cursorAt
 		}
 		for k, n := range drawn.rows {
-			d.rows[k], d.columns[k] = n, drawn.columns[k]
+			d.rows[k], d.columns[k], d.anchors[k] = n, drawn.columns[k], drawn.anchors[k]
 		}
 
 		lines := strings.Count(drawn.text, "\n") + 1
@@ -254,6 +303,9 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block
 	}
 	placed := make(map[int]bool, len(anchored))
 
+	opening, drafting := m.openingIn(f.Path)
+	drafting = drafting && threads
+
 	tokens := m.lineTokens(f)
 	gutter := paint.Gutter(widest(f))
 
@@ -267,6 +319,16 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block
 	stop := func(s blockStop) {
 		closeRun()
 		b.stops = append(b.stops, s)
+	}
+
+	if threads {
+		for _, at := range m.fileThreads(f.Path) {
+			stop(blockStop{hunk: stopNone, thread: at})
+		}
+	}
+	if drafting && opening.file {
+		stop(blockStop{hunk: stopNone, thread: stopNone, box: true})
+		drafting = false
 	}
 
 	seen := 0
@@ -289,6 +351,10 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block
 						stop(blockStop{hunk: stopNone, thread: at})
 					}
 				}
+				if drafting && slices.Contains(anchorsOf(h.Lines[j]), opening.to) {
+					stop(blockStop{hunk: stopNone, thread: stopNone, box: true})
+					drafting = false
+				}
 			}
 		}
 		seen += len(h.Lines)
@@ -298,6 +364,9 @@ func (m *Model) fileBody(f gh.ChangedFile, width int, threads, split bool) block
 		for _, at := range m.strayThreads(f.Path, placed) {
 			stop(blockStop{hunk: stopNone, thread: at})
 		}
+	}
+	if drafting {
+		stop(blockStop{hunk: stopNone, thread: stopNone, box: true})
 	}
 	closeRun()
 	return b
@@ -446,7 +515,7 @@ func (m *Model) lineTokens(f gh.ChangedFile) [][]syntax.Token {
 func (m Model) threadsIn(path string) map[anchor][]int {
 	out := make(map[anchor][]int)
 	for i, t := range m.detail.Detail.Threads {
-		if t.Path != path || t.Line == 0 {
+		if t.Path != path || onFile(t) {
 			continue
 		}
 		key := anchor{side: t.Side, line: t.Line}
@@ -476,6 +545,13 @@ func (m *Model) diffThread(i, width int) rendered {
 	return v
 }
 
+func (m *Model) stopCard(s blockStop, width int) rendered {
+	if s.box {
+		return m.openingCard(width)
+	}
+	return m.diffThread(s.thread, width)
+}
+
 func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawnFile {
 	gutter := paint.Gutter(widest(f))
 
@@ -484,6 +560,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 		stops:    make([]focusItem, 0, len(b.stops)),
 		rows:     make(map[focusKey]int, len(b.stops)),
 		columns:  make(map[focusKey]gh.DiffSide, len(b.stops)),
+		anchors:  make(map[focusKey][]anchor, len(b.stops)),
 		cursorAt: -1,
 	}
 	at, wrote := 0, false
@@ -504,6 +581,7 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 		if owner != (focusKey{}) {
 			column, rows := m.walkColumn(r, split)
 			out.rows[owner], out.columns[owner] = rows, column
+			out.anchors[owner] = r.anchors(column)
 			if m.lit(owner) && m.walkedInto(owner) {
 				if lit := r.rowAt(min(m.diffCursor, rows), column); lit >= 0 {
 					out.cursorAt = at + lit
@@ -529,10 +607,11 @@ func (m *Model) fileText(f gh.ChangedFile, b block, width int, split bool) drawn
 			out.stops = append(out.stops, focusItem{focusKey: key, start: at, lines: 1})
 			owner = key
 		} else {
-			v := m.diffThread(s.thread, width)
+			v := m.stopCard(s, width)
 			text = v.block
 			if v.boxAt > 0 {
 				out.boxAt, out.boxCol = at+v.boxAt, v.boxCol
+				out.boxFrom, out.boxLines = at, strings.Count(text, "\n")+1
 			}
 			for _, st := range v.stops {
 				if m.cursorOn(st.focusKey) {
@@ -581,13 +660,26 @@ func anchorsOf(l gh.DiffLine) []anchor {
 func (m Model) strayThreads(path string, placed map[int]bool) []int {
 	var out []int
 	for i, t := range m.detail.Detail.Threads {
-		if t.Path != path || t.Line == 0 || placed[i] {
+		if t.Path != path || onFile(t) || placed[i] {
 			continue
 		}
 		out = append(out, i)
 	}
 	return out
 }
+
+func (m Model) fileThreads(path string) []int {
+	var out []int
+	for i, t := range m.detail.Detail.Threads {
+		if t.Path == path && onFile(t) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// A file thread reports line 1, so the subject is what tells it from one on the first line.
+func onFile(t gh.ReviewThread) bool { return t.Subject == gh.SubjectFile || t.Line == 0 }
 
 func widest(f gh.ChangedFile) int {
 	n := 0

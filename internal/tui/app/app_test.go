@@ -49,6 +49,7 @@ type fakeSearcher struct {
 	jobLogs         map[int64][]byte
 	posted          []string
 	replied         []string
+	threads         []gh.ReviewThreadInput
 	edited          []string
 	deleted         []string
 	bodies          []string
@@ -419,6 +420,34 @@ func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.Co
 			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
 		},
 	}, nil
+}
+
+func (f *fakeSearcher) AddReviewThread(_ context.Context, in gh.ReviewThreadInput) (gh.ReviewThreadResult, error) {
+	f.mu.Lock()
+	f.threads = append(f.threads, in)
+	err, hold := f.postErr, f.postHold
+	f.mu.Unlock()
+
+	time.Sleep(hold)
+
+	if err != nil {
+		return gh.ReviewThreadResult{}, err
+	}
+	return gh.ReviewThreadResult{Thread: gh.ReviewThread{
+		ID: "PRRT_POSTED", ReviewID: cmp.Or(in.ReviewID, "PRR_OPENED"), Path: in.Path,
+		Subject: in.Subject, Line: in.Line, StartLine: in.StartLine, Side: in.Side,
+		CanReply: true, Draft: true,
+		Comments: []gh.Comment{{
+			Kind: gh.CommentThread, ID: "PRRC_POSTED", Author: gh.Actor{Login: "drucial"},
+			CreatedAt: time.Now(), Body: in.Body, Draft: true, ViewerDidAuthor: true,
+		}},
+	}}, nil
+}
+
+func (f *fakeSearcher) threadsOpened() []gh.ReviewThreadInput {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.threads)
 }
 
 func (f *fakeSearcher) SetReaction(_ context.Context, subjectID string,
@@ -894,6 +923,10 @@ func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentRe
 
 func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
+}
+
+func (f *querySearcher) AddReviewThread(_ context.Context, _ gh.ReviewThreadInput) (gh.ReviewThreadResult, error) {
+	return gh.ReviewThreadResult{}, nil
 }
 
 func (f *querySearcher) SetThreadResolved(_ context.Context, _ string, _ bool) (gh.ThreadResult, error) {

@@ -202,7 +202,9 @@ type Model struct {
 
 	inline inline
 
-	conv convCache
+	opening spot
+
+	page pageCache
 
 	boxLine int
 	boxCol  int
@@ -293,7 +295,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	headMoved := m.detail.Loaded && d.Loaded && m.detail.Detail.HeadRefOid != d.Detail.HeadRefOid
 	m.detail = d
 	m.diff.blocks = nil
-	m.conv.ok = false
+	m.page.ok = false
 	if d.Loaded {
 		m.pr = d.Detail.PullRequest
 	}
@@ -487,6 +489,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Comment) && m.canCompose():
 		return m.writeComment()
+	case key.Matches(keyMsg, k.Comment) && m.canOpenThread():
+		return m.openThread()
 
 	case key.Matches(keyMsg, k.Activate) && m.focus == paneRail:
 		return m.openRailPicker()
@@ -845,7 +849,7 @@ func (m *Model) toggleBlockFold() bool {
 		m.open[key] = !m.hunkOpen(key)
 	} else {
 		m.open[key] = !m.open[key]
-		m.conv.ok = false
+		m.page.ok = false
 	}
 
 	m.syncContent()
@@ -956,7 +960,7 @@ func (m *Model) SetSize(width, height int) {
 }
 
 func (m *Model) layout() {
-	m.conv.ok = false
+	m.page.ok = false
 
 	if !m.paneVisible(m.focus) {
 		m.focus = m.visiblePanes()[0]

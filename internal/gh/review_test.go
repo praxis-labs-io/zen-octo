@@ -154,6 +154,14 @@ func TestTheThreadSendsWhereItIsAnchored(t *testing.T) {
 			want: map[string]any{"startSide": "LEFT"},
 		},
 		{
+			name: "a range from a removed line to the added one numbered the same",
+			in: ReviewThreadInput{
+				ReviewID: "PRR_1", Path: "a.go", Body: "hi",
+				Line: 41, Side: SideRight, StartLine: 41, StartSide: SideLeft,
+			},
+			want: map[string]any{"line": 41, "side": "RIGHT", "startLine": 41, "startSide": "LEFT"},
+		},
+		{
 			name: "a whole file",
 			in: ReviewThreadInput{
 				ReviewID: "PRR_1", Path: "a.go", Body: "hi", Subject: SubjectFile, Line: 1, Side: SideRight,

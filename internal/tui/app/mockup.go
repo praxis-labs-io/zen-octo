@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -179,6 +180,21 @@ func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error
 			CanReact:        true,
 		},
 	}, nil
+}
+
+func (Mock) AddReviewThread(_ context.Context, in gh.ReviewThreadInput) (gh.ReviewThreadResult, error) {
+	n := strconv.FormatInt(mockReplies.Add(1), 10)
+	review := cmp.Or(in.ReviewID, "PRR_MOCK")
+	return gh.ReviewThreadResult{Thread: gh.ReviewThread{
+		ID: "PRRT_MOCK_" + n, ReviewID: review, Path: in.Path, Subject: cmp.Or(in.Subject, gh.SubjectLine),
+		Line: in.Line, StartLine: in.StartLine, Side: cmp.Or(in.Side, gh.SideRight),
+		CanReply: true, Draft: true,
+		Comments: []gh.Comment{{
+			Kind: gh.CommentThread, ID: "PRRC_MOCK_" + n, Author: gh.Actor{Login: mockViewer},
+			CreatedAt: time.Now(), Body: in.Body, Draft: true,
+			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+		}},
+	}}, nil
 }
 
 func (Mock) UpdateComment(_ context.Context, kind gh.CommentKind, id, body string) (gh.CommentResult, error) {

@@ -160,7 +160,7 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	}
 
 	m.pageRing.on = at
-	m.conv.ok = false
+	m.page.ok = false
 
 	m.showOpenedBox()
 	return m, cmd
@@ -178,7 +178,7 @@ func (m Model) postReply() (Model, tea.Cmd) {
 	m.inline.close()
 
 	m.pageRing.on = from
-	m.conv.ok = false
+	m.page.ok = false
 	m.syncContent()
 	return m, func() tea.Msg { return PostReplyMsg{ID: id, ThreadID: thread, Body: body} }
 }
@@ -193,7 +193,7 @@ func (m *Model) RestoreReply(threadID, body string) tea.Cmd {
 func (m *Model) restore(at focusKey, body string, w words,
 	present func() bool, from func() focusKey,
 ) tea.Cmd {
-	m.conv.ok = false
+	m.page.ok = false
 	m.inline.keep(at, body)
 
 	if m.inline.at == at {

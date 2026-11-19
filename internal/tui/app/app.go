@@ -44,6 +44,9 @@ type GitHub interface {
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
 	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
+
+	// AddReviewThread opens a thread in the viewer's pending review, opening the review when there is none.
+	AddReviewThread(ctx context.Context, in gh.ReviewThreadInput) (gh.ReviewThreadResult, error)
 	SetThreadResolved(ctx context.Context, threadID string, resolved bool) (gh.ThreadResult, error)
 
 	// SetReaction toggles content on any reactable node, the pull request included.
@@ -163,6 +166,20 @@ type replyFailedMsg struct {
 	thread string
 	body   string
 	err    error
+}
+
+type threadOpenedMsg struct {
+	id     string
+	key    string
+	joined bool
+	res    gh.ReviewThreadResult
+}
+
+type threadFailedMsg struct {
+	id  string
+	key string
+	in  gh.ReviewThreadInput
+	err error
 }
 
 type threadResolvedMsg struct {
@@ -432,6 +449,60 @@ func (m Model) replyFailed(msg replyFailedMsg) (tea.Model, tea.Cmd) {
 
 	shown := m.detail.SetDetail(m.store.Detail(msg.id))
 	restored := m.detail.RestoreReply(msg.thread, msg.body)
+	m.resize()
+	return m, tea.Batch(shown, restored, toast)
+}
+
+func (m Model) postThread(msg prview.PostThreadMsg) (tea.Model, tea.Cmd) {
+	in := msg.Thread
+	key := m.store.PendingThread(msg.ID, gh.ReviewThread{
+		ReviewID: in.ReviewID, Path: in.Path, Subject: in.Subject,
+		Line: in.Line, StartLine: in.StartLine, Side: in.Side,
+		Comments: []gh.Comment{{Author: m.store.Viewer(), CreatedAt: time.Now(), Body: in.Body, ViewerDidAuthor: true}},
+	})
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
+	return m, tea.Batch(shown, m.sendThread(msg.ID, key, in))
+}
+
+func (m Model) sendThread(id, key string, in gh.ReviewThreadInput) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+
+		res, err := client.AddReviewThread(ctx, in)
+		if err != nil {
+			return threadFailedMsg{id: id, key: key, in: in, err: err}
+		}
+		return threadOpenedMsg{id: id, key: key, joined: in.ReviewID != "", res: res}
+	}
+}
+
+func (m Model) threadLanded(msg threadOpenedMsg) (tea.Model, tea.Cmd) {
+	m.store.ThreadApplied(msg.id, msg.key, msg.res)
+
+	said := "Started a review"
+	if msg.joined {
+		said = "Added to your review"
+	}
+	toast := m.toasts.Show(comp.ToastSuccess, said)
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+}
+
+func (m Model) threadFailed(msg threadFailedMsg) (tea.Model, tea.Cmd) {
+	m.store.EditReverted(msg.id, msg.key)
+
+	toast := m.toasts.Show(comp.ToastError, "Could not add the comment: "+msg.err.Error())
+	if !m.showing(msg.id) {
+		return m, toast
+	}
+
+	shown := m.detail.SetDetail(m.store.Detail(msg.id))
+	restored := m.detail.RestoreThread(msg.in, msg.in.Body)
 	m.resize()
 	return m, tea.Batch(shown, restored, toast)
 }
@@ -1057,6 +1128,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case replyFailedMsg:
 		return m.replyFailed(msg)
+
+	case prview.PostThreadMsg:
+		return m.postThread(msg)
+
+	case threadOpenedMsg:
+		return m.threadLanded(msg)
+
+	case threadFailedMsg:
+		return m.threadFailed(msg)
 
 	case prview.EditCommentMsg:
 		return m.editComment(msg)

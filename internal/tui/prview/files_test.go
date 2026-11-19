@@ -321,6 +321,39 @@ func TestAThreadWithNoLineInTheDiffStillRenders(t *testing.T) {
 	}
 }
 
+func TestAFileThreadSitsAtTheHeadOfItsFile(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		thread gh.ReviewThread
+	}{
+		{"reported on line 1", gh.ReviewThread{Subject: gh.SubjectFile, Line: 1, Side: gh.SideRight}},
+		{"with no line at all", gh.ReviewThread{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := sampleDetail()
+			thread := tt.thread
+			thread.ID, thread.Path = "RT_9", "internal/gh/client.go"
+			thread.Comments = []gh.Comment{{ID: "RC_9", Author: gh.Actor{Login: "nkr"}, Body: "Split this file."}}
+			d.Threads = append(d.Threads, thread)
+
+			m := detailed(held(d), 200, 60)
+			m.SetFiles(loadedFiles(sampleFiles(), 0))
+			out := stripANSI(press(m, "]", "]", "]").View())
+
+			said, hunk := strings.Index(out, "Split this file."), strings.Index(out, "@@ -40,4 +40,5 @@")
+			if said < 0 || hunk < 0 {
+				t.Fatalf("the file thread or the hunk is missing:\n%s", out)
+			}
+			if said > hunk {
+				t.Errorf("the file thread follows the hunk rather than heading the file:\n%s", out)
+			}
+			if strings.Contains(out, "client.go:1") {
+				t.Errorf("the file thread names a line it was not written on:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestTwoThreadsOnOneLineStackWithoutAGap(t *testing.T) {
 	d := sampleDetail()
 	d.Threads = append(d.Threads, gh.ReviewThread{
