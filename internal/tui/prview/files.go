@@ -55,7 +55,6 @@ func (r diffRow) code(column gh.DiffSide) bool {
 	return r.line.Old != 0 || r.line.New != 0
 }
 
-// Split names its column; unified reads a removed line on the left and every other on the right.
 func (r diffRow) at(column gh.DiffSide) anchor {
 	switch {
 	case column == gh.SideRight:
@@ -179,7 +178,6 @@ type diffBody struct {
 
 	columns map[focusKey]gh.DiffSide
 
-	// The line each walkable row of code is on, in the order the cursor walks them.
 	anchors map[focusKey][]anchor
 
 	boxFrom  int

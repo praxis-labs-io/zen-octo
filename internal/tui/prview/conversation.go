@@ -159,7 +159,6 @@ type pageCache struct {
 
 	at int
 
-	// What stands between two blocks: a blank line between cards, none between rows of a diff.
 	gap string
 
 	box focusKey
