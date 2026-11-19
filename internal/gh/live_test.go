@@ -259,7 +259,7 @@ func TestLiveTheAddReplyDocumentMatchesTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = client.AddReply(ctx, "NOT_A_NODE", "zen-octo schema check, never posted")
+	_, err = client.AddReply(ctx, "NOT_A_NODE", "", "zen-octo schema check, never posted")
 	if err == nil {
 		t.Fatal("replying to a thread that does not exist came back as a success")
 	}

@@ -805,6 +805,8 @@ func (m Model) cardBoxAt(key focusKey, width int, content string) (at, col int) 
 
 func (m *Model) byline(c gh.Comment) string {
 	switch {
+	case c.Pending && c.Draft:
+		return m.pendingHead(c.Author, "said", "adding")
 	case c.Pending:
 		return m.pendingHead(c.Author, "said", "posting")
 	case c.Editing:

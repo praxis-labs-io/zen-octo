@@ -55,9 +55,11 @@ type PostCommentMsg struct {
 	Body string
 }
 
+// PostReplyMsg asks the root to answer ThreadID. ReviewID is the viewer's pending review the reply joins, or empty.
 type PostReplyMsg struct {
 	ID       string
 	ThreadID string
+	ReviewID string
 	Body     string
 }
 
@@ -317,6 +319,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	}
 	m.syncCommits()
 	m.syncChecks()
+	m.syncReplyWords()
 
 	held := m.focusWhole()
 

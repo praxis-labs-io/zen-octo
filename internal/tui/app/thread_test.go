@@ -37,7 +37,7 @@ func TestAThreadIsInTheDiffBeforeItLands(t *testing.T) {
 	m := press(drafting(t, client, "name this"), keys.Detail.Post.Keys()[0])
 
 	out := stripANSI(render(t, m))
-	if !strings.Contains(out, "name this") || !strings.Contains(out, "posting") {
+	if !strings.Contains(out, "name this") || !strings.Contains(out, "said · adding") {
 		t.Errorf("the thread is not in the diff marked as on its way:\n%s", out)
 	}
 
@@ -77,7 +77,7 @@ func TestAThreadThatLandsReadsPendingAndSaysWhere(t *testing.T) {
 			if !strings.Contains(out, "drucial · said · pending") {
 				t.Errorf("the landed thread does not read pending:\n%s", out)
 			}
-			if strings.Contains(out, "posting") {
+			if strings.Contains(out, "said · adding") {
 				t.Error("the landed thread still says it is on its way")
 			}
 			if got := lastLine(render(t, m)); !strings.Contains(got, tt.toast) {
@@ -117,7 +117,7 @@ func TestAFailedThreadGoesBackToItsBox(t *testing.T) {
 	if !strings.Contains(out, "comment on line 41") {
 		t.Errorf("the box did not reopen on its line:\n%s", out)
 	}
-	if strings.Contains(out, "posting") {
+	if strings.Contains(out, "said · adding") {
 		t.Error("the thread that failed is still in the diff")
 	}
 	if !strings.Contains(lastLine(render(t, m)), "502 Bad Gateway") {

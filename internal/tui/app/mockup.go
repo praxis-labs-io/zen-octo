@@ -180,7 +180,7 @@ func (Mock) SetReaction(_ context.Context, _ string,
 	}}, nil
 }
 
-func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error) {
+func (Mock) AddReply(_ context.Context, _, reviewID, body string) (gh.CommentResult, error) {
 	n := mockReplies.Add(1)
 	return gh.CommentResult{
 		Comment: gh.Comment{
@@ -193,6 +193,7 @@ func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error
 			CanEdit:         true,
 			CanDelete:       true,
 			CanReact:        true,
+			Draft:           reviewID != "",
 		},
 	}, nil
 }

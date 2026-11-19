@@ -43,7 +43,7 @@ type GitHub interface {
 	RerunAllJobs(ctx context.Context, repo string, runID int64) error
 	SetFileViewed(ctx context.Context, prID, path string, viewed bool) error
 	AddComment(ctx context.Context, subjectID, body string) (gh.CommentResult, error)
-	AddReply(ctx context.Context, threadID, body string) (gh.CommentResult, error)
+	AddReply(ctx context.Context, threadID, reviewID, body string) (gh.CommentResult, error)
 
 	// AddReviewThread opens a thread in the viewer's pending review, opening the review when there is none.
 	AddReviewThread(ctx context.Context, in gh.ReviewThreadInput) (gh.ReviewThreadResult, error)
@@ -169,6 +169,7 @@ type replyFailedMsg struct {
 	id     string
 	key    string
 	thread string
+	review string
 	body   string
 	err    error
 }
@@ -414,6 +415,7 @@ func (m Model) postReply(msg prview.PostReplyMsg) (tea.Model, tea.Cmd) {
 		Author:    m.store.Viewer(),
 		CreatedAt: time.Now(),
 		Body:      msg.Body,
+		Draft:     msg.ReviewID != "",
 	})
 
 	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
@@ -426,9 +428,9 @@ func (m Model) sendReply(msg prview.PostReplyMsg, key string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 
-		res, err := client.AddReply(ctx, msg.ThreadID, msg.Body)
+		res, err := client.AddReply(ctx, msg.ThreadID, msg.ReviewID, msg.Body)
 		if err != nil {
-			return replyFailedMsg{id: msg.ID, key: key, thread: msg.ThreadID, body: msg.Body, err: err}
+			return replyFailedMsg{id: msg.ID, key: key, thread: msg.ThreadID, review: msg.ReviewID, body: msg.Body, err: err}
 		}
 		return replyPostedMsg{id: msg.ID, key: key, res: res}
 	}
@@ -437,25 +439,34 @@ func (m Model) sendReply(msg prview.PostReplyMsg, key string) tea.Cmd {
 func (m Model) replyLanded(msg replyPostedMsg) (tea.Model, tea.Cmd) {
 	m.store.PendingApplied(msg.id, msg.key, msg.res)
 
-	toast := m.toasts.Show(comp.ToastSuccess, "Replied")
+	done := "Replied"
+	if msg.res.Comment.Draft {
+		done = "Added to your review"
+	}
+	toast := m.toasts.Show(comp.ToastSuccess, done)
 	if !m.showing(msg.id) {
 		return m, toast
 	}
 	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
 }
 
+// A refused add-to-review refetches, since the review it named may have been submitted or discarded elsewhere.
 func (m Model) replyFailed(msg replyFailedMsg) (tea.Model, tea.Cmd) {
 	m.store.PendingReverted(msg.id, msg.key)
 
-	toast := m.toasts.Show(comp.ToastError, "Could not post the reply: "+msg.err.Error())
+	failed, correction := "Could not post the reply: ", tea.Cmd(nil)
+	if msg.review != "" {
+		failed, correction = "Could not add the reply to your review: ", m.correctDetail(msg.id)
+	}
+	toast := m.toasts.Show(comp.ToastError, failed+msg.err.Error())
 	if !m.showing(msg.id) {
-		return m, toast
+		return m, tea.Batch(toast, correction)
 	}
 
 	shown := m.detail.SetDetail(m.store.Detail(msg.id))
 	restored := m.detail.RestoreReply(msg.thread, msg.body)
 	m.resize()
-	return m, tea.Batch(shown, restored, toast)
+	return m, tea.Batch(shown, restored, toast, correction)
 }
 
 func (m Model) postThread(msg prview.PostThreadMsg) (tea.Model, tea.Cmd) {

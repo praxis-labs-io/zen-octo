@@ -30,6 +30,7 @@ type words struct {
 var (
 	commentWords = words{placeholder: "Leave a comment", button: "Post", send: "post", back: "done"}
 	replyWords   = words{placeholder: "Leave a reply", button: "Post", send: "post", back: "done"}
+	addWords     = words{placeholder: "Leave a reply", button: "Add to review", send: "add to review", back: "done"}
 
 	updateWords = words{placeholder: "Empty, so far", button: "Save", send: "save", back: "discard"}
 )

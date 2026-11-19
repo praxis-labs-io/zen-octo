@@ -30,7 +30,7 @@ const repliedBody = `{
 func TestARepliedCommentComesBackAsAThreadComment(t *testing.T) {
 	doer := &fakeDoer{body: repliedBody}
 
-	res, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "Capped it at 30s.")
+	res, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "", "Capped it at 30s.")
 	if err != nil {
 		t.Fatalf("AddReply: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestARepliedCommentComesBackAsAThreadComment(t *testing.T) {
 func TestTheReplySendsTheThreadAndBodyAsVariables(t *testing.T) {
 	doer := &fakeDoer{body: repliedBody}
 
-	if _, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "``` fenced ```"); err != nil {
+	if _, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "", "``` fenced ```"); err != nil {
 		t.Fatalf("AddReply: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestTheReplyIsAddressedToTheThread(t *testing.T) {
 
 func TestAReplyThatReturnsNoCommentIsAnError(t *testing.T) {
 	_, err := newWithDoer(&fakeDoer{body: `{"addPullRequestReviewThreadReply": {"comment": {}}}`}, nil).
-		AddReply(context.Background(), "PRRT_1", "hi")
+		AddReply(context.Background(), "PRRT_1", "", "hi")
 	if err == nil {
 		t.Fatal("an empty node came back as a posted reply")
 	}
@@ -109,11 +109,41 @@ func TestAReplyThatReturnsNoCommentIsAnError(t *testing.T) {
 func TestAFailedReplySaysWhatItWasDoing(t *testing.T) {
 	sunk := errors.New("network is down")
 
-	_, err := newWithDoer(&fakeDoer{err: sunk}, nil).AddReply(context.Background(), "PRRT_1", "hi")
+	_, err := newWithDoer(&fakeDoer{err: sunk}, nil).AddReply(context.Background(), "PRRT_1", "", "hi")
 	if !errors.Is(err, sunk) {
 		t.Fatalf("error = %v, want it to wrap %v", err, sunk)
 	}
 	if !strings.Contains(err.Error(), "posting a reply") {
 		t.Errorf("error = %q, want it to name the call", err)
+	}
+}
+
+func TestAReplyIntoAPendingReviewNamesItAndComesBackDraft(t *testing.T) {
+	doer := &fakeDoer{body: strings.Replace(repliedBody, `"body":`, `"state": "PENDING", "body":`, 1)}
+
+	res, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "PRR_1", "hi")
+	if err != nil {
+		t.Fatalf("AddReply: %v", err)
+	}
+	if got := doer.gotVars["reviewId"]; got != "PRR_1" {
+		t.Errorf("reviewId = %v, want the pending review", got)
+	}
+	if !res.Comment.Draft {
+		t.Error("a reply GitHub holds in a pending review came back published")
+	}
+}
+
+func TestAReplyWithNoPendingReviewSendsNull(t *testing.T) {
+	doer := &fakeDoer{body: repliedBody}
+
+	res, err := newWithDoer(doer, nil).AddReply(context.Background(), "PRRT_1", "", "hi")
+	if err != nil {
+		t.Fatalf("AddReply: %v", err)
+	}
+	if got, ok := doer.gotVars["reviewId"]; !ok || got != nil {
+		t.Errorf("reviewId = %v, want null", got)
+	}
+	if res.Comment.Draft {
+		t.Error("a published reply came back pending")
 	}
 }

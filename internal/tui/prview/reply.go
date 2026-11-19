@@ -154,7 +154,7 @@ func (m Model) openReply(t gh.ReviewThread, c gh.Comment, quote bool) (Model, te
 	m.clearMention()
 
 	at := replyKey(t.ID)
-	cmd := m.inline.open(at, m.pageRing.on, "", replyWords)
+	cmd := m.inline.open(at, m.pageRing.on, "", m.answerWords())
 	if quote {
 		m.inline.quote(c.Body)
 	}
@@ -173,6 +173,7 @@ func (m Model) postReply() (Model, tea.Cmd) {
 	}
 
 	id, thread, from := m.pr.ID, m.inline.at.id, m.inline.from
+	review := m.detail.Detail.DraftReview.ID
 
 	m.inline.area.Reset()
 	m.inline.close()
@@ -180,14 +181,29 @@ func (m Model) postReply() (Model, tea.Cmd) {
 	m.pageRing.on = from
 	m.page.ok = false
 	m.syncContent()
-	return m, func() tea.Msg { return PostReplyMsg{ID: id, ThreadID: thread, Body: body} }
+	return m, func() tea.Msg { return PostReplyMsg{ID: id, ThreadID: thread, ReviewID: review, Body: body} }
 }
 
 // RestoreReply files a failed reply as its thread's draft and reopens the box only if nothing else has the keyboard.
 func (m *Model) RestoreReply(threadID, body string) tea.Cmd {
-	return m.restore(replyKey(threadID), body, replyWords,
+	return m.restore(replyKey(threadID), body, m.answerWords(),
 		func() bool { return m.hasThread(threadID) },
 		func() focusKey { return threadFocus(m.detail.Detail.Threads, threadID) })
+}
+
+// GitHub files a reply into the viewer's pending review whether or not it is named, so the box says so.
+func (m Model) answerWords() words {
+	if m.detail.Detail.DraftReview.ID != "" {
+		return addWords
+	}
+	return replyWords
+}
+
+// A review started or ended elsewhere changes where an open reply goes, so its box follows.
+func (m *Model) syncReplyWords() {
+	if m.inline.at.kind == focusReply {
+		m.inline.words = m.answerWords()
+	}
 }
 
 func (m *Model) restore(at focusKey, body string, w words,

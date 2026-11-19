@@ -101,6 +101,10 @@ hanging off it, and the header counts them. `S` submits it with every comment in
 it, the form opening on the summary it already has. `⏎` on the card does the
 same, and `D` discards it and its comments behind a confirm.
 
+While a review is pending, a reply to a thread joins it, as GitHub does. The box
+says it adds to the review, and the reply reads pending in its thread and counts
+in the header until you submit.
+
 With nothing pending, `S` opens a review and submits it in one call, so a refusal
 leaves nothing half made. `esc` keeps the verdict and summary for the next time
 the form opens, and so does a refused submit.
