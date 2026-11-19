@@ -73,7 +73,7 @@ goes through the browser.
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens
 GitHub's eight reactions over the block and toggles the one you pick.
 
-`ctrl+⏎` posts. `ctrl+e` opens `$EDITOR` for anything longer than a line, and
+`ctrl+s` posts. `ctrl+e` opens `$EDITOR` for anything longer than a line, and
 what you write there comes back into the box.
 
 `⏎` on a review comment shows it in the diff, which is the jump from the
@@ -105,7 +105,8 @@ hold in a drawer beside an editor.
 The merge form offers the methods the repository allows, with the commit message
 GitHub itself would use for each. It is not a message zen-octo invents: the
 repository decides the headline and body per method, and the form shows what you
-are actually about to write.
+are actually about to write. `ctrl+s` merges from anywhere in the form,
+the same key that posts a comment.
 
 Where the head branch can be deleted the form offers that too, and where a
 protection would be bypassed it says so before the button rather than after.

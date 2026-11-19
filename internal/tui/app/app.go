@@ -210,9 +210,6 @@ type Model struct {
 	newerRelease string
 	showHelp     bool
 
-	// Held here because the screen is rebuilt on every open and the terminal answers once.
-	chords bool
-
 	refreshing []int
 
 	detailRefreshing detailRefresh
@@ -553,7 +550,6 @@ func stillLoading(sections []store.Section, indices []int) bool {
 
 func (m Model) open(pr gh.PullRequest) (tea.Model, tea.Cmd) {
 	m.detail = prview.New(m.theme, pr, m.detail.Rail(), m.syntax)
-	m.detail.SetChords(m.chords)
 	m.detail.SetViewer(m.store.Viewer())
 	m.screen = screenDetail
 	m.detailRefreshing = detailRefresh{}
@@ -1191,11 +1187,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prview.SplitTooNarrowMsg:
 		return m, m.toasts.Show(comp.ToastInfo,
 			"Side by side needs "+comp.Plural(msg.Short, "more column")+" in the pane")
-
-	case tea.KeyboardEnhancementsMsg:
-		m.chords = msg.SupportsKeyDisambiguation()
-		m.detail.SetChords(m.chords)
-		return m, nil
 
 	case list.OpenMsg:
 		return m.open(msg.PR)

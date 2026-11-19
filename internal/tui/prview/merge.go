@@ -42,18 +42,17 @@ const (
 )
 
 const (
-	mergeHintMethod  = "tab next · j/k method · esc cancel"
-	mergeHintDelete  = "tab next · space toggle · esc cancel"
-	mergeHintButton  = "tab next · ⏎ merge · esc cancel"
-	mergeHintNoChord = "tab to the button to merge · esc cancel"
+	mergeHintMethod = "tab next · j/k method · esc cancel"
+	mergeHintDelete = "tab next · space toggle · esc cancel"
+	mergeHintButton = "tab next · ⏎ merge · esc cancel"
 )
 
-var mergeHintChord = "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"
+var mergeHintWriting = "tab next · " + keys.Detail.Post.Help().Key + " merge · esc cancel"
 
 // The widest hint, so the modal keeps one width as focus moves between rows.
 var mergeHintWidth = func() int {
 	widest := 0
-	for _, hint := range []string{mergeHintMethod, mergeHintDelete, mergeHintButton, mergeHintNoChord, mergeHintChord} {
+	for _, hint := range []string{mergeHintMethod, mergeHintDelete, mergeHintButton, mergeHintWriting} {
 		widest = max(widest, lipgloss.Width(hint))
 	}
 	return widest
@@ -87,8 +86,6 @@ type merging struct {
 	branch string
 
 	bypass bool
-
-	chords bool
 
 	id, oid, refID, base string
 	number               int
@@ -186,7 +183,6 @@ func (m *Model) startMerge() tea.Cmd {
 		refID:      d.HeadRefID,
 		base:       d.BaseRefName,
 		number:     m.pr.Number,
-		chords:     m.compose.chords,
 		headline:   newMergeInput(m.theme),
 		body:       newMergeBody(m.theme),
 	}
@@ -559,7 +555,6 @@ func (f merging) deleteRow(th theme.Theme, width int) string {
 	return mergePad(mark+base.Foreground(th.Text).Render(text), width, base)
 }
 
-// The hint gives way before the button, the only way to merge where the terminal cannot send the chord.
 func (f merging) footer(th theme.Theme, width int) string {
 	style := lipgloss.NewStyle().
 		Padding(0, mergeButtonPad).
@@ -585,10 +580,7 @@ func (f merging) footer(th theme.Theme, width int) string {
 
 func (f merging) footerText() string {
 	if f.typing() {
-		if f.chords {
-			return mergeHintChord
-		}
-		return mergeHintNoChord
+		return mergeHintWriting
 	}
 
 	switch f.on() {

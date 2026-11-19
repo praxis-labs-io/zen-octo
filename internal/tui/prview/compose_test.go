@@ -37,8 +37,8 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-func chord(m prview.Model) (prview.Model, tea.Cmd) {
-	return m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+func post(m prview.Model) (prview.Model, tea.Cmd) {
+	return m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 }
 
 func composing(width, height int) prview.Model {
@@ -176,12 +176,12 @@ func TestTabReachesThePostButtonAndEnterSendsIt(t *testing.T) {
 	}
 }
 
-func TestCtrlEnterPostsFromTheText(t *testing.T) {
-	_, cmd := chord(typed(composing(200, 40), "ship it"))
+func TestCtrlSPostsFromTheText(t *testing.T) {
+	_, cmd := post(typed(composing(200, 40), "ship it"))
 
 	msg, ok := runCmd(cmd).(prview.PostCommentMsg)
 	if !ok {
-		t.Fatalf("ctrl+enter sent %T, want a PostCommentMsg", runCmd(cmd))
+		t.Fatalf("ctrl+s sent %T, want a PostCommentMsg", runCmd(cmd))
 	}
 	if msg.Body != "ship it" {
 		t.Errorf("Body = %q, want what was typed", msg.Body)
@@ -278,19 +278,9 @@ func TestCDoesNothingOnTheTabsWithAColumn(t *testing.T) {
 	}
 }
 
-func TestTheFooterNamesTheChordOnlyWhereItWorks(t *testing.T) {
-	plain := stripANSI(composing(200, 40).View())
-	if strings.Contains(plain, "ctrl+⏎") {
-		t.Errorf("the footer names ctrl+enter on a terminal that cannot send it:\n%s", plain)
-	}
-	if !strings.Contains(plain, "tab · ⏎ post") {
-		t.Errorf("the footer does not name the button path:\n%s", plain)
-	}
-
-	m := detailed(held(sampleDetail()), 200, 40)
-	m.SetChords(true)
-	if got := stripANSI(press(m, "c").View()); !strings.Contains(got, "ctrl+⏎ post") {
-		t.Errorf("the footer does not name the chord where it works:\n%s", got)
+func TestTheFooterNamesCtrlS(t *testing.T) {
+	if got := stripANSI(composing(200, 40).View()); !strings.Contains(got, "ctrl+s post") {
+		t.Errorf("the footer does not name ctrl+s:\n%s", got)
 	}
 }
 
@@ -405,7 +395,7 @@ func TestPostingLetsGoOfTheBox(t *testing.T) {
 		t.Fatalf("the box is not focused before posting, it is %q", got)
 	}
 
-	m, _ = chord(m)
+	m, _ = post(m)
 
 	if got := focusedCard(t, m.View()); got != "" {
 		t.Errorf("posting left %q focused, want nothing", got)

@@ -85,7 +85,7 @@ The same movement keys serve every pane. Focus decides what they move.
 | `x` | resolve or unresolve |
 | `⏎` | on a thread, show it in the diff |
 | `+` | react |
-| `ctrl+⏎` | post |
+| `ctrl+s` | post |
 | `ctrl+e` | open `$EDITOR` |
 
 ### Checks
