@@ -1290,6 +1290,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reactFailedMsg:
 		return m.reactionFailed(msg)
 
+	case prview.ReviewWaitMsg:
+		return m, m.toasts.Show(comp.ToastInfo, "A comment is still being added to your review")
+
 	case prview.ThreadNotInDiffMsg:
 		return m, m.toasts.Show(comp.ToastInfo, msg.Path+" is not in the diff")
 

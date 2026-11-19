@@ -125,9 +125,10 @@ func (e DiscardEdit) Apply(d gh.PullRequestDetail) gh.PullRequestDetail {
 }
 
 // PendingReview holds a review submitted as by at the given time, which the store has no clock to know.
-func (s *Store) PendingReview(id string, event gh.ReviewEvent, body string, by gh.Actor, at time.Time) string {
+// reviewID names the pending review being submitted, or is empty when the submit opens one.
+func (s *Store) PendingReview(id, reviewID string, event gh.ReviewEvent, body string, by gh.Actor, at time.Time) string {
 	return s.holdEdit(id, func(key string) Edit {
-		return ReviewEdit{key: key, state: event.Submitted(), body: body, by: by, at: at, saving: true}
+		return ReviewEdit{key: key, id: reviewID, state: event.Submitted(), body: body, by: by, at: at, saving: true}
 	})
 }
 

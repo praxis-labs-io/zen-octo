@@ -15,7 +15,7 @@ import (
 	"github.com/praxis-labs-io/zen-octo/internal/tui/keys"
 )
 
-// Pressed through the binding, so a rebind of the submit chord moves these tests with it.
+// Pressed through the binding, so a rebind of the submit key moves these tests with it.
 var post = keys.Detail.Post.Keys()[0]
 
 type reviewCall struct {
@@ -445,13 +445,19 @@ func TestDiscardingThePendingReviewAsksFirst(t *testing.T) {
 	}
 }
 
-func TestARefusedDiscardPutsTheReviewBack(t *testing.T) {
+func TestARefusedDiscardPutsTheReviewBackAndRefetches(t *testing.T) {
 	client := reviewer()
 	client.serveDetail("PR_412", "Caps the backoff at 30s.")
 	client.servePendingReview("PR_412")
 	client.postErr = errors.New("502 Bad Gateway")
 
-	m := press(onPendingCard(t, press(loaded(t, client, 160, 60), "enter")), "D", "j", "enter")
+	m := onPendingCard(t, press(loaded(t, client, 160, 60), "enter"))
+	before := len(client.opened())
+	m = press(m, "D", "j", "enter")
+
+	if got := len(client.opened()); got <= before {
+		t.Error("a refused discard was not refetched")
+	}
 
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Only you can see this") {
 		t.Errorf("the pending review did not come back:\n%s", out)
@@ -507,5 +513,19 @@ func TestTheTallestReviewFormFitsTheNarrowestFrame(t *testing.T) {
 	foot := strings.Join(lines[min(len(lines), footerRow(t, lines)+1):], "\n")
 	if !strings.Contains(foot, "╯") {
 		t.Errorf("the form has no bottom border at %dx%d:\n%s", app.MinWidth, app.MinHeight, out)
+	}
+}
+
+func TestADiscardTakesTheHeldSummaryWithIt(t *testing.T) {
+	client := reviewer()
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.servePendingReview("PR_412")
+
+	m := press(loaded(t, client, 160, 60), "enter")
+	m = press(write(press(m, "S", "tab"), " And a third."), "esc")
+	m = press(onPendingCard(t, m), "D", "j", "enter")
+
+	if out := stripANSI(render(t, press(m, "S"))); strings.Contains(out, "And a third.") {
+		t.Errorf("the form reopened on a discarded review's summary:\n%s", out)
 	}
 }

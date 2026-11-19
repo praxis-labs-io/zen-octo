@@ -21,7 +21,6 @@ const (
 	formFieldLead = 2
 )
 
-// formWidth fits the longest line between the form's floor and ceiling, and inside the frame.
 func formWidth(longest, frameWidth int) int {
 	want := min(max(longest, formMinWidth), formMaxWidth)
 	if room := frameWidth - 4; room > 0 {
@@ -71,7 +70,7 @@ func formWarning(th theme.Theme, text string, width int) string {
 	return formNote(th, text, lipgloss.NewStyle().Foreground(th.Warning), width)
 }
 
-// The hint gives way before the button, the only way to send where the terminal cannot send the chord.
+// The hint gives way before the button: a hint can be cut short, and the way to send cannot.
 func formFooter(th theme.Theme, label, hint string, width int, ready, focused bool) string {
 	style := lipgloss.NewStyle().
 		Padding(0, formButtonPad).

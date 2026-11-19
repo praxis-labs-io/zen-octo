@@ -62,6 +62,9 @@ const confirmDiscard = "discard"
 
 // Opens on the row that keeps the review, so enter with no movement discards nothing.
 func (m Model) startDiscard() (Model, tea.Cmd) {
+	if draftsLanding(m.detail.Detail) {
+		return m, func() tea.Msg { return ReviewWaitMsg{} }
+	}
 	question := "Discard your review?"
 	if n := draftComments(m.detail.Detail); n > 0 {
 		question = "Discard your review and its " + comp.Plural(n, "comment") + "?"
@@ -91,6 +94,7 @@ func (m Model) applyDiscard(p picking) (Model, tea.Cmd) {
 
 	msg := DiscardReviewMsg{ID: m.pr.ID, ReviewID: p.on.at.id}
 
+	m.reviewKept = reviewDraft{}
 	m.pageRing.clear()
 	m.page.ok = false
 	m.syncContent()

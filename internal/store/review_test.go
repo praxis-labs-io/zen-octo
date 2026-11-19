@@ -36,7 +36,7 @@ func TestASubmittedReviewReadsAsPublishedBeforeItLands(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", withPendingReview())
 
-	s.PendingReview("PR_1", gh.ReviewEventApprove, "Two things.", viewer, submittedAt)
+	s.PendingReview("PR_1", "PRR_1", gh.ReviewEventApprove, "Two things.", viewer, submittedAt)
 	d := s.Detail("PR_1")
 
 	if d.Detail.DraftReview != (gh.Review{}) {
@@ -61,11 +61,35 @@ func TestASubmittedReviewReadsAsPublishedBeforeItLands(t *testing.T) {
 	}
 }
 
+func TestARefetchThatAlreadyHasTheReviewShowsItOnce(t *testing.T) {
+	s := store.New(configured())
+	s.DetailApplied("PR_1", withPendingReview())
+	s.PendingReview("PR_1", "PRR_1", gh.ReviewEventApprove, "Two things.", viewer, submittedAt)
+
+	fetched := withPendingReview()
+	fetched.Detail.DraftReview = gh.Review{}
+	fetched.Detail.Timeline = []gh.TimelineItem{{
+		Kind: gh.TimelineReview, Review: gh.ReviewStateApproved,
+		Comment: &gh.Comment{Kind: gh.CommentReview, ID: "PRR_1", Author: viewer},
+	}}
+	s.DetailApplied("PR_1", fetched)
+
+	n := 0
+	for _, item := range s.Detail("PR_1").Detail.Timeline {
+		if item.Kind == gh.TimelineReview {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("the timeline holds %d reviews, want the submitted one once", n)
+	}
+}
+
 func TestAReviewWithNothingPendingOpensItsOwnItem(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", gh.DetailResult{})
 
-	key := s.PendingReview("PR_1", gh.ReviewEventComment, "Looks fine.", viewer, submittedAt)
+	key := s.PendingReview("PR_1", "", gh.ReviewEventComment, "Looks fine.", viewer, submittedAt)
 
 	if _, ok := reviewItem(s.Detail("PR_1"), key); !ok {
 		t.Fatal("the review is not in the timeline under its key")
@@ -82,7 +106,7 @@ func TestALandedReviewTakesGitHubsIDAndMarksTheFetchStale(t *testing.T) {
 		t.Fatal("BeginDetail refused a detail that is not loading")
 	}
 
-	key := s.PendingReview("PR_1", gh.ReviewEventRequestChanges, "Two things.", viewer, submittedAt)
+	key := s.PendingReview("PR_1", "", gh.ReviewEventRequestChanges, "Two things.", viewer, submittedAt)
 	s.ReviewApplied("PR_1", key, gh.ReviewResult{Review: gh.Review{
 		ID: "PRR_9", State: gh.ReviewStateChangesRequested, Body: "Two things.",
 	}})
@@ -106,7 +130,7 @@ func TestARevertedReviewPutsThePendingOneBack(t *testing.T) {
 	s := store.New(configured())
 	s.DetailApplied("PR_1", withPendingReview())
 
-	key := s.PendingReview("PR_1", gh.ReviewEventApprove, "", viewer, submittedAt)
+	key := s.PendingReview("PR_1", "PRR_1", gh.ReviewEventApprove, "", viewer, submittedAt)
 	_ = s.Detail("PR_1")
 	s.EditRevertedStale("PR_1", key)
 

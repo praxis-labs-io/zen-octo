@@ -320,6 +320,7 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 
 	if m.reviewing.open {
 		m.reviewing.summary.SetValue(strings.TrimRight(msg.body, "\n"))
+		landOnEnd(&m.reviewing.summary)
 		return m, nil
 	}
 
@@ -332,6 +333,12 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 	box.area.MoveToEnd()
 	m.showBox()
 	return m, nil
+}
+
+// A textarea scrolls against the text its last render drew, which is the old value until one runs.
+func landOnEnd(a *area.Model) {
+	_ = a.View()
+	a.MoveToEnd()
 }
 
 func (c composer) editorCmd() tea.Cmd { return editorCmd(c.area.Value()) }

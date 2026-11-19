@@ -333,7 +333,6 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 	return m.withThreads(card, written.ID, threads, shown, width)
 }
 
-// withThreads hangs the threads a review opened off its card, marking each one shown.
 func (m *Model) withThreads(card rendered, reviewID string, threads []gh.ReviewThread, shown map[int]bool, width int) rendered {
 	block, stops, boxAt, boxCol := card.block, card.stops, card.boxAt, card.boxCol
 	used := strings.Count(block, "\n") + 1

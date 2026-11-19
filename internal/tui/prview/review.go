@@ -25,6 +25,9 @@ type SubmitReviewMsg struct {
 	Body     string
 }
 
+// ReviewWaitMsg reports a submit or discard held back while a comment bound for the review is on its way.
+type ReviewWaitMsg struct{}
+
 type DiscardReviewMsg struct {
 	ID       string
 	ReviewID string
@@ -95,7 +98,6 @@ type reviewing struct {
 	row int
 }
 
-// reviewDraft is what a closed or refused form held, offered again the next time it opens.
 type reviewDraft struct {
 	event gh.ReviewEvent
 	body  string
@@ -158,6 +160,9 @@ func (m *Model) startReview() tea.Cmd {
 		return nil
 	}
 	d := m.detail.Detail
+	if draftsLanding(d) {
+		return func() tea.Msg { return ReviewWaitMsg{} }
+	}
 
 	f := reviewing{
 		open:     true,
@@ -379,7 +384,6 @@ func (f reviewing) chromeRows() int {
 	return chrome
 }
 
-// draftComments counts the viewer's unsent comments, which are all held in their one pending review.
 func draftComments(d gh.PullRequestDetail) int {
 	n := 0
 	for _, t := range d.Threads {
@@ -390,4 +394,16 @@ func draftComments(d gh.PullRequestDetail) int {
 		}
 	}
 	return n
+}
+
+// Sent ahead of a comment bound for it, a review would publish without the comment or open a second one.
+func draftsLanding(d gh.PullRequestDetail) bool {
+	for _, t := range d.Threads {
+		for _, c := range t.Comments {
+			if c.Draft && c.Pending {
+				return true
+			}
+		}
+	}
+	return false
 }

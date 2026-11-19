@@ -38,7 +38,7 @@ type discardFailedMsg struct {
 }
 
 func (m Model) submitReview(msg prview.SubmitReviewMsg) (tea.Model, tea.Cmd) {
-	key := m.store.PendingReview(msg.ID, msg.Event, msg.Body, m.store.Viewer(), time.Now())
+	key := m.store.PendingReview(msg.ID, msg.ReviewID, msg.Event, msg.Body, m.store.Viewer(), time.Now())
 
 	shown := m.detail.SetDetail(m.store.Detail(msg.ID))
 	return m, tea.Batch(shown, m.sendReview(msg, key))
@@ -137,12 +137,16 @@ func (m Model) discardLanded(msg reviewDiscardedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
 }
 
+// Refetches, since a refused discard usually means the review was submitted or discarded elsewhere.
 func (m Model) discardFailed(msg discardFailedMsg) (tea.Model, tea.Cmd) {
-	m.store.EditReverted(msg.id, msg.key)
+	m.store.EditRevertedStale(msg.id, msg.key)
 
-	toast := m.toasts.Show(comp.ToastError, "Could not discard the review: "+msg.err.Error())
-	if !m.showing(msg.id) {
-		return m, toast
+	cmds := []tea.Cmd{
+		m.toasts.Show(comp.ToastError, "Could not discard the review: "+msg.err.Error()),
+		m.correctDetail(msg.id),
 	}
-	return m, tea.Batch(m.detail.SetDetail(m.store.Detail(msg.id)), toast)
+	if m.showing(msg.id) {
+		cmds = append(cmds, m.detail.SetDetail(m.store.Detail(msg.id)))
+	}
+	return m, tea.Batch(cmds...)
 }

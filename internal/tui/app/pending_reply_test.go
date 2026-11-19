@@ -136,3 +136,29 @@ func TestAnOpenReplyBoxFollowsAReviewThatEndedElsewhere(t *testing.T) {
 		t.Errorf("the box did not come back to post directly:\n%s", out)
 	}
 }
+
+func TestTheReviewWaitsForAReplyStillBeingAdded(t *testing.T) {
+	tests := []struct {
+		name string
+		keys func(t *testing.T, m tea.Model) tea.Model
+		gone string
+	}{
+		{"S", func(_ *testing.T, m tea.Model) tea.Model { return press(m, "S") }, "Review #412"},
+		{"D", func(t *testing.T, m tea.Model) tea.Model { return press(onPendingCard(t, m), "D") }, "Discard your review"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := reviewer()
+			client.holdPosts()
+
+			m := tt.keys(t, press(answeringIntoReview(t, client, "capped it"), post))
+
+			if out := stripANSI(render(t, m)); strings.Contains(out, tt.gone) {
+				t.Errorf("%s went ahead with a reply still on its way:\n%s", tt.name, out)
+			}
+			if bar := lastLine(render(t, m)); !strings.Contains(bar, "A comment is still being added to your review") {
+				t.Errorf("status bar = %q, want it to say why", strings.TrimSpace(bar))
+			}
+		})
+	}
+}

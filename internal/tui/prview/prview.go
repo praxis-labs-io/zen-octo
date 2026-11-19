@@ -298,6 +298,9 @@ func (m Model) firstFile() int {
 // SetDetail takes the store's detail for this pull request. The command arms the commit and job fetch waits.
 func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	headMoved := m.detail.Loaded && d.Loaded && m.detail.Detail.HeadRefOid != d.Detail.HeadRefOid
+	if was := m.detail.Detail.DraftReview.ID; was != "" && was != d.Detail.DraftReview.ID {
+		m.reviewKept = reviewDraft{}
+	}
 	m.detail = d
 	m.diff.blocks = nil
 	m.page.ok = false
