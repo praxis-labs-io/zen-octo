@@ -119,6 +119,7 @@ Things GitHub does that the code depends on and cannot show.
 - **A file-level thread reports `line: 1`.** `subjectType` is the only field telling it from a thread written against the first line.
 - **`addPullRequestReviewThread` with no review opens one.** GitHub publishes no line comment standing alone, so a single comment is a pending review that still has to be submitted.
 - **`deletePullRequestReview` takes its threads with it**, and `reviewThreads.totalCount` lags `nodes` for a moment after.
+- **A range can start on either side of the line it ends on.** `startSide` RIGHT with `side` LEFT is accepted as readily as the reverse, so a selection goes out as the rows it covers.
 - **`startLine` equals `line` on a single-line thread.** GitHub nulls it only when the thread is outdated, so it never marks a range on its own.
 - **An outdated review thread has no `line` or `startLine`.** GitHub nulls both once the code under it moves, so the thread is anchored by `originalLine` and `originalStartLine` instead.
 - **A nil slice goes over the wire as `null`, and `[ID!]!` rejects it.** An empty label or assignee set has to be sent as `[]`.

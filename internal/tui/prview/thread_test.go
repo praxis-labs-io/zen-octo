@@ -68,7 +68,7 @@ func TestCOnFilesOpensABoxOnWhatTheCursorNames(t *testing.T) {
 			head: "comment on lines 40–41",
 			want: gh.ReviewThreadInput{
 				Path: "internal/gh/client.go", Subject: gh.SubjectLine,
-				StartLine: 40, StartSide: gh.SideLeft, Line: 41, Side: gh.SideLeft,
+				StartLine: 40, StartSide: gh.SideRight, Line: 41, Side: gh.SideLeft,
 			},
 		},
 		{
