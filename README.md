@@ -8,9 +8,9 @@ people's branches.
 ![A pull request read, discussed and merged without leaving the terminal](docs/images/tour.gif)
 
 A pull request opens as four tabs: the conversation as threaded cards, the diff,
-the commits, and the CI logs. Reply, react and resolve on any thread, comment on
-the lines under the cursor, jump to a job's first failure, set the state, labels,
-reviewers and base branch from a rail, then merge with the commit message GitHub
+the commits, and the CI logs. Reply, quote, edit, react and resolve on any thread,
+comment on the lines under the cursor, jump to a job's first failure, set the
+state, labels, reviewers, assignees and base branch from a rail, then merge with the commit message GitHub
 itself would write. This is v0.4.0, an early release: submitting a review,
 checking a branch out and listing issues still go through `gh` or the browser.
 
@@ -72,7 +72,7 @@ the writes hold in a drawer beside an editor.
 
 On Files the tree is beside the diff, review comments sit against the lines they
 were written on, and `c` adds one to your pending review, on the selection, the
-line, the hunk or the file. `\|` splits the diff into two columns.
+line, the hunk or the file. `\|` splits the diff into two columns, and `?` lists the keys.
 
 `?` lists the keys without leaving the app.
 
