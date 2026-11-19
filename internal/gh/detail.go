@@ -97,6 +97,10 @@ query PullRequestDetail($id: ID!, $head: String!) {
         }
       }
 
+      pendingReview: reviews(first: 1, states: [PENDING]) {
+        nodes { id body viewerDidAuthor comments { totalCount } }
+      }
+
       reviewThreads(first: 100) {
         totalCount
         nodes {
@@ -385,6 +389,15 @@ type pullRequestResponse struct {
 			}
 		}
 
+		PendingReview struct {
+			Nodes []struct {
+				ID              string
+				Body            string
+				ViewerDidAuthor bool
+				Comments        struct{ TotalCount int }
+			}
+		}
+
 		ReviewThreads struct {
 			TotalCount int
 			Nodes      []reviewThreadNode
@@ -561,13 +574,13 @@ func RecountThreads(d *PullRequestDetail) {
 	}
 }
 
-// GitHub returns nobody else's pending review, and at most one of the viewer's own.
+// Asked for apart from the reviews page, which is oldest first and past a hundred would miss it. GitHub
+// returns nobody else's pending review, and at most one of the viewer's own.
 func draftReview(n pullRequestResponse) Review {
-	for _, r := range n.Node.Reviews.Nodes {
-		if ReviewState(r.State) != ReviewStatePending || !r.ViewerDidAuthor {
-			continue
+	for _, r := range n.Node.PendingReview.Nodes {
+		if r.ViewerDidAuthor {
+			return Review{ID: r.ID, State: ReviewStatePending, Body: r.Body, Comments: r.Comments.TotalCount}
 		}
-		return Review{ID: r.ID, State: ReviewStatePending, Body: r.Body}
 	}
 	return Review{}
 }

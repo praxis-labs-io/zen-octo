@@ -168,3 +168,20 @@ func TestWrappedRowsFoldsWhereTheTextareaFolds(t *testing.T) {
 		})
 	}
 }
+
+func TestTheReviewSummaryShowsTheEndOfWhatTheEditorWrote(t *testing.T) {
+	m := pressKeys(editorFixture(t), "S")
+	if !m.reviewing.open {
+		t.Fatal("S opened no review form")
+	}
+
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "line " + string(rune('a'+i))
+	}
+	m, _ = m.Update(editorDoneMsg{body: strings.Join(lines, "\n") + "\n"})
+
+	if frame := stripSeqs(m.View()); !strings.Contains(frame, "line t") {
+		t.Errorf("the summary does not show the last line written:\n%s", frame)
+	}
+}

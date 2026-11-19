@@ -81,9 +81,10 @@ The same movement keys serve every pane. Focus decides what they move.
 | `r` | reply, or rerun a job |
 | `R` | quote reply, or rerun every job in a workflow |
 | `e` | edit |
-| `D` | delete |
+| `D` | delete, or discard your pending review |
 | `x` | resolve or unresolve |
-| `⏎` | on a thread, show it in the diff |
+| `S` | review, or submit your pending review |
+| `⏎` | on a thread, show it in the diff; on your pending review, submit it |
 | `+` | react |
 | `ctrl+s` | post |
 | `ctrl+e` | open `$EDITOR` |

@@ -113,8 +113,9 @@ func (m *Model) entries() string {
 		}
 	}
 
+	draft := d.DraftReview.ID
 	for i, thread := range d.Threads {
-		if !shown[i] {
+		if !shown[i] && (draft == "" || thread.ReviewID != draft) {
 			if m.boxIn(thread) {
 				mark()
 			}
@@ -130,6 +131,13 @@ func (m *Model) entries() string {
 	}
 	if n := d.MoreEvents; n > 0 {
 		push(wrap(m.faint().Render(comp.Plural(n, "earlier event")+" on GitHub"), width), focusKey{})
+	}
+
+	if draft != "" {
+		if m.boxUnder(d.Threads, draft) {
+			mark()
+		}
+		pushStops(m.pendingReview(d, shown, width))
 	}
 
 	if split < 0 {
@@ -225,6 +233,10 @@ func (m *Model) boxBlock(width int) rendered {
 		}
 	}
 
+	if draft := d.DraftReview.ID; draft != "" && m.boxUnder(d.Threads, draft) {
+		return m.pendingReview(d, make(map[int]bool, len(d.Threads)), width)
+	}
+
 	for _, t := range d.Threads {
 		if m.boxIn(t) {
 			return m.thread(t, width, true)
@@ -311,13 +323,23 @@ func (m *Model) review(item gh.TimelineItem, threads []gh.ReviewThread, shown ma
 	block := m.card(head, m.withReactions(content, written.Reactions, key, m.cardWidth(width)), width,
 		m.lit(key), m.cardHints(key, written, width))
 
-	used := strings.Count(block, "\n") + 1
-	stops := []focusItem{{focusKey: key, lines: used}}
 	boxAt, boxCol := m.cardBoxAt(key, width, content)
+	card := rendered{
+		block:  block,
+		stops:  []focusItem{{focusKey: key, lines: strings.Count(block, "\n") + 1}},
+		boxAt:  boxAt,
+		boxCol: boxCol,
+	}
+	return m.withThreads(card, written.ID, threads, shown, width)
+}
+
+func (m *Model) withThreads(card rendered, reviewID string, threads []gh.ReviewThread, shown map[int]bool, width int) rendered {
+	block, stops, boxAt, boxCol := card.block, card.stops, card.boxAt, card.boxCol
+	used := strings.Count(block, "\n") + 1
 
 	var owned []rendered
 	for i, thread := range threads {
-		if thread.ReviewID != written.ID || thread.ReviewID == "" {
+		if thread.ReviewID != reviewID || thread.ReviewID == "" {
 			continue
 		}
 		shown[i] = true
@@ -782,6 +804,8 @@ func (m Model) cardBoxAt(key focusKey, width int, content string) (at, col int) 
 
 func (m *Model) byline(c gh.Comment) string {
 	switch {
+	case c.Pending && c.Draft:
+		return m.pendingHead(c.Author, "said", "adding")
 	case c.Pending:
 		return m.pendingHead(c.Author, "said", "posting")
 	case c.Editing:

@@ -63,6 +63,8 @@ type fakeSearcher struct {
 	merged          []gh.MergeOptions
 	mergeState      gh.PRState
 	deletedRefs     []string
+	reviewCalls     []reviewCall
+	discards        []string
 	states          map[string]*gh.PRStateResult
 	metaAsked       []string
 	repoMetas       map[string]gh.RepoMeta
@@ -402,8 +404,11 @@ func (f *fakeSearcher) AddComment(_ context.Context, subjectID, body string) (gh
 	}, nil
 }
 
-func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.CommentResult, error) {
+func (f *fakeSearcher) AddReply(_ context.Context, threadID, reviewID, body string) (gh.CommentResult, error) {
 	f.mu.Lock()
+	if reviewID != "" {
+		threadID += " in " + reviewID
+	}
 	f.replied = append(f.replied, threadID+": "+body)
 	err, hold := f.postErr, f.postHold
 	f.mu.Unlock()
@@ -418,6 +423,7 @@ func (f *fakeSearcher) AddReply(_ context.Context, threadID, body string) (gh.Co
 			Kind: gh.CommentThread, ID: "PRRC_POSTED",
 			Author: gh.Actor{Login: "drucial"}, CreatedAt: time.Now(), Body: body,
 			ViewerDidAuthor: true, CanEdit: true, CanDelete: true, CanReact: true,
+			Draft: reviewID != "",
 		},
 	}, nil
 }
@@ -921,7 +927,7 @@ func (f *querySearcher) AddComment(_ context.Context, _, _ string) (gh.CommentRe
 	return gh.CommentResult{}, nil
 }
 
-func (f *querySearcher) AddReply(_ context.Context, _, _ string) (gh.CommentResult, error) {
+func (f *querySearcher) AddReply(_ context.Context, _, _, _ string) (gh.CommentResult, error) {
 	return gh.CommentResult{}, nil
 }
 
@@ -988,6 +994,16 @@ func (f *querySearcher) RequestReviews(_ context.Context, _ string, _ int, _ []s
 func (f *querySearcher) RemoveReviewRequests(_ context.Context, _ string, _ int, _ []string) error {
 	return nil
 }
+
+func (f *querySearcher) StartReview(context.Context, string, gh.ReviewEvent, string) (gh.ReviewResult, error) {
+	return gh.ReviewResult{}, nil
+}
+
+func (f *querySearcher) SubmitReview(context.Context, string, gh.ReviewEvent, string) (gh.ReviewResult, error) {
+	return gh.ReviewResult{}, nil
+}
+
+func (f *querySearcher) DiscardReview(context.Context, string) error { return nil }
 
 func testConfig() *config.Config {
 	return &config.Config{

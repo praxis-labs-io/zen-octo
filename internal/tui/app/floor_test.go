@@ -109,13 +109,9 @@ func (f *fakeSearcher) serveBypassMerge(id string) {
 	f.details[id] = held
 }
 
-func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
-	client := &fakeSearcher{prs: samplePRs()}
-	client.serveDetail("PR_412", "Caps the backoff at 30s.")
-	client.serveBypassMerge("PR_412")
-	client.serveRepoMeta(gh.RepoMeta{
-		Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
-	})
+// The config notice takes a row, so the frame is as short as the shell will draw.
+func atTheFloor(t *testing.T, client *fakeSearcher) tea.Model {
+	t.Helper()
 
 	cfg := testConfig()
 	cfg.Theme = config.Theme{Named: "rose-pine-moon"}
@@ -123,15 +119,26 @@ func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
 	if !strings.Contains(stripANSI(render(t, sized)), "Theme names are gone") {
 		t.Fatal("setup: no config notice, so the frame is a row taller than this is measuring")
 	}
+	return sized
+}
 
-	m := press(sized, "enter", "d", "1", "j", "j", "j", "j", "j")
+func TestTheTallestMergeFormFitsTheNarrowestFrame(t *testing.T) {
+	client := &fakeSearcher{prs: samplePRs()}
+	client.serveDetail("PR_412", "Caps the backoff at 30s.")
+	client.serveBypassMerge("PR_412")
+	client.servePendingReview("PR_412")
+	client.serveRepoMeta(gh.RepoMeta{
+		Methods: gh.MergeMethods{Merge: true, Squash: true, Rebase: true},
+	})
+
+	m := press(atTheFloor(t, client), "enter", "d", "1", "j", "j", "j", "j", "j")
 	if out := stripANSI(render(t, m)); !strings.Contains(out, "Blocked") {
 		t.Fatalf("the rail has no Merge row to stand on:\n%s", out)
 	}
 
 	out := stripANSI(render(t, press(m, "enter")))
 	for _, want := range []string{"Rebase and merge", "Delete fix-auth after merging",
-		"Bypasses branch protection", "esc cancel", "Merge"} {
+		"Bypasses branch protection", "won't be published", "esc cancel", "Merge"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the form is missing %q at %dx%d:\n%s", want, app.MinWidth, app.MinHeight, out)
 		}

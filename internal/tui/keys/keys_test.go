@@ -90,6 +90,7 @@ func TestHelpAndDeclarationsAgree(t *testing.T) {
 		{name: "list blocked", live: []any{keys.List, keys.Global}, short: keys.List.ShortHelp(keys.ListContext{}), full: keys.List.FullHelp()},
 		{name: "list search", live: []any{keys.List, keys.Global}, short: keys.List.SearchHelp(), full: keys.List.FullHelp()},
 		{name: "detail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Blocks: true, Expand: true, Rail: true, Column: "file"}), full: keys.Detail.FullHelp()},
+		{name: "detail reviewing", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Rail: true, Review: true, ReviewPending: true}), full: keys.Detail.FullHelp()},
 		{name: "detail rail", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{Activate: true, Panes: true, Rail: true}), full: keys.Detail.FullHelp()},
 		{name: "detail searched", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.ShortHelp(keys.DetailContext{SearchStanding: true, JobLog: true, JobMatches: true}), full: keys.Detail.FullHelp()},
 		{name: "detail search", live: []any{keys.Detail, keys.Global, keys.Form}, short: keys.Detail.SearchHelp(), full: keys.Detail.FullHelp()},

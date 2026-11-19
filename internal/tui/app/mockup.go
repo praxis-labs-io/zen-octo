@@ -132,6 +132,21 @@ func (Mock) Merge(_ context.Context, _ string, _ gh.MergeOptions) (gh.MergeResul
 
 func (Mock) DeleteRef(_ context.Context, _ string) error { return nil }
 
+func (Mock) StartReview(_ context.Context, _ string, event gh.ReviewEvent, body string) (gh.ReviewResult, error) {
+	n := mockReplies.Add(1)
+	return gh.ReviewResult{Review: gh.Review{
+		ID:    "PRR_MOCK_" + strconv.FormatInt(n, 10),
+		State: event.Submitted(),
+		Body:  body,
+	}}, nil
+}
+
+func (Mock) SubmitReview(_ context.Context, reviewID string, event gh.ReviewEvent, body string) (gh.ReviewResult, error) {
+	return gh.ReviewResult{Review: gh.Review{ID: reviewID, State: event.Submitted(), Body: body}}, nil
+}
+
+func (Mock) DiscardReview(context.Context, string) error { return nil }
+
 func (Mock) SetAssignees(_ context.Context, _ string, assigneeIDs []string) (gh.AssigneesResult, error) {
 	out := make([]gh.Actor, 0, len(assigneeIDs))
 	for _, u := range mockUsers {
@@ -165,7 +180,7 @@ func (Mock) SetReaction(_ context.Context, _ string,
 	}}, nil
 }
 
-func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error) {
+func (Mock) AddReply(_ context.Context, _, reviewID, body string) (gh.CommentResult, error) {
 	n := mockReplies.Add(1)
 	return gh.CommentResult{
 		Comment: gh.Comment{
@@ -178,6 +193,7 @@ func (Mock) AddReply(_ context.Context, _, body string) (gh.CommentResult, error
 			CanEdit:         true,
 			CanDelete:       true,
 			CanReact:        true,
+			Draft:           reviewID != "",
 		},
 	}, nil
 }

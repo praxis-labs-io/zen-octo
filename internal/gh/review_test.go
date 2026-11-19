@@ -56,7 +56,7 @@ func lineThread() ReviewThreadInput {
 
 func TestAStartedReviewComesBackPending(t *testing.T) {
 	res, err := newWithDoer(&fakeDoer{body: startedReviewBody}, nil).
-		StartReview(context.Background(), "PR_412", "Two things.")
+		StartReview(context.Background(), "PR_412", "", "Two things.")
 	if err != nil {
 		t.Fatalf("StartReview: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestAStartedReviewComesBackPending(t *testing.T) {
 func TestTheStartedReviewSendsThePullRequestAndBodyAsVariables(t *testing.T) {
 	doer := &fakeDoer{body: startedReviewBody}
 
-	if _, err := newWithDoer(doer, nil).StartReview(context.Background(), "PR_412", "``` fenced ```"); err != nil {
+	if _, err := newWithDoer(doer, nil).StartReview(context.Background(), "PR_412", "", "``` fenced ```"); err != nil {
 		t.Fatalf("StartReview: %v", err)
 	}
 
@@ -82,6 +82,43 @@ func TestTheStartedReviewSendsThePullRequestAndBodyAsVariables(t *testing.T) {
 	}
 	if strings.Contains(doer.gotQuery, "fenced") {
 		t.Error("the body was written into the document instead of sent as a variable")
+	}
+}
+
+func TestAStartedReviewIsSubmittedOnlyWhenGivenAVerdict(t *testing.T) {
+	tests := []struct {
+		name  string
+		event ReviewEvent
+		body  string
+		want  map[string]any
+	}{
+		{"left pending", "", "Two things.", map[string]any{"event": nil, "body": "Two things."}},
+		{"a bare approval", ReviewEventApprove, "", map[string]any{"event": "APPROVE", "body": nil}},
+		{"changes requested", ReviewEventRequestChanges, "Two things.",
+			map[string]any{"event": "REQUEST_CHANGES", "body": "Two things."}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doer := &fakeDoer{body: startedReviewBody}
+
+			if _, err := newWithDoer(doer, nil).StartReview(context.Background(), "PR_412", tt.event, tt.body); err != nil {
+				t.Fatalf("StartReview: %v", err)
+			}
+			for key, want := range tt.want {
+				if got, ok := doer.gotVars[key]; !ok || got != want {
+					t.Errorf("%s = %v, want %v", key, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestTheStartedReviewTakesAnEventInTheSameCall(t *testing.T) {
+	for _, want := range []string{"$event: PullRequestReviewEvent", "event: $event", "$body: String)"} {
+		if !strings.Contains(startReviewMutation, want) {
+			t.Errorf("the mutation does not carry %q", want)
+		}
 	}
 }
 
@@ -276,7 +313,7 @@ func TestAReviewWriteThatReturnsNothingIsAnError(t *testing.T) {
 			name: "start", body: `{"addPullRequestReview": {"pullRequestReview": {}}}`,
 			want: "returned no review",
 			call: func(c *Client) error {
-				_, err := c.StartReview(context.Background(), "PR_412", "")
+				_, err := c.StartReview(context.Background(), "PR_412", "", "")
 				return err
 			},
 		},
@@ -323,7 +360,7 @@ func TestAFailedReviewWriteSaysWhatItWasDoing(t *testing.T) {
 		call func(*Client) error
 	}{
 		{"start", "starting a review", func(c *Client) error {
-			_, err := c.StartReview(context.Background(), "PR_412", "")
+			_, err := c.StartReview(context.Background(), "PR_412", "", "")
 			return err
 		}},
 		{"thread", "opening a review thread", func(c *Client) error {

@@ -30,6 +30,7 @@ type words struct {
 var (
 	commentWords = words{placeholder: "Leave a comment", button: "Post", send: "post", back: "done"}
 	replyWords   = words{placeholder: "Leave a reply", button: "Post", send: "post", back: "done"}
+	addWords     = words{placeholder: "Leave a reply", button: "Add to review", send: "add to review", back: "done"}
 
 	updateWords = words{placeholder: "Empty, so far", button: "Save", send: "save", back: "discard"}
 )
@@ -317,6 +318,12 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return EditorFailedMsg{Err: err} }
 	}
 
+	if m.reviewing.open {
+		m.reviewing.summary.SetValue(strings.TrimRight(msg.body, "\n"))
+		landOnEnd(&m.reviewing.summary)
+		return m, nil
+	}
+
 	box := m.writing()
 	if box == nil {
 		return m, nil
@@ -328,8 +335,16 @@ func (m Model) editorReturned(msg editorDoneMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (c composer) editorCmd() tea.Cmd {
-	path, err := draftFile(c.area.Value())
+// A textarea scrolls against the text its last render drew, which is the old value until one runs.
+func landOnEnd(a *area.Model) {
+	_ = a.View()
+	a.MoveToEnd()
+}
+
+func (c composer) editorCmd() tea.Cmd { return editorCmd(c.area.Value()) }
+
+func editorCmd(body string) tea.Cmd {
+	path, err := draftFile(body)
 	if err != nil {
 		return func() tea.Msg { return editorDoneMsg{err: err} }
 	}

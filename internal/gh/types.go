@@ -69,6 +69,17 @@ const (
 	ReviewEventRequestChanges ReviewEvent = "REQUEST_CHANGES"
 )
 
+// Submitted is the state a review takes once submitted with e.
+func (e ReviewEvent) Submitted() ReviewState {
+	switch e {
+	case ReviewEventApprove:
+		return ReviewStateApproved
+	case ReviewEventRequestChanges:
+		return ReviewStateChangesRequested
+	}
+	return ReviewStateCommented
+}
+
 type TimelineKind string
 
 const (
@@ -547,6 +558,8 @@ type Review struct {
 	ID    string
 	State ReviewState
 	Body  string
+	// Comments counts a pending review's comments, those in threads past the loaded page included.
+	Comments int
 }
 
 type ReviewResult struct {

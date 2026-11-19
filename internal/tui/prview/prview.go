@@ -55,9 +55,11 @@ type PostCommentMsg struct {
 	Body string
 }
 
+// PostReplyMsg asks the root to answer ThreadID. ReviewID is the viewer's pending review the reply joins, or empty.
 type PostReplyMsg struct {
 	ID       string
 	ThreadID string
+	ReviewID string
 	Body     string
 }
 
@@ -225,6 +227,9 @@ type Model struct {
 
 	merging merging
 
+	reviewing  reviewing
+	reviewKept reviewDraft
+
 	width  int
 	height int
 }
@@ -293,6 +298,9 @@ func (m Model) firstFile() int {
 // SetDetail takes the store's detail for this pull request. The command arms the commit and job fetch waits.
 func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	headMoved := m.detail.Loaded && d.Loaded && m.detail.Detail.HeadRefOid != d.Detail.HeadRefOid
+	if was := m.detail.Detail.DraftReview.ID; was != "" && was != d.Detail.DraftReview.ID {
+		m.reviewKept = reviewDraft{}
+	}
 	m.detail = d
 	m.diff.blocks = nil
 	m.page.ok = false
@@ -314,6 +322,7 @@ func (m *Model) SetDetail(d store.Detail) tea.Cmd {
 	}
 	m.syncCommits()
 	m.syncChecks()
+	m.syncReplyWords()
 
 	held := m.focusWhole()
 
@@ -373,6 +382,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	default:
 		if m.merging.open {
 			return m, m.merging.update(msg)
+		}
+		if m.reviewing.open {
+			return m, m.reviewing.update(msg)
 		}
 
 		box := m.writing()
@@ -440,6 +452,8 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case m.merging.open:
 		return m.mergeKey(keyMsg)
+	case m.reviewing.open:
+		return m.reviewKey(keyMsg)
 	case m.picking.open():
 		return m.pickerKey(keyMsg)
 	case m.compose.typing:
@@ -497,6 +511,13 @@ func (m Model) handleKey(keyMsg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(keyMsg, k.Activate) && m.canCompose() && m.pageRing.on.kind == focusCompose:
 		return m.writeComment()
+
+	case key.Matches(keyMsg, k.Review) && m.canReview():
+		return m, m.startReview()
+	case key.Matches(keyMsg, k.Activate) && m.onPendingReview():
+		return m, m.startReview()
+	case key.Matches(keyMsg, k.Delete) && m.onPendingReview():
+		return m.startDiscard()
 
 	case key.Matches(keyMsg, k.Reply) && m.canRerunCheck():
 		return m, m.rerunCheck()
@@ -957,6 +978,7 @@ func (m *Model) SetSize(width, height int) {
 	m.dropSelectionAcrossSplit(split)
 
 	m.merging.resize(width, height)
+	m.reviewing.resize(width, height)
 }
 
 func (m *Model) layout() {
@@ -1064,7 +1086,7 @@ func (m Model) Keys() keys.DetailMap { return keys.Detail }
 // ShortHelp is the status bar's key hints, limited to keys that act on the
 // current tab and focus. Nil while a modal or box has the keyboard.
 func (m Model) ShortHelp() []key.Binding {
-	if m.Composing() || m.picking.open() || m.merging.open {
+	if m.Composing() || m.picking.open() || m.merging.open || m.reviewing.open {
 		return nil
 	}
 	if m.check.searching {
@@ -1094,6 +1116,9 @@ func (m Model) ShortHelp() []key.Binding {
 		RunRerunAll: m.canRerunRun(true),
 
 		SearchStanding: m.tab == tabChecks && !m.check.search.Empty(),
+
+		Review:        m.canReview(),
+		ReviewPending: m.canReview() && m.detail.Detail.DraftReview.ID != "",
 	})
 }
 
@@ -1231,7 +1256,7 @@ func (m Model) View() string {
 		frame = comp.At(frame, rail, 0, lead, m.width, m.height)
 	}
 
-	return m.mergeOverlay(m.pickerOverlay(m.mentionOverlay(frame, lead)))
+	return m.reviewOverlay(m.mergeOverlay(m.pickerOverlay(m.mentionOverlay(frame, lead))))
 }
 
 func (m Model) headLead() int { return headRows(m.head()) }
@@ -1248,6 +1273,8 @@ func (m Model) Cursor() *tea.Cursor {
 	switch {
 	case m.merging.open:
 		return m.merging.cursor(m.theme, m.width, m.height)
+	case m.reviewing.open:
+		return m.reviewing.cursor(m.theme, m.width, m.height)
 	case m.picking.open():
 		return m.picking.p.Cursor(m.theme, m.width, m.height)
 	case m.Composing():
@@ -1404,7 +1431,8 @@ func (m Model) titleRight(room int) string {
 	for _, half := range []string{
 		m.statusHalf() + m.churn(),
 		m.statusHalf(),
-		m.joinStatus(state, m.reviewBadge()),
+		m.joinStatus(state, m.reviewBadge(), m.pendingBadge()),
+		m.joinStatus(state, m.pendingBadge()),
 		state,
 	} {
 		if lipgloss.Width(half) <= room {
@@ -1491,7 +1519,7 @@ func (m Model) branchRow(width int) string {
 }
 
 func (m Model) statusHalf() string {
-	return m.joinStatus(m.stateBadge(), m.checksBadge(), m.reviewBadge())
+	return m.joinStatus(m.stateBadge(), m.checksBadge(), m.reviewBadge(), m.pendingBadge())
 }
 
 func (m Model) joinStatus(parts ...string) string {

@@ -73,7 +73,7 @@ answers.
 
 A thread written on Files joins your pending review, or starts one when you have
 none, and reads `pending` until the review is submitted. Nobody else sees it
-until then. Submitting still goes through the browser.
+until then. `S` submits it, see [Reviewing](#reviewing).
 
 `r` replies to the focused card, `R` quotes it first. `e` edits your own, `D`
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens
@@ -87,6 +87,29 @@ conversation to the code it was written against.
 
 Writes are optimistic. What you did appears immediately, and if the API refuses
 it the change is reverted and a toast says so.
+
+## Reviewing
+
+`S` opens a review form from any tab: approve, request changes or comment, with a
+summary. On your own pull request it offers comment alone, since GitHub lets an
+author do nothing else. Requesting changes needs a summary, and so does a comment
+unless it has pending comments to publish.
+
+A review you have started and not submitted is a pending review. Only you can see
+it. It sits at the end of the conversation as a card, with the comments it holds
+hanging off it, and the header counts them. `S` submits it with every comment in
+it, the form opening on the summary it already has. `⏎` on the card does the
+same, and `D` discards it and its comments behind a confirm.
+
+While a review is pending, a reply to a thread joins it, as GitHub does. The box
+says it adds to the review, and the reply reads pending in its thread and counts
+in the header until you submit.
+
+With nothing pending, `S` opens a review and submits it in one call, so a refusal
+leaves nothing half made. `esc` keeps the verdict and summary for the next time
+the form opens, and so does a refused submit.
+
+The merge form says when a pending review would be left unpublished.
 
 ## The details rail
 

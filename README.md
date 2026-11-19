@@ -9,11 +9,11 @@ people's branches.
 
 A pull request opens as four tabs: the conversation as threaded cards, the diff,
 the commits, and the CI logs. Reply, quote, edit, react and resolve on any thread,
-comment on the lines under the cursor, jump to a job's first failure, set the
-state, labels, reviewers, assignees and base branch from a rail, then merge with
-the commit message GitHub itself would write. This is v0.4.0, an early release:
-submitting a review, checking a branch out and listing issues still go through
-`gh` or the browser.
+comment on the lines under the cursor, approve or request changes with a summary,
+jump to a job's first failure, set the state, labels, reviewers, assignees and base
+branch from a rail, then merge with the commit message GitHub itself would write.
+This is v0.4.0, an early release: checking a branch out and listing issues still
+go through `gh` or the browser.
 
 ## Install
 

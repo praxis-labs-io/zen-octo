@@ -88,6 +88,9 @@ type DetailMap struct {
 	// Resolve both resolves and unresolves a review thread.
 	Resolve key.Binding
 
+	// Review submits the viewer's pending review, or opens and submits one when none is pending.
+	Review key.Binding
+
 	// Select starts a range in the diff at the cursor, which moving the cursor then extends.
 	Select key.Binding
 
@@ -170,6 +173,7 @@ var (
 		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Delete:       key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete")),
 		Resolve:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve or unresolve")),
+		Review:       key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "review")),
 		Select:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select lines")),
 		Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search log")),
 		NextMatch:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
@@ -278,6 +282,10 @@ type DetailContext struct {
 
 	// SearchStanding is whether a settled query still filters the job log.
 	SearchStanding bool
+
+	// Review is whether a review can be written; ReviewPending is whether one is waiting to be submitted.
+	Review        bool
+	ReviewPending bool
 }
 
 // ShortHelp is the status bar line for c. Sync is left to the overlay.
@@ -300,6 +308,12 @@ func (k DetailMap) ShortHelp(c DetailContext) []key.Binding {
 	out = append(out, back, hint(k.NextTab, "[/]", "tab"))
 	if c.Rail {
 		out = append(out, k.ToggleRail)
+	}
+	switch {
+	case c.ReviewPending:
+		out = append(out, hint(k.Review, "S", "submit review"))
+	case c.Review:
+		out = append(out, k.Review)
 	}
 
 	if c.Blocks {
@@ -363,7 +377,7 @@ func (k DetailMap) FullHelp() [][]key.Binding {
 		{k.PaneLeft, k.PaneRight, k.FocusPane, k.SplitView},
 		{k.Expand, k.ToggleRail},
 		{k.Reply, k.QuoteReply, k.React},
-		{k.Edit, k.Delete, k.Resolve},
+		{k.Edit, k.Delete, k.Resolve, k.Review},
 		{k.Search, k.NextMatch, k.PrevMatch, k.FirstFailure},
 		{k.CopyLink, k.Browse},
 		{k.Comment, k.Post, k.Activate, k.Editor},
