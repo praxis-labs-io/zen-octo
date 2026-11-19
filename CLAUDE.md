@@ -88,7 +88,7 @@ A body of work big enough to need milestones gets its own finite epic project, n
 
 ### Shipping
 
-Feature-complete work ships via the global `ship-feature` skill: `make all` green, push, draft PR, Copilot + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
+Feature-complete work ships via the global `ship-feature` skill: `make all` green, push, draft PR, Codex + `/code-review`, triage with no tech debt, push then mark ready as separate actions. Manual invocation only.
 
 **This repo carries no copy of it.** A copy drifts, and nothing about a stale one reads as stale. A session that can't see the global skill should say so rather than follow a copy.
 
