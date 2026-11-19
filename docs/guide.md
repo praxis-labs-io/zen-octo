@@ -73,7 +73,7 @@ answers.
 
 A thread written on Files joins your pending review, or starts one when you have
 none, and reads `pending` until the review is submitted. Nobody else sees it
-until then. Submitting still goes through the browser.
+until then. `S` submits it, see [Reviewing](#reviewing).
 
 `r` replies to the focused card, `R` quotes it first. `e` edits your own, `D`
 deletes one behind a confirm, and `x` resolves or unresolves a thread. `+` opens
