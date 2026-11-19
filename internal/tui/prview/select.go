@@ -24,7 +24,7 @@ func (m Model) toggleSelection() (Model, tea.Cmd) {
 		m.clearSelection()
 		return m, nil
 	}
-	if !m.diffDriving() || !m.walkedInto(m.pageRing.on) {
+	if !m.diffDriving() || !m.walkedInto(m.pageRing.on) || m.diffAt() == 0 {
 		return m, nil
 	}
 

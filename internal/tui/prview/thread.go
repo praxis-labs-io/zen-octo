@@ -17,7 +17,6 @@ type PostThreadMsg struct {
 	Thread gh.ReviewThreadInput
 }
 
-// Named for what posting does: open the viewer's pending review, or add to the one held.
 func (m Model) threadWords() words {
 	if m.detail.Detail.DraftReview.ID != "" {
 		return words{placeholder: "Leave a comment", button: "Add to review", send: "add to review", back: "done"}
@@ -25,7 +24,6 @@ func (m Model) threadWords() words {
 	return words{placeholder: "Leave a comment", button: "Start a review", send: "start a review", back: "done"}
 }
 
-// spot is where a new thread hangs: a whole file, or a line or a run of them ending at to.
 type spot struct {
 	path string
 	file bool
@@ -86,7 +84,6 @@ func (m Model) canOpenThread() bool {
 	return m.tab == tabFiles && m.detail.Loaded && m.files.Loaded && f != nil && f.Omitted == ""
 }
 
-// The narrowest thing the cursor names: the selection, else its row, else the hunk, else the file.
 func (m Model) spotted() spot {
 	f := m.shownFile()
 	whole := spot{path: f.Path, file: true}
@@ -102,17 +99,33 @@ func (m Model) spotted() spot {
 			held := min(m.selection.anchor, len(rows))
 			from, to = min(at, held), max(at, held)
 		}
-		return spot{path: f.Path, from: rows[from-1], to: rows[to-1]}
+		return sided(f, spot{path: f.Path, from: rows[from-1], to: rows[to-1]})
 	}
 
 	if on.kind == focusHunk {
 		for _, h := range f.Hunks {
 			if hunkKey(f.Path, h) == on && len(h.Lines) > 0 {
-				return spot{path: f.Path, from: lineAnchor(h.Lines[0]), to: lineAnchor(h.Lines[len(h.Lines)-1])}
+				return sided(f, spot{path: f.Path, from: lineAnchor(h.Lines[0]), to: lineAnchor(h.Lines[len(h.Lines)-1])})
 			}
 		}
 	}
 	return whole
+}
+
+// A context line is on both sides, so a range ending on the old side starts on the old side too.
+func sided(f *gh.ChangedFile, s spot) spot {
+	if s.from.side != gh.SideRight || s.to.side != gh.SideLeft {
+		return s
+	}
+	for _, h := range f.Hunks {
+		for _, l := range h.Lines {
+			if l.Kind == gh.DiffContext && l.New == s.from.line {
+				s.from = anchor{side: gh.SideLeft, line: l.Old}
+				return s
+			}
+		}
+	}
+	return s
 }
 
 func (m Model) openingIn(path string) (spot, bool) {
@@ -124,6 +137,9 @@ func (m Model) openingIn(path string) (spot, bool) {
 
 func (m Model) openThread() (Model, tea.Cmd) {
 	at := m.spotted()
+	if on := m.pageRing.on; on.kind == focusHunk && !at.file {
+		m.open[on] = true
+	}
 
 	m.compose.stop()
 	m.clearMention()

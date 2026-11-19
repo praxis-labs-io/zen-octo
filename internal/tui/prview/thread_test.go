@@ -63,6 +63,15 @@ func TestCOnFilesOpensABoxOnWhatTheCursorNames(t *testing.T) {
 			},
 		},
 		{
+			name: "a selection from a context line down to a removed one",
+			keys: []string{"}", "j", "v", "j"},
+			head: "comment on lines 40–41",
+			want: gh.ReviewThreadInput{
+				Path: "internal/gh/client.go", Subject: gh.SubjectLine,
+				StartLine: 40, StartSide: gh.SideLeft, Line: 41, Side: gh.SideLeft,
+			},
+		},
+		{
 			name: "a row in the left column side by side",
 			keys: []string{"|", "}", "j", "h"},
 			head: "comment on line 40",
@@ -90,6 +99,33 @@ func TestCOnFilesOpensABoxOnWhatTheCursorNames(t *testing.T) {
 				t.Errorf("sent %+v, want %+v", got, want)
 			}
 		})
+	}
+}
+
+func TestCOnAFoldedHunkOpensItAroundTheBox(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "space")
+	if strings.Contains(stripANSI(m.View()), "time.Sleep(delay)") {
+		t.Fatal("setup: the hunk did not fold")
+	}
+
+	out := stripANSI(press(m, "c").View())
+	if !strings.Contains(out, "comment on lines 40–43") || !strings.Contains(out, "time.Sleep(delay)") {
+		t.Errorf("the box opened under a hunk whose code is hidden:\n%s", out)
+	}
+}
+
+func TestASelectionStartedInAFoldedHunkHoldsNothing(t *testing.T) {
+	m := press(onFiles(200, 50), "}", "j", "space", "v", "space", "c")
+	if !m.Composing() {
+		t.Fatal("c opened no box")
+	}
+
+	want := gh.ReviewThreadInput{
+		Path: "internal/gh/client.go", Subject: gh.SubjectLine, Body: "name this", PullRequestID: "PR_412",
+		StartLine: 40, StartSide: gh.SideRight, Line: 40, Side: gh.SideRight,
+	}
+	if got := posted(t, m, "name this").Thread; got != want {
+		t.Errorf("sent %+v, want the row under the cursor alone", got)
 	}
 }
 
