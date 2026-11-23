@@ -79,7 +79,7 @@ A body of work big enough to need milestones gets its own finite epic project, n
 ### Tickets
 
 - Every ticket gets the team, exactly one project, a priority, and a status. No orphans.
-- Create tickets as we go; never dump a full backlog up front.
+- Create a ticket when Drew asks for one or agrees to one; never dump a full backlog up front.
 - PR-sized scoping: 1 ticket = 1 branch = 1 PR as the rule of thumb.
 - Keep descriptions lean: clear title, short goal and scope. No boilerplate acceptance criteria.
 - Use Linear's generated branch name (`gitBranchName` from the MCP), never an invented one.
